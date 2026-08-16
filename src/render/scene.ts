@@ -67,6 +67,8 @@ export interface SceneHandle {
   readonly gpuCloudMs: number
   /** GPU 時間の計測が使えるか */
   readonly gpuTimerSupported: boolean
+  /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
+  readonly cloudHdrTarget: boolean
   readonly quality: QualitySettings
   /**
    * sim の状態を描画へ反映する。
@@ -178,7 +180,7 @@ export async function createScene(
     camera,
     noise,
     quality,
-    coverage: options.coverage ?? 1,
+    coverage: options.coverage ?? DEFAULT_COVERAGE,
   })
   // 雲を大気の合成点へ差し込む。合成の順序はライブラリ側が持つ
   atmosphere.setOverlay({ map: cloudsPass.texture })
@@ -239,6 +241,10 @@ export async function createScene(
 
     get gpuTimerSupported() {
       return gpuTimer.supported
+    },
+
+    get cloudHdrTarget() {
+      return cloudsPass.isHdrTarget
     },
 
     get quality() {

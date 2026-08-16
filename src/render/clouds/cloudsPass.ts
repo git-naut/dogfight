@@ -1,5 +1,6 @@
 import {
   GLSL3,
+  HalfFloatType,
   LinearFilter,
   Matrix4,
   Mesh,
@@ -108,9 +109,21 @@ export class CloudsPass extends Pass {
     // 地形より手前で打ち切るために深度が要る
     this.needsDepthTexture = true
 
+    // 16bit 浮動小数で持つ。8bit にしてはいけない。
+    //
+    // ここに書くのはトーンマッピング前の放射輝度で、値は 0.02 から 0.3 の
+    // あたりに寄る。8bit だと 1/255 刻みしかないので、この範囲を 5 から 75 の
+    // 段階でしか表せない。そのあと露出 6 倍と AGX を通るので、段差が
+    // そのまま等高線として拡大される。雲は輝度が高度と光学的厚みで滑らかに
+    // 変わるので、等輝度線はおおむね水平になる。実機で見えていた横線は
+    // これだった。
+    //
+    // 実測では、低空から雲底を見上げる構図で縦横の段差比が 1.635 から
+    // 1.477 へ下がり、全解像度・256 ステップの参照品質（1.472）に並んだ。
+    // 歩幅、ディザの振れ幅、ステップ数はどれも比を動かさなかった。
     this.target = new WebGLRenderTarget(1, 1, {
       format: RGBAFormat,
-      type: UnsignedByteType,
+      type: HalfFloatType,
       minFilter: LinearFilter,
       magFilter: LinearFilter,
       depthBuffer: false,
@@ -132,7 +145,7 @@ export class CloudsPass extends Pass {
       detailNoise: { value: options.noise.detail },
       weatherMap: { value: options.noise.weather },
       cloudTime: { value: 0 },
-      coverage: { value: options.coverage ?? 0.35 },
+      coverage: { value: options.coverage ?? 0.3 },
     }
 
     this.material = new ShaderMaterial({
@@ -189,6 +202,16 @@ export class CloudsPass extends Pass {
   /** 大気エフェクトへ渡すテクスチャ。overlay.map に入れる */
   get texture(): Texture {
     return this.target.texture
+  }
+
+  /**
+   * 雲のバッファが 16bit 浮動小数か。
+   *
+   * 8bit へ戻すと等高線状の横線が復活する。スクリーンショット回帰では
+   * 許容差 2% に埋もれて検出できなかったので、型そのものを検査する。
+   */
+  get isHdrTarget(): boolean {
+    return this.target.texture.type === HalfFloatType
   }
 
   /** 地面シェーダが参照する雲影マップ */

@@ -38,6 +38,7 @@ const hook = installTestHook({
   gpuFrameMs: 0,
   gpuCloudMs: 0,
   gpuTimerSupported: false,
+  cloudHdrTarget: false,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
   hook.noiseMs = view.noiseMs
   hook.noiseStats = view.noiseStats
   hook.gpuTimerSupported = view.gpuTimerSupported
+  hook.cloudHdrTarget = view.cloudHdrTarget
 
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる

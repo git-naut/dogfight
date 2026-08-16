@@ -21,13 +21,62 @@ body {
   display: block;
   width: 100vw;
   height: 100vh;
+  touch-action: none;
 }
 
 #hud {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #d8f4e4;
+}
+
+/* 飛行モデル調整用の計器。?debug=1 のときだけ出る */
+.debug-panel {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  min-width: 260px;
+  padding: 12px 14px;
+  background: rgba(4, 16, 24, 0.62);
+  border: 1px solid rgba(125, 255, 178, 0.28);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.debug-label {
+  color: rgba(216, 244, 228, 0.62);
+}
+
+.debug-value {
   color: #7dffb2;
-  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+}
+
+.debug-status {
+  min-height: 1.6em;
+  margin-top: 8px;
+  color: #ffb347;
+  font-weight: 700;
+}
+
+.debug-status.is-active {
+  color: #ff6b5a;
+}
+
+.debug-help {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(125, 255, 178, 0.18);
+  color: rgba(216, 244, 228, 0.5);
+  font-size: 11px;
+  line-height: 1.5;
 }

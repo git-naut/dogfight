@@ -9,7 +9,11 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,
-  reporter: process.env.CI ? 'github' : 'list',
+  // CI では github アノテーションに加えて HTML レポートも出す。
+  // これがないと e2e.yml の upload-artifact が空振りする。
+  reporter: process.env.CI
+    ? [['github'], ['html', { open: 'never' }]]
+    : [['list']],
 
   expect: {
     toHaveScreenshot: {

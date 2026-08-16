@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/tests/e2e/**/*-actual.png
+/tests/e2e/**/*-diff.png
+
+# 生成物（tools/ のスクリプトで再生成できるもの）
+/public/generated/
+
+# エディタ
+.vscode/*
+!.vscode/extensions.json
+.idea/

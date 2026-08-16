@@ -50,20 +50,36 @@ const VERTEX_SHADER = /* glsl */ `
   }
 `
 
+/**
+ * 光マーチが太陽方向へ見る距離の、初歩に対する比。
+ *
+ * 初歩 40 m の 26.3 倍で約 1,050 m。積雲を横切るのに要る距離としてこの
+ * あたりが妥当で、段数を変えてもここは保つ。
+ */
+const LIGHT_REACH_RATIO = 26.3
+
+/**
+ * 等比数列の和が LIGHT_REACH_RATIO になる公比を返す。
+ *
+ * 段数を減らしても太陽方向を見る距離が変わらないようにする。
+ */
+export function lightStepGrowth(steps: number): number {
+  if (steps <= 1) return 1
+  let low = 1.001
+  let high = 64
+  for (let i = 0; i < 40; i++) {
+    const g = (low + high) / 2
+    const sum = (Math.pow(g, steps) - 1) / (g - 1)
+    if (sum < LIGHT_REACH_RATIO) low = g
+    else high = g
+  }
+  return (low + high) / 2
+}
+
 /** 雲影マップの一辺。地面に落ちる影なのでこの程度で足りる */
 const SHADOW_SIZE = 256
 /** 雲影マップが覆う世界の一辺 m */
 export const SHADOW_EXTENT = 30_000
-
-/**
- * 雲バッファの持ち方。
- *
- * 8bit だと放射輝度 0.02〜0.3 を 1/255 刻みで丸めることになり、露出 6 倍と
- * AGX がその段差を等高線として拡大する。16bit 浮動小数なら消えるが、
- * 実機での費用がまだ測れていない。既定は従来どおり 8bit にしておき、
- * ?buf=hdr で切り替えて計測する。
- */
-export type CloudBuffer = 'u8' | 'hdr'
 
 export interface CloudsPassOptions {
   camera: PerspectiveCamera
@@ -71,7 +87,8 @@ export interface CloudsPassOptions {
   quality: QualitySettings
   /** 雲量 0..1 */
   coverage?: number
-  buffer?: CloudBuffer
+  /** 密度サンプル数を数えるモード。バッファは 8bit に固定される */
+  probe?: boolean
 }
 
 export interface CloudsUpdate {
@@ -132,10 +149,11 @@ export class CloudsPass extends Pass {
     // 実測では、低空から雲底を見上げる構図で縦横の段差比が 1.635 から
     // 1.477 へ下がり、全解像度・256 ステップの参照品質（1.472）に並んだ。
     // 歩幅、ディザの振れ幅、ステップ数はどれも比を動かさなかった。
-    const buffer = options.buffer ?? 'u8'
+    const probe = options.probe ?? false
     this.target = new WebGLRenderTarget(1, 1, {
       format: RGBAFormat,
-      type: buffer === 'hdr' ? HalfFloatType : UnsignedByteType,
+      // probe モードは整数を詰めるので 8bit にする
+      type: probe ? UnsignedByteType : HalfFloatType,
       minFilter: LinearFilter,
       magFilter: LinearFilter,
       depthBuffer: false,
@@ -179,7 +197,9 @@ export class CloudsPass extends Pass {
         ambientColor: { value: new Vector3(0.1, 0.12, 0.15) },
         maxSteps: { value: options.quality.cloudMaxSteps },
         lightSteps: { value: options.quality.cloudLightSteps },
+        lightGrowth: { value: lightStepGrowth(options.quality.cloudLightSteps) },
         useDetail: { value: options.quality.cloudDetail },
+        probeMode: { value: probe },
       },
     })
 
@@ -226,6 +246,35 @@ export class CloudsPass extends Pass {
     return this.target.texture.type === HalfFloatType
   }
 
+  /**
+   * 密度サンプル数の統計を読み戻す。probe モードのときだけ意味を持つ。
+   *
+   * 計時はばらつきが大きく最適化の効果が埋もれるので、実行量そのものを
+   * 数えて比べる。読み戻しは重いので計測時にしか呼ばない
+   */
+  readProbe(renderer: WebGLRenderer): { mean: number; max: number; p99: number } {
+    const w = this.target.width
+    const h = this.target.height
+    const buffer = new Uint8Array(w * h * 4)
+    renderer.readRenderTargetPixels(this.target, 0, 0, w, h, buffer)
+
+    const counts = new Int32Array(w * h)
+    let sum = 0
+    let max = 0
+    for (let i = 0; i < w * h; i++) {
+      const c = buffer[i * 4]! * 256 + buffer[i * 4 + 1]!
+      counts[i] = c
+      sum += c
+      if (c > max) max = c
+    }
+    counts.sort()
+    return {
+      mean: sum / (w * h),
+      max,
+      p99: counts[Math.floor((w * h - 1) * 0.99)] ?? 0,
+    }
+  }
+
   /** 地面シェーダが参照する雲影マップ */
   get shadowTexture(): Texture {
     return this.shadowTarget.texture
@@ -249,6 +298,7 @@ export class CloudsPass extends Pass {
     this.quality = quality
     this.material.uniforms['maxSteps']!.value = quality.cloudMaxSteps
     this.material.uniforms['lightSteps']!.value = quality.cloudLightSteps
+    this.material.uniforms['lightGrowth']!.value = lightStepGrowth(quality.cloudLightSteps)
     this.material.uniforms['useDetail']!.value = quality.cloudDetail
     this.setSize(this.width, this.height)
   }

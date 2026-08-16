@@ -52,7 +52,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 1,
     cloudResolutionScale: 0.125,
     cloudMaxSteps: 32,
-    cloudLightSteps: 3,
+    cloudLightSteps: 2,
     cloudDetail: false,
     cloudGroundShadow: false,
     shadowCascades: 1,
@@ -65,7 +65,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 4,
     cloudResolutionScale: 0.25,
     cloudMaxSteps: 64,
-    cloudLightSteps: 4,
+    cloudLightSteps: 3,
     cloudDetail: true,
     cloudGroundShadow: true,
     shadowCascades: 2,
@@ -81,7 +81,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // 雲 10.8 ms、合計 13 ms 前後に収まる
     cloudResolutionScale: 0.5,
     cloudMaxSteps: 96,
-    cloudLightSteps: 6,
+    cloudLightSteps: 4,
     cloudDetail: true,
     cloudGroundShadow: true,
     shadowCascades: 3,
@@ -96,7 +96,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
     cloudResolutionScale: 0.625,
     cloudMaxSteps: 128,
-    cloudLightSteps: 8,
+    cloudLightSteps: 6,
     cloudDetail: true,
     cloudGroundShadow: true,
     shadowCascades: 4,
@@ -174,9 +174,9 @@ export class PerformanceGovernor {
   ) {}
 
   /**
-   * @param dt 前フレームからの経過秒
-   * @param current 現在のプリセット
-   * @returns 降格すべきなら次のプリセット名、そのままなら null
+   * param dt 前フレームからの経過秒
+   * param current 現在のプリセット
+   * returns 降格すべきなら次のプリセット名、そのままなら null
    */
   update(dt: number, current: PresetName): PresetName | null {
     if (!Number.isFinite(dt) || dt <= 0) return null

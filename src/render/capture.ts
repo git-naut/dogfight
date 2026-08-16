@@ -29,10 +29,20 @@ export interface CaptureConfig {
   cloudScale: number | null
   /** 主マーチのステップ数の上書き */
   cloudSteps: number | null
-  /** 雲バッファの持ち方。?buf=hdr で 16bit 浮動小数へ */
-  cloudBuffer: 'u8' | 'hdr' | null
+  /** 光マーチの段数の上書き */
+  cloudLight: number | null
+  /** 密度サンプル数を数えるモード */
+  probe: boolean
   /** 自動降格を止める。実機で品質を固定して計測するため */
   noDegrade: boolean
+  /**
+   * 描画を繰り返して 1 回あたりの時間を測る回数。0 なら測らない。
+   *
+   * SwiftShader は CPU ラスタライザなので、時間はシェーダの実行量にほぼ
+   * 比例する。実機の絶対値は出ないが、視点どうしや最適化の前後を
+   * 比べるには使える。実機の GPU 時間は ?debug=1 で読む
+   */
+  bench: number
 }
 
 export const DEFAULT_SEED = 20260816
@@ -63,8 +73,12 @@ export function readCaptureConfig(search: string): CaptureConfig {
     cloudSteps: params.has('cloudSteps')
       ? clampInt(params.get('cloudSteps'), 8, 256, 96)
       : null,
-    cloudBuffer: (['u8', 'hdr'] as const).find((v) => v === params.get('buf')) ?? null,
+    cloudLight: params.has('cloudLight')
+      ? clampInt(params.get('cloudLight'), 1, 8, 6)
+      : null,
+    probe: params.get('probe') === '1',
     noDegrade: params.get('nodegrade') === '1',
+    bench: clampInt(params.get('bench'), 0, 200, 0),
   }
 }
 
@@ -118,6 +132,10 @@ export interface TestHook {
   gpuTimerSupported: boolean
   /** 雲のバッファが 16bit 浮動小数か。8bit だと等高線状の横線が出る */
   cloudHdrTarget: boolean
+  /** ?bench=N のときの 1 描画あたりの ms。測っていなければ 0 */
+  benchMs: number
+  /** ?probe=1 のときの密度サンプル数。画素あたり */
+  cloudSamples: { mean: number; max: number; p99: number }
   preset: PresetName
   hour: number
   // 飛行状態

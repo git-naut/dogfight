@@ -14,7 +14,7 @@ import {
 } from './quality'
 import { createGpuTimer, type GpuTimer } from './gpuTimer'
 import { generateCloudNoise, type CloudNoise } from './clouds/noise'
-import { CloudsPass, SHADOW_EXTENT, type CloudBuffer } from './clouds/cloudsPass'
+import { CloudsPass, SHADOW_EXTENT } from './clouds/cloudsPass'
 import { cloudTime } from './clouds/geometry'
 import { FIXED_DT } from '../sim/loop'
 
@@ -67,6 +67,8 @@ export interface SceneHandle {
   readonly gpuCloudMs: number
   /** GPU 時間の計測が使えるか */
   readonly gpuTimerSupported: boolean
+  /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
+  readCloudProbe(): { mean: number; max: number; p99: number }
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   readonly quality: QualitySettings
@@ -115,7 +117,8 @@ export interface SceneOptions {
   /** 雲の設定の上書き。実機で解像度とステップ数を振るときに使う */
   cloudOverride?: CloudOverride
   /** 雲バッファの持ち方の比較用。決着したら消す */
-  cloudBuffer?: CloudBuffer
+  /** 密度サンプル数を数えるモード */
+  cloudProbe?: boolean
 }
 
 /**
@@ -183,7 +186,7 @@ export async function createScene(
     noise,
     quality,
     coverage: options.coverage ?? DEFAULT_COVERAGE,
-    ...(options.cloudBuffer ? { buffer: options.cloudBuffer } : {}),
+    ...(options.cloudProbe !== undefined ? { probe: options.cloudProbe } : {}),
   })
   // 雲を大気の合成点へ差し込む。合成の順序はライブラリ側が持つ
   atmosphere.setOverlay({ map: cloudsPass.texture })
@@ -248,6 +251,10 @@ export async function createScene(
 
     get cloudHdrTarget() {
       return cloudsPass.isHdrTarget
+    },
+
+    readCloudProbe() {
+      return cloudsPass.readProbe(renderer)
     },
 
     get quality() {

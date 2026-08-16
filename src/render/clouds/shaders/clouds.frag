@@ -31,6 +31,21 @@ uniform vec3 ambientColor;
 uniform int maxSteps;        // 主マーチの上限
 uniform int lightSteps;      // 光マーチのステップ数
 uniform bool useDetail;
+/**
+ * 密度サンプルの実行回数を出力するモード。
+ *
+ * 計時はばらつきが大きく、最適化の効果が埋もれる。実行量そのものを数えれば
+ * ノイズなく比べられる。R と G に 16bit 整数として詰める
+ */
+uniform bool probeMode;
+/**
+ * 光マーチの歩幅の伸び率。
+ *
+ * 段数を減らすときは伸び率を上げて、太陽方向を見る距離を保つ。段数だけ
+ * 減らすと 1051 m から 370 m へ縮み、自己遮蔽そのものが浅くなる。実測で
+ * 6 段を 4 段にしたとき縦横の段差比が 1.477 から 1.991 へ悪化した
+ */
+uniform float lightGrowth;
 
 in vec2 vUv;
 out vec4 fragColor;
@@ -66,6 +81,24 @@ const float NEAR_STEP_LIMIT = 55.0;
  */
 const float DETAIL_NEAR = 2500.0;
 const float DETAIL_FAR = 7000.0;
+
+/**
+ * 積むのをやめる透過率。
+ *
+ * 0.01 から 0.05 へ上げた。残り 5% の寄与を捨てる代わりに、雲の多い視点で
+ * 密度サンプルが 21% 減る。縦横の段差比は 1.477 から 1.496 にしか動かない。
+ */
+const float EXIT_TRANSMITTANCE = 0.05;
+
+/**
+ * 光マーチの段数を落とし始める距離 m。
+ *
+ * 遠方の雲は自己遮蔽の細かさが画面上で解像されない。到達距離は lightGrowth が
+ * 保つので、落としても値は滑らかに変わり段差にならない。実測で縦横の段差比は
+ * 1.477 から 1.479 と動かず、雲底を見上げる構図で密度サンプルが 23% 減った。
+ */
+const float LIGHT_FULL_DISTANCE = 4000.0;
+const float LIGHT_HALF_DISTANCE = 10000.0;
 
 const float TAU_PI = 3.14159265;
 
@@ -148,18 +181,19 @@ vec3 multiScatter(float opticalDepth, float cosTheta) {
  * 歩幅を等間隔にすると近傍だけ細かく見て遠方を取りこぼす。指数的に広げると
  * 少ないステップで奥まで届く。
  */
-float lightOpticalDepth(vec3 origin) {
+float lightOpticalDepth(vec3 origin, int steps, inout int samples) {
   float totalDensity = 0.0;
   float stepSize = 40.0;
   vec3 p = origin;
 
   for (int i = 0; i < 8; i++) {
-    if (i >= lightSteps) break;
+    if (i >= steps) break;
     p += sunDirection * stepSize;
     if (p.y > CLOUD_TOP || p.y < CLOUD_BOTTOM) break;
     // 光マーチではディテールを見ない。効果が薄いわりに高くつく
     totalDensity += sampleCloudDensity(p, 0.0) * stepSize;
-    stepSize *= 1.6;
+    samples++;
+    stepSize *= lightGrowth;
   }
 
   return totalDensity * EXTINCTION;
@@ -193,7 +227,7 @@ void main() {
   float start;
   float end;
   if (abs(dirY) < 1e-6) {
-    if (!inside) { fragColor = vec4(0.0); return; }
+    if (!inside) { fragColor = vec4(0.0, 0.0, 0.0, probeMode ? 1.0 : 0.0); return; }
     start = 0.0;
     end = sceneDistance;
   } else {
@@ -204,7 +238,7 @@ void main() {
   }
 
   end = min(end, MAX_MARCH_DISTANCE);
-  if (end <= start) { fragColor = vec4(0.0); return; }
+  if (end <= start) { fragColor = vec4(0.0, 0.0, 0.0, probeMode ? 1.0 : 0.0); return; }
 
   float span = end - start;
   // 距離に応じて歩幅を広げる。
@@ -224,6 +258,7 @@ void main() {
 
   vec3 scattered = vec3(0.0);
   float transmittance = 1.0;
+  int samples = 0;
 
   // 振れ幅は 1 歩の 4 割。
   //
@@ -240,7 +275,7 @@ void main() {
   int consecutiveEmpty = 0;
 
   for (int i = 0; i < 256; i++) {
-    if (i >= maxSteps || t >= end || transmittance < 0.01) break;
+    if (i >= maxSteps || t >= end || transmittance < EXIT_TRANSMITTANCE) break;
 
     // 距離による伸びはごく緩やかにする。
     //
@@ -258,11 +293,27 @@ void main() {
       ? 1.0 - smoothstep(DETAIL_NEAR, DETAIL_FAR, t)
       : 0.0;
     float density = sampleCloudDensity(p, detailStrength);
+    samples++;
 
     if (density > 0.0) {
       consecutiveEmpty = 0;
 
-      float tauToSun = lightOpticalDepth(p);
+      // 光マーチは 1 歩あたりの費用の大半を占める。主マーチは 96 歩で
+      // 上限が決まっているので、変動するのはこちらだけ。1 歩あたり最大
+      // 6 サンプル増えるため、最悪ケースの 85% がここで決まる。
+      //
+      // 削り方は3つ。太陽方向の光学的厚みは雲の形の周期（4.2 km、細部でも
+      // 700 m）に比べてゆっくり変わるので、歩幅ごとに測り直す必要がない。
+      // 遠方では自己遮蔽の細かさが見えないので段数も落とす。透過率が
+      // 下がったあとは寄与自体が小さいので測り直さない。
+      // 距離ごとに測り直す間隔を空けて使い回す案は捨てた。値が階段状に
+      // 変わり、切り替わる位置が視線の高さで決まるので、消したい横縞
+      // そのものを作る。実測で縦横の段差比が 1.477 から 2.271 へ悪化した。
+      // 段数を落とすほうは値が滑らかに変わるので、こちらを採る。
+      int lightN = t < LIGHT_FULL_DISTANCE
+        ? lightSteps
+        : (t < LIGHT_HALF_DISTANCE ? (lightSteps + 1) / 2 : 2);
+      float tauToSun = lightOpticalDepth(p, lightN, samples);
 
       // powder 項。密度そのものから作る。歩幅をメートルで掛けると
       // 1 歩で飽和して常に 1 になり、意味を失う（実測で確認）
@@ -284,6 +335,13 @@ void main() {
       // 雲の縁を跨いで飛び越さないよう、1 歩は様子を見てから加速する
       t += stepSize * (consecutiveEmpty > 1 ? emptySkip : 1.0);
     }
+  }
+
+  if (probeMode) {
+    // 整数のまま 8bit 二つに分ける。v/255 は UNORM の丸めで厳密に戻る
+    float c = float(min(samples, 65535));
+    fragColor = vec4(floor(c / 256.0) / 255.0, mod(c, 256.0) / 255.0, 0.0, 1.0);
+    return;
   }
 
   float alpha = clamp(1.0 - transmittance, 0.0, 1.0);

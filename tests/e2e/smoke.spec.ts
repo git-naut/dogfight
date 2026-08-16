@@ -167,6 +167,14 @@ test.describe('雲', () => {
     expect(hook.noiseStats.mean).toBeLessThan(0.95)
   })
 
+  test('雲のバッファが 16bit 浮動小数である', async ({ page }) => {
+    // 8bit へ戻すと、放射輝度の 1/255 刻みが露出 6 倍と AGX で拡大されて
+    // 等高線状の横線が出る。実測で縦横の段差比が 1.477 から 1.635 へ悪化する。
+    // スクリーンショット回帰は許容差 2% に埋もれて検出できないので型を見る
+    const hook = await capture(page, { frame: 60 })
+    expect(hook.cloudHdrTarget).toBe(true)
+  })
+
   test('雲量を変えると絵が変わる', async ({ page }) => {
     await capture(page, { frame: 240, coverage: 0 })
     const clear = await page.locator('#viewport').screenshot()

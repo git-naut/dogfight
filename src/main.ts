@@ -39,6 +39,8 @@ const hook = installTestHook({
   gpuCloudMs: 0,
   gpuTimerSupported: false,
   cloudHdrTarget: false,
+  benchMs: 0,
+  cloudSamples: { mean: 0, max: 0, p99: 0 },
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -60,9 +62,10 @@ async function main(): Promise<void> {
     cloudOverride: {
       ...(capture.cloudScale !== null ? { resolutionScale: capture.cloudScale } : {}),
       ...(capture.cloudSteps !== null ? { maxSteps: capture.cloudSteps } : {}),
+      ...(capture.cloudLight !== null ? { lightSteps: capture.cloudLight } : {}),
     },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
-    ...(capture.cloudBuffer !== null ? { cloudBuffer: capture.cloudBuffer } : {}),
+    cloudProbe: capture.probe,
   })
 
   hook.webglVersion = view.renderer.capabilities.isWebGL2 ? 2 : 1
@@ -108,6 +111,31 @@ async function main(): Promise<void> {
     world.samplePlayer(1, sample)
     view.sync(sample, world.frame, 0, { yaw: 0, pitch: 0 }, true)
     view.render()
+
+    if (capture.probe) hook.cloudSamples = view.readCloudProbe()
+
+    if (capture.bench > 0) {
+      const gl = view.renderer.getContext()
+      const pixel = new Uint8Array(4)
+      // gl.finish() では足りない。Chrome は描画コマンドを溜めるので、
+      // 読み戻しで排出させないと投入時間しか測れない。実測で全解像度が
+      // 1/4 解像度より速く出て気づいた
+      const drain = () => {
+        gl.finish()
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+      }
+
+      // 1 回目はシェーダのコンパイルとテクスチャの常駐化が混ざるので捨てる
+      view.render()
+      drain()
+
+      const started = performance.now()
+      for (let i = 0; i < capture.bench; i++) {
+        view.render()
+        drain()
+      }
+      hook.benchMs = (performance.now() - started) / capture.bench
+    }
 
     publish(world.frame)
     hook.captureReady = true

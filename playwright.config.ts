@@ -45,7 +45,10 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run build && npm run preview -- --port 4173 --strictPort',
+    // --host 127.0.0.1 を明示する。既定では localhost にバインドし、CI では
+    // それが ::1 に解決されるため 127.0.0.1 を叩く Playwright から届かない。
+    command:
+      'npm run build && npm run preview -- --port 4173 --strictPort --host 127.0.0.1',
     url: 'http://127.0.0.1:4173/dogfight/',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,

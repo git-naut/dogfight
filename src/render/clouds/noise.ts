@@ -101,6 +101,7 @@ export function generateCloudNoise(renderer: WebGLRenderer): CloudNoise {
     uniforms: {
       layer: { value: 0 },
       channelSet: { value: 0 },
+      maxFreq: { value: 1 },
     },
     depthTest: false,
     depthWrite: false,
@@ -229,6 +230,9 @@ function bakeVolume(
   channelSet: number,
 ): void {
   material.uniforms['channelSet']!.value = channelSet
+  // 1 セルに 4 テクセル確保できる周波数までに抑える。
+  // これを超えると焼いた時点で白色ノイズになる
+  material.uniforms['maxFreq']!.value = Math.max(1, Math.floor(size / 4))
   for (let layer = 0; layer < size; layer++) {
     // テクセルの中心を狙う。端に寄せると隣のスライスと同じ値になる
     material.uniforms['layer']!.value = (layer + 0.5) / size

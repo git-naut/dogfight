@@ -17,6 +17,7 @@ precision highp int;
 
 uniform float layer;      // 焼いているスライスの深さ 0..1
 uniform int channelSet;   // 0 = 形状ノイズ、1 = ディテールノイズ
+uniform int maxFreq;      // テクスチャ解像度から決まる周波数の上限
 
 in vec2 vUv;
 out vec4 fragColor;
@@ -78,11 +79,18 @@ float worley(vec3 p, int freq) {
   return 1.0 - clamp(sqrt(minDistSq), 0.0, 1.0);
 }
 
-/** 周波数を倍にしながら振幅を半分にして重ねる */
-float worleyFbm(vec3 p, int freq) {
-  return worley(p, freq) * 0.625
-       + worley(p, freq * 2) * 0.25
-       + worley(p, freq * 4) * 0.125;
+/**
+ * 周波数を倍にしながら振幅を半分にして重ねる。
+ *
+ * テクスチャの解像度を超える周波数は足さない。1 セルが 1 テクセルを
+ * 割り込むと、隣り合うテクセルが無関係なセルを引いて白色ノイズになる。
+ * 焼いた時点で壊れるので、後段で何をしても直らない。
+ */
+float worleyFbm(vec3 p, int freq, int maxFreq) {
+  float sum = worley(p, freq) * 0.625;
+  if (freq * 2 <= maxFreq) sum += worley(p, freq * 2) * 0.25;
+  if (freq * 4 <= maxFreq) sum += worley(p, freq * 4) * 0.125;
+  return sum;
 }
 
 // -----------------------------------------------------------------------------
@@ -122,10 +130,11 @@ float perlin(vec3 p, int freq) {
   return mix(y0, y1, w.z) * 0.5 + 0.5;
 }
 
-float perlinFbm(vec3 p, int freq) {
-  return perlin(p, freq) * 0.5
-       + perlin(p, freq * 2) * 0.3
-       + perlin(p, freq * 4) * 0.2;
+float perlinFbm(vec3 p, int freq, int maxFreq) {
+  float sum = perlin(p, freq) * 0.5;
+  if (freq * 2 <= maxFreq) sum += perlin(p, freq * 2) * 0.3;
+  if (freq * 4 <= maxFreq) sum += perlin(p, freq * 4) * 0.2;
+  return sum;
 }
 
 // -----------------------------------------------------------------------------
@@ -138,25 +147,31 @@ float remap(float value, float inMin, float inMax, float outMin, float outMax) {
 void main() {
   vec3 p = vec3(vUv, layer);
 
+  // GBA には単一周波数の Worley を入れる。
+  //
+  // 以前は各チャンネルに 3 オクターブの FBM を焼いていたが、密度側でも
+  // GBA を FBM として重ねているので二重掛けになっていた。しかも内部で
+  // 周波数が 4 倍まで上がり、テクスチャ解像度を超えて白色ノイズになる。
+  // 雲の粒立ちの主因がこれだった。
   if (channelSet == 0) {
     // 形状ノイズ。R に Perlin と Worley を混ぜた基本形、GBA に細かさの階段
-    float lowWorley = worleyFbm(p, 4);
-    float perlinBase = perlinFbm(p, 4);
+    float lowWorley = worleyFbm(p, 4, maxFreq);
+    float perlinBase = perlinFbm(p, 4, maxFreq);
     // Perlin の谷を Worley で削る。塊の輪郭に不規則さが出る
     float perlinWorley = remap(perlinBase, lowWorley - 1.0, 1.0, 0.0, 1.0);
 
     fragColor = vec4(
       clamp(perlinWorley, 0.0, 1.0),
-      worleyFbm(p, 8),
-      worleyFbm(p, 16),
-      worleyFbm(p, 32)
+      worley(p, min(4, maxFreq)),
+      worley(p, min(8, maxFreq)),
+      worley(p, min(16, maxFreq))
     );
   } else {
     // ディテールノイズ。輪郭を削る用途なので Worley だけでよい
     fragColor = vec4(
-      worleyFbm(p, 8),
-      worleyFbm(p, 16),
-      worleyFbm(p, 32),
+      worley(p, min(2, maxFreq)),
+      worley(p, min(4, maxFreq)),
+      worley(p, min(8, maxFreq)),
       1.0
     );
   }

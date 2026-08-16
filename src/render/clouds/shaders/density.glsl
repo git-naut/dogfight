@@ -14,8 +14,14 @@ const float CLOUD_TOP = 4500.0;
 
 /** 形状ノイズが 1 周する世界の大きさ m。積雲の塊の大きさを決める */
 const float SHAPE_SCALE = 4200.0;
-/** ディテールノイズの周期 m。輪郭の削り込みの細かさ */
-const float DETAIL_SCALE = 380.0;
+/**
+ * ディテールノイズの周期 m。
+ *
+ * 380 m だと 32³ の最小テクセルが 12 m になり、55 m 刻みのマーチでは
+ * 折り返しノイズになる。実測で雲の粒立ちの 55% がこれ由来だった。
+ * 周期を広げて最小の起伏を 22 m まで上げる。
+ */
+const float DETAIL_SCALE = 700.0;
 /** 気象マップの周期 m。雲の配置が変わる間隔 */
 const float WEATHER_SCALE = 42000.0;
 
@@ -34,7 +40,14 @@ float cloudRemap(float v, float inMin, float inMax, float outMin, float outMax) 
   return outMin + (v - inMin) / max(inMax - inMin, 1e-6) * (outMax - outMin);
 }
 
-float sampleCloudDensity(vec3 p, bool detailed) {
+/**
+ * 雲の密度。
+ *
+ * @param detailStrength ディテールノイズの効き 0..1。解像できない距離では
+ *   0 にする。刻みより細かい起伏を拾うと折り返しノイズになるだけで、
+ *   絵は良くならない。
+ */
+float sampleCloudDensity(vec3 p, float detailStrength) {
   float h = clamp((p.y - CLOUD_BOTTOM) / (CLOUD_TOP - CLOUD_BOTTOM), 0.0, 1.0);
 
   vec3 drift = WIND * cloudTime;
@@ -68,12 +81,13 @@ float sampleCloudDensity(vec3 p, bool detailed) {
   float density = shaped * gradient;
   if (density <= 0.0) return 0.0;
 
-  if (detailed) {
+  if (detailStrength > 0.01) {
     vec3 detail = texture(detailNoise, (p + drift * 2.0) / DETAIL_SCALE).rgb;
     float d = detail.r * 0.625 + detail.g * 0.25 + detail.b * 0.125;
     // 雲底は細かくちぎれ、雲頂はふわっと丸くなる
     float erosion = mix(d, 1.0 - d, clamp(h * 4.0, 0.0, 1.0));
-    density = cloudRemap(density, erosion * 0.45, 1.0, 0.0, 1.0);
+    float eroded = cloudRemap(density, erosion * 0.45, 1.0, 0.0, 1.0);
+    density = mix(density, max(eroded, 0.0), detailStrength);
   }
 
   return clamp(density, 0.0, 1.0);

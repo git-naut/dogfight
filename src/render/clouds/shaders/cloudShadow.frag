@@ -49,7 +49,7 @@ void main() {
     float t = toBottom + stepSize * (float(i) + 0.5);
     vec3 p = groundPoint + sunDirection * t;
     // 影ではディテールを見ない。輪郭の細かさは地面では判別できない
-    totalDensity += sampleCloudDensity(p, false) * stepSize;
+    totalDensity += sampleCloudDensity(p, 0.0) * stepSize;
   }
 
   float transmittance = exp(-totalDensity * EXTINCTION);

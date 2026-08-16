@@ -33,8 +33,13 @@ export interface CaptureConfig {
 
 export const DEFAULT_SEED = 20260816
 
-/** 既定の雲量。点在する積雲になる値 */
-export const DEFAULT_COVERAGE = 0.35
+/**
+ * 既定の雲量。
+ *
+ * ノイズを Nyquist 内へ収めた際に塊が育つ方向へ変わったので、点在する
+ * 見え方を保つために 0.35 から下げた。
+ */
+export const DEFAULT_COVERAGE = 0.3
 
 export function readCaptureConfig(search: string): CaptureConfig {
   const params = new URLSearchParams(search)

@@ -58,6 +58,15 @@ const float SCATTER_ALBEDO = 0.9;
  */
 const float NEAR_STEP_LIMIT = 55.0;
 
+/**
+ * ディテールノイズを効かせる距離 m。
+ *
+ * 刻みより細かい起伏は、遠くでは拾っても折り返しノイズにしかならない。
+ * 実測で雲の粒立ちの 55% がディテール由来だった。手前だけ効かせる。
+ */
+const float DETAIL_NEAR = 2500.0;
+const float DETAIL_FAR = 7000.0;
+
 const float TAU_PI = 3.14159265;
 
 /**
@@ -149,7 +158,7 @@ float lightOpticalDepth(vec3 origin) {
     p += sunDirection * stepSize;
     if (p.y > CLOUD_TOP || p.y < CLOUD_BOTTOM) break;
     // 光マーチではディテールを見ない。効果が薄いわりに高くつく
-    totalDensity += sampleCloudDensity(p, false) * stepSize;
+    totalDensity += sampleCloudDensity(p, 0.0) * stepSize;
     stepSize *= 1.6;
   }
 
@@ -241,7 +250,11 @@ void main() {
     float stepSize = baseStep * (1.0 + t / 20000.0);
 
     vec3 p = cameraPositionWorld + rayDirection * t;
-    float density = sampleCloudDensity(p, useDetail);
+    // 解像できる距離でだけディテールを効かせる
+    float detailStrength = useDetail
+      ? 1.0 - smoothstep(DETAIL_NEAR, DETAIL_FAR, t)
+      : 0.0;
+    float density = sampleCloudDensity(p, detailStrength);
 
     if (density > 0.0) {
       consecutiveEmpty = 0;

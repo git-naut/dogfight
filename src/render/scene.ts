@@ -99,7 +99,7 @@ export interface SceneHandle {
 export const DEFAULT_EXPOSURE = 6
 
 /** 既定の雲量。点在する積雲になる値 */
-export const DEFAULT_COVERAGE = 0.35
+export const DEFAULT_COVERAGE = 0.3
 
 export interface SceneOptions {
   preset: PresetName

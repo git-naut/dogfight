@@ -21,6 +21,7 @@ const FORBIDDEN = [
   { pattern: /from\s+['"]\.\.\/hud\//, reason: 'hud 層への import' },
   { pattern: /\bdocument\./, reason: 'DOM API の使用' },
   { pattern: /\bwindow\./, reason: 'window の使用' },
+  { pattern: /\bprocess\.(env|argv|platform)\b/, reason: 'Node の process 参照' },
   { pattern: /Math\.random\s*\(/, reason: 'Math.random（Rng を使うこと）' },
   { pattern: /\bperformance\.now\s*\(/, reason: '実時間の参照（frame から導出すること）' },
   { pattern: /\bDate\.now\s*\(/, reason: '実時間の参照（frame から導出すること）' },

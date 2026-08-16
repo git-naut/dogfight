@@ -222,15 +222,23 @@ void main() {
   // そもそも細かい。振れ幅を残したままだと、隠す量より粒立ちのほうが
   // 目立つようになる。
   float t = start + baseStep * offset * 0.4;
-  // 密度ゼロの区間は大股で飛ばす。空振りに時間を使わない
-  float emptySkip = 3.0;
+  // 密度ゼロの区間は大股で飛ばす。空振りに時間を使わない。
+  // 距離による伸びを抑えたぶん、ここを強めて到達距離を確保する
+  float emptySkip = 4.0;
   int consecutiveEmpty = 0;
 
   for (int i = 0; i < 256; i++) {
     if (i >= maxSteps || t >= end || transmittance < 0.01) break;
 
-    // 手前は細かく、奥は粗く。上限を掛けたぶん伸びを速めて到達距離を保つ
-    float stepSize = baseStep * (1.0 + t / 6000.0);
+    // 距離による伸びはごく緩やかにする。
+    //
+    // 到達距離を稼ぐために伸びを速くしていたが、20 km 先で 1 歩 240 m に
+    // なり、手前の 4 倍以上粗く刻んでいた。遠方だけ粒立って見えるのは
+    // これが原因（実機で指摘を受けて判明）。
+    //
+    // 距離は下の大股送りで稼ぐ。雲の中では細かい刻みを保ち、
+    // 何もない区間だけ飛ばすほうが、同じステップ数で密度の解像度が上がる。
+    float stepSize = baseStep * (1.0 + t / 20000.0);
 
     vec3 p = cameraPositionWorld + rayDirection * t;
     float density = sampleCloudDensity(p, useDetail);
@@ -256,8 +264,9 @@ void main() {
       t += stepSize;
     } else {
       consecutiveEmpty++;
-      // 空振りが続くほど歩幅を伸ばす。雲に当たったら細かい歩幅へ戻る
-      t += stepSize * (consecutiveEmpty > 2 ? emptySkip : 1.0);
+      // 空振りが続いたら歩幅を伸ばす。雲に当たったら細かい歩幅へ戻る。
+      // 雲の縁を跨いで飛び越さないよう、1 歩は様子を見てから加速する
+      t += stepSize * (consecutiveEmpty > 1 ? emptySkip : 1.0);
     }
   }
 

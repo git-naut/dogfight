@@ -25,6 +25,10 @@ export interface CaptureConfig {
   exposure: number | null
   /** 雲量 0..1 */
   coverage: number
+  /** 雲のレイマーチ解像度の上書き。実機で振って GPU 時間を測る用 */
+  cloudScale: number | null
+  /** 主マーチのステップ数の上書き */
+  cloudSteps: number | null
 }
 
 export const DEFAULT_SEED = 20260816
@@ -44,6 +48,12 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? clampNumber(params.get('exposure'), 0.01, 1000, 1)
       : null,
     coverage: clampNumber(params.get('coverage'), 0, 1, DEFAULT_COVERAGE),
+    cloudScale: params.has('cloudScale')
+      ? clampNumber(params.get('cloudScale'), 0.05, 1, 0.25)
+      : null,
+    cloudSteps: params.has('cloudSteps')
+      ? clampInt(params.get('cloudSteps'), 8, 256, 96)
+      : null,
   }
 }
 

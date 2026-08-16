@@ -5,7 +5,13 @@ import { createChaseCamera, type ChaseCamera } from './camera'
 import { createAircraftView, type AircraftView } from './aircraftView'
 import { createAtmosphere, DEFAULT_HOUR, type AtmosphereHandle } from './atmosphere'
 import { createComposer, type ComposerHandle } from './composer'
-import { getQuality, type PresetName, type QualitySettings } from './quality'
+import {
+  applyCloudOverride,
+  getQuality,
+  type CloudOverride,
+  type PresetName,
+  type QualitySettings,
+} from './quality'
 import { createGpuTimer, type GpuTimer } from './gpuTimer'
 import { generateCloudNoise, type CloudNoise } from './clouds/noise'
 import { CloudsPass, SHADOW_EXTENT } from './clouds/cloudsPass'
@@ -57,6 +63,8 @@ export interface SceneHandle {
   readonly noiseStats: { min: number; max: number; mean: number }
   /** GPU のフレーム時間 ms。拡張が無ければ 0 */
   readonly gpuFrameMs: number
+  /** そのうち雲のパスが占める ms */
+  readonly gpuCloudMs: number
   /** GPU 時間の計測が使えるか */
   readonly gpuTimerSupported: boolean
   readonly quality: QualitySettings
@@ -102,6 +110,8 @@ export interface SceneOptions {
   exposure?: number
   /** 大気の LUT を置いた URL */
   texturesUrl: string
+  /** 雲の設定の上書き。実機で解像度とステップ数を振るときに使う */
+  cloudOverride?: CloudOverride
 }
 
 /**
@@ -114,7 +124,8 @@ export async function createScene(
   canvas: HTMLCanvasElement,
   options: SceneOptions,
 ): Promise<SceneHandle> {
-  let quality = getQuality(options.preset)
+  const cloudOverride = options.cloudOverride ?? {}
+  let quality = applyCloudOverride(getQuality(options.preset), cloudOverride)
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -184,6 +195,7 @@ export async function createScene(
   groundUniforms.cloudShadowMap.value = cloudsPass.shadowTexture
 
   const gpuTimer: GpuTimer = createGpuTimer(renderer)
+  let measureClouds = false
   const shadowCenter = new THREE.Vector2()
   const quaternion = new THREE.Quaternion()
   let cssWidth = 1280
@@ -219,6 +231,10 @@ export async function createScene(
 
     get gpuFrameMs() {
       return gpuTimer.lastMs
+    },
+
+    get gpuCloudMs() {
+      return cloudsPass.gpuMs
     },
 
     get gpuTimerSupported() {
@@ -285,11 +301,16 @@ export async function createScene(
     },
 
     render() {
-      gpuTimer.begin()
+      // TIME_ELAPSED クエリは入れ子にできない。フレーム全体と雲のパスを
+      // 1 フレームおきに交互で測る。どちらも定常状態なので値は使える
+      measureClouds = !measureClouds
+      cloudsPass.setTimingEnabled(measureClouds)
+
+      if (!measureClouds) gpuTimer.begin()
       // 雲影は地面を描く前に焼く。composer の中では手遅れになる
       cloudsPass.renderShadow(renderer)
       composer.render()
-      gpuTimer.end()
+      if (!measureClouds) gpuTimer.end()
     },
 
     resize(width, height, devicePixelRatio) {
@@ -300,7 +321,7 @@ export async function createScene(
     },
 
     setQuality(preset) {
-      quality = getQuality(preset)
+      quality = applyCloudOverride(getQuality(preset), cloudOverride)
       composer.setQuality(quality)
       cloudsPass.setQuality(quality)
       applySize()

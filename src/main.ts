@@ -53,6 +53,10 @@ async function main(): Promise<void> {
     hour: capture.hour,
     texturesUrl: TEXTURES_URL,
     coverage: capture.coverage,
+    cloudOverride: {
+      ...(capture.cloudScale !== null ? { resolutionScale: capture.cloudScale } : {}),
+      ...(capture.cloudSteps !== null ? { maxSteps: capture.cloudSteps } : {}),
+    },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
   })
 
@@ -171,6 +175,7 @@ async function main(): Promise<void> {
       sunElevation: view.sunElevation,
       preset,
       gpuFrameMs: view.gpuFrameMs,
+      gpuCloudMs: view.gpuCloudMs,
       gpuTimerSupported: view.gpuTimerSupported,
     })
 

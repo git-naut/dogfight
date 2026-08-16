@@ -112,6 +112,34 @@ export function getQuality(name: PresetName): QualitySettings {
   return QUALITY_PRESETS[name]
 }
 
+/**
+ * 雲の設定だけを上書きする。
+ *
+ * 実機で解像度とステップ数を振って GPU 時間を測るための入口。
+ * `?cloudScale=` と `?cloudSteps=` から渡す。
+ */
+export interface CloudOverride {
+  resolutionScale?: number
+  maxSteps?: number
+  lightSteps?: number
+}
+
+export function applyCloudOverride(
+  base: QualitySettings,
+  override: CloudOverride,
+): QualitySettings {
+  return {
+    ...base,
+    ...(override.resolutionScale !== undefined
+      ? { cloudResolutionScale: override.resolutionScale }
+      : {}),
+    ...(override.maxSteps !== undefined ? { cloudMaxSteps: override.maxSteps } : {}),
+    ...(override.lightSteps !== undefined
+      ? { cloudLightSteps: override.lightSteps }
+      : {}),
+  }
+}
+
 /** 1段下のプリセット。最下段なら null。 */
 export function lowerPreset(name: PresetName): PresetName | null {
   const index = PRESET_ORDER.indexOf(name)

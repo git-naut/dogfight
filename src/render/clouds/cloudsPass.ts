@@ -23,6 +23,7 @@ import cloudShadowFrag from './shaders/cloudShadow.frag?raw'
 import densityChunk from './shaders/density.glsl?raw'
 import type { CloudNoise } from './noise'
 import type { QualitySettings } from '../quality'
+import { createGpuTimer, type GpuTimer } from '../gpuTimer'
 
 /**
  * 雲のレイマーチを低解像度で走らせ、結果を大気エフェクトの overlay へ渡す。
@@ -87,6 +88,15 @@ export class CloudsPass extends Pass {
   private width = 1
   private height = 1
   private groundShadow = true
+
+  /**
+   * このパスだけの GPU 時間。
+   *
+   * WebGL2 の TIME_ELAPSED クエリは入れ子にできないので、フレーム全体の
+   * 計測とは交互に走らせる。どちらも定常状態なので交互でも値は使える。
+   */
+  private timer: GpuTimer | null = null
+  private timingEnabled = false
 
   constructor(options: CloudsPassOptions) {
     super('CloudsPass')
@@ -166,6 +176,16 @@ export class CloudsPass extends Pass {
     this.shadowQuad = createQuad(this.shadowMaterial)
   }
 
+  /** このパスの GPU 時間 ms。計測できていなければ 0 */
+  get gpuMs(): number {
+    return this.timer?.lastMs ?? 0
+  }
+
+  /** フレーム全体の計測と交互に切り替える */
+  setTimingEnabled(enabled: boolean): void {
+    this.timingEnabled = enabled
+  }
+
   /** 大気エフェクトへ渡すテクスチャ。overlay.map に入れる */
   get texture(): Texture {
     return this.target.texture
@@ -234,6 +254,10 @@ export class CloudsPass extends Pass {
   }
 
   override render(renderer: WebGLRenderer): void {
+    if (this.timer === null) this.timer = createGpuTimer(renderer)
+    const timing = this.timingEnabled && this.timer.supported
+    if (timing) this.timer.begin()
+
     const camera = this.cloudCamera
     const u = this.material.uniforms
 
@@ -246,9 +270,12 @@ export class CloudsPass extends Pass {
 
     renderer.setRenderTarget(this.target)
     renderer.render(this.quad.scene, this.quad.camera)
+
+    if (timing) this.timer.end()
   }
 
   override dispose(): void {
+    this.timer?.dispose()
     this.target.dispose()
     this.shadowTarget.dispose()
     this.material.dispose()

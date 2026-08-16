@@ -23,6 +23,8 @@ export interface RenderInfo {
   preset: string
   /** GPU フレーム時間 ms。0 なら計測できていない */
   gpuFrameMs: number
+  /** そのうち雲のパスが占める ms */
+  gpuCloudMs: number
   gpuTimerSupported: boolean
 }
 
@@ -55,6 +57,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['frame', 'フレーム'],
     ['fps', 'FPS'],
     ['gpu', 'GPU 時間'],
+    ['gpuClouds', 'うち雲'],
   ] as const
 
   for (const [key, label] of order) {
@@ -111,6 +114,12 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
         'gpu',
         render.gpuTimerSupported
           ? `${render.gpuFrameMs.toFixed(1)} ms / 16.7`
+          : '計測不可',
+      )
+      set(
+        'gpuClouds',
+        render.gpuTimerSupported
+          ? `${render.gpuCloudMs.toFixed(1)} ms`
           : '計測不可',
       )
 

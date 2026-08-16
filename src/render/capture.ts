@@ -33,6 +33,8 @@ export interface CaptureConfig {
   cloudLight: number | null
   /** 密度サンプル数を数えるモード */
   probe: boolean
+  /** 打ち切り透過率の上書き。実験用 */
+  exitOverride: number | null
   /** 自動降格を止める。実機で品質を固定して計測するため */
   noDegrade: boolean
   /**
@@ -77,6 +79,9 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? clampInt(params.get('cloudLight'), 1, 8, 6)
       : null,
     probe: params.get('probe') === '1',
+    exitOverride: params.has('exit')
+      ? clampNumber(params.get('exit'), 0.001, 0.5, 0.05)
+      : null,
     noDegrade: params.get('nodegrade') === '1',
     bench: clampInt(params.get('bench'), 0, 200, 0),
   }

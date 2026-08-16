@@ -119,6 +119,8 @@ export interface SceneOptions {
   /** 雲バッファの持ち方の比較用。決着したら消す */
   /** 密度サンプル数を数えるモード */
   cloudProbe?: boolean
+  /** 打ち切り透過率の上書き。実験用 */
+  cloudExitOverride?: number
 }
 
 /**
@@ -187,6 +189,7 @@ export async function createScene(
     quality,
     coverage: options.coverage ?? DEFAULT_COVERAGE,
     ...(options.cloudProbe !== undefined ? { probe: options.cloudProbe } : {}),
+    ...(options.cloudExitOverride !== undefined ? { exitOverride: options.cloudExitOverride } : {}),
   })
   // 雲を大気の合成点へ差し込む。合成の順序はライブラリ側が持つ
   atmosphere.setOverlay({ map: cloudsPass.texture })

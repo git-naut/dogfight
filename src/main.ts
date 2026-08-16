@@ -66,6 +66,7 @@ async function main(): Promise<void> {
     },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
     cloudProbe: capture.probe,
+    ...(capture.exitOverride !== null ? { cloudExitOverride: capture.exitOverride } : {}),
   })
 
   hook.webglVersion = view.renderer.capabilities.isWebGL2 ? 2 : 1
@@ -158,6 +159,10 @@ async function main(): Promise<void> {
   let world = spawnWorld()
   let lastTime = performance.now()
   let smoothedFps = 60
+  // 1 フレームだけ見ると外れ値に振られるので平滑化して読む
+  let cpuSimMs = 0
+  let cpuSyncMs = 0
+  let cpuRenderMs = 0
 
   function spawnWorld(): World {
     // 既定のスポーンは level スクリプトと同じ条件にしておく
@@ -186,11 +191,20 @@ async function main(): Promise<void> {
     }
 
     const input = keyboard.poll(delta)
+    const t0 = performance.now()
     const alpha = driver.advance(delta, () => world.step(input))
 
+    const t1 = performance.now()
     world.samplePlayer(alpha, sample)
     view.sync(sample, world.frame, delta, mouse.update(delta))
+
+    const t2 = performance.now()
     view.render()
+    const t3 = performance.now()
+
+    cpuSimMs += (t1 - t0 - cpuSimMs) * 0.1
+    cpuSyncMs += (t2 - t1 - cpuSyncMs) * 0.1
+    cpuRenderMs += (t3 - t2 - cpuRenderMs) * 0.1
 
     if (delta > 0) {
       smoothedFps += (1 / delta - smoothedFps) * 0.08
@@ -214,6 +228,12 @@ async function main(): Promise<void> {
       gpuFrameMs: view.gpuFrameMs,
       gpuCloudMs: view.gpuCloudMs,
       gpuTimerSupported: view.gpuTimerSupported,
+      cpuSimMs,
+      cpuSyncMs,
+      cpuRenderMs,
+      drawingBufferWidth: view.renderer.domElement.width,
+      drawingBufferHeight: view.renderer.domElement.height,
+      devicePixelRatio: window.devicePixelRatio,
     })
 
     requestAnimationFrame(frame)

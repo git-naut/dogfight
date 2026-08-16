@@ -26,6 +26,19 @@ export interface RenderInfo {
   /** そのうち雲のパスが占める ms */
   gpuCloudMs: number
   gpuTimerSupported: boolean
+  /**
+   * フレームの CPU 内訳 ms。
+   *
+   * GPU 時間が予算内なのに fps が出ないとき、どこで詰まっているかを
+   * 切り分けるために要る。実際に GPU 10.8 ms で 46fps という状態が起きた
+   */
+  cpuSimMs: number
+  cpuSyncMs: number
+  cpuRenderMs: number
+  /** 実際に描いている画素数。DPR とレンダースケールの積で決まる */
+  drawingBufferWidth: number
+  drawingBufferHeight: number
+  devicePixelRatio: number
 }
 
 export interface DebugPanel {
@@ -58,6 +71,8 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['fps', 'FPS'],
     ['gpu', 'GPU 時間'],
     ['gpuClouds', 'うち雲'],
+    ['cpu', 'CPU 時間'],
+    ['resolution', '解像度'],
   ] as const
 
   for (const [key, label] of order) {
@@ -121,6 +136,18 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
         render.gpuTimerSupported
           ? `${render.gpuCloudMs.toFixed(1)} ms`
           : '計測不可',
+      )
+
+      // シム、描画の準備、描画コマンドの投入。合計がフレーム時間に近ければ
+      // CPU 律速、GPU 時間に近ければ GPU 律速
+      set(
+        'cpu',
+        `${(render.cpuSimMs + render.cpuSyncMs + render.cpuRenderMs).toFixed(1)} ms ` +
+          `(シム ${render.cpuSimMs.toFixed(1)} / 準備 ${render.cpuSyncMs.toFixed(1)} / 投入 ${render.cpuRenderMs.toFixed(1)})`,
+      )
+      set(
+        'resolution',
+        `${render.drawingBufferWidth}x${render.drawingBufferHeight} (DPR ${render.devicePixelRatio.toFixed(2)})`,
       )
 
       const warnings: string[] = []

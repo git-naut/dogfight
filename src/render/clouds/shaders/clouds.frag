@@ -90,6 +90,9 @@ const float DETAIL_FAR = 7000.0;
  */
 const float EXIT_TRANSMITTANCE = 0.05;
 
+/** 実験用の上書き。0 なら定数を使う */
+uniform float exitOverride;
+
 /**
  * 光マーチの段数を落とし始める距離 m。
  *
@@ -275,7 +278,8 @@ void main() {
   int consecutiveEmpty = 0;
 
   for (int i = 0; i < 256; i++) {
-    if (i >= maxSteps || t >= end || transmittance < EXIT_TRANSMITTANCE) break;
+    float exitAt = exitOverride > 0.0 ? exitOverride : EXIT_TRANSMITTANCE;
+    if (i >= maxSteps || t >= end || transmittance < exitAt) break;
 
     // 距離による伸びはごく緩やかにする。
     //

@@ -16,8 +16,20 @@ interface Row {
   value: HTMLSpanElement
 }
 
+/** 飛行以外の描画側の状態。 */
+export interface RenderInfo {
+  /** 太陽高度 rad */
+  sunElevation: number
+  preset: string
+}
+
 export interface DebugPanel {
-  update(sample: AircraftSample, frame: number, fps: number): void
+  update(
+    sample: AircraftSample,
+    frame: number,
+    fps: number,
+    render: RenderInfo,
+  ): void
   dispose(): void
 }
 
@@ -35,6 +47,8 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['bank', 'バンク'],
     ['g', 'G'],
     ['throttle', 'スロットル'],
+    ['sun', '太陽高度'],
+    ['preset', '品質'],
     ['frame', 'フレーム'],
     ['fps', 'FPS'],
   ] as const
@@ -74,7 +88,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
   }
 
   return {
-    update(sample, frame, fps) {
+    update(sample, frame, fps, render) {
       set('speed', `${sample.speed.toFixed(0)} m/s (${(sample.speed * 1.94384).toFixed(0)} kt)`)
       // 音速は高度で変わるが、目安として海面の 340 m/s で割る
       set('mach', (sample.speed / 340).toFixed(2))
@@ -84,6 +98,8 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       set('bank', `${(sample.bank * DEG).toFixed(0)}°`)
       set('g', sample.loadFactor.toFixed(2))
       set('throttle', `${(sample.throttle * 100).toFixed(0)}%`)
+      set('sun', `${(render.sunElevation * DEG).toFixed(1)}°`)
+      set('preset', render.preset)
       set('frame', String(frame))
       set('fps', fps.toFixed(0))
 

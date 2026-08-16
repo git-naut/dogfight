@@ -3,75 +3,161 @@ import type { AircraftSample } from '../sim/aircraft'
 import type { LookOffset } from '../input/mouseLook'
 import { createChaseCamera, type ChaseCamera } from './camera'
 import { createAircraftView, type AircraftView } from './aircraftView'
+import { createAtmosphere, DEFAULT_HOUR, type AtmosphereHandle } from './atmosphere'
+import { createComposer, type ComposerHandle } from './composer'
+import { getQuality, type PresetName, type QualitySettings } from './quality'
 
 /**
- * Phase 1 の暫定シーン。
+ * Phase 2 のシーン。
  *
- * 空は縦方向のグラデーション、地面は平面とグリッド。物理的に正しい大気散乱は
- * Phase 2 で @takram/three-atmosphere に、起伏のある地形とボリュメトリック雲は
- * Phase 3 で差し替える。
+ * 空は @takram/three-atmosphere による物理ベースの大気散乱。ライティングも
+ * 大気の LUT から導かれるので、時刻を変えれば光の色と強さが一貫して変わる。
  *
- * ここで必要なのは飛行モデルを検証できるだけの手がかり。高度と速度と姿勢が
- * 読み取れればよい。
+ * 地面は平面とシェーダのグリッドのまま。起伏のある地形とボリュメトリック雲は
+ * Phase 3 で入れる。
  */
 
-const HORIZON_COLOR = new THREE.Color(0x9fc0d8)
-const ZENITH_COLOR = new THREE.Color(0x2a5f96)
-// グリッド線とのコントラストを稼ぐため、地面は暗めに置く
-const GROUND_COLOR = new THREE.Color(0x1e2c22)
+/**
+ * 地面のアルベド。
+ *
+ * 当初はグリッド線を読みやすくするため 0x1e2c22 まで落としていたが、
+ * リニアでは 0.02 で舗装並みに暗く、3 km 先の大気の霞に完全に負けていた。
+ * 植生として妥当な 0.07 前後へ上げる。グリッド線の側を暗くして対比を取る。
+ */
+const GROUND_COLOR = new THREE.Color(0x4a5f3e)
 
 /** グリッドの目盛り間隔 m。速度の目安になる */
 const GRID_SPACING = 400
-const GRID_EXTENT = 40_000
-const GROUND_EXTENT = 300_000
+/**
+ * 地面の広さ m。
+ *
+ * 大気は楕円体の上に載っているので、平面を伸ばしすぎると地球の丸みから外れる。
+ * 150 km 先では 1.8 km ずれて地平線の位置が合わなくなる。30 km で切り、
+ * その先はライブラリ側の楕円体地面に任せる。
+ */
+const GROUND_EXTENT = 60_000
+const GRID_FADE_START = 9_000
+const GRID_FADE_END = 26_000
 
 export interface SceneHandle {
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
   camera: THREE.PerspectiveCamera
   chase: ChaseCamera
+  /** 太陽高度 rad。デバッグ表示と E2E の検証に使う */
+  readonly sunElevation: number
+  readonly quality: QualitySettings
   /** sim の状態を描画へ反映する */
   sync(sample: AircraftSample, dt: number, look: LookOffset, snap?: boolean): void
   render(): void
-  resize(width: number, height: number, pixelRatio: number): void
+  resize(width: number, height: number, devicePixelRatio: number): void
+  setQuality(preset: PresetName): void
+  setHour(hour: number): void
+  setExposure(value: number): void
   dispose(): void
 }
 
-export function createScene(canvas: HTMLCanvasElement): SceneHandle {
+/**
+ * トーンマッピングの露出。
+ *
+ * 大気ライブラリが返す相対輝度を表示域へ持ち上げる係数。1 のままだと真昼でも
+ * 空の輝度が 255 中 62 にしかならない。5 から 40 まで振って絵で比べ、空に
+ * 深みが残り地面の緑も飛ばない 6 を採った。経緯は
+ * docs/decisions/0002-atmosphere-integration.md にある。
+ */
+export const DEFAULT_EXPOSURE = 6
+
+export interface SceneOptions {
+  preset: PresetName
+  hour?: number
+  /** トーンマッピングの露出。調整用に上書きできる */
+  exposure?: number
+  /** 大気の LUT を置いた URL */
+  texturesUrl: string
+}
+
+/**
+ * シーンを組み立てる。
+ *
+ * 大気の LUT 読み込みが非同期なので Promise を返す。呼び出し側は await して
+ * から描画ループを回すこと。待たずに描くとテクスチャのない絵になる。
+ */
+export async function createScene(
+  canvas: HTMLCanvasElement,
+  options: SceneOptions,
+): Promise<SceneHandle> {
+  let quality = getQuality(options.preset)
+
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: false, // Phase 2 で SMAA に置き換える
+    // ポストプロセス側で SMAA をかけるので、ここでは無効にする
+    antialias: false,
     powerPreference: 'high-performance',
   })
-  renderer.setClearColor(HORIZON_COLOR, 1)
+  // トーンマッピングは EffectComposer の最後段が持つ。ここでは二重に掛けない。
+  //
+  // ただし露出はレンダラ側の値がポスト側のシェーダへ渡る。大気ライブラリは
+  // 輝度を「単位放射輝度の太陽の輝度」で正規化して返すので、空はその何桁も
+  // 下の値になる。掛け直さないと真昼でも薄暗い絵にしかならない。
+  renderer.toneMapping = THREE.NoToneMapping
+  renderer.toneMappingExposure = options.exposure ?? DEFAULT_EXPOSURE
 
   const scene = new THREE.Scene()
-  scene.fog = new THREE.Fog(HORIZON_COLOR, 6000, 55_000)
-
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.5, 400_000)
   const chase = createChaseCamera(camera)
 
-  const sun = new THREE.DirectionalLight(0xfff0dc, 2.6)
-  sun.position.set(-0.42, 0.78, 0.46).normalize()
-  scene.add(sun)
-  scene.add(new THREE.HemisphereLight(0xbcd8f0, 0x40503a, 1.0))
+  const atmosphere: AtmosphereHandle = await createAtmosphere(renderer, camera, {
+    texturesUrl: options.texturesUrl,
+    hour: options.hour ?? DEFAULT_HOUR,
+    groundAlbedo: GROUND_COLOR,
+  })
 
-  const sky = createSkyDome()
-  scene.add(sky.mesh)
+  scene.add(atmosphere.sky)
+  scene.add(atmosphere.sunLight)
+  scene.add(atmosphere.sunLight.target)
+  scene.add(atmosphere.skyLight)
 
-  const ground = createGround()
+  const ground = createGround(quality)
   scene.add(ground)
 
   const aircraft: AircraftView = createAircraftView()
   scene.add(aircraft.object)
 
+  const composer: ComposerHandle = createComposer({
+    renderer,
+    scene,
+    camera,
+    aerialPerspective: atmosphere.effect,
+    quality,
+  })
+
   const quaternion = new THREE.Quaternion()
+  let cssWidth = 1280
+  let cssHeight = 720
+  let dpr = 1
+
+  function applySize(): void {
+    const ratio = Math.min(dpr, quality.maxPixelRatio) * quality.renderScale
+    renderer.setPixelRatio(ratio)
+    // composer が内部でレンダラのサイズも合わせる。CSS は stylesheet 任せ
+    composer.setSize(cssWidth, cssHeight, false)
+    camera.aspect = cssWidth / cssHeight
+    camera.updateProjectionMatrix()
+  }
 
   return {
     renderer,
     scene,
     camera,
     chase,
+
+    get sunElevation() {
+      return atmosphere.sunElevation
+    },
+
+    get quality() {
+      return quality
+    },
 
     sync(sample, dt, look, snap = false) {
       aircraft.object.position.set(
@@ -88,30 +174,58 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
       aircraft.object.quaternion.copy(quaternion)
       aircraft.setThrottle(sample.throttle)
 
-      // 地面と空を機体に追従させて、有限のジオメトリで無限に見せる。
+      // 地面を機体に追従させて有限のジオメトリで無限に見せる。
       // グリッド模様はワールド座標で描くので、板が動いても線は流れない
       ground.position.x = sample.position.x
       ground.position.z = sample.position.z
-      sky.mesh.position.copy(camera.position)
+
+      // 太陽光と天空光の基準位置を機体に合わせる。高度によって透過率が変わる。
+      // ライト本体の位置は update() が太陽方向から決めるので触らない
+      atmosphere.sunLight.target.position.set(
+        sample.position.x,
+        sample.position.y,
+        sample.position.z,
+      )
+      atmosphere.skyLight.position.set(
+        sample.position.x,
+        sample.position.y,
+        sample.position.z,
+      )
+      atmosphere.update()
 
       if (snap) chase.snap(sample, look)
       else chase.update(sample, dt, look)
     },
 
     render() {
-      renderer.render(scene, camera)
+      composer.render()
     },
 
-    resize(width, height, pixelRatio) {
-      renderer.setPixelRatio(pixelRatio)
-      renderer.setSize(width, height, false)
-      camera.aspect = width / height
-      camera.updateProjectionMatrix()
+    resize(width, height, devicePixelRatio) {
+      cssWidth = width
+      cssHeight = height
+      dpr = devicePixelRatio
+      applySize()
+    },
+
+    setQuality(preset) {
+      quality = getQuality(preset)
+      composer.setQuality(quality)
+      applySize()
+    },
+
+    setHour(hour) {
+      atmosphere.setHour(hour)
+    },
+
+    setExposure(value) {
+      renderer.toneMappingExposure = value
     },
 
     dispose() {
       aircraft.dispose()
-      sky.dispose()
+      atmosphere.dispose()
+      composer.dispose()
       ground.geometry.dispose()
       ;(ground.material as THREE.Material).dispose()
       renderer.dispose()
@@ -126,9 +240,9 @@ export function createScene(canvas: HTMLCanvasElement): SceneHandle {
  * 線が消える。ワールド座標から模様を計算すれば深度の競合が起きないし、
  * fwidth でアンチエイリアスもかかり、距離フェードも入れられる。
  *
- * 照明とフォグを効かせたいので MeshStandardMaterial に差し込む。
+ * 照明を効かせたいので MeshStandardMaterial に差し込む。
  */
-function createGround(): THREE.Mesh {
+function createGround(quality: QualitySettings): THREE.Mesh {
   const material = new THREE.MeshStandardMaterial({
     color: GROUND_COLOR,
     roughness: 1,
@@ -138,10 +252,10 @@ function createGround(): THREE.Mesh {
   material.onBeforeCompile = (shader) => {
     shader.uniforms['minorSpacing'] = { value: GRID_SPACING }
     shader.uniforms['majorSpacing'] = { value: GRID_SPACING * 5 }
-    shader.uniforms['minorColor'] = { value: new THREE.Color(0x74a98d) }
-    shader.uniforms['majorColor'] = { value: new THREE.Color(0xcfeadb) }
-    shader.uniforms['gridFadeStart'] = { value: 9_000 }
-    shader.uniforms['gridFadeEnd'] = { value: GRID_EXTENT }
+    shader.uniforms['minorColor'] = { value: new THREE.Color(0x33452e) }
+    shader.uniforms['majorColor'] = { value: new THREE.Color(0x1b2617) }
+    shader.uniforms['gridFadeStart'] = { value: GRID_FADE_START }
+    shader.uniforms['gridFadeEnd'] = { value: GRID_FADE_END }
 
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGroundWorldPos;')
@@ -194,59 +308,8 @@ function createGround(): THREE.Mesh {
     material,
   )
   mesh.rotation.x = -Math.PI / 2
+  void quality
   return mesh
 }
 
-/**
- * 空のドーム。視線の高さで水平線色と天頂色を混ぜるだけの簡易版。
- *
- * 大気散乱ではないので朝焼けも夕景も出ないが、水平線の位置が読めるので
- * 姿勢の確認には足りる。Phase 2 で置き換える。
- */
-function createSkyDome(): { mesh: THREE.Mesh; dispose: () => void } {
-  const geometry = new THREE.SphereGeometry(1, 24, 16)
-  const material = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    uniforms: {
-      horizonColor: { value: HORIZON_COLOR },
-      zenithColor: { value: ZENITH_COLOR },
-      groundColor: { value: GROUND_COLOR },
-    },
-    vertexShader: /* glsl */ `
-      varying vec3 vDirection;
-      void main() {
-        vDirection = normalize(position);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 horizonColor;
-      uniform vec3 zenithColor;
-      uniform vec3 groundColor;
-      varying vec3 vDirection;
-
-      void main() {
-        float h = normalize(vDirection).y;
-        // 水平線付近を滑らかに、上空へ向かって濃くする
-        vec3 sky = mix(horizonColor, zenithColor, pow(clamp(h, 0.0, 1.0), 0.55));
-        vec3 below = mix(horizonColor, groundColor, pow(clamp(-h, 0.0, 1.0), 0.35));
-        gl_FragColor = vec4(h >= 0.0 ? sky : below, 1.0);
-      }
-    `,
-  })
-
-  const mesh = new THREE.Mesh(geometry, material)
-  // カメラに追従させるので、遠クリップの内側に収まるスケールで十分
-  mesh.scale.setScalar(180_000)
-  mesh.renderOrder = -1
-  mesh.frustumCulled = false
-
-  return {
-    mesh,
-    dispose() {
-      geometry.dispose()
-      material.dispose()
-    },
-  }
-}
+export { GROUND_COLOR }

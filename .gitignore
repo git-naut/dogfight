@@ -17,3 +17,6 @@ dist/
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# 大気の事前計算テクスチャ（tools/copy-atmosphere-assets.mjs が node_modules から複製）
+/public/atmosphere/

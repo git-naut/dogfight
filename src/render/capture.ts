@@ -1,12 +1,16 @@
+import { resolvePreset, type PresetName } from './quality'
+import { DEFAULT_HOUR } from './atmosphere'
+
 /**
  * 決定論キャプチャモード。
  *
  * スクリーンショット回帰テストは「同じ入力から同じピクセル」が前提になる。
  * 実時間、Math.random()、経過時間依存のアニメーションが混ざると成立しない。
+ * 太陽の位置も実時間の Date から決まるので、時刻を固定できるようにする。
  *
- * ?capture=1&script=bank-left&frame=600 で起動すると、実時間を使わず
- * 名前付き入力スクリプトを指定フレームまで再生して描画を止め、
- * captureReady を立てる。Playwright はこのフラグを待ってから撮る。
+ * ?capture=1&script=bank-left&frame=600&hour=18 で起動すると、実時間を
+ * 使わず名前付き入力スクリプトを指定フレームまで再生し、大気の LUT を
+ * 読み終えてから 1 枚描いて止まり、captureReady を立てる。
  */
 export interface CaptureConfig {
   enabled: boolean
@@ -14,7 +18,11 @@ export interface CaptureConfig {
   frame: number
   /** 再生する入力スクリプト名 */
   script: string
-  preset: string
+  preset: PresetName
+  /** 局所時刻 0〜24。12 が南中 */
+  hour: number
+  /** トーンマッピングの露出。未指定なら既定値 */
+  exposure: number | null
 }
 
 export const DEFAULT_SEED = 20260816
@@ -25,7 +33,11 @@ export function readCaptureConfig(search: string): CaptureConfig {
     enabled: params.get('capture') === '1',
     frame: clampInt(params.get('frame'), 0, 100_000, 240),
     script: params.get('script') ?? 'level',
-    preset: params.get('preset') ?? 'high',
+    preset: resolvePreset(params.get('preset')),
+    hour: clampNumber(params.get('hour'), 0, 24, DEFAULT_HOUR),
+    exposure: params.has('exposure')
+      ? clampNumber(params.get('exposure'), 0.01, 1000, 1)
+      : null,
   }
 }
 
@@ -45,6 +57,18 @@ function clampInt(
   return Math.min(max, Math.max(min, n))
 }
 
+function clampNumber(
+  raw: string | null,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  if (raw === null) return fallback
+  const n = Number.parseFloat(raw)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
+
 /** テストから読むためのフック。ここ以外から window を汚さない。 */
 export interface TestHook {
   frame: number
@@ -52,7 +76,13 @@ export interface TestHook {
   seed: number
   droppedSteps: number
   webglVersion: number
-  /** 検証しやすいよう飛行状態も出す */
+  /** 大気の LUT を読み終えたか */
+  atmosphereReady: boolean
+  /** 太陽高度 rad。時刻を変えたことの検証に使う */
+  sunElevation: number
+  preset: PresetName
+  hour: number
+  // 飛行状態
   speed: number
   altitude: number
   angleOfAttack: number

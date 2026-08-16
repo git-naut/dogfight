@@ -10,6 +10,7 @@ import {
   installTestHook,
   DEFAULT_SEED,
 } from './render/capture'
+import { PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
@@ -19,15 +20,21 @@ const hudRoot = document.querySelector<HTMLElement>('#hud')
 if (!canvas || !hudRoot) throw new Error('#viewport か #hud が見つからない')
 
 const capture = readCaptureConfig(window.location.search)
-const view = createScene(canvas)
-const sample = createAircraftSample()
+
+// 大気の LUT は tools/copy-atmosphere-assets.mjs が public/atmosphere/ へ置く。
+// GitHub Pages ではサイトが /dogfight/ 配下に出るので BASE_URL を挟む
+const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
 
 const hook = installTestHook({
   frame: 0,
   captureReady: false,
   seed: DEFAULT_SEED,
   droppedSteps: 0,
-  webglVersion: view.renderer.capabilities.isWebGL2 ? 2 : 1,
+  webglVersion: 0,
+  atmosphereReady: false,
+  sunElevation: 0,
+  preset: capture.preset,
+  hour: capture.hour,
   speed: 0,
   altitude: 0,
   angleOfAttack: 0,
@@ -36,55 +43,71 @@ const hook = installTestHook({
   script: capture.script,
 })
 
-function applySize() {
-  const width = window.innerWidth
-  const height = window.innerHeight
-  // capture モードでは端末の DPR に依存させない。環境差の主要因になる
-  const pixelRatio = capture.enabled ? 1 : Math.min(window.devicePixelRatio, 2)
-  view.resize(width, height, pixelRatio)
-}
+const sample = createAircraftSample()
 
-applySize()
-window.addEventListener('resize', applySize)
+async function main(): Promise<void> {
+  const view = await createScene(canvas!, {
+    preset: capture.preset,
+    hour: capture.hour,
+    texturesUrl: TEXTURES_URL,
+    ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
+  })
 
-function publish(frame: number) {
-  hook.frame = frame
-  hook.speed = sample.speed
-  hook.altitude = sample.altitude
-  hook.angleOfAttack = sample.angleOfAttack
-  hook.bank = sample.bank
-  hook.crashed = sample.crashed
-}
+  hook.webglVersion = view.renderer.capabilities.isWebGL2 ? 2 : 1
+  hook.atmosphereReady = true
+  hook.sunElevation = view.sunElevation
 
-if (capture.enabled) {
-  // 実時間を一切使わず、スクリプトを指定フレームまで再生して 1 枚描く
-  const script = getScript(capture.script)
-  const { world, player } = createWorldFromScript(script)
-  hook.seed = script.seed
-  hook.script = script.name
+  const applySize = () => {
+    // capture モードでは端末の DPR に依存させない。環境差の主要因になる
+    const dpr = capture.enabled ? 1 : window.devicePixelRatio
+    view.resize(window.innerWidth, window.innerHeight, dpr)
+  }
+  applySize()
+  window.addEventListener('resize', applySize)
 
-  for (let i = 0; i < capture.frame; i++) {
-    world.step(player.at(i))
+  const publish = (frame: number) => {
+    hook.frame = frame
+    hook.speed = sample.speed
+    hook.altitude = sample.altitude
+    hook.angleOfAttack = sample.angleOfAttack
+    hook.bank = sample.bank
+    hook.crashed = sample.crashed
+    hook.sunElevation = view.sunElevation
   }
 
-  world.samplePlayer(1, sample)
-  view.sync(sample, 0, { yaw: 0, pitch: 0 }, true)
-  view.render()
+  if (capture.enabled) {
+    // 実時間を一切使わず、スクリプトを指定フレームまで再生して 1 枚描く
+    const script = getScript(capture.script)
+    const { world, player } = createWorldFromScript(script)
+    hook.seed = script.seed
+    hook.script = script.name
 
-  publish(world.frame)
-  hook.captureReady = true
-  document.body.dataset['captureReady'] = '1'
-} else {
+    for (let i = 0; i < capture.frame; i++) {
+      world.step(player.at(i))
+    }
+
+    world.samplePlayer(1, sample)
+    view.sync(sample, 0, { yaw: 0, pitch: 0 }, true)
+    view.render()
+
+    publish(world.frame)
+    hook.captureReady = true
+    document.body.dataset['captureReady'] = '1'
+    return
+  }
+
   const keyboard = new KeyboardInput()
   const mouse = new MouseLook()
   keyboard.attach(window)
-  mouse.attach(canvas)
+  mouse.attach(canvas!)
 
   const debug = isDebugEnabled(window.location.search)
-    ? createDebugPanel(hudRoot)
+    ? createDebugPanel(hudRoot!)
     : null
 
   const driver = new FixedStepDriver()
+  const governor = new PerformanceGovernor()
+  let preset: PresetName = capture.preset
   let world = spawnWorld()
   let lastTime = performance.now()
   let smoothedFps = 60
@@ -112,6 +135,7 @@ if (capture.enabled) {
       world = spawnWorld()
       driver.reset()
       mouse.reset()
+      governor.reset()
     }
 
     const input = keyboard.poll(delta)
@@ -124,9 +148,22 @@ if (capture.enabled) {
     if (delta > 0) {
       smoothedFps += (1 / delta - smoothedFps) * 0.08
     }
+
+    // 重いときは品質を1段落とす。実時間に依存するので capture では動かさない
+    const degraded = governor.update(delta, preset)
+    if (degraded !== null) {
+      preset = degraded
+      view.setQuality(preset)
+      applySize()
+      hook.preset = preset
+    }
+
     publish(world.frame)
     hook.droppedSteps = driver.droppedSteps
-    debug?.update(sample, world.frame, smoothedFps)
+    debug?.update(sample, world.frame, smoothedFps, {
+      sunElevation: view.sunElevation,
+      preset,
+    })
 
     requestAnimationFrame(frame)
   }
@@ -136,3 +173,8 @@ if (capture.enabled) {
   view.sync(sample, FIXED_DT, mouse.offset, true)
   requestAnimationFrame(frame)
 }
+
+main().catch((error: unknown) => {
+  console.error('[dogfight] 初期化に失敗した', error)
+  document.body.dataset['initError'] = '1'
+})

@@ -35,6 +35,9 @@ const hook = installTestHook({
   sunElevation: 0,
   noiseMs: 0,
   noiseStats: { min: 0, max: 0, mean: 0 },
+  gpuFrameMs: 0,
+  gpuCloudMs: 0,
+  gpuTimerSupported: false,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -65,6 +68,7 @@ async function main(): Promise<void> {
   hook.sunElevation = view.sunElevation
   hook.noiseMs = view.noiseMs
   hook.noiseStats = view.noiseStats
+  hook.gpuTimerSupported = view.gpuTimerSupported
 
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる
@@ -84,6 +88,7 @@ async function main(): Promise<void> {
     hook.sunElevation = view.sunElevation
   hook.noiseMs = view.noiseMs
   hook.noiseStats = view.noiseStats
+  hook.gpuTimerSupported = view.gpuTimerSupported
   }
 
   if (capture.enabled) {

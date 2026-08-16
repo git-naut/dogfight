@@ -100,6 +100,11 @@ export interface TestHook {
   noiseMs: number
   /** 雲ノイズの中身。min と max が同じなら生成に失敗している */
   noiseStats: { min: number; max: number; mean: number }
+  /** GPU のフレーム時間 ms。計測できていなければ 0 */
+  gpuFrameMs: number
+  /** そのうち雲のパスが占める ms */
+  gpuCloudMs: number
+  gpuTimerSupported: boolean
   preset: PresetName
   hour: number
   // 飛行状態

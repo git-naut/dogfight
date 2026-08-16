@@ -50,6 +50,14 @@ const float MAX_MARCH_DISTANCE = 26000.0;
  */
 const float SCATTER_ALBEDO = 0.9;
 
+/**
+ * 手前の歩幅の上限 m。
+ *
+ * 雲の細かい起伏は 50 m 前後から見える。それより粗く刻むと、画素ごとの
+ * 開始位置のずれが粒立ちとして目に付く。
+ */
+const float NEAR_STEP_LIMIT = 55.0;
+
 const float TAU_PI = 3.14159265;
 
 /**
@@ -195,7 +203,12 @@ void main() {
   // 等間隔にすると、26 km を 96 歩で刻んで 1 歩 270 m になる。雲の起伏と
   // 同じ大きさなので、画素ごとの開始位置のずれがそのまま塊のムラとして
   // 見えた（実測）。手前を細かく刻めば、目につく近距離のムラが消える。
-  float baseStep = span / float(maxSteps) * 0.32;
+  //
+  // さらに絶対値で頭打ちにする。雲層の内側を飛ぶと span が 26 km になり、
+  // 区間から割り出すだけでは手前も 87 m 刻みになる。粒立ちの粗さはここから
+  // 来ていた。近距離を細かくしても、遠方は下の距離依存の伸長と、
+  // 密度ゼロ区間の大股送りが補う。
+  float baseStep = min(span / float(maxSteps) * 0.32, NEAR_STEP_LIMIT);
   float offset = dither(ivec2(gl_FragCoord.xy));
 
   float cosTheta = dot(rayDirection, sunDirection);
@@ -203,9 +216,12 @@ void main() {
   vec3 scattered = vec3(0.0);
   float transmittance = 1.0;
 
-  // 振れ幅は 1 歩ぶん取る。抑えると縞が残り、広げると斑になるが、
-  // 1/2 解像度なら 1 画素が 2x2 にしか広がらないので 1 歩でも斑は目立たない
-  float t = start + baseStep * offset;
+  // 振れ幅は 1 歩の 4 割。
+  //
+  // 歩幅に上限を掛けて手前が 55 m 刻みになったので、ディザで隠すべき縞が
+  // そもそも細かい。振れ幅を残したままだと、隠す量より粒立ちのほうが
+  // 目立つようになる。
+  float t = start + baseStep * offset * 0.4;
   // 密度ゼロの区間は大股で飛ばす。空振りに時間を使わない
   float emptySkip = 3.0;
   int consecutiveEmpty = 0;
@@ -213,8 +229,8 @@ void main() {
   for (int i = 0; i < 256; i++) {
     if (i >= maxSteps || t >= end || transmittance < 0.01) break;
 
-    // 手前は細かく、奥は粗く
-    float stepSize = baseStep * (1.0 + t / 9000.0);
+    // 手前は細かく、奥は粗く。上限を掛けたぶん伸びを速めて到達距離を保つ
+    float stepSize = baseStep * (1.0 + t / 6000.0);
 
     vec3 p = cameraPositionWorld + rayDirection * t;
     float density = sampleCloudDensity(p, useDetail);

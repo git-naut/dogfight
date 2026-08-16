@@ -62,6 +62,7 @@ async function main(): Promise<void> {
       ...(capture.cloudSteps !== null ? { maxSteps: capture.cloudSteps } : {}),
     },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
+    ...(capture.cloudBuffer !== null ? { cloudBuffer: capture.cloudBuffer } : {}),
   })
 
   hook.webglVersion = view.renderer.capabilities.isWebGL2 ? 2 : 1
@@ -167,8 +168,9 @@ async function main(): Promise<void> {
       smoothedFps += (1 / delta - smoothedFps) * 0.08
     }
 
-    // 重いときは品質を1段落とす。実時間に依存するので capture では動かさない
-    const degraded = governor.update(delta, preset)
+    // 重いときは品質を1段落とす。実時間に依存するので capture では動かさない。
+    // ?nodegrade=1 のときも止める。品質を固定しないと GPU 時間を比較できない
+    const degraded = capture.noDegrade ? null : governor.update(delta, preset)
     if (degraded !== null) {
       preset = degraded
       view.setQuality(preset)

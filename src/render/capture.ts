@@ -29,6 +29,10 @@ export interface CaptureConfig {
   cloudScale: number | null
   /** 主マーチのステップ数の上書き */
   cloudSteps: number | null
+  /** 雲バッファの持ち方。?buf=hdr で 16bit 浮動小数へ */
+  cloudBuffer: 'u8' | 'hdr' | null
+  /** 自動降格を止める。実機で品質を固定して計測するため */
+  noDegrade: boolean
 }
 
 export const DEFAULT_SEED = 20260816
@@ -59,6 +63,8 @@ export function readCaptureConfig(search: string): CaptureConfig {
     cloudSteps: params.has('cloudSteps')
       ? clampInt(params.get('cloudSteps'), 8, 256, 96)
       : null,
+    cloudBuffer: (['u8', 'hdr'] as const).find((v) => v === params.get('buf')) ?? null,
+    noDegrade: params.get('nodegrade') === '1',
   }
 }
 

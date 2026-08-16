@@ -55,12 +55,23 @@ const SHADOW_SIZE = 256
 /** 雲影マップが覆う世界の一辺 m */
 export const SHADOW_EXTENT = 30_000
 
+/**
+ * 雲バッファの持ち方。
+ *
+ * 8bit だと放射輝度 0.02〜0.3 を 1/255 刻みで丸めることになり、露出 6 倍と
+ * AGX がその段差を等高線として拡大する。16bit 浮動小数なら消えるが、
+ * 実機での費用がまだ測れていない。既定は従来どおり 8bit にしておき、
+ * ?buf=hdr で切り替えて計測する。
+ */
+export type CloudBuffer = 'u8' | 'hdr'
+
 export interface CloudsPassOptions {
   camera: PerspectiveCamera
   noise: CloudNoise
   quality: QualitySettings
   /** 雲量 0..1 */
   coverage?: number
+  buffer?: CloudBuffer
 }
 
 export interface CloudsUpdate {
@@ -121,9 +132,10 @@ export class CloudsPass extends Pass {
     // 実測では、低空から雲底を見上げる構図で縦横の段差比が 1.635 から
     // 1.477 へ下がり、全解像度・256 ステップの参照品質（1.472）に並んだ。
     // 歩幅、ディザの振れ幅、ステップ数はどれも比を動かさなかった。
+    const buffer = options.buffer ?? 'u8'
     this.target = new WebGLRenderTarget(1, 1, {
       format: RGBAFormat,
-      type: HalfFloatType,
+      type: buffer === 'hdr' ? HalfFloatType : UnsignedByteType,
       minFilter: LinearFilter,
       magFilter: LinearFilter,
       depthBuffer: false,

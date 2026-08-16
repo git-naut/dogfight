@@ -14,7 +14,7 @@ import {
 } from './quality'
 import { createGpuTimer, type GpuTimer } from './gpuTimer'
 import { generateCloudNoise, type CloudNoise } from './clouds/noise'
-import { CloudsPass, SHADOW_EXTENT } from './clouds/cloudsPass'
+import { CloudsPass, SHADOW_EXTENT, type CloudBuffer } from './clouds/cloudsPass'
 import { cloudTime } from './clouds/geometry'
 import { FIXED_DT } from '../sim/loop'
 
@@ -114,6 +114,8 @@ export interface SceneOptions {
   texturesUrl: string
   /** 雲の設定の上書き。実機で解像度とステップ数を振るときに使う */
   cloudOverride?: CloudOverride
+  /** 雲バッファの持ち方の比較用。決着したら消す */
+  cloudBuffer?: CloudBuffer
 }
 
 /**
@@ -181,6 +183,7 @@ export async function createScene(
     noise,
     quality,
     coverage: options.coverage ?? DEFAULT_COVERAGE,
+    ...(options.cloudBuffer ? { buffer: options.cloudBuffer } : {}),
   })
   // 雲を大気の合成点へ差し込む。合成の順序はライブラリ側が持つ
   atmosphere.setOverlay({ map: cloudsPass.texture })

@@ -9,6 +9,7 @@ import {
   type Effect,
 } from 'postprocessing'
 import type { QualitySettings } from './quality'
+import type { CloudsPass } from './clouds/cloudsPass'
 
 /**
  * ポストプロセスの構成。
@@ -35,6 +36,8 @@ export interface ComposerOptions {
   camera: Camera
   /** 遠景の霞。@takram/three-atmosphere の AerialPerspectiveEffect */
   aerialPerspective: Effect
+  /** 雲のレイマーチ。RenderPass の後、EffectPass の前に入る */
+  cloudsPass?: CloudsPass
   quality: QualitySettings
 }
 
@@ -47,6 +50,10 @@ export function createComposer(options: ComposerOptions): ComposerHandle {
 
   const renderPass = new RenderPass(scene, camera)
   composer.addPass(renderPass)
+
+  // 雲はシーンを描いたあと、大気の合成より前に焼く。
+  // 結果は overlay 経由で EffectPass の中へ入る
+  if (options.cloudsPass) composer.addPass(options.cloudsPass)
 
   // SMAA はプリセットで切り替わるので使い回す。破棄すると再構築が要る
   const smaa = new SMAAEffect()

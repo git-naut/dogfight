@@ -23,9 +23,14 @@ export interface CaptureConfig {
   hour: number
   /** トーンマッピングの露出。未指定なら既定値 */
   exposure: number | null
+  /** 雲量 0..1 */
+  coverage: number
 }
 
 export const DEFAULT_SEED = 20260816
+
+/** 既定の雲量。点在する積雲になる値 */
+export const DEFAULT_COVERAGE = 0.35
 
 export function readCaptureConfig(search: string): CaptureConfig {
   const params = new URLSearchParams(search)
@@ -38,6 +43,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     exposure: params.has('exposure')
       ? clampNumber(params.get('exposure'), 0.01, 1000, 1)
       : null,
+    coverage: clampNumber(params.get('coverage'), 0, 1, DEFAULT_COVERAGE),
   }
 }
 
@@ -80,6 +86,10 @@ export interface TestHook {
   atmosphereReady: boolean
   /** 太陽高度 rad。時刻を変えたことの検証に使う */
   sunElevation: number
+  /** 雲ノイズの生成にかかったミリ秒 */
+  noiseMs: number
+  /** 雲ノイズの中身。min と max が同じなら生成に失敗している */
+  noiseStats: { min: number; max: number; mean: number }
   preset: PresetName
   hour: number
   // 飛行状態

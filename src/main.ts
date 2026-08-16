@@ -33,6 +33,8 @@ const hook = installTestHook({
   webglVersion: 0,
   atmosphereReady: false,
   sunElevation: 0,
+  noiseMs: 0,
+  noiseStats: { min: 0, max: 0, mean: 0 },
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -50,12 +52,15 @@ async function main(): Promise<void> {
     preset: capture.preset,
     hour: capture.hour,
     texturesUrl: TEXTURES_URL,
+    coverage: capture.coverage,
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
   })
 
   hook.webglVersion = view.renderer.capabilities.isWebGL2 ? 2 : 1
   hook.atmosphereReady = true
   hook.sunElevation = view.sunElevation
+  hook.noiseMs = view.noiseMs
+  hook.noiseStats = view.noiseStats
 
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる
@@ -73,6 +78,8 @@ async function main(): Promise<void> {
     hook.bank = sample.bank
     hook.crashed = sample.crashed
     hook.sunElevation = view.sunElevation
+  hook.noiseMs = view.noiseMs
+  hook.noiseStats = view.noiseStats
   }
 
   if (capture.enabled) {
@@ -87,7 +94,7 @@ async function main(): Promise<void> {
     }
 
     world.samplePlayer(1, sample)
-    view.sync(sample, 0, { yaw: 0, pitch: 0 }, true)
+    view.sync(sample, world.frame, 0, { yaw: 0, pitch: 0 }, true)
     view.render()
 
     publish(world.frame)
@@ -142,7 +149,7 @@ async function main(): Promise<void> {
     const alpha = driver.advance(delta, () => world.step(input))
 
     world.samplePlayer(alpha, sample)
-    view.sync(sample, delta, mouse.update(delta))
+    view.sync(sample, world.frame, delta, mouse.update(delta))
     view.render()
 
     if (delta > 0) {
@@ -163,6 +170,8 @@ async function main(): Promise<void> {
     debug?.update(sample, world.frame, smoothedFps, {
       sunElevation: view.sunElevation,
       preset,
+      gpuFrameMs: view.gpuFrameMs,
+      gpuTimerSupported: view.gpuTimerSupported,
     })
 
     requestAnimationFrame(frame)
@@ -170,7 +179,7 @@ async function main(): Promise<void> {
 
   // 初期姿勢でカメラを定位置に置いてから回し始める
   world.samplePlayer(1, sample)
-  view.sync(sample, FIXED_DT, mouse.offset, true)
+  view.sync(sample, world.frame, FIXED_DT, mouse.offset, true)
   requestAnimationFrame(frame)
 }
 

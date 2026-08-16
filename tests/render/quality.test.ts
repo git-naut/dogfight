@@ -39,6 +39,50 @@ describe('品質プリセットの表', () => {
     }
   })
 
+  it('雲のステップ数が段ごとに増える', () => {
+    const steps = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudMaxSteps)
+    for (let i = 1; i < steps.length; i++) {
+      expect(steps[i]!).toBeGreaterThan(steps[i - 1]!)
+    }
+    const light = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudLightSteps)
+    for (let i = 1; i < light.length; i++) {
+      expect(light[i]!).toBeGreaterThan(light[i - 1]!)
+    }
+  })
+
+  it('雲の解像度が下がる段はない', () => {
+    const scales = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudResolutionScale)
+    for (let i = 1; i < scales.length; i++) {
+      expect(scales[i]!).toBeGreaterThanOrEqual(scales[i - 1]!)
+    }
+    // low は 1/8、ultra は 1/2
+    expect(QUALITY_PRESETS.low.cloudResolutionScale).toBeCloseTo(0.125, 6)
+    expect(QUALITY_PRESETS.ultra.cloudResolutionScale).toBeCloseTo(0.5, 6)
+  })
+
+  it('光マーチのステップ数がシェーダの上限を超えない', () => {
+    // clouds.frag のループは 8 回で打ち切っている
+    for (const name of PRESET_ORDER) {
+      expect(QUALITY_PRESETS[name].cloudLightSteps).toBeLessThanOrEqual(8)
+    }
+  })
+
+  it('主マーチのステップ数がシェーダの上限を超えない', () => {
+    // clouds.frag のループは 256 回で打ち切っている
+    for (const name of PRESET_ORDER) {
+      expect(QUALITY_PRESETS[name].cloudMaxSteps).toBeLessThanOrEqual(256)
+    }
+  })
+
+  it('low だけ雲のディテールと地面の雲影を切っている', () => {
+    expect(QUALITY_PRESETS.low.cloudDetail).toBe(false)
+    expect(QUALITY_PRESETS.low.cloudGroundShadow).toBe(false)
+    for (const name of ['medium', 'high', 'ultra'] as const) {
+      expect(QUALITY_PRESETS[name].cloudDetail).toBe(true)
+      expect(QUALITY_PRESETS[name].cloudGroundShadow).toBe(true)
+    }
+  })
+
   it('low だけ SMAA を切っている', () => {
     expect(QUALITY_PRESETS.low.smaa).toBe(false)
     expect(QUALITY_PRESETS.medium.smaa).toBe(true)

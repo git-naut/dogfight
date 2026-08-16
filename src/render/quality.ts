@@ -10,8 +10,6 @@
 
 export type PresetName = 'low' | 'medium' | 'high' | 'ultra'
 
-export type CloudMode = 'billboard' | 'cluster' | 'raymarch-quarter' | 'raymarch-half'
-
 export interface QualitySettings {
   /** 描画解像度の倍率。1.0 が等倍 */
   renderScale: number
@@ -20,10 +18,24 @@ export interface QualitySettings {
   smaa: boolean
   anisotropy: number
 
-  // 以下は Phase 3 と Phase 4 で実際に効くようになる枠
-  clouds: CloudMode
-  cloudSelfShadow: boolean
+  /**
+   * 雲のレイマーチを走らせる解像度の倍率。
+   *
+   * 当初の案では Low をビルボード、Medium をメッシュクラスタ、High 以上を
+   * レイマーチとしていたが、雲の実装を3つ作ることになり工数に見合わない。
+   * 1つのレイマーチで解像度とステップ数だけを段階にする。
+   */
+  cloudResolutionScale: number
+  /** 主マーチの上限ステップ数 */
+  cloudMaxSteps: number
+  /** 太陽方向への二次マーチのステップ数 */
+  cloudLightSteps: number
+  /** ディテールノイズで輪郭を削るか */
+  cloudDetail: boolean
+  /** 地面へ雲影を落とすか */
   cloudGroundShadow: boolean
+
+  // 以下は Phase 3.5 と Phase 4 で実際に効くようになる枠
   shadowCascades: number
   lodDistanceScale: number
 }
@@ -38,8 +50,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 1,
     smaa: false,
     anisotropy: 1,
-    clouds: 'billboard',
-    cloudSelfShadow: false,
+    cloudResolutionScale: 0.125,
+    cloudMaxSteps: 32,
+    cloudLightSteps: 3,
+    cloudDetail: false,
     cloudGroundShadow: false,
     shadowCascades: 1,
     lodDistanceScale: 0.5,
@@ -49,8 +63,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 1.5,
     smaa: true,
     anisotropy: 4,
-    clouds: 'cluster',
-    cloudSelfShadow: false,
+    cloudResolutionScale: 0.25,
+    cloudMaxSteps: 64,
+    cloudLightSteps: 4,
+    cloudDetail: true,
     cloudGroundShadow: true,
     shadowCascades: 2,
     lodDistanceScale: 0.75,
@@ -60,8 +76,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 2,
     smaa: true,
     anisotropy: 8,
-    clouds: 'raymarch-quarter',
-    cloudSelfShadow: true,
+    cloudResolutionScale: 0.25,
+    cloudMaxSteps: 96,
+    cloudLightSteps: 6,
+    cloudDetail: true,
     cloudGroundShadow: true,
     shadowCascades: 3,
     lodDistanceScale: 1,
@@ -71,8 +89,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 2,
     smaa: true,
     anisotropy: 16,
-    clouds: 'raymarch-half',
-    cloudSelfShadow: true,
+    cloudResolutionScale: 0.5,
+    cloudMaxSteps: 160,
+    cloudLightSteps: 8,
+    cloudDetail: true,
     cloudGroundShadow: true,
     shadowCascades: 4,
     lodDistanceScale: 1.5,

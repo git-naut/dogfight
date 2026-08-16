@@ -21,6 +21,9 @@ export interface RenderInfo {
   /** 太陽高度 rad */
   sunElevation: number
   preset: string
+  /** GPU フレーム時間 ms。0 なら計測できていない */
+  gpuFrameMs: number
+  gpuTimerSupported: boolean
 }
 
 export interface DebugPanel {
@@ -51,6 +54,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['preset', '品質'],
     ['frame', 'フレーム'],
     ['fps', 'FPS'],
+    ['gpu', 'GPU 時間'],
   ] as const
 
   for (const [key, label] of order) {
@@ -102,6 +106,13 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       set('preset', render.preset)
       set('frame', String(frame))
       set('fps', fps.toFixed(0))
+      // vsync で 60fps に張り付いていても、ここを見れば余裕が読める
+      set(
+        'gpu',
+        render.gpuTimerSupported
+          ? `${render.gpuFrameMs.toFixed(1)} ms / 16.7`
+          : '計測不可',
+      )
 
       const warnings: string[] = []
       if (sample.crashed) warnings.push('墜落')

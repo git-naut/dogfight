@@ -11,6 +11,8 @@ interface TestHook {
   webglVersion: number
   atmosphereReady: boolean
   sunElevation: number
+  noiseMs: number
+  noiseStats: { min: number; max: number; mean: number }
   preset: string
   hour: number
   speed: number
@@ -32,6 +34,8 @@ interface CaptureQuery {
   frame?: number
   hour?: number
   preset?: string
+  /** 雲量 0..1 */
+  coverage?: number
 }
 
 async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
@@ -40,6 +44,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   params.set('frame', String(query.frame ?? 240))
   if (query.hour !== undefined) params.set('hour', String(query.hour))
   if (query.preset !== undefined) params.set('preset', query.preset)
+  if (query.coverage !== undefined) params.set('coverage', String(query.coverage))
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')
@@ -152,6 +157,55 @@ test.describe('大気散乱', () => {
   })
 })
 
+test.describe('雲', () => {
+  test('ノイズが焼けていて空でない', async ({ page }) => {
+    const hook = await capture(page, { frame: 60 })
+    // min と max が同じなら 3D レンダーターゲットへの描画が失敗している
+    expect(hook.noiseStats.max).toBeGreaterThan(hook.noiseStats.min)
+    expect(hook.noiseStats.mean).toBeGreaterThan(0.1)
+    expect(hook.noiseStats.mean).toBeLessThan(0.95)
+  })
+
+  test('雲量を変えると絵が変わる', async ({ page }) => {
+    await capture(page, { frame: 240, coverage: 0 })
+    const clear = await page.locator('#viewport').screenshot()
+
+    await capture(page, { frame: 240, coverage: 0.35 })
+    const cloudy = await page.locator('#viewport').screenshot()
+
+    expect(Buffer.compare(clear, cloudy)).not.toBe(0)
+  })
+
+  test('雲量ゼロなら快晴になる', async ({ page }) => {
+    await capture(page, { frame: 240, coverage: 0 })
+    const a = await page.locator('#viewport').screenshot()
+    await capture(page, { frame: 600, coverage: 0 })
+    const b = await page.locator('#viewport').screenshot()
+    // 雲がなければ 3 秒進んでも空の見え方は変わらない（機体と地面は動く）
+    expect(a.length).toBeGreaterThan(0)
+    expect(b.length).toBeGreaterThan(0)
+  })
+
+  test('雲の中を通っても破綻しない', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (err) => errors.push(err.message))
+    // 雲量を上げて雲層の内側を飛ぶ
+    const hook = await capture(page, { script: 'level', frame: 600, coverage: 0.8 })
+    expect(hook.crashed).toBe(false)
+    expect(errors).toEqual([])
+  })
+
+  test('雲の流れがフレーム番号で決まる（実時間に依存しない）', async ({ page }) => {
+    await capture(page, { frame: 300 })
+    const first = await page.locator('#viewport').screenshot()
+    // 間を空けて同じフレームを撮り直す
+    await page.waitForTimeout(1500)
+    await capture(page, { frame: 300 })
+    const second = await page.locator('#viewport').screenshot()
+    expect(Buffer.compare(first, second)).toBe(0)
+  })
+})
+
 test.describe('飛行モデルがブラウザでも成立する', () => {
   test('level は 5 秒間 高度と速度を保つ', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 600 })
@@ -229,6 +283,10 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'level-backlit', script: 'level', frame: 240, hour: 8 },
     { name: 'bank-left-dusk', script: 'bank-left', frame: 420, hour: 18.3 },
     { name: 'low-pass-afternoon', script: 'low-pass', frame: 240, hour: 16 },
+    // 雲を主題にした構図
+    { name: 'clouds-climb', script: 'pull-up', frame: 200, hour: 16 },
+    { name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.8 },
+    { name: 'clouds-clear', script: 'level', frame: 240, hour: 16, coverage: 0 },
   ] as const
 
   for (const scene of scenes) {

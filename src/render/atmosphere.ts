@@ -68,6 +68,14 @@ export interface AtmosphereHandle {
   readonly sky: Mesh
   /** 太陽高度 rad。デバッグ表示と E2E の検証に使う */
   readonly sunElevation: number
+  /** ワールド座標で太陽へ向かう単位ベクトル。雲のライティングに渡す */
+  readonly sunDirectionWorld: Vector3
+  /** 太陽光の放射輝度。色に強度を掛けたもの */
+  readonly sunRadiance: Vector3
+  /** 天空光の放射輝度。雲の陰の側を埋める */
+  readonly skyRadiance: Vector3
+  /** 雲を大気の合成点へ差し込む。null で解除 */
+  setOverlay(map: { map: import('three').Texture } | null): void
   /** 時刻を変える。次の update() から反映される */
   setHour(hour: number): void
   /** 毎フレーム呼ぶ */
@@ -169,6 +177,9 @@ export async function createAtmosphere(
 
   const sunDirection = new Vector3()
   const moonDirection = new Vector3()
+  const sunDirectionWorld = new Vector3(0, 1, 0)
+  const sunRadiance = new Vector3()
+  const skyRadiance = new Vector3()
   let hour = options.hour ?? DEFAULT_HOUR
   let elevation = 0
 
@@ -188,6 +199,27 @@ export async function createAtmosphere(
     skyLight.update()
 
     elevation = Math.asin(clamp(sunDirection.dot(localUpEcef), -1, 1))
+    updateLightVectors()
+  }
+
+  /**
+   * 雲のシェーダへ渡す値を取り出す。
+   *
+   * 太陽の向きは ECEF ではなくワールド座標で要る。update() が
+   * ライトの位置を太陽方向から決めているので、そこから逆算する。
+   */
+  function updateLightVectors(): void {
+    sunDirectionWorld
+      .copy(sunLight.position)
+      .sub(sunLight.target.position)
+      .normalize()
+
+    sunRadiance.set(sunLight.color.r, sunLight.color.g, sunLight.color.b)
+      .multiplyScalar(sunLight.intensity)
+
+    // LightProbe の L0 係数が平均放射輝度にあたる
+    const l0 = skyLight.sh.coefficients[0]
+    if (l0) skyRadiance.copy(l0).multiplyScalar(skyLight.intensity * 0.28)
   }
 
   refresh()
@@ -202,6 +234,22 @@ export async function createAtmosphere(
       return elevation
     },
 
+    get sunDirectionWorld() {
+      return sunDirectionWorld
+    },
+
+    get sunRadiance() {
+      return sunRadiance
+    },
+
+    get skyRadiance() {
+      return skyRadiance
+    },
+
+    setOverlay(overlay) {
+      effect.overlay = overlay
+    },
+
     setHour(value: number) {
       hour = value
       refresh()
@@ -212,6 +260,7 @@ export async function createAtmosphere(
       // 変わると透過率が変わるので、ライト側の更新は毎フレーム要る。
       sunLight.update()
       skyLight.update()
+      updateLightVectors()
     },
 
     dispose() {

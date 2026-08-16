@@ -6,6 +6,11 @@ import { createAircraftView, type AircraftView } from './aircraftView'
 import { createAtmosphere, DEFAULT_HOUR, type AtmosphereHandle } from './atmosphere'
 import { createComposer, type ComposerHandle } from './composer'
 import { getQuality, type PresetName, type QualitySettings } from './quality'
+import { createGpuTimer, type GpuTimer } from './gpuTimer'
+import { generateCloudNoise, type CloudNoise } from './clouds/noise'
+import { CloudsPass, SHADOW_EXTENT } from './clouds/cloudsPass'
+import { cloudTime } from './clouds/geometry'
+import { FIXED_DT } from '../sim/loop'
 
 /**
  * Phase 2 のシーン。
@@ -46,9 +51,27 @@ export interface SceneHandle {
   chase: ChaseCamera
   /** 太陽高度 rad。デバッグ表示と E2E の検証に使う */
   readonly sunElevation: number
+  /** 雲ノイズの生成にかかったミリ秒。性能の記録用 */
+  readonly noiseMs: number
+  /** 雲ノイズが空でないことの確認用 */
+  readonly noiseStats: { min: number; max: number; mean: number }
+  /** GPU のフレーム時間 ms。拡張が無ければ 0 */
+  readonly gpuFrameMs: number
+  /** GPU 時間の計測が使えるか */
+  readonly gpuTimerSupported: boolean
   readonly quality: QualitySettings
-  /** sim の状態を描画へ反映する */
-  sync(sample: AircraftSample, dt: number, look: LookOffset, snap?: boolean): void
+  /**
+   * sim の状態を描画へ反映する。
+   *
+   * @param frame sim のフレーム番号。雲の流れをここから導くので実時間は渡さない
+   */
+  sync(
+    sample: AircraftSample,
+    frame: number,
+    dt: number,
+    look: LookOffset,
+    snap?: boolean,
+  ): void
   render(): void
   resize(width: number, height: number, devicePixelRatio: number): void
   setQuality(preset: PresetName): void
@@ -67,9 +90,14 @@ export interface SceneHandle {
  */
 export const DEFAULT_EXPOSURE = 6
 
+/** 既定の雲量。点在する積雲になる値 */
+export const DEFAULT_COVERAGE = 0.35
+
 export interface SceneOptions {
   preset: PresetName
   hour?: number
+  /** 雲量 0..1 */
+  coverage?: number
   /** トーンマッピングの露出。調整用に上書きできる */
   exposure?: number
   /** 大気の LUT を置いた URL */
@@ -117,20 +145,46 @@ export async function createScene(
   scene.add(atmosphere.sunLight.target)
   scene.add(atmosphere.skyLight)
 
-  const ground = createGround(quality)
+  // 雲のノイズを焼く。起動時の一度だけで、以降は使い回す
+  const noise: CloudNoise = generateCloudNoise(renderer)
+
+  // 地面シェーダへ雲影を渡すためのユニフォーム。テクスチャは
+  // CloudsPass を作ったあとで差し込む
+  const groundUniforms = {
+    cloudShadowMap: { value: null as THREE.Texture | null },
+    cloudShadowCenter: { value: new THREE.Vector2() },
+    cloudShadowExtent: { value: SHADOW_EXTENT },
+    cloudShadowEnabled: { value: 1 },
+  }
+
+  const ground = createGround(groundUniforms)
   scene.add(ground)
 
   const aircraft: AircraftView = createAircraftView()
   scene.add(aircraft.object)
+
+  const cloudsPass = new CloudsPass({
+    camera,
+    noise,
+    quality,
+    coverage: options.coverage ?? 1,
+  })
+  // 雲を大気の合成点へ差し込む。合成の順序はライブラリ側が持つ
+  atmosphere.setOverlay({ map: cloudsPass.texture })
 
   const composer: ComposerHandle = createComposer({
     renderer,
     scene,
     camera,
     aerialPerspective: atmosphere.effect,
+    cloudsPass,
     quality,
   })
 
+  groundUniforms.cloudShadowMap.value = cloudsPass.shadowTexture
+
+  const gpuTimer: GpuTimer = createGpuTimer(renderer)
+  const shadowCenter = new THREE.Vector2()
   const quaternion = new THREE.Quaternion()
   let cssWidth = 1280
   let cssHeight = 720
@@ -155,11 +209,27 @@ export async function createScene(
       return atmosphere.sunElevation
     },
 
+    get noiseMs() {
+      return noise.elapsedMs
+    },
+
+    get noiseStats() {
+      return noise.stats
+    },
+
+    get gpuFrameMs() {
+      return gpuTimer.lastMs
+    },
+
+    get gpuTimerSupported() {
+      return gpuTimer.supported
+    },
+
     get quality() {
       return quality
     },
 
-    sync(sample, dt, look, snap = false) {
+    sync(sample, frame, dt, look, snap = false) {
       aircraft.object.position.set(
         sample.position.x,
         sample.position.y,
@@ -195,10 +265,31 @@ export async function createScene(
 
       if (snap) chase.snap(sample, look)
       else chase.update(sample, dt, look)
+
+      // 雲の流れは実時間ではなく sim のフレーム番号から導く。
+      // これでキャプチャモードの絵が固定される
+      shadowCenter.set(sample.position.x, sample.position.z)
+      cloudsPass.update({
+        cloudTime: cloudTime(frame, FIXED_DT),
+        sunDirection: atmosphere.sunDirectionWorld,
+        sunColor: atmosphere.sunRadiance,
+        ambientColor: atmosphere.skyRadiance,
+        coverage: options.coverage ?? DEFAULT_COVERAGE,
+        shadowCenter,
+        groundShadow: quality.cloudGroundShadow,
+      })
+
+      // 地面シェーダが参照する雲影の領域も合わせる
+      groundUniforms.cloudShadowCenter.value.copy(shadowCenter)
+      groundUniforms.cloudShadowEnabled.value = quality.cloudGroundShadow ? 1 : 0
     },
 
     render() {
+      gpuTimer.begin()
+      // 雲影は地面を描く前に焼く。composer の中では手遅れになる
+      cloudsPass.renderShadow(renderer)
       composer.render()
+      gpuTimer.end()
     },
 
     resize(width, height, devicePixelRatio) {
@@ -211,6 +302,7 @@ export async function createScene(
     setQuality(preset) {
       quality = getQuality(preset)
       composer.setQuality(quality)
+      cloudsPass.setQuality(quality)
       applySize()
     },
 
@@ -223,7 +315,10 @@ export async function createScene(
     },
 
     dispose() {
+      gpuTimer.dispose()
       aircraft.dispose()
+      cloudsPass.dispose()
+      noise.dispose()
       atmosphere.dispose()
       composer.dispose()
       ground.geometry.dispose()
@@ -242,14 +337,20 @@ export async function createScene(
  *
  * 照明を効かせたいので MeshStandardMaterial に差し込む。
  */
-function createGround(quality: QualitySettings): THREE.Mesh {
+function createGround(shadowUniforms: Record<string, { value: unknown }>): THREE.Mesh {
   const material = new THREE.MeshStandardMaterial({
     color: GROUND_COLOR,
     roughness: 1,
     metalness: 0,
   })
 
+  // 差し込みは1回で済ませる。
+  //
+  // onBeforeCompile を後から差し替えると、three がキャッシュキーで
+  // プログラムを再利用して古いシェーダのまま走る。needsUpdate だけでは
+  // 直らない。実測で雲影がまったく効かなかった原因がこれ。
   material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, shadowUniforms)
     shader.uniforms['minorSpacing'] = { value: GRID_SPACING }
     shader.uniforms['majorSpacing'] = { value: GRID_SPACING * 5 }
     shader.uniforms['minorColor'] = { value: new THREE.Color(0x33452e) }
@@ -276,6 +377,10 @@ function createGround(quality: QualitySettings): THREE.Mesh {
         uniform vec3 majorColor;
         uniform float gridFadeStart;
         uniform float gridFadeEnd;
+        uniform sampler2D cloudShadowMap;
+        uniform vec2 cloudShadowCenter;
+        uniform float cloudShadowExtent;
+        uniform float cloudShadowEnabled;
 
         // 線からの距離をピクセル単位で測り、1 px 前後の幅に収める
         float gridMask(vec2 worldXZ, float spacing, float widthPx) {
@@ -299,6 +404,17 @@ function createGround(quality: QualitySettings): THREE.Mesh {
           diffuseColor.rgb = mix(diffuseColor.rgb, minorColor, minorLine * fade);
           diffuseColor.rgb = mix(diffuseColor.rgb, majorColor, majorLine * fade);
         }
+        // 雲影。真上から焼いたマップをワールド XZ で引く。
+        // 影でも真っ暗にはしない。空からの散乱光は雲があっても届く
+        if (cloudShadowEnabled > 0.5) {
+          vec2 shadowUv =
+            (vGroundWorldPos.xz - cloudShadowCenter) / cloudShadowExtent + 0.5;
+          if (all(greaterThanEqual(shadowUv, vec2(0.0))) &&
+              all(lessThanEqual(shadowUv, vec2(1.0)))) {
+            float shade = texture2D(cloudShadowMap, shadowUv).r;
+            diffuseColor.rgb *= mix(0.42, 1.0, shade);
+          }
+        }
         `,
       )
   }
@@ -308,7 +424,6 @@ function createGround(quality: QualitySettings): THREE.Mesh {
     material,
   )
   mesh.rotation.x = -Math.PI / 2
-  void quality
   return mesh
 }
 

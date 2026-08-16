@@ -76,7 +76,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 2,
     smaa: true,
     anisotropy: 8,
-    cloudResolutionScale: 0.25,
+    // 実機（Intel Arc 140V）の実測で、1/4 解像度のとき雲パスは 2.7 ms、
+    // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
+    // 雲 10.8 ms、合計 13 ms 前後に収まる
+    cloudResolutionScale: 0.5,
     cloudMaxSteps: 96,
     cloudLightSteps: 6,
     cloudDetail: true,
@@ -89,8 +92,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 2,
     smaa: true,
     anisotropy: 16,
-    cloudResolutionScale: 0.5,
-    cloudMaxSteps: 160,
+    // High より上の段。実機で 60fps は狙わない位置づけ。
+    // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
+    cloudResolutionScale: 0.625,
+    cloudMaxSteps: 128,
     cloudLightSteps: 8,
     cloudDetail: true,
     cloudGroundShadow: true,

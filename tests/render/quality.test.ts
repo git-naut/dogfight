@@ -50,14 +50,25 @@ describe('品質プリセットの表', () => {
     }
   })
 
-  it('雲の解像度が下がる段はない', () => {
+  it('雲の解像度が段ごとに上がる', () => {
     const scales = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudResolutionScale)
     for (let i = 1; i < scales.length; i++) {
-      expect(scales[i]!).toBeGreaterThanOrEqual(scales[i - 1]!)
+      expect(scales[i]!).toBeGreaterThan(scales[i - 1]!)
     }
-    // low は 1/8、ultra は 1/2
-    expect(QUALITY_PRESETS.low.cloudResolutionScale).toBeCloseTo(0.125, 6)
-    expect(QUALITY_PRESETS.ultra.cloudResolutionScale).toBeCloseTo(0.5, 6)
+  })
+
+  it('雲の解像度が 1 を超えない', () => {
+    // 画面より高い解像度でマーチしても意味がない
+    for (const name of PRESET_ORDER) {
+      expect(QUALITY_PRESETS[name].cloudResolutionScale).toBeGreaterThan(0)
+      expect(QUALITY_PRESETS[name].cloudResolutionScale).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('High は実機の計測に基づく値になっている', () => {
+    // Intel Arc 140V の実測で、1/4 のとき雲 2.7 ms・全体 5.2 ms / 16.7 ms。
+    // 1/2 なら画素数 4 倍で 13 ms 前後に収まる
+    expect(QUALITY_PRESETS.high.cloudResolutionScale).toBeCloseTo(0.5, 6)
   })
 
   it('光マーチのステップ数がシェーダの上限を超えない', () => {

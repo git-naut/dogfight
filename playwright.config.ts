@@ -54,7 +54,13 @@ export default defineConfig({
     command:
       'npm run build && npm run preview -- --port 4173 --strictPort --host 127.0.0.1',
     url: 'http://127.0.0.1:4173/dogfight/',
-    reuseExistingServer: !process.env.CI,
+    // 既存サーバを再利用しない。
+    //
+    // 再利用すると webServer の command が走らず、ビルドが飛ぶ。手動で起動した
+    // preview が残っていると、古い dist に対してスクリーンショット回帰を
+    // かけることになり、検証そのものが嘘になる。実際にそれで 30 分溶かした。
+    // 毎回ビルドしても数秒しか変わらない。
+    reuseExistingServer: false,
     timeout: 180_000,
   },
 })

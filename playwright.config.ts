@@ -5,6 +5,13 @@ import { defineConfig, devices } from '@playwright/test'
 // 遅い代わりに、どのマシンでも同じピクセルが出る。
 export default defineConfig({
   testDir: './tests/e2e',
+  /**
+   * 1 テストの制限。既定の 30 秒では足りない。
+   *
+   * 雲は時間方向に足し込むので、キャプチャ 1 枚あたり 8 回描く。CI の
+   * ソフトウェアレンダラでは 1 回が数百ミリ秒かかるため、30 秒を越える。
+   */
+  timeout: 120_000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

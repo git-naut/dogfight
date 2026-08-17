@@ -9,6 +9,12 @@
   <body>
     <canvas id="viewport"></canvas>
     <div id="hud" aria-hidden="true"></div>
+    <!--
+      起動中の表示。大気の LUT が 4.1 MB あり、そのあと 3D ノイズを焼くので、
+      初回は数秒かかる。何も出さないと画面が真っ黒のままになり、
+      止まっているのか読み込み中なのか分からない
+    -->
+    <div id="boot"><p id="boot-text">読み込み中</p></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

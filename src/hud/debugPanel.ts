@@ -23,8 +23,11 @@ export interface RenderInfo {
   preset: string
   /** GPU フレーム時間 ms。0 なら計測できていない */
   gpuFrameMs: number
+  /** 直近しばらくの最大。現在値だけでは重い視点を見落とす */
+  gpuFrameMaxMs: number
   /** そのうち雲のパスが占める ms */
   gpuCloudMs: number
+  gpuCloudMaxMs: number
   gpuTimerSupported: boolean
   /**
    * フレームの CPU 内訳 ms。
@@ -123,18 +126,21 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       set('sun', `${(render.sunElevation * DEG).toFixed(1)}°`)
       set('preset', render.preset)
       set('frame', String(frame))
-      set('fps', fps.toFixed(0))
+      // fps は平滑化してあるので、生のフレーム時間も並べる
+      set('fps', `${fps.toFixed(0)} (${(1000 / Math.max(fps, 1)).toFixed(1)} ms)`)
       // vsync で 60fps に張り付いていても、ここを見れば余裕が読める
+      // 現在値と直近の最大を並べる。結果が揃ったときにしか更新されないので、
+      // 重いフレームほど現在値は古い軽い値のまま残る。予算は最大側で見る
       set(
         'gpu',
         render.gpuTimerSupported
-          ? `${render.gpuFrameMs.toFixed(1)} ms / 16.7`
+          ? `${render.gpuFrameMs.toFixed(1)} / 最大 ${render.gpuFrameMaxMs.toFixed(1)} ms (16.7)`
           : '計測不可',
       )
       set(
         'gpuClouds',
         render.gpuTimerSupported
-          ? `${render.gpuCloudMs.toFixed(1)} ms`
+          ? `${render.gpuCloudMs.toFixed(1)} / 最大 ${render.gpuCloudMaxMs.toFixed(1)} ms`
           : '計測不可',
       )
 

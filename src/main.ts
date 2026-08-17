@@ -19,6 +19,20 @@ const canvas = document.querySelector<HTMLCanvasElement>('#viewport')
 const hudRoot = document.querySelector<HTMLElement>('#hud')
 if (!canvas || !hudRoot) throw new Error('#viewport か #hud が見つからない')
 
+/**
+ * 起動中の表示。
+ *
+ * 大気の LUT が 4.1 MB あり、そのあと 3D ノイズを焼くので初回は数秒かかる。
+ * 何も出さないと真っ黒の画面が続き、読み込み中なのか初期化に失敗したのか
+ * 区別がつかない。実際に「ブラックアウトした」という報告が出た。
+ */
+const boot = document.querySelector<HTMLElement>('#boot')
+const bootText = document.querySelector<HTMLElement>('#boot-text')
+const setBoot = (text: string) => {
+  if (bootText) bootText.textContent = text
+}
+const finishBoot = () => boot?.classList.add('is-done')
+
 const capture = readCaptureConfig(window.location.search)
 
 // 大気の LUT は tools/copy-atmosphere-assets.mjs が public/atmosphere/ へ置く。
@@ -54,6 +68,7 @@ const hook = installTestHook({
 const sample = createAircraftSample()
 
 async function main(): Promise<void> {
+  setBoot('大気の散乱テーブルを読み込み中')
   const view = await createScene(canvas!, {
     preset: capture.preset,
     hour: capture.hour,
@@ -69,6 +84,7 @@ async function main(): Promise<void> {
     ...(capture.exitOverride !== null ? { cloudExitOverride: capture.exitOverride } : {}),
   })
 
+  setBoot('描画の準備中')
   hook.webglVersion = view.renderer.capabilities.isWebGL2 ? 2 : 1
   hook.atmosphereReady = true
   hook.sunElevation = view.sunElevation
@@ -140,6 +156,7 @@ async function main(): Promise<void> {
 
     publish(world.frame)
     hook.captureReady = true
+    finishBoot()
     document.body.dataset['captureReady'] = '1'
     return
   }
@@ -226,7 +243,9 @@ async function main(): Promise<void> {
       sunElevation: view.sunElevation,
       preset,
       gpuFrameMs: view.gpuFrameMs,
+      gpuFrameMaxMs: view.gpuFrameMaxMs,
       gpuCloudMs: view.gpuCloudMs,
+      gpuCloudMaxMs: view.gpuCloudMaxMs,
       gpuTimerSupported: view.gpuTimerSupported,
       cpuSimMs,
       cpuSyncMs,
@@ -242,10 +261,17 @@ async function main(): Promise<void> {
   // 初期姿勢でカメラを定位置に置いてから回し始める
   world.samplePlayer(1, sample)
   view.sync(sample, world.frame, FIXED_DT, mouse.offset, true)
+  view.render()
+  finishBoot()
   requestAnimationFrame(frame)
 }
 
 main().catch((error: unknown) => {
   console.error('[dogfight] 初期化に失敗した', error)
   document.body.dataset['initError'] = '1'
+  boot?.classList.add('is-error')
+  boot?.classList.remove('is-done')
+  setBoot(
+    `初期化に失敗しました\n${error instanceof Error ? error.message : String(error)}`,
+  )
 })

@@ -21,6 +21,14 @@ export interface GpuTimer {
   readonly supported: boolean
   /** 直近に取得できた GPU フレーム時間 ms。未取得なら 0 */
   readonly lastMs: number
+  /**
+   * 直近しばらくの最大値 ms。
+   *
+   * 現在値だけでは予算の判断を誤る。結果が揃ったときにしか更新されないので、
+   * 重いフレームほど古い軽い値が残り続ける。実際に GPU 10.8 ms と出ている
+   * 横で FPS が 46 に落ちていた。budget を決めるのは最大値のほう。
+   */
+  readonly maxMs: number
   /** フレームの計測を開始する */
   begin(): void
   /** フレームの計測を終える。結果は数フレーム後に読める */
@@ -31,6 +39,7 @@ export interface GpuTimer {
 const NOT_SUPPORTED: GpuTimer = {
   supported: false,
   lastMs: 0,
+  maxMs: 0,
   begin() {},
   end() {},
   dispose() {},
@@ -44,6 +53,7 @@ export function createGpuTimer(renderer: WebGLRenderer): GpuTimer {
   let pending: WebGLQuery | null = null
   let measuring = false
   let lastMs = 0
+  let maxMs = 0
 
   /** 結果が揃っていれば取り込む。揃うまで数フレームかかる */
   function collect(): void {
@@ -61,6 +71,8 @@ export function createGpuTimer(renderer: WebGLRenderer): GpuTimer {
 
     const nanoseconds = gl.getQueryParameter(pending, gl.QUERY_RESULT) as number
     lastMs = nanoseconds / 1e6
+    // ゆっくり減衰させる。1 回の外れ値に張り付かず、直近の重さは残る
+    maxMs = Math.max(lastMs, maxMs * 0.995)
     gl.deleteQuery(pending)
     pending = null
   }
@@ -70,6 +82,10 @@ export function createGpuTimer(renderer: WebGLRenderer): GpuTimer {
 
     get lastMs() {
       return lastMs
+    },
+
+    get maxMs() {
+      return maxMs
     },
 
     begin() {

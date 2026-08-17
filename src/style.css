@@ -80,3 +80,30 @@ body {
   font-size: 11px;
   line-height: 1.5;
 }
+
+/*
+ * 起動中のオーバーレイ。
+ *
+ * 大気の LUT 4.1 MB の取得と 3D ノイズの生成で初回は数秒かかる。
+ * 出さないと真っ黒の画面が続き、初期化に失敗した場合と見分けがつかない。
+ */
+#boot {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #05101a;
+  color: #7fd7c4;
+  font: 14px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  transition: opacity 0.4s ease;
+}
+
+#boot.is-done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#boot.is-error {
+  color: #ff8b7a;
+}

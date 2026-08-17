@@ -229,6 +229,11 @@ export class CloudsPass extends Pass {
     return this.timer?.lastMs ?? 0
   }
 
+  /** 直近しばらくの最大 ms。重い視点の費用はこちらで見る */
+  get gpuMaxMs(): number {
+    return this.timer?.maxMs ?? 0
+  }
+
   /** フレーム全体の計測と交互に切り替える */
   setTimingEnabled(enabled: boolean): void {
     this.timingEnabled = enabled

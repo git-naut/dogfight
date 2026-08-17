@@ -158,6 +158,34 @@ test.describe('大気散乱', () => {
   })
 })
 
+test.describe('ライブループ', () => {
+  // 回帰テストはすべて capture=1 を通る。requestAnimationFrame で回る側は
+  // 検査の外にあり、そこへ計測コードを入れて画面が出ない状態を作った。
+  // 起動して数フレーム進むことだけは押さえる
+  for (const query of ['', '?debug=1', '?debug=1&nodegrade=1']) {
+    test(`${query || '既定'} で起動してフレームが進む`, async ({ page }) => {
+      const errors: string[] = []
+      page.on('pageerror', (e) => errors.push(e.message))
+
+      await page.goto(`/dogfight/${query}`)
+      await page.waitForFunction(
+        () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+        undefined,
+        { timeout: 60_000 },
+      )
+      await page.waitForTimeout(1500)
+
+      const hook = await readHook(page)
+      expect(errors, '例外が出ている').toEqual([])
+      expect(await page.getAttribute('body', 'data-init-error')).toBeNull()
+      expect(hook?.frame ?? 0, 'フレームが進んでいない').toBeGreaterThan(0)
+      // 起動中のオーバーレイが消えていること
+      const bootClass = await page.getAttribute('#boot', 'class')
+      expect(bootClass, '起動表示が消えていない').toContain('is-done')
+    })
+  }
+})
+
 test.describe('雲', () => {
   test('ノイズが焼けていて空でない', async ({ page }) => {
     const hook = await capture(page, { frame: 60 })

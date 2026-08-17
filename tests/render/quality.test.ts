@@ -86,6 +86,48 @@ describe('品質プリセットの表', () => {
     }
   })
 
+  it('地形パッチの分割が段ごとに上がる', () => {
+    const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].terrainPatchCells)
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]!).toBeGreaterThan(values[i - 1]!)
+    }
+  })
+
+  it('地形の LOD 段数が段ごとに減らない', () => {
+    // High と Ultra は同じ 7 段。段数を増やすより手前を細かくするほうが効く
+    const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].terrainLodLevels)
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!)
+    }
+  })
+
+  it('LOD の切り替え距離の倍率が段ごとに上がる', () => {
+    const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].lodDistanceScale)
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]!).toBeGreaterThan(values[i - 1]!)
+    }
+  })
+
+  it('地形の三角形数が予算に収まる', () => {
+    // パッチは レベル0 が 4x4 の 16 枚、以降のリングが各 12 枚。
+    // ポリゴン予算はシーン合計 1.5M（CLAUDE.md）
+    for (const name of PRESET_ORDER) {
+      const q = QUALITY_PRESETS[name]
+      const patches = 16 + (q.terrainLodLevels - 1) * 12
+      const triangles = patches * q.terrainPatchCells ** 2 * 2
+      expect(triangles).toBeLessThan(1_000_000)
+    }
+  })
+
+  it('low だけ地表の法線摂動と海面のスペキュラを切っている', () => {
+    expect(QUALITY_PRESETS.low.terrainDetailNormals).toBe(false)
+    expect(QUALITY_PRESETS.low.waterSpecular).toBe(false)
+    for (const name of ['medium', 'high', 'ultra'] as const) {
+      expect(QUALITY_PRESETS[name].terrainDetailNormals).toBe(true)
+      expect(QUALITY_PRESETS[name].waterSpecular).toBe(true)
+    }
+  })
+
   it('low だけ雲のディテールと地面の雲影を切っている', () => {
     expect(QUALITY_PRESETS.low.cloudDetail).toBe(false)
     expect(QUALITY_PRESETS.low.cloudGroundShadow).toBe(false)

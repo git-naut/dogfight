@@ -35,9 +35,35 @@ export interface QualitySettings {
   /** 地面へ雲影を落とすか */
   cloudGroundShadow: boolean
 
-  // 以下は Phase 3.5 と Phase 4 で実際に効くようになる枠
-  shadowCascades: number
+  /**
+   * 地形パッチの一辺のセル数。
+   *
+   * CDLOD は同じパッチを InstancedMesh で並べる方式なので、この 1 つの値で
+   * 全レベルの細かさが決まる。三角形数は パッチ枚数 × セル数² × 2。
+   */
+  terrainPatchCells: number
+  /**
+   * 地形の LOD の段数。
+   *
+   * レベル 0 が最も細かく、1 段ごとにセルが倍になる。段数で見える距離が
+   * 決まり、n 段なら レベル0の範囲 × 2^(n-1) まで届く。
+   */
+  terrainLodLevels: number
+  /** 地表の近距離の凹凸を法線の摂動で出すか */
+  terrainDetailNormals: boolean
+  /** 海面に太陽のスペキュラを乗せるか */
+  waterSpecular: boolean
+
+  /**
+   * LOD の切り替え距離の倍率。
+   *
+   * 地形パッチのレベル 0 のセルの大きさに掛ける。大きくすると手前が細かく
+   * なるかわりに、同じ段数で届く距離が伸びる。
+   */
   lodDistanceScale: number
+
+  // Phase 4 で機体の影を入れるときに効くようになる枠
+  shadowCascades: number
 }
 
 export const PRESET_ORDER: readonly PresetName[] = ['low', 'medium', 'high', 'ultra']
@@ -55,8 +81,12 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     cloudLightSteps: 2,
     cloudDetail: false,
     cloudGroundShadow: false,
-    shadowCascades: 1,
+    terrainPatchCells: 16,
+    terrainLodLevels: 5,
+    terrainDetailNormals: false,
+    waterSpecular: false,
     lodDistanceScale: 0.5,
+    shadowCascades: 1,
   },
   medium: {
     renderScale: 0.8,
@@ -68,8 +98,12 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     cloudLightSteps: 3,
     cloudDetail: true,
     cloudGroundShadow: true,
-    shadowCascades: 2,
+    terrainPatchCells: 24,
+    terrainLodLevels: 6,
+    terrainDetailNormals: true,
+    waterSpecular: true,
     lodDistanceScale: 0.75,
+    shadowCascades: 2,
   },
   high: {
     renderScale: 1,
@@ -84,8 +118,15 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     cloudLightSteps: 4,
     cloudDetail: true,
     cloudGroundShadow: true,
-    shadowCascades: 3,
+    // 実測で 220 枚 × 32² × 2 = 45 万三角形。プレースホルダ機体は数百なので、
+    // これがシーンのほぼ全部になる。Phase 4 の機体 9 機で 550k 前後を
+    // 見込むと、合計は予算 1.5M の内側に収まる
+    terrainPatchCells: 32,
+    terrainLodLevels: 7,
+    terrainDetailNormals: true,
+    waterSpecular: true,
     lodDistanceScale: 1,
+    shadowCascades: 3,
   },
   ultra: {
     renderScale: 1.25,
@@ -99,8 +140,16 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     cloudLightSteps: 8,
     cloudDetail: true,
     cloudGroundShadow: true,
+    // 48 だと三角形が 1.18M になり、機体のぶんが残らない。40 で 82 万
+    terrainPatchCells: 40,
+    // High と同じ 7 段。段数を増やすより手前を細かくするほうが効く
+    terrainLodLevels: 7,
+    terrainDetailNormals: true,
+    waterSpecular: true,
+    // 1.5 だと三角形が 2.19M になり、シーン予算 1.5M を単独で超える。
+    // セル数を 48 へ上げたぶん、切り替え距離は控えめにする
+    lodDistanceScale: 1.15,
     shadowCascades: 4,
-    lodDistanceScale: 1.5,
   },
 }
 

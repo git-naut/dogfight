@@ -115,6 +115,32 @@ function halton(index: number, base: number): number {
   return result
 }
 
+/** マーチの上限距離 m。clouds.frag の MAX_MARCH_DISTANCE と揃える */
+const MAX_MARCH_DISTANCE = 26_000
+/** 手前の歩幅 m。clouds.frag の NEAR_STEP と揃える */
+const NEAR_STEP = 45
+
+/**
+ * 歩幅の伸び率の尺度を歩数から解く。
+ *
+ * 歩幅を s(t) = NEAR_STEP * (1 + t / G) とすると、k 歩目の距離は
+ * t(k) = G * (exp(NEAR_STEP * k / G) - 1) になる。t(maxSteps) が上限距離に
+ * なる G を二分法で求める。これで到達距離が歩数から保証され、マーチが
+ * 途中で止まらない。止まると位置がカメラの移動で前後し、遠くの雲が
+ * 現れたり消えたりする。
+ */
+export function stepGrowthScale(maxSteps: number): number {
+  let low = 10
+  let high = 1e6
+  for (let i = 0; i < 60; i++) {
+    const g = (low + high) / 2
+    const reach = g * (Math.exp((NEAR_STEP * maxSteps) / g) - 1)
+    if (reach > MAX_MARCH_DISTANCE) low = g
+    else high = g
+  }
+  return (low + high) / 2
+}
+
 /** 雲影マップの一辺。地面に落ちる影なのでこの程度で足りる */
 const SHADOW_SIZE = 256
 /** 雲影マップが覆う世界の一辺 m */
@@ -285,6 +311,7 @@ export class CloudsPass extends Pass {
         maxSteps: { value: options.quality.cloudMaxSteps },
         lightSteps: { value: options.quality.cloudLightSteps },
         lightGrowth: { value: lightStepGrowth(options.quality.cloudLightSteps) },
+        stepGrowthScale: { value: stepGrowthScale(options.quality.cloudMaxSteps) },
         useDetail: { value: options.quality.cloudDetail },
         probeMode: { value: options.probe ?? 0 },
         startJitter: { value: 0 },
@@ -441,6 +468,7 @@ export class CloudsPass extends Pass {
     this.material.uniforms['maxSteps']!.value = quality.cloudMaxSteps
     this.material.uniforms['lightSteps']!.value = quality.cloudLightSteps
     this.material.uniforms['lightGrowth']!.value = lightStepGrowth(quality.cloudLightSteps)
+    this.material.uniforms['stepGrowthScale']!.value = stepGrowthScale(quality.cloudMaxSteps)
     this.material.uniforms['useDetail']!.value = quality.cloudDetail
     this.setSize(this.width, this.height)
   }

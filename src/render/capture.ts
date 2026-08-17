@@ -73,7 +73,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? clampNumber(params.get('cloudScale'), 0.05, 1, 0.25)
       : null,
     cloudSteps: params.has('cloudSteps')
-      ? clampInt(params.get('cloudSteps'), 8, 256, 96)
+      ? clampInt(params.get('cloudSteps'), 8, 512, 96)
       : null,
     cloudLight: params.has('cloudLight')
       ? clampInt(params.get('cloudLight'), 1, 8, 6)

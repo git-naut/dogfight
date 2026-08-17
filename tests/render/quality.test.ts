@@ -79,9 +79,10 @@ describe('品質プリセットの表', () => {
   })
 
   it('主マーチのステップ数がシェーダの上限を超えない', () => {
-    // clouds.frag のループは 256 回で打ち切っている
+    // clouds.frag のループは 512 回で打ち切っている。プリセットの歩数は
+    // それより小さくないと、打ち切りの検出（?probe=2）が働かない
     for (const name of PRESET_ORDER) {
-      expect(QUALITY_PRESETS[name].cloudMaxSteps).toBeLessThanOrEqual(256)
+      expect(QUALITY_PRESETS[name].cloudMaxSteps).toBeLessThanOrEqual(512)
     }
   })
 

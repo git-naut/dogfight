@@ -89,8 +89,6 @@ export interface CloudsPassOptions {
   coverage?: number
   /** 密度サンプル数を数えるモード。バッファは 8bit に固定される */
   probe?: boolean
-  /** 打ち切り透過率の上書き。実験用 */
-  exitOverride?: number
 }
 
 export interface CloudsUpdate {
@@ -202,7 +200,6 @@ export class CloudsPass extends Pass {
         lightGrowth: { value: lightStepGrowth(options.quality.cloudLightSteps) },
         useDetail: { value: options.quality.cloudDetail },
         probeMode: { value: probe },
-        exitOverride: { value: options.exitOverride ?? 0 },
       },
     })
 

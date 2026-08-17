@@ -96,8 +96,6 @@ const float DETAIL_FAR = 7000.0;
  */
 const float EXIT_TRANSMITTANCE = 0.01;
 
-/** 実験用の上書き。0 なら定数を使う */
-uniform float exitOverride;
 
 /**
  * 光マーチの段数を落とし始める距離 m。
@@ -108,6 +106,21 @@ uniform float exitOverride;
  */
 const float LIGHT_FULL_DISTANCE = 4000.0;
 const float LIGHT_HALF_DISTANCE = 10000.0;
+
+/**
+ * 空振り区間の大股送りの倍率。
+ *
+ * 4 では遠くの薄い雲が水平な板に割れた。ステップ数を使い切ってマーチが
+ * 途中で止まり、その打ち切り位置が画面の行ごとに飛ぶため。実機で
+ * 「雲に近づくと横線」と指摘された形はこれだった。
+ *
+ * 8 にすると到達距離が伸びて解消する。16 や 32 まで上げると今度は雲ごと
+ * 飛び越し、薄い雲の画素が 70k から 48k、13.9k へ落ちる。8 が上限。
+ *
+ * ステップ数を 256 へ増やしても直るが、密度サンプルが 153% 増える。
+ * こちらは逆に減る（既定の構図で 32% 減、快晴で 49% 減）。
+ */
+const float EMPTY_SKIP = 8.0;
 
 const float TAU_PI = 3.14159265;
 
@@ -280,12 +293,11 @@ void main() {
   float t = start + baseStep * offset * 0.4;
   // 密度ゼロの区間は大股で飛ばす。空振りに時間を使わない。
   // 距離による伸びを抑えたぶん、ここを強めて到達距離を確保する
-  float emptySkip = 4.0;
   int consecutiveEmpty = 0;
+  bool lastWasSkip = false;
 
   for (int i = 0; i < 256; i++) {
-    float exitAt = exitOverride > 0.0 ? exitOverride : EXIT_TRANSMITTANCE;
-    if (i >= maxSteps || t >= end || transmittance < exitAt) break;
+    if (i >= maxSteps || t >= end || transmittance < EXIT_TRANSMITTANCE) break;
 
     // 距離による伸びはごく緩やかにする。
     //
@@ -306,7 +318,19 @@ void main() {
     samples++;
 
     if (density > 0.0) {
+      // 大股で飛び越した直後なら戻して細かい歩幅で入り直す。
+      //
+      // 戻さないと雲への進入面が大股の刻み（55 m × 8）に丸められ、
+      // 大股を強めた意味がなくなる。実測で、戻しなしの skip16 は比が
+      // 1.643 のまま変わらなかった。
+      if (lastWasSkip) {
+        t -= stepSize * (EMPTY_SKIP - 1.0);
+        lastWasSkip = false;
+        consecutiveEmpty = -3;
+        continue;
+      }
       consecutiveEmpty = 0;
+      lastWasSkip = false;
 
       // 光マーチは 1 歩あたりの費用の大半を占める。主マーチは 96 歩で
       // 上限が決まっているので、変動するのはこちらだけ。1 歩あたり最大
@@ -343,7 +367,9 @@ void main() {
       consecutiveEmpty++;
       // 空振りが続いたら歩幅を伸ばす。雲に当たったら細かい歩幅へ戻る。
       // 雲の縁を跨いで飛び越さないよう、1 歩は様子を見てから加速する
-      t += stepSize * (consecutiveEmpty > 1 ? emptySkip : 1.0);
+      bool skip = consecutiveEmpty > 1;
+      t += stepSize * (skip ? EMPTY_SKIP : 1.0);
+      lastWasSkip = skip;
     }
   }
 

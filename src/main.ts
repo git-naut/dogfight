@@ -89,7 +89,6 @@ async function main(): Promise<void> {
     },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
     cloudProbe: capture.probe,
-    ...(capture.exitOverride !== null ? { cloudExitOverride: capture.exitOverride } : {}),
   })
 
   setBoot('描画の準備中')

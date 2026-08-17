@@ -80,7 +80,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
     // 雲 10.8 ms、合計 13 ms 前後に収まる
     cloudResolutionScale: 0.5,
-    cloudMaxSteps: 96,
+    cloudMaxSteps: 128,
     cloudLightSteps: 4,
     cloudDetail: true,
     cloudGroundShadow: true,
@@ -95,7 +95,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // High より上の段。実機で 60fps は狙わない位置づけ。
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
     cloudResolutionScale: 1,
-    cloudMaxSteps: 128,
+    cloudMaxSteps: 192,
     cloudLightSteps: 8,
     cloudDetail: true,
     cloudGroundShadow: true,

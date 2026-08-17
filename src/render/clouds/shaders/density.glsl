@@ -36,6 +36,28 @@ const float EXTINCTION = 0.012;
 /** 風。ゆっくり流す */
 const vec3 WIND = vec3(9.0, 0.0, 3.0);
 
+/** ノイズテクスチャの一辺 */
+const float SHAPE_SIZE = 64.0;
+const float DETAIL_SIZE = 32.0;
+
+/**
+ * 三線形補間の折れ目を消してサンプルする。
+ *
+ * ハードウェアの補間は折れ線なので、テクセルの境界で微分が不連続になる。
+ * 64³ を 4200 m に張ると Y 方向 65.6 m ごとに折れ目が来る。遠方の雲では
+ * その面をほぼ真横から見ることになり、水平な縞として目に付く。
+ *
+ * テクセル内の位置に smoothstep をかけてから引けば、境界で微分が 0 になり
+ * 折れ目が消える。テクスチャの取得回数は増えない。
+ */
+vec4 smoothSample3D(sampler3D tex, vec3 uvw, float size) {
+  vec3 t = uvw * size - 0.5;
+  vec3 base = floor(t);
+  vec3 f = t - base;
+  f = f * f * (3.0 - 2.0 * f);
+  return texture(tex, (base + f + 0.5) / size);
+}
+
 float cloudRemap(float v, float inMin, float inMax, float outMin, float outMax) {
   return outMin + (v - inMin) / max(inMax - inMin, 1e-6) * (outMax - outMin);
 }
@@ -67,7 +89,7 @@ float sampleCloudDensity(vec3 p, float detailStrength) {
   if (gradient <= 0.001) return 0.0;
 
   // 塊の形。低周波の Perlin-Worley を高周波の Worley で削る
-  vec4 shape = texture(shapeNoise, (p + drift) / SHAPE_SCALE);
+  vec4 shape = smoothSample3D(shapeNoise, (p + drift) / SHAPE_SCALE, SHAPE_SIZE);
   float fbm = shape.g * 0.625 + shape.b * 0.25 + shape.a * 0.125;
   float base = cloudRemap(shape.r, fbm - 1.0, 1.0, 0.0, 1.0);
 
@@ -82,7 +104,8 @@ float sampleCloudDensity(vec3 p, float detailStrength) {
   if (density <= 0.0) return 0.0;
 
   if (detailStrength > 0.01) {
-    vec3 detail = texture(detailNoise, (p + drift * 2.0) / DETAIL_SCALE).rgb;
+    vec3 detail =
+      smoothSample3D(detailNoise, (p + drift * 2.0) / DETAIL_SCALE, DETAIL_SIZE).rgb;
     float d = detail.r * 0.625 + detail.g * 0.25 + detail.b * 0.125;
     // 雲底は細かくちぎれ、雲頂はふわっと丸くなる
     float erosion = mix(d, 1.0 - d, clamp(h * 4.0, 0.0, 1.0));

@@ -94,9 +94,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 16,
     // High より上の段。実機で 60fps は狙わない位置づけ。
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
-    cloudResolutionScale: 0.625,
+    cloudResolutionScale: 1,
     cloudMaxSteps: 128,
-    cloudLightSteps: 6,
+    cloudLightSteps: 8,
     cloudDetail: true,
     cloudGroundShadow: true,
     shadowCascades: 4,

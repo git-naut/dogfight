@@ -2,7 +2,12 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** src/render/capture.ts が window に置くテストフック。 */
+/**
+ * src/render/capture.ts の TestHook の写し。
+ *
+ * 本家に項目を足したらここも足す。写しなので黙ってずれる。実際に 5 項目
+ * ずれていたのを Phase 3.5 で揃えた。
+ */
 interface TestHook {
   frame: number
   captureReady: boolean
@@ -11,13 +16,26 @@ interface TestHook {
   webglVersion: number
   atmosphereReady: boolean
   sunElevation: number
+  sunRadiance: [number, number, number]
+  skyRadiance: [number, number, number]
   noiseMs: number
   noiseStats: { min: number; max: number; mean: number }
+  gpuFrameMs: number
+  gpuCloudMs: number
+  gpuTimerSupported: boolean
   cloudHdrTarget: boolean
+  benchMs: number
+  cloudSamples: { mean: number; max: number; p99: number }
+  terrainMs: number
+  terrainStats: { min: number; max: number; mean: number }
+  terrainPatches: number
+  terrainTriangles: number
   preset: string
   hour: number
   speed: number
   altitude: number
+  agl: number
+  groundHeight: number
   angleOfAttack: number
   bank: number
   crashed: boolean
@@ -52,6 +70,25 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   const hook = await readHook(page)
   expect(hook, 'テストフックが見つからない').toBeDefined()
   return hook as TestHook
+}
+
+/**
+ * ライブループを開いて、最初のフレームが出るまで待つ。
+ *
+ * goto の直後に DOM を見てはいけない。大気の LUT の読み込みとシェーダの
+ * コンパイルが終わるまで読み込み中の表示が出ているだけで、計器はまだ無い。
+ * SwiftShader だと 5 秒では足りず、全件走らせたときだけ落ちた。
+ */
+async function openLive(page: Page, query = ''): Promise<void> {
+  await page.goto(`/dogfight/${query}`)
+  await page.waitForFunction(
+    () => {
+      const hook = (window as unknown as { __dogfight?: { frame: number } }).__dogfight
+      return hook !== undefined && hook.frame > 0
+    },
+    undefined,
+    { timeout: 120_000 },
+  )
 }
 
 test.describe('起動', () => {
@@ -272,9 +309,82 @@ test.describe('飛行モデルがブラウザでも成立する', () => {
   })
 })
 
+test.describe('地形', () => {
+  test('高さ場が縮退していない', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 120 })
+
+    // min と max が同じなら生成に失敗している
+    expect(hook.terrainStats.min).toBeLessThan(0)
+    expect(hook.terrainStats.max).toBeGreaterThan(1_500)
+    // 定義域の大半は海なので平均は海面下
+    expect(hook.terrainStats.mean).toBeLessThan(0)
+  })
+
+  test('高さ場の生成が読み込みを止めない', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 120 })
+    // 実測 70〜90 ms（1024²）。CI のソフトウェアレンダラでも CPU 処理なので
+    // 大きくは変わらない。400 ms を超えたら解像度を落とす合図
+    expect(hook.terrainMs).toBeGreaterThan(0)
+    expect(hook.terrainMs).toBeLessThan(400)
+  })
+
+  test('パッチの枚数と三角形が予算内', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 120, preset: 'high' })
+    expect(hook.terrainPatches).toBeGreaterThan(50)
+    // MAX_PATCHES は 512
+    expect(hook.terrainPatches).toBeLessThanOrEqual(512)
+    // 地形の予算は 500k。シーン合計 1.5M のうち機体に 1M 残す
+    expect(hook.terrainTriangles).toBeLessThan(500_000)
+  })
+
+  test('海上では対地高度が海抜と一致する', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240 })
+    expect(hook.groundHeight).toBe(0)
+    expect(Math.abs(hook.agl - hook.altitude)).toBeLessThan(1)
+  })
+
+  test('island-run は主峰の稜線を越え、対地高度が海抜と食い違う', async ({ page }) => {
+    const hook = await capture(page, { script: 'island-run', frame: 3240 })
+
+    expect(hook.crashed).toBe(false)
+    // 稜線の上。真下の地形が 1,000 m を超えている
+    expect(hook.groundHeight).toBeGreaterThan(1_000)
+    expect(hook.agl).toBeLessThan(hook.altitude - 1_000)
+    // 地面には当たっていない
+    expect(hook.agl).toBeGreaterThan(200)
+  })
+
+  test('低空のまま島へ向かうと地形の高さで墜落する', async ({ page }) => {
+    // low-pass は高度 220 m で島へ突っ込む。海面ではなく島で止まる
+    const hook = await capture(page, { script: 'low-pass', frame: 2600 })
+
+    expect(hook.crashed).toBe(true)
+    expect(hook.groundHeight).toBeGreaterThan(100)
+    expect(hook.altitude).toBeCloseTo(hook.groundHeight, 0)
+    expect(hook.speed).toBe(0)
+  })
+
+  test('太陽光の色が時刻で変わる', async ({ page }) => {
+    // ライブラリのコンストラクタ引数の名前違いで、太陽光が白 (1,1,1) のまま
+    // 固定されていた。地形の色が時刻で変わらなくなるので数値で見張る
+    const morning = await capture(page, { script: 'level', frame: 120, hour: 9 })
+    const evening = await capture(page, { script: 'level', frame: 120, hour: 18 })
+
+    for (const hook of [morning, evening]) {
+      expect(hook.sunRadiance[0]).toBeGreaterThan(0)
+      // (1,1,1) のままなら白で固定されている
+      expect(hook.sunRadiance[0]).not.toBeCloseTo(hook.sunRadiance[2], 3)
+    }
+
+    // 夕方のほうが赤い
+    const warmth = (r: readonly number[]) => r[0]! / r[2]!
+    expect(warmth(evening.sunRadiance)).toBeGreaterThan(warmth(morning.sunRadiance))
+  })
+})
+
 test.describe('デバッグ表示', () => {
   test('?debug=1 で計器が出て数値が更新される', async ({ page }) => {
-    await page.goto('/dogfight/?debug=1')
+    await openLive(page, '?debug=1')
     const panel = page.locator('.debug-panel')
     await expect(panel).toBeVisible()
 
@@ -284,7 +394,7 @@ test.describe('デバッグ表示', () => {
   })
 
   test('太陽高度と品質プリセットも出る', async ({ page }) => {
-    await page.goto('/dogfight/?debug=1')
+    await openLive(page, '?debug=1')
     const panel = page.locator('.debug-panel')
     await expect(panel).toContainText('太陽高度')
     await expect(panel).toContainText('品質')
@@ -292,7 +402,7 @@ test.describe('デバッグ表示', () => {
   })
 
   test('既定では計器を出さない', async ({ page }) => {
-    await page.goto('/dogfight/')
+    await openLive(page)
     await expect(page.locator('.debug-panel')).toHaveCount(0)
   })
 })
@@ -324,6 +434,10 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'clouds-climb', script: 'pull-up', frame: 200, hour: 16 },
     { name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.8 },
     { name: 'clouds-clear', script: 'level', frame: 240, hour: 16, coverage: 0 },
+    // 地形を主題にした構図。島を見下ろす、海岸線を低空で抜ける、雲を突き抜ける主峰
+    { name: 'terrain-overlook', script: 'island-run', frame: 2000, hour: 9 },
+    { name: 'terrain-coast', script: 'low-pass', frame: 1800, hour: 9 },
+    { name: 'terrain-peak', script: 'island-run', frame: 3240, hour: 17 },
   ] as const
 
   for (const scene of scenes) {

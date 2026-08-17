@@ -21,6 +21,7 @@ import {
 import { Pass } from 'postprocessing'
 import cloudsFrag from './shaders/clouds.frag?raw'
 import cloudShadowFrag from './shaders/cloudShadow.frag?raw'
+import cloudResolveFrag from './shaders/cloudResolve.frag?raw'
 import densityChunk from './shaders/density.glsl?raw'
 import type { CloudNoise } from './noise'
 import type { QualitySettings } from '../quality'
@@ -76,6 +77,44 @@ export function lightStepGrowth(steps: number): number {
   return (low + high) / 2
 }
 
+/**
+ * 履歴に現フレームを混ぜる割合。
+ *
+ * 小さいほど時間方向に長く均されて誤差が消えるが、動きに対する追従が遅れる。
+ * 1/8 なら 8 フレーム、60fps で 0.13 秒で入れ替わる。
+ */
+const BLEND_WEIGHT = 0.125
+
+/** ずらしの周期。この本数ぶんで一巡する */
+const JITTER_PERIOD = 16
+
+/**
+ * キャプチャモードで収束させる本数。
+ *
+ * 通常のループは指数平均なので収束に十数フレームかかるが、キャプチャは
+ * カメラが止まっているので 1/(n+1) の重みで真の平均を取れる。8 枚で
+ * 8 標本の平均になり、それ以上増やしても絵はほとんど動かない。
+ * 1 枚あたりの描画がソフトウェアレンダラでは重いので、本数は最小に抑える。
+ */
+export const CAPTURE_CONVERGE_FRAMES = 8
+
+/**
+ * 低食い違い列。Halton の 2 進と 3 進。
+ *
+ * 乱数でずらすと粗密ができて収束が遅い。等間隔だと格子が残る。
+ */
+function halton(index: number, base: number): number {
+  let result = 0
+  let f = 1 / base
+  let i = index
+  while (i > 0) {
+    result += f * (i % base)
+    i = Math.floor(i / base)
+    f /= base
+  }
+  return result
+}
+
 /** 雲影マップの一辺。地面に落ちる影なのでこの程度で足りる */
 const SHADOW_SIZE = 256
 /** 雲影マップが覆う世界の一辺 m */
@@ -89,6 +128,12 @@ export interface CloudsPassOptions {
   coverage?: number
   /** 1 = 密度サンプル数、2 = 歩数を使い切ったか。バッファは 8bit に固定される */
   probe?: number
+  /** 時間方向の足し込みを使うか。比較用 */
+  temporal?: boolean
+  /** 近傍で挟む幅の倍率。動きの速い場面で履歴の尾を切る */
+  clampScale?: number
+  /** キャプチャモードか。収束の重み付けが変わる */
+  captureMode?: boolean
 }
 
 export interface CloudsUpdate {
@@ -107,6 +152,33 @@ export interface CloudsUpdate {
 export class CloudsPass extends Pass {
   private readonly cloudCamera: PerspectiveCamera
   private readonly target: WebGLRenderTarget
+  /**
+   * 時間方向に足し込んだ結果。大気エフェクトはここを見続ける。
+   *
+   * ping-pong で書き先を入れ替えてはいけない。setOverlay はテクスチャの
+   * 参照を一度しか受け取らないので、入れ替えると大気側が片方の古い
+   * バッファを見続ける。実際にそれで蓄積がまったく効いていなかった。
+   */
+  private readonly output: WebGLRenderTarget
+  /** 前フレームの結果。output からここへ写して次フレームで読む */
+  private readonly history: WebGLRenderTarget
+  private readonly resolveMaterial: ShaderMaterial
+  private readonly copyMaterial: ShaderMaterial
+  private readonly resolveQuad: { scene: Scene; camera: OrthographicCamera }
+  private readonly copyQuad: { scene: Scene; camera: OrthographicCamera }
+  private renderCount = 0
+  /** サイズや品質が変わった直後は履歴を捨てる */
+  private historyValid = false
+  private readonly probeMode: boolean
+  /** 時間方向の足し込みを使うか。比較用に切れる */
+  private readonly temporal: boolean
+  /** 近傍で挟む幅の倍率。0 なら挟まない */
+  private readonly clampScale: number
+  /** キャプチャモードか。収束の重み付けが変わる */
+  private readonly captureMode: boolean
+  private resolveCount = 0
+  private readonly previousViewProjection = new Matrix4()
+  private readonly previousCameraPosition = new Vector3()
   private readonly shadowTarget: WebGLRenderTarget
   private readonly material: ShaderMaterial
   private readonly shadowMaterial: ShaderMaterial
@@ -150,6 +222,10 @@ export class CloudsPass extends Pass {
     // 1.477 へ下がり、全解像度・256 ステップの参照品質（1.472）に並んだ。
     // 歩幅、ディザの振れ幅、ステップ数はどれも比を動かさなかった。
     const probe = (options.probe ?? 0) > 0
+    this.probeMode = probe
+    this.temporal = options.temporal ?? true
+    this.clampScale = options.clampScale ?? 0
+    this.captureMode = options.captureMode ?? false
     this.target = new WebGLRenderTarget(1, 1, {
       format: RGBAFormat,
       // probe モードは整数を詰めるので 8bit にする
@@ -159,6 +235,17 @@ export class CloudsPass extends Pass {
       depthBuffer: false,
       stencilBuffer: false,
     })
+
+    const historyOptions = {
+      format: RGBAFormat,
+      type: HalfFloatType,
+      minFilter: LinearFilter,
+      magFilter: LinearFilter,
+      depthBuffer: false,
+      stencilBuffer: false,
+    } as const
+    this.output = new WebGLRenderTarget(1, 1, historyOptions)
+    this.history = new WebGLRenderTarget(1, 1, historyOptions)
 
     this.shadowTarget = new WebGLRenderTarget(SHADOW_SIZE, SHADOW_SIZE, {
       format: RGBAFormat,
@@ -200,6 +287,8 @@ export class CloudsPass extends Pass {
         lightGrowth: { value: lightStepGrowth(options.quality.cloudLightSteps) },
         useDetail: { value: options.quality.cloudDetail },
         probeMode: { value: options.probe ?? 0 },
+        startJitter: { value: 0 },
+        pixelJitter: { value: new Vector2() },
       },
     })
 
@@ -217,8 +306,45 @@ export class CloudsPass extends Pass {
       },
     })
 
+    this.resolveMaterial = new ShaderMaterial({
+      glslVersion: GLSL3,
+      vertexShader: VERTEX_SHADER,
+      fragmentShader: cloudResolveFrag,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: {
+        currentFrame: { value: null },
+        historyFrame: { value: null },
+        inverseProjectionMatrix: { value: new Matrix4() },
+        inverseViewMatrix: { value: new Matrix4() },
+        previousViewProjection: { value: new Matrix4() },
+        cameraPositionWorld: { value: new Vector3() },
+        previousCameraPosition: { value: new Vector3() },
+        blendWeight: { value: 1 },
+        texelSize: { value: new Vector2() },
+        clampScale: { value: 0 },
+      },
+    })
+
+    this.copyMaterial = new ShaderMaterial({
+      glslVersion: GLSL3,
+      vertexShader: VERTEX_SHADER,
+      fragmentShader: /* glsl */ `
+        precision highp float;
+        uniform sampler2D source;
+        in vec2 vUv;
+        out vec4 fragColor;
+        void main() { fragColor = texture(source, vUv); }
+      `,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: { source: { value: null } },
+    })
+
     this.quad = createQuad(this.material)
     this.shadowQuad = createQuad(this.shadowMaterial)
+    this.resolveQuad = createQuad(this.resolveMaterial)
+    this.copyQuad = createQuad(this.copyMaterial)
   }
 
   /** このパスの GPU 時間 ms。計測できていなければ 0 */
@@ -236,9 +362,14 @@ export class CloudsPass extends Pass {
     this.timingEnabled = enabled
   }
 
-  /** 大気エフェクトへ渡すテクスチャ。overlay.map に入れる */
+  /**
+   * 大気エフェクトへ渡すテクスチャ。overlay.map に入れる。
+   *
+   * 時間方向に足し込んだ結果を返す。probe モードでは生のマーチ結果を返す
+   * （実行量を数えるのに履歴が混ざっては困る）。
+   */
   get texture(): Texture {
-    return this.target.texture
+    return this.probeMode ? this.target.texture : this.output.texture
   }
 
   /**
@@ -297,10 +428,16 @@ export class CloudsPass extends Pass {
     const w = Math.max(1, Math.round(width * scale))
     const h = Math.max(1, Math.round(height * scale))
     this.target.setSize(w, h)
+    this.output.setSize(w, h)
+    this.history.setSize(w, h)
+    this.resolveMaterial.uniforms['texelSize']!.value.set(1 / w, 1 / h)
+    // 大きさが変わったら履歴は使えない
+    this.historyValid = false
   }
 
   setQuality(quality: QualitySettings): void {
     this.quality = quality
+    this.historyValid = false
     this.material.uniforms['maxSteps']!.value = quality.cloudMaxSteps
     this.material.uniforms['lightSteps']!.value = quality.cloudLightSteps
     this.material.uniforms['lightGrowth']!.value = lightStepGrowth(quality.cloudLightSteps)
@@ -358,20 +495,82 @@ export class CloudsPass extends Pass {
     u['cameraNear']!.value = camera.near
     u['cameraFar']!.value = camera.far
 
+    // フレームごとに誤差の出方をずらす。フレーム番号から決まるので
+    // 実時間には依存しない
+    const j = this.renderCount % JITTER_PERIOD
+    u['startJitter']!.value = halton(j + 1, 2)
+    u['pixelJitter']!.value.set(
+      (halton(j + 1, 2) - 0.5) / this.target.width,
+      (halton(j + 1, 3) - 0.5) / this.target.height,
+    )
+    this.renderCount++
+
     renderer.setRenderTarget(this.target)
     renderer.render(this.quad.scene, this.quad.camera)
 
+    if (!this.probeMode) this.resolve(renderer, camera)
+
     if (timing) this.timer.end()
+  }
+
+  /**
+   * 現フレームの結果を履歴へ足し込む。
+   *
+   * 前フレームの結果はそのまま重ねると機体の移動でずれるので、雲層との
+   * 交点を使って前フレームの画面座標へ投影し直してから重ねる。
+   */
+  private resolve(renderer: WebGLRenderer, camera: PerspectiveCamera): void {
+    const r = this.resolveMaterial.uniforms
+
+    r['currentFrame']!.value = this.target.texture
+    r['historyFrame']!.value = this.history.texture
+    r['inverseProjectionMatrix']!.value.copy(camera.projectionMatrixInverse)
+    r['inverseViewMatrix']!.value.copy(camera.matrixWorld)
+    r['previousViewProjection']!.value.copy(this.previousViewProjection)
+    r['cameraPositionWorld']!.value.copy(
+      this.material.uniforms['cameraPositionWorld']!.value as Vector3,
+    )
+    r['previousCameraPosition']!.value.copy(this.previousCameraPosition)
+    // キャプチャは 1/(n+1) で真の平均を取る。通常のループは指数平均で、
+    // 動きに追従しつつ十数フレームで入れ替わる
+    const weight = this.captureMode ? 1 / (this.resolveCount + 1) : BLEND_WEIGHT
+    r['blendWeight']!.value = this.historyValid && this.temporal ? weight : 1
+    r['clampScale']!.value = this.clampScale
+
+    const previous = renderer.getRenderTarget()
+    renderer.setRenderTarget(this.output)
+    renderer.render(this.resolveQuad.scene, this.resolveQuad.camera)
+
+    // 次フレームの読み元へ写す。出力先を入れ替えないための一手間
+    this.copyMaterial.uniforms['source']!.value = this.output.texture
+    renderer.setRenderTarget(this.history)
+    renderer.render(this.copyQuad.scene, this.copyQuad.camera)
+    renderer.setRenderTarget(previous)
+
+    this.historyValid = true
+    this.resolveCount++
+
+    // 次フレームの再投影のために現フレームの行列を残す
+    this.previousViewProjection
+      .copy(camera.projectionMatrix)
+      .multiply(camera.matrixWorldInverse)
+    camera.getWorldPosition(this.previousCameraPosition)
   }
 
   override dispose(): void {
     this.timer?.dispose()
     this.target.dispose()
+    this.output.dispose()
+    this.history.dispose()
     this.shadowTarget.dispose()
     this.material.dispose()
     this.shadowMaterial.dispose()
+    this.resolveMaterial.dispose()
+    this.copyMaterial.dispose()
     disposeQuad(this.quad)
     disposeQuad(this.shadowQuad)
+    disposeQuad(this.resolveQuad)
+    disposeQuad(this.copyQuad)
     super.dispose()
   }
 }

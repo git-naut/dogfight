@@ -33,6 +33,8 @@ export interface CaptureConfig {
   cloudLight: number | null
   /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */
   probe: number
+  /** 時間方向の足し込みを切るか。比較用 */
+  noTemporal: boolean
   /** 自動降格を止める。実機で品質を固定して計測するため */
   noDegrade: boolean
   /**
@@ -77,6 +79,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? clampInt(params.get('cloudLight'), 1, 8, 6)
       : null,
     probe: clampInt(params.get('probe'), 0, 2, 0),
+    noTemporal: params.get('ta') === '0',
     noDegrade: params.get('nodegrade') === '1',
     bench: clampInt(params.get('bench'), 0, 200, 0),
   }

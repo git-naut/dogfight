@@ -123,6 +123,10 @@ export interface SceneOptions {
   /** 雲バッファの持ち方の比較用。決着したら消す */
   /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */
   cloudProbe?: number
+  /** 時間方向の足し込みを使うか。比較用 */
+  cloudTemporal?: boolean
+  /** キャプチャモードか。雲の収束の重み付けが変わる */
+  cloudCaptureMode?: boolean
 }
 
 /**
@@ -191,6 +195,8 @@ export async function createScene(
     quality,
     coverage: options.coverage ?? DEFAULT_COVERAGE,
     ...(options.cloudProbe !== undefined ? { probe: options.cloudProbe } : {}),
+    ...(options.cloudTemporal !== undefined ? { temporal: options.cloudTemporal } : {}),
+    ...(options.cloudCaptureMode !== undefined ? { captureMode: options.cloudCaptureMode } : {}),
   })
   // 雲を大気の合成点へ差し込む。合成の順序はライブラリ側が持つ
   atmosphere.setOverlay({ map: cloudsPass.texture })

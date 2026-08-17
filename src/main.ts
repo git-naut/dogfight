@@ -4,6 +4,7 @@ import { createAircraftSample } from './sim/aircraft'
 import { getScript } from './sim/scripts'
 import { spawnFromSpec } from './sim/replay'
 import { createScene } from './render/scene'
+import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/cloudsPass'
 import {
   readCaptureConfig,
   isDebugEnabled,
@@ -89,6 +90,8 @@ async function main(): Promise<void> {
     },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
     cloudProbe: capture.probe,
+    cloudTemporal: !capture.noTemporal,
+    cloudCaptureMode: capture.enabled,
   })
 
   setBoot('描画の準備中')
@@ -134,7 +137,10 @@ async function main(): Promise<void> {
 
     world.samplePlayer(1, sample)
     view.sync(sample, world.frame, 0, { yaw: 0, pitch: 0 }, true)
-    view.render()
+
+    // 雲は時間方向に足し込むので、1 枚だけ描いても収束しない。
+    // カメラを止めたまま必要な本数を描く。実時間は使わないので決定論は保たれる
+    for (let i = 0; i < CAPTURE_CONVERGE_FRAMES; i++) view.render()
 
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
 

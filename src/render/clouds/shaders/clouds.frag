@@ -69,10 +69,46 @@ const float SCATTER_ALBEDO = 0.9;
 /**
  * 手前の歩幅の上限 m。
  *
- * 雲の細かい起伏は 50 m 前後から見える。それより粗く刻むと、画素ごとの
- * 開始位置のずれが粒立ちとして目に付く。
+ * 55 m から 130 m へ粗くした。細かく刻むほど良いわけではない。
+ *
+ * 歩数は 128 で上限が決まっているので、細かく刻むと到達距離が足りず、
+ * 遠くの雲へ届く前にマーチが止まる。止まる位置は空振りの歩数で決まるため
+ * カメラの移動で前後し、遠くの雲が現れたり消えたりする。実測で、既定の
+ * 雲量における打ち切りは 55 m で 0.45%、90 m で 0.00%、130 m で 0.00%。
+ *
+ * 粗くしたぶんの取りこぼしは時間方向の蓄積が埋める。開始位置を 1 歩ぶん
+ * フレームごとにずらして平均すれば、実効的には細かく刻んだのと同じになる。
+ * 費用は既定の構図で 52% 減った。
  */
-const float NEAR_STEP_LIMIT = 55.0;
+const float NEAR_STEP_LIMIT = 130.0;
+
+/**
+ * 区間のどれだけを等間隔で刻むかの係数。
+ *
+ * 歩幅は min(区間 / 歩数 * この係数, 上限)。上限だけ上げても係数側が縛る。
+ * 128 歩で 26 km なら 0.65 で 132 m となり、上限 130 m とほぼ釣り合う。
+ */
+const float SPAN_FRACTION = 0.65;
+
+/**
+ * フレームごとの誤差のずらし。
+ *
+ * 1 フレームぶんのマーチには消せない誤差が残る。歩幅の量子化で薄い雲が
+ * 水平な板に割れ、歩数を使い切った視線は途中で止まる。フレームごとに
+ * ずらして時間方向に平均すれば、どちらも滑らかに均される。
+ * フレーム番号から決まるので決定論は保たれる。
+ */
+uniform float startJitter;
+/** 画素内のずらし。輪郭の階段も同時に均す */
+uniform vec2 pixelJitter;
+/**
+ * 開始位置のずらし幅。1 歩に対する比。
+ *
+ * 時間方向に平均して量子化を消すには 1 歩ぶんを覆う必要がある。0.4 では
+ * 40% しか覆えず、残りの構造がそのまま残る。空間だけで散らしていたときは
+ * 粒立ちを抑えるために 0.4 にしていたが、時間蓄積を入れると前提が変わる。
+ */
+const float START_AMP = 1.0;
 
 /**
  * ディテールノイズを効かせる距離 m。
@@ -235,13 +271,14 @@ float linearDistance(float depth, vec3 rayDirection) {
 }
 
 void main() {
-  // 画素の UV からワールド空間のレイを作る
-  vec4 clip = vec4(vUv * 2.0 - 1.0, -1.0, 1.0);
+  // 画素の UV からワールド空間のレイを作る。フレームごとに画素内でずらす
+  vec2 uv = vUv + pixelJitter;
+  vec4 clip = vec4(uv * 2.0 - 1.0, -1.0, 1.0);
   vec4 viewPos = inverseProjectionMatrix * clip;
   viewPos /= viewPos.w;
   vec3 rayDirection = normalize((inverseViewMatrix * vec4(viewPos.xyz, 0.0)).xyz);
 
-  float sceneDistance = linearDistance(texture(sceneDepth, vUv).r, rayDirection);
+  float sceneDistance = linearDistance(texture(sceneDepth, uv).r, rayDirection);
 
   // スラブとの交差
   float originY = cameraPositionWorld.y;
@@ -275,8 +312,10 @@ void main() {
   // 区間から割り出すだけでは手前も 87 m 刻みになる。粒立ちの粗さはここから
   // 来ていた。近距離を細かくしても、遠方は下の距離依存の伸長と、
   // 密度ゼロ区間の大股送りが補う。
-  float baseStep = min(span / float(maxSteps) * 0.32, NEAR_STEP_LIMIT);
-  float offset = dither(ivec2(gl_FragCoord.xy));
+  float baseStep = min(span / float(maxSteps) * SPAN_FRACTION, NEAR_STEP_LIMIT);
+  // Bayer の並びにフレームごとの位相を足す。空間だけで散らすと、同じ誤差が
+  // 毎フレーム同じ場所に出るので時間方向に平均しても消えない
+  float offset = fract(dither(ivec2(gl_FragCoord.xy)) + startJitter);
 
   float cosTheta = dot(rayDirection, sunDirection);
 
@@ -284,15 +323,7 @@ void main() {
   float transmittance = 1.0;
   int samples = 0;
 
-  // 振れ幅は 1 歩の 4 割。
-  //
-  // 歩幅に上限を掛けて手前が 55 m 刻みになったので、ディザで隠すべき縞が
-  // そもそも細かい。振れ幅を残したままだと、隠す量より粒立ちのほうが
-  // 目立つようになる。
-  //
-  // 全幅（1 歩ぶん）も試したが、等高線状の縞には効かなかった。あれの原因は
-  // マーチではなく出力バッファの 8bit 量子化だった。cloudsPass.ts を参照。
-  float t = start + baseStep * offset * 0.4;
+  float t = start + baseStep * offset * START_AMP;
   // 密度ゼロの区間は大股で飛ばす。空振りに時間を使わない。
   // 距離による伸びを抑えたぶん、ここを強めて到達距離を確保する
   int consecutiveEmpty = 0;

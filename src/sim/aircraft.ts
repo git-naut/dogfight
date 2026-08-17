@@ -44,6 +44,24 @@ export interface StepOptions {
    * 失速の挙動を検証するときだけ切る。
    */
   aoaLimiter?: boolean
+  /**
+   * 地形。渡さなければ高度 0 の水平面（外洋）として扱う。
+   *
+   * 描画と同じ高さ場を引く。GLSL と TypeScript に同じ式を二重に書くと、
+   * いつか片方だけ直して「見えている山と当たる山がずれる」ので、
+   * ここは sim 側の Terrain を正本にする。
+   */
+  terrain?: TerrainSampler
+}
+
+/**
+ * 地形の高さを引くもの。
+ *
+ * Terrain そのものを要求せず必要な形だけ受け取る。テストから平坦や斜面を
+ * 差し込めるし、sim が描画側の型に縛られない。
+ */
+export interface TerrainSampler {
+  heightAt(x: number, z: number): number
 }
 
 /** 描画とデバッグ表示に渡す読み取り用の状態。 */
@@ -59,6 +77,15 @@ export interface AircraftSample {
   throttle: number
   stalled: boolean
   crashed: boolean
+  /** 真下の地形の高さ m。海上なら 0 */
+  groundHeight: number
+  /**
+   * 対地高度 m。
+   *
+   * altitude は海抜のまま残す。空気密度を海抜から引いているので、意味を
+   * 変えると飛行モデルが狂う。低空飛行では読みたいのはこちらのほう。
+   */
+  agl: number
 }
 
 // 毎ステップの一時変数。使い回してゴミを出さない。
@@ -88,6 +115,10 @@ export class Aircraft {
   // 派生値。ステップの末尾で更新し、次のステップの制御と表示に使う
   speed = 0
   altitude = 0
+  /** 真下の地形の高さ m。海上なら 0 */
+  groundHeight = 0
+  /** 対地高度 m */
+  agl = 0
   angleOfAttack = 0
   sideslip = 0
   bank = 0
@@ -186,16 +217,22 @@ export class Aircraft {
     tmpBodyVel.x -= tmpBodyVel.x * lagFactor(dt, AIRCRAFT.sideslipTau)
     this.orientation.rotate(tmpBodyVel, this.velocity)
 
-    // 9. 位置と地面
+    // 9. 位置と地形
     this.position.addScaledVector(this.velocity, dt)
-    if (this.position.y <= 0) {
-      this.position.y = 0
+    // 地形を渡されていなければ海面（高度 0）。外洋はそれで正しい
+    const ground = options.terrain
+      ? options.terrain.heightAt(this.position.x, this.position.z)
+      : 0
+    // 海面より低い地形（海底）に当たっても意味がないので、海面で止める
+    const floor = ground > 0 ? ground : 0
+    if (this.position.y <= floor) {
+      this.position.y = floor
       this.velocity.set(0, 0, 0)
       this.angularVelocity.set(0, 0, 0)
       this.crashed = true
     }
 
-    this.updateDerived(tmpAero)
+    this.updateDerived(tmpAero, floor)
   }
 
   /**
@@ -215,13 +252,17 @@ export class Aircraft {
     out.throttle = this.throttle
     out.stalled = this.stalled
     out.crashed = this.crashed
+    out.groundHeight = this.groundHeight
+    out.agl = this.agl
     return out
   }
 
   /** 制御と表示に使う派生値を state から計算し直す。 */
-  private updateDerived(aeroForce?: Vec3): void {
+  private updateDerived(aeroForce?: Vec3, groundHeight = this.groundHeight): void {
     this.speed = this.velocity.length()
     this.altitude = this.position.y
+    this.groundHeight = groundHeight
+    this.agl = this.position.y - groundHeight
 
     this.orientation.up(tmpUp)
     this.orientation.right(tmpRight)
@@ -259,6 +300,8 @@ export function createAircraftSample(): AircraftSample {
     throttle: 0,
     stalled: false,
     crashed: false,
+    groundHeight: 0,
+    agl: 0,
   }
 }
 

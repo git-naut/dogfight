@@ -38,6 +38,9 @@ export interface RenderInfo {
   cpuSimMs: number
   cpuSyncMs: number
   cpuRenderMs: number
+  /** 描いている地形パッチの枚数と三角形数。予算の確認に使う */
+  terrainPatches: number
+  terrainTriangles: number
   /** 実際に描いている画素数。DPR とレンダースケールの積で決まる */
   drawingBufferWidth: number
   drawingBufferHeight: number
@@ -63,6 +66,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['speed', '速度'],
     ['mach', 'マッハ'],
     ['altitude', '高度'],
+    ['agl', '対地高度'],
     ['aoa', '迎角'],
     ['beta', '横滑り'],
     ['bank', 'バンク'],
@@ -75,6 +79,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['gpu', 'GPU 時間'],
     ['gpuClouds', 'うち雲'],
     ['cpu', 'CPU 時間'],
+    ['terrain', '地形'],
     ['resolution', '解像度'],
   ] as const
 
@@ -118,6 +123,11 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       // 音速は高度で変わるが、目安として海面の 340 m/s で割る
       set('mach', (sample.speed / 340).toFixed(2))
       set('altitude', `${sample.altitude.toFixed(0)} m (${(sample.altitude * 3.28084).toFixed(0)} ft)`)
+      // 海抜と対地高度は山岳で大きく違う。低空飛行はこちらを見る
+      set(
+        'agl',
+        `${sample.agl.toFixed(0)} m (地形 ${sample.groundHeight.toFixed(0)} m)`,
+      )
       set('aoa', `${(sample.angleOfAttack * DEG).toFixed(1)}°`)
       set('beta', `${(sample.sideslip * DEG).toFixed(1)}°`)
       set('bank', `${(sample.bank * DEG).toFixed(0)}°`)
@@ -152,6 +162,10 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
           `(シム ${render.cpuSimMs.toFixed(1)} / 準備 ${render.cpuSyncMs.toFixed(1)} / 投入 ${render.cpuRenderMs.toFixed(1)})`,
       )
       set(
+        'terrain',
+        `${render.terrainPatches} 枚 / ${(render.terrainTriangles / 1000).toFixed(0)}k 三角形`,
+      )
+      set(
         'resolution',
         `${render.drawingBufferWidth}x${render.drawingBufferHeight} (DPR ${render.devicePixelRatio.toFixed(2)})`,
       )
@@ -160,7 +174,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       if (sample.crashed) warnings.push('墜落')
       if (sample.stalled) warnings.push('失速')
       if (sample.loadFactor > AIRCRAFT.gLimit * 0.95) warnings.push('G 制限')
-      if (sample.altitude < 150 && !sample.crashed) warnings.push('低高度')
+      if (sample.agl < 150 && !sample.crashed) warnings.push('低高度')
 
       status.textContent = warnings.join(' / ')
       status.classList.toggle('is-active', warnings.length > 0)

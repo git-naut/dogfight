@@ -56,6 +56,8 @@ const hook = installTestHook({
   webglVersion: 0,
   atmosphereReady: false,
   sunElevation: 0,
+  sunRadiance: [0, 0, 0],
+  skyRadiance: [0, 0, 0],
   noiseMs: 0,
   noiseStats: { min: 0, max: 0, mean: 0 },
   gpuFrameMs: 0,
@@ -64,10 +66,16 @@ const hook = installTestHook({
   cloudHdrTarget: false,
   benchMs: 0,
   cloudSamples: { mean: 0, max: 0, p99: 0 },
+  terrainMs: 0,
+  terrainStats: { min: 0, max: 0, mean: 0 },
+  terrainPatches: 0,
+  terrainTriangles: 0,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
   altitude: 0,
+  agl: 0,
+  groundHeight: 0,
   angleOfAttack: 0,
   bank: 0,
   crashed: false,
@@ -98,10 +106,14 @@ async function main(): Promise<void> {
   hook.webglVersion = view.renderer.capabilities.isWebGL2 ? 2 : 1
   hook.atmosphereReady = true
   hook.sunElevation = view.sunElevation
+  hook.sunRadiance = view.sunRadiance.toArray()
+  hook.skyRadiance = view.skyRadiance.toArray()
   hook.noiseMs = view.noiseMs
   hook.noiseStats = view.noiseStats
   hook.gpuTimerSupported = view.gpuTimerSupported
   hook.cloudHdrTarget = view.cloudHdrTarget
+  hook.terrainMs = view.terrainMs
+  hook.terrainStats = view.terrainStats
 
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる
@@ -115,10 +127,16 @@ async function main(): Promise<void> {
     hook.frame = frame
     hook.speed = sample.speed
     hook.altitude = sample.altitude
+    hook.agl = sample.agl
+    hook.groundHeight = sample.groundHeight
+    hook.terrainPatches = view.terrainPatches
+    hook.terrainTriangles = view.terrainTriangles
     hook.angleOfAttack = sample.angleOfAttack
     hook.bank = sample.bank
     hook.crashed = sample.crashed
     hook.sunElevation = view.sunElevation
+  hook.sunRadiance = view.sunRadiance.toArray()
+  hook.skyRadiance = view.skyRadiance.toArray()
   hook.noiseMs = view.noiseMs
   hook.noiseStats = view.noiseStats
   hook.gpuTimerSupported = view.gpuTimerSupported
@@ -263,6 +281,8 @@ async function main(): Promise<void> {
       cpuSimMs,
       cpuSyncMs,
       cpuRenderMs,
+      terrainPatches: view.terrainPatches,
+      terrainTriangles: view.terrainTriangles,
       drawingBufferWidth: view.renderer.domElement.width,
       drawingBufferHeight: view.renderer.domElement.height,
       devicePixelRatio: window.devicePixelRatio,

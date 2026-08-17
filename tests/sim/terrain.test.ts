@@ -59,18 +59,52 @@ describe('双三次補間', () => {
     }
   })
 
-  it('格子をまたいでも段差が出ない', () => {
-    // 主峰の斜面をテクセル境界を跨いで細かく歩く
+  it('テクセル境界で傾きが跳ばない', () => {
+    // これが C1 連続の本体。線形補間だと境界で傾きが不連続になり、稜線が
+    // 48 m 刻みの折れ線として見える。
+    //
+    // 「1.5 m 歩いて 1 m 以内」のような固定値では測れない。地形を急峻に
+    // すると斜面そのもので閾値を超えるので、実際に一度それで落ちた。
     const z = -11_500
+    const eps = 0.05
+    let worst = 0
+
+    for (let ix = 400; ix < 520; ix++) {
+      // 双三次の区間はテクセル中心で切れる。そこが境界
+      const { x } = texelCenter(ix, 0)
+      const left = (terrain.heightAt(x, z) - terrain.heightAt(x - eps, z)) / eps
+      const right = (terrain.heightAt(x + eps, z) - terrain.heightAt(x, z)) / eps
+      worst = Math.max(worst, Math.abs(right - left))
+    }
+
+    // 無次元の傾きの差。0.01 は 0.57 度にあたる
+    expect(worst).toBeLessThan(0.01)
+  })
+
+  it('補間が格子の傾きを大きく超えない', () => {
+    // 焼いた格子の隣接差から傾きの上限を測り、補間がそれを超えないことを見る。
+    // Catmull-Rom は行き過ぎるので 1.6 倍まで許す。
+    const z = -11_500
+    const iz = Math.round((z + half) / TERRAIN_TEXEL - 0.5)
+
+    let maxGridDiff = 0
+    for (let ix = 380; ix < 540; ix++) {
+      const a = terrain.heights[iz * TERRAIN_SIZE + ix]!
+      const b = terrain.heights[iz * TERRAIN_SIZE + ix + 1]!
+      maxGridDiff = Math.max(maxGridDiff, Math.abs(b - a))
+    }
+
+    const step = 1.5
+    const allowed = (maxGridDiff / TERRAIN_TEXEL) * step * 1.6
     let previous = terrain.heightAt(-3_000, z)
     let maxJump = 0
-    for (let x = -3_000; x < -2_000; x += 1.5) {
+    for (let x = -3_000; x < -2_000; x += step) {
       const h = terrain.heightAt(x, z)
       maxJump = Math.max(maxJump, Math.abs(h - previous))
       previous = h
     }
-    // 1.5 m 進むあいだの高さ変化。斜面でも 1 m を超えたら折れ目がある
-    expect(maxJump).toBeLessThan(1)
+
+    expect(maxJump).toBeLessThan(allowed)
   })
 
   it('定義域の外は海底になる', () => {

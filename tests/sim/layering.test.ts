@@ -19,6 +19,9 @@ const FORBIDDEN = [
   { pattern: /require\(\s*['"]three/, reason: 'three の require' },
   { pattern: /from\s+['"]\.\.\/render\//, reason: 'render 層への import' },
   { pattern: /from\s+['"]\.\.\/hud\//, reason: 'hud 層への import' },
+  // 相対パスだけ見ていると、エイリアス経由の import を素通りさせる
+  { pattern: /from\s+['"]@render\//, reason: 'render 層への import（@render エイリアス）' },
+  { pattern: /from\s+['"]@hud\//, reason: 'hud 層への import（@hud エイリアス）' },
   { pattern: /\bdocument\./, reason: 'DOM API の使用' },
   { pattern: /\bwindow\./, reason: 'window の使用' },
   { pattern: /\bprocess\.(env|argv|platform)\b/, reason: 'Node の process 参照' },
@@ -64,6 +67,8 @@ describe('レイヤ規約', () => {
     ["const THREE = require('three')", 'three の require'],
     ["import { createScene } from '../render/scene'", 'render 層への import'],
     ["import { hud } from '../hud/hud'", 'hud 層への import'],
+    ["import { createScene } from '@render/scene'", 'render 層への import（@render エイリアス）'],
+    ["import { hud } from '@hud/hud'", 'hud 層への import（@hud エイリアス）'],
     ['const el = document.querySelector("#a")', 'DOM API の使用'],
     ['const w = window.innerWidth', 'window の使用'],
     ['const r = Math.random()', 'Math.random（Rng を使うこと）'],

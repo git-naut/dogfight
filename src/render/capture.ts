@@ -124,6 +124,10 @@ export interface TestHook {
   atmosphereReady: boolean
   /** 太陽高度 rad。時刻を変えたことの検証に使う */
   sunElevation: number
+  /** 太陽光の放射輝度 RGB。時刻で色が変わることの検証に使う */
+  sunRadiance: [number, number, number]
+  /** 天空光の放射輝度 RGB */
+  skyRadiance: [number, number, number]
   /** 雲ノイズの生成にかかったミリ秒 */
   noiseMs: number
   /** 雲ノイズの中身。min と max が同じなら生成に失敗している */
@@ -139,11 +143,21 @@ export interface TestHook {
   benchMs: number
   /** ?probe=1 のときの密度サンプル数。画素あたり */
   cloudSamples: { mean: number; max: number; p99: number }
+  /** 高さ場の生成にかかったミリ秒 */
+  terrainMs: number
+  /** 高さ場の中身。min と max が同じなら生成に失敗している */
+  terrainStats: { min: number; max: number; mean: number }
+  /** 描いている地形パッチの枚数と三角形数 */
+  terrainPatches: number
+  terrainTriangles: number
   preset: PresetName
   hour: number
   // 飛行状態
   speed: number
   altitude: number
+  /** 対地高度 m と真下の地形の高さ m */
+  agl: number
+  groundHeight: number
   angleOfAttack: number
   bank: number
   crashed: boolean

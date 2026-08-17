@@ -5,6 +5,7 @@ import { Vec3 } from './vec3'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
 import { ReplayPlayer, spawnFromSpec, type ReplayScript } from './replay'
 import type { InputState } from './input'
+import { defaultTerrain, type Terrain } from './terrain'
 
 export type { InputState } from './input'
 export { neutralInput, makeInput } from './input'
@@ -20,6 +21,14 @@ export interface WorldOptions {
     throttle?: number
   }
   step?: StepOptions
+  /**
+   * 地形。省略すると共有の既定地形を使う。
+   *
+   * 地形のシードはワールドのシードとは分けて固定してある。スクリプトごとに
+   * 地形が変わると、スクリーンショット回帰で「同じ入力から同じピクセル」を
+   * 見ている意味が薄れる。
+   */
+  terrain?: Terrain
 }
 
 /** 既定の初期条件。高度 1500 m、真北（-Z）へ 250 m/s。 */
@@ -38,6 +47,8 @@ export class World {
   readonly rng: Rng
   readonly seed: number
   readonly player: Aircraft
+  /** 地形。描画側も同じものを読んで、当たる山と見える山を一致させる */
+  readonly terrain: Terrain
 
   private readonly stepOptions: StepOptions
   private _frame = 0
@@ -45,7 +56,9 @@ export class World {
   constructor(options: WorldOptions) {
     this.seed = options.seed
     this.rng = new Rng(options.seed)
-    this.stepOptions = options.step ?? {}
+    this.terrain = options.terrain ?? defaultTerrain()
+    // 地形は毎ステップ Aircraft が引くので stepOptions に混ぜて渡す
+    this.stepOptions = { ...(options.step ?? {}), terrain: this.terrain }
 
     const spawn = options.aircraft ?? {}
     this.player = new Aircraft({

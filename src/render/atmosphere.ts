@@ -140,7 +140,8 @@ export async function createAtmosphere(
   const skyMaterial = new SkyMaterial({
     sun: true,
     moon: true,
-    // 自前の地面は 60 km で切れる。その先はライブラリ側の楕円体に任せる
+    // 地形の定義域は 48 km 四方。海面の板は 300 km 覆うが水平線の先は
+    // 何もないので、そこはライブラリ側の楕円体に任せる
     ground: true,
     ...(options.groundAlbedo ? { groundAlbedo: options.groundAlbedo } : {}),
   })
@@ -154,9 +155,14 @@ export async function createAtmosphere(
   // 不透明ジオメトリのあとに描く。深度で弾けるぶんだけ無駄が減る
   sky.renderOrder = 1000
 
-  const sunLight = new SunDirectionalLight({
-    transmittanceTexture: textures.transmittanceTexture,
-  })
+  const sunLight = new SunDirectionalLight()
+  // コンストラクタ引数では渡らない。ライブラリ側が
+  // SunDirectionalLightParameters で transmittanceTexture を宣言しながら、
+  // 実装は irradianceTexture という別名で分解している（SunDirectionalLight.ts
+  // の 45 行目と 52 行目）。型は通るのに値が捨てられ、太陽光の色が
+  // DirectionalLight の既定の白 (1,1,1) のまま固定される。実測で気付いた。
+  // 代入で直接入れる。
+  sunLight.transmittanceTexture = textures.transmittanceTexture
   sunLight.worldToECEFMatrix.copy(worldToECEF)
   sunLight.target.position.set(0, 0, 0)
 

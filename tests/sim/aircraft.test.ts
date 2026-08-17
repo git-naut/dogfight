@@ -271,8 +271,8 @@ describe('スロットル', () => {
   })
 })
 
-describe('地面', () => {
-  it('降下し続けると墜落し、そこで停止する', () => {
+describe('地面と地形', () => {
+  it('地形を渡さなければ海面（高度 0）で止まる', () => {
     const { craft, input } = trimmed(250, 300)
     run(craft, { ...input, pitch: -1 }, SECOND * 20)
 
@@ -289,6 +289,61 @@ describe('地面', () => {
     const snapshot = craft.position.clone()
     run(craft, input, SECOND * 5)
     expect(craft.position.approxEquals(snapshot)).toBe(true)
+  })
+
+  it('地形の高さで墜落する', () => {
+    // 標高 800 m の台地。海面ではなくここで止まるはず
+    const plateau = { heightAt: () => 800 }
+    const { craft, input } = trimmed(250, 2_000)
+    for (let i = 0; i < SECOND * 30 && !craft.crashed; i++) {
+      craft.step({ ...input, pitch: -1 }, FIXED_DT, { terrain: plateau })
+    }
+
+    expect(craft.crashed).toBe(true)
+    expect(craft.position.y).toBeCloseTo(800, 6)
+  })
+
+  it('海底に当たっても墜落しない。海面で止まる', () => {
+    // 高さ場は負の値も返す（海底）。そこまで沈む前に海面で止めないと、
+    // 水中を飛べてしまう
+    const seabed = { heightAt: () => -320 }
+    const { craft, input } = trimmed(250, 1_000)
+    for (let i = 0; i < SECOND * 30 && !craft.crashed; i++) {
+      craft.step({ ...input, pitch: -1 }, FIXED_DT, { terrain: seabed })
+    }
+
+    expect(craft.crashed).toBe(true)
+    expect(craft.position.y).toBe(0)
+  })
+
+  it('対地高度は海抜から地形の高さを引いた値', () => {
+    const slope = { heightAt: (x: number) => x * 0.1 }
+    const { craft, input } = trimmed(250, 3_000)
+    craft.position.set(5_000, 3_000, 0)
+    craft.step(input, FIXED_DT, { terrain: slope })
+
+    // 海抜は空気密度に使うので海抜のまま
+    expect(craft.altitude).toBeCloseTo(craft.position.y, 6)
+    expect(craft.groundHeight).toBeCloseTo(500, 0)
+    expect(craft.agl).toBeCloseTo(craft.position.y - 500, 0)
+  })
+
+  it('海上では対地高度と海抜が一致する', () => {
+    const { craft, input } = trimmed(250, 2_000)
+    craft.step(input, FIXED_DT)
+    expect(craft.groundHeight).toBe(0)
+    expect(craft.agl).toBeCloseTo(craft.altitude, 6)
+  })
+
+  it('sample が対地高度も渡す', () => {
+    const plateau = { heightAt: () => 600 }
+    const { craft, input } = trimmed(250, 2_500)
+    craft.step(input, FIXED_DT, { terrain: plateau })
+
+    const out = createAircraftSample()
+    craft.sample(1, out)
+    expect(out.groundHeight).toBeCloseTo(600, 6)
+    expect(out.agl).toBeCloseTo(out.position.y - 600, 0)
   })
 })
 

@@ -62,13 +62,18 @@ export interface Island {
   seed: number
 }
 
+/**
+ * peak は「尾根が最大のときに届く高さ」で、実際の山頂はそこまで届かない。
+ * 尾根の刻みが掛かるので、実測では peak の 84% 前後に落ち着く。主峰を
+ * 2,200 m に見せたいので peak は 2,700 m にしてある（実測 2,2xx m）。
+ */
 const ISLANDS: readonly Island[] = [
   // 主峰の島。機首方向（-Z）の 11 km 先に置くので、離陸直後から見える
-  { x: 1_500, z: -11_000, radius: 7_000, peak: 2_200, seed: 11 },
-  { x: -11_000, z: -14_000, radius: 5_200, peak: 900, seed: 23 },
-  { x: 12_000, z: -14_500, radius: 5_600, peak: 820, seed: 37 },
+  { x: 1_500, z: -11_000, radius: 7_000, peak: 2_700, seed: 11 },
+  { x: -11_000, z: -14_000, radius: 5_200, peak: 1_150, seed: 23 },
+  { x: 12_000, z: -14_500, radius: 5_600, peak: 1_050, seed: 37 },
   // 振り返ると見える島。旋回の目印になる
-  { x: -9_000, z: 6_000, radius: 4_000, peak: 640, seed: 53 },
+  { x: -9_000, z: 6_000, radius: 4_000, peak: 850, seed: 53 },
 ]
 
 /**
@@ -112,20 +117,35 @@ function valueNoise(x: number, z: number, seed: number): number {
  *
  * 素の値ノイズを重ねると丸い丘しかできない。谷を折り返して二乗すると、
  * 稜線が細く尖って山らしくなる。
+ *
+ * 減衰は 0.55。0.5 だと最初のオクターブが支配して、島 1 つに大きな瘤が
+ * 1 つ乗るだけになった（実測で断面が単調な釣鐘型になった）。
+ *
+ * オクターブごとに座標を回す。同じ格子に重ねると、値ノイズの格子が軸に
+ * 沿った縞として見える。回転は固定値なので決定論は保たれる。
  */
+const RIDGE_ROT_COS = 0.8
+const RIDGE_ROT_SIN = 0.6
+
 function ridgeFbm(x: number, z: number, seed: number, octaves: number): number {
   let sum = 0
   let norm = 0
-  let amplitude = 0.5
+  let amplitude = 1
   let frequency = 1
+  let px = x
+  let pz = z
 
   for (let i = 0; i < octaves; i++) {
-    const n = valueNoise(x * frequency, z * frequency, seed + i * 101)
+    const n = valueNoise(px * frequency, pz * frequency, seed + i * 101)
     const ridge = 1 - Math.abs(n * 2 - 1)
     sum += ridge * ridge * amplitude
     norm += amplitude
-    amplitude *= 0.5
+    amplitude *= 0.55
     frequency *= 2
+
+    const rx = px * RIDGE_ROT_COS - pz * RIDGE_ROT_SIN
+    pz = px * RIDGE_ROT_SIN + pz * RIDGE_ROT_COS
+    px = rx
   }
 
   return sum / norm
@@ -137,10 +157,19 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t)
 }
 
-/** 尾根のノイズが 1 周する world の大きさ m。山の背骨の間隔を決める */
-const RIDGE_SCALE = 9_000
+/**
+ * 尾根のノイズが 1 周する world の大きさ m。山の背骨の間隔を決める。
+ *
+ * 9,000 では直径 14 km の島に大きな尾根が 1 本しか乗らず、5,500 でも断面が
+ * 単調な釣鐘型だった（実測。x=-4000 から山頂まで一度も下がらなかった）。
+ * 3,600 なら基本オクターブが島の直径に 4 本入る。最も細かい 5 段目は
+ * 3,600 / 16 = 225 m で、48 m テクセルで解像できる範囲に収まる。
+ */
+const RIDGE_SCALE = 3_600
 /** 海岸線を崩すノイズの周期 m。円い島に見せないため */
 const COAST_SCALE = 3_400
+/** 海岸線を崩す二段目。入り江と岬の細かさを出す */
+const COAST_SCALE_FINE = 1_250
 /** 尾根の重ね数。多くしても 48 m のテクセルでは解像できない */
 const RIDGE_OCTAVES = 5
 
@@ -161,22 +190,37 @@ function elevationAt(x: number, z: number, seed: number): number {
     // 生成の費用が大きく下がる
     if (normalized >= 1.6) continue
 
-    // 海岸線を崩す。中心付近では効かせない。効かせると主峰の高さが
-    // ノイズ次第で下がり、雲底を超える保証が崩れる
-    const wobble = valueNoise(x / COAST_SCALE, z / COAST_SCALE, seed + island.seed + 7) - 0.5
-    const shaped = normalized + wobble * 0.35 * Math.min(1, normalized * 1.5)
+    // 海岸線を崩す。二段重ねて入り江と岬を作る。中心付近では効かせない。
+    // 効かせると主峰の高さがノイズ次第で下がり、雲底を超える保証が崩れる
+    const coarse = valueNoise(x / COAST_SCALE, z / COAST_SCALE, seed + island.seed + 7) - 0.5
+    const fine =
+      valueNoise(x / COAST_SCALE_FINE, z / COAST_SCALE_FINE, seed + island.seed + 19) - 0.5
+    const wobble = coarse * 0.42 + fine * 0.16
+    const shaped = normalized + wobble * Math.min(1, normalized * 1.5)
 
     // 縁で 0、中心で 1。海岸線はこの値が 0 を跨ぐところにできる
     const mass = smoothstep(1, 0.12, shaped)
     if (mass <= 0) continue
 
     const ridge = ridgeFbm(x / RIDGE_SCALE, z / RIDGE_SCALE, seed + island.seed, RIDGE_OCTAVES)
-    // 尾根は 0.7 から 1.0 の範囲で効かせる。0 から効かせると中心の高さが
-    // ノイズ任せになり、主峰が雲底に届かないことがある
-    const peak = island.peak * (0.7 + 0.3 * ridge)
 
-    // 縁を急にしすぎると崖になる。1.7 乗で海岸から中腹まで滑らかに上げる
-    const lifted = SEABED_HEIGHT + (peak - SEABED_HEIGHT) * mass ** 1.7
+    // 形は「削られる土台」と「削られない円錐」の 2 項で組む。
+    //
+    // 尾根を足し算で混ぜる形（土台 0.4 + 尾根 0.35 + 円錐 0.25）を先に
+    // 試したが、島の断面が単調な釣鐘型になった。足し算だと土台と円錐の
+    // 65% が半径だけで決まる滑らかな丘なので、尾根が何をしても丘が勝つ。
+    //
+    // 掛け算にすると尾根が谷を刻む。carve が 0.45 のところは土台の 45% まで
+    // 落ちるので、山頂の近くにも谷ができて稜線が立つ。
+    const dome = mass ** 1.5
+    const carve = 0.45 + 0.55 * ridge
+    // 中心付近で急に立つ項。ここは削らないので高さの下限になる
+    const cone = mass ** 3
+
+    // 主峰の保証。carve が最小 0.45 でも 0.68 × 0.45 + 0.32 = 0.626 なので
+    // 中心の高さは 1,258 m。雲底 1,200 m を必ず超える
+    const shapeSum = dome * carve * 0.68 + cone * 0.32
+    const lifted = SEABED_HEIGHT + (island.peak - SEABED_HEIGHT) * shapeSum
     if (lifted > height) height = lifted
   }
 

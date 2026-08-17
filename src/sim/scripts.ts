@@ -46,6 +46,26 @@ export const SCRIPTS = {
     spawn: { altitude: 220, speed: 320 },
     keyframes: [{ frame: 0, input: { throttle: 1 } }],
   },
+
+  /**
+   * 主峰へ向かって海上を走り、海岸を越えたところで引き起こして稜線を跨ぐ。
+   *
+   * スポーンは必ず原点（`replay.ts` の `spawnFromSpec`）で、機首は -Z。
+   * 主峰は (1500, -11000) にあるので、まっすぐ飛べば正面に見えてくる。
+   * 海岸までおよそ 4 km、山頂までおよそ 11 km。地形の撮影に使う。
+   */
+  'island-run': {
+    name: 'island-run',
+    seed: 20260816,
+    spawn: { altitude: 800, speed: 320 },
+    keyframes: [
+      { frame: 0, input: { throttle: 1 } },
+      { frame: 14 * SEC, input: { throttle: 1, pitch: 0.32 } },
+      // 引いたままだと上昇が止まらない。押し戻して稜線の上で水平に戻す
+      { frame: 20 * SEC, input: { throttle: 1, pitch: -0.2 } },
+      { frame: 23 * SEC, input: { throttle: 1, pitch: 0 } },
+    ],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

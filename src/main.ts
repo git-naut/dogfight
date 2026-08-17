@@ -31,7 +31,15 @@ const bootText = document.querySelector<HTMLElement>('#boot-text')
 const setBoot = (text: string) => {
   if (bootText) bootText.textContent = text
 }
-const finishBoot = () => boot?.classList.add('is-done')
+const finishBoot = () => {
+  if (!boot) return
+  boot.classList.add('is-done')
+  // DOM から外すところまでやる。フェード中の不透明度が撮影結果に混ざると、
+  // 「同じフレームからは同じピクセル」という前提が崩れる。実際に決定論の
+  // E2E が CI で落ちた。キャプチャモードは実時間を使わないので待たない
+  if (capture.enabled) boot.remove()
+  else window.setTimeout(() => boot.remove(), 500)
+}
 
 const capture = readCaptureConfig(window.location.search)
 

@@ -179,9 +179,9 @@ test.describe('ライブループ', () => {
       expect(errors, '例外が出ている').toEqual([])
       expect(await page.getAttribute('body', 'data-init-error')).toBeNull()
       expect(hook?.frame ?? 0, 'フレームが進んでいない').toBeGreaterThan(0)
-      // 起動中のオーバーレイが消えていること
-      const bootClass = await page.getAttribute('#boot', 'class')
-      expect(bootClass, '起動表示が消えていない').toContain('is-done')
+      // 起動中のオーバーレイが DOM から消えていること。
+      // 残しておくとフェード中の不透明度が撮影結果に混ざる
+      expect(await page.locator('#boot').count(), '起動表示が残っている').toBe(0)
     })
   }
 })

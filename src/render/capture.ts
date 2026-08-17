@@ -31,8 +31,8 @@ export interface CaptureConfig {
   cloudSteps: number | null
   /** 光マーチの段数の上書き */
   cloudLight: number | null
-  /** 密度サンプル数を数えるモード */
-  probe: boolean
+  /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */
+  probe: number
   /** 自動降格を止める。実機で品質を固定して計測するため */
   noDegrade: boolean
   /**
@@ -76,7 +76,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     cloudLight: params.has('cloudLight')
       ? clampInt(params.get('cloudLight'), 1, 8, 6)
       : null,
-    probe: params.get('probe') === '1',
+    probe: clampInt(params.get('probe'), 0, 2, 0),
     noDegrade: params.get('nodegrade') === '1',
     bench: clampInt(params.get('bench'), 0, 200, 0),
   }

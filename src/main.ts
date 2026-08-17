@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     view.sync(sample, world.frame, 0, { yaw: 0, pitch: 0 }, true)
     view.render()
 
-    if (capture.probe) hook.cloudSamples = view.readCloudProbe()
+    if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
 
     if (capture.bench > 0) {
       const gl = view.renderer.getContext()

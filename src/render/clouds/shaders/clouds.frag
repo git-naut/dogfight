@@ -37,7 +37,7 @@ uniform bool useDetail;
  * 計時はばらつきが大きく、最適化の効果が埋もれる。実行量そのものを数えれば
  * ノイズなく比べられる。R と G に 16bit 整数として詰める
  */
-uniform bool probeMode;
+uniform int probeMode;   // 1 = サンプル数、2 = 歩数を使い切ったか
 /**
  * 光マーチの歩幅の伸び率。
  *
@@ -58,6 +58,7 @@ out vec4 fragColor;
  * 溶かす。
  */
 const float MAX_MARCH_DISTANCE = 26000.0;
+
 
 /**
  * 散乱アルベド。水滴はほとんど吸収せず散乱するので 1 に近い。
@@ -121,6 +122,7 @@ const float LIGHT_HALF_DISTANCE = 10000.0;
  * こちらは逆に減る（既定の構図で 32% 減、快晴で 49% 減）。
  */
 const float EMPTY_SKIP = 8.0;
+
 
 const float TAU_PI = 3.14159265;
 
@@ -249,7 +251,7 @@ void main() {
   float start;
   float end;
   if (abs(dirY) < 1e-6) {
-    if (!inside) { fragColor = vec4(0.0, 0.0, 0.0, probeMode ? 1.0 : 0.0); return; }
+    if (!inside) { fragColor = vec4(0.0, 0.0, 0.0, probeMode > 0 ? 1.0 : 0.0); return; }
     start = 0.0;
     end = sceneDistance;
   } else {
@@ -260,7 +262,7 @@ void main() {
   }
 
   end = min(end, MAX_MARCH_DISTANCE);
-  if (end <= start) { fragColor = vec4(0.0, 0.0, 0.0, probeMode ? 1.0 : 0.0); return; }
+  if (end <= start) { fragColor = vec4(0.0, 0.0, 0.0, probeMode > 0 ? 1.0 : 0.0); return; }
 
   float span = end - start;
   // 距離に応じて歩幅を広げる。
@@ -296,8 +298,12 @@ void main() {
   int consecutiveEmpty = 0;
   bool lastWasSkip = false;
 
+  bool exhausted = false;
   for (int i = 0; i < 256; i++) {
-    if (i >= maxSteps || t >= end || transmittance < EXIT_TRANSMITTANCE) break;
+    if (t >= end || transmittance < EXIT_TRANSMITTANCE) break;
+    // 歩数を使い切って止まると、止まる位置が空振りの歩数で決まるため
+    // カメラの移動で前後する。遠くの雲が現れたり消えたりする形で見える
+    if (i >= maxSteps) { exhausted = true; break; }
 
     // 距離による伸びはごく緩やかにする。
     //
@@ -373,10 +379,14 @@ void main() {
     }
   }
 
-  if (probeMode) {
+  if (probeMode == 1) {
     // 整数のまま 8bit 二つに分ける。v/255 は UNORM の丸めで厳密に戻る
     float c = float(min(samples, 65535));
     fragColor = vec4(floor(c / 256.0) / 255.0, mod(c, 256.0) / 255.0, 0.0, 1.0);
+    return;
+  }
+  if (probeMode == 2) {
+    fragColor = vec4(0.0, exhausted ? 1.0 : 0.0, 0.0, 1.0);
     return;
   }
 

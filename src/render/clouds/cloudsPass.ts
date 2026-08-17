@@ -87,8 +87,8 @@ export interface CloudsPassOptions {
   quality: QualitySettings
   /** 雲量 0..1 */
   coverage?: number
-  /** 密度サンプル数を数えるモード。バッファは 8bit に固定される */
-  probe?: boolean
+  /** 1 = 密度サンプル数、2 = 歩数を使い切ったか。バッファは 8bit に固定される */
+  probe?: number
 }
 
 export interface CloudsUpdate {
@@ -149,7 +149,7 @@ export class CloudsPass extends Pass {
     // 実測では、低空から雲底を見上げる構図で縦横の段差比が 1.635 から
     // 1.477 へ下がり、全解像度・256 ステップの参照品質（1.472）に並んだ。
     // 歩幅、ディザの振れ幅、ステップ数はどれも比を動かさなかった。
-    const probe = options.probe ?? false
+    const probe = (options.probe ?? 0) > 0
     this.target = new WebGLRenderTarget(1, 1, {
       format: RGBAFormat,
       // probe モードは整数を詰めるので 8bit にする
@@ -199,7 +199,7 @@ export class CloudsPass extends Pass {
         lightSteps: { value: options.quality.cloudLightSteps },
         lightGrowth: { value: lightStepGrowth(options.quality.cloudLightSteps) },
         useDetail: { value: options.quality.cloudDetail },
-        probeMode: { value: probe },
+        probeMode: { value: options.probe ?? 0 },
       },
     })
 

@@ -121,8 +121,8 @@ export interface SceneOptions {
   /** 雲の設定の上書き。実機で解像度とステップ数を振るときに使う */
   cloudOverride?: CloudOverride
   /** 雲バッファの持ち方の比較用。決着したら消す */
-  /** 密度サンプル数を数えるモード */
-  cloudProbe?: boolean
+  /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */
+  cloudProbe?: number
 }
 
 /**

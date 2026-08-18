@@ -31,12 +31,25 @@ export interface CaptureConfig {
   cloudSteps: number | null
   /** 光マーチの段数の上書き */
   cloudLight: number | null
+  /** 地形の LOD 切り替え距離の倍率の上書き */
+  lodScale: number | null
+  /** 地形パッチの一辺のセル数の上書き */
+  terrainCells: number | null
   /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */
   probe: number
   /** 時間方向の足し込みを切るか。比較用 */
   noTemporal: boolean
   /** 自動降格を止める。実機で品質を固定して計測するため */
   noDegrade: boolean
+  /**
+   * 地形と海面を描くか。`?terrain=0` `?water=0` で切る。
+   *
+   * どちらが GPU 時間を食っているかは、切ってみないと分からない。
+   * 雲では `?probe` で実行量を数えたが、地形は頂点とラスタライズの費用が
+   * 主なので数えられない。差分で測る
+   */
+  showTerrain: boolean
+  showWater: boolean
   /**
    * 描画を繰り返して 1 回あたりの時間を測る回数。0 なら測らない。
    *
@@ -78,9 +91,15 @@ export function readCaptureConfig(search: string): CaptureConfig {
     cloudLight: params.has('cloudLight')
       ? clampInt(params.get('cloudLight'), 1, 8, 6)
       : null,
+    lodScale: params.has('lod') ? clampNumber(params.get('lod'), 0.2, 3, 1) : null,
+    terrainCells: params.has('cells')
+      ? clampInt(params.get('cells'), 4, 64, 32)
+      : null,
     probe: clampInt(params.get('probe'), 0, 2, 0),
     noTemporal: params.get('ta') === '0',
     noDegrade: params.get('nodegrade') === '1',
+    showTerrain: params.get('terrain') !== '0',
+    showWater: params.get('water') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
   }
 }

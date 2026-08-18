@@ -167,20 +167,25 @@ export function getQuality(name: PresetName): QualitySettings {
 }
 
 /**
- * 雲の設定だけを上書きする。
+ * プリセットの一部を上書きする。
  *
- * 実機で解像度とステップ数を振って GPU 時間を測るための入口。
- * `?cloudScale=` と `?cloudSteps=` から渡す。
+ * 実機でつまみを振って GPU 時間を測るための入口。プリセットの値は実測で
+ * 決めると先に書いたので、測る手段を URL に用意しておく。
+ * `?cloudScale=` `?cloudSteps=` `?cloudLight=` `?lod=` `?cells=` から渡す。
  */
-export interface CloudOverride {
+export interface QualityOverride {
   resolutionScale?: number
   maxSteps?: number
   lightSteps?: number
+  /** 地形の LOD 切り替え距離の倍率 */
+  lodDistanceScale?: number
+  /** 地形パッチの一辺のセル数 */
+  terrainPatchCells?: number
 }
 
-export function applyCloudOverride(
+export function applyQualityOverride(
   base: QualitySettings,
-  override: CloudOverride,
+  override: QualityOverride,
 ): QualitySettings {
   return {
     ...base,
@@ -190,6 +195,12 @@ export function applyCloudOverride(
     ...(override.maxSteps !== undefined ? { cloudMaxSteps: override.maxSteps } : {}),
     ...(override.lightSteps !== undefined
       ? { cloudLightSteps: override.lightSteps }
+      : {}),
+    ...(override.lodDistanceScale !== undefined
+      ? { lodDistanceScale: override.lodDistanceScale }
+      : {}),
+    ...(override.terrainPatchCells !== undefined
+      ? { terrainPatchCells: override.terrainPatchCells }
       : {}),
   }
 }

@@ -91,15 +91,19 @@ async function main(): Promise<void> {
     hour: capture.hour,
     texturesUrl: TEXTURES_URL,
     coverage: capture.coverage,
-    cloudOverride: {
+    qualityOverride: {
       ...(capture.cloudScale !== null ? { resolutionScale: capture.cloudScale } : {}),
       ...(capture.cloudSteps !== null ? { maxSteps: capture.cloudSteps } : {}),
       ...(capture.cloudLight !== null ? { lightSteps: capture.cloudLight } : {}),
+      ...(capture.lodScale !== null ? { lodDistanceScale: capture.lodScale } : {}),
+      ...(capture.terrainCells !== null ? { terrainPatchCells: capture.terrainCells } : {}),
     },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
     cloudProbe: capture.probe,
     cloudTemporal: !capture.noTemporal,
     cloudCaptureMode: capture.enabled,
+    showTerrain: capture.showTerrain,
+    showWater: capture.showWater,
   })
 
   setBoot('描画の準備中')

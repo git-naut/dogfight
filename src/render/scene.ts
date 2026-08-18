@@ -6,9 +6,9 @@ import { createAircraftView, type AircraftView } from './aircraftView'
 import { createAtmosphere, DEFAULT_HOUR, type AtmosphereHandle } from './atmosphere'
 import { createComposer, type ComposerHandle } from './composer'
 import {
-  applyCloudOverride,
+  applyQualityOverride,
   getQuality,
-  type CloudOverride,
+  type QualityOverride,
   type PresetName,
   type QualitySettings,
 } from './quality'
@@ -132,8 +132,8 @@ export interface SceneOptions {
   exposure?: number
   /** 大気の LUT を置いた URL */
   texturesUrl: string
-  /** 雲の設定の上書き。実機で解像度とステップ数を振るときに使う */
-  cloudOverride?: CloudOverride
+  /** プリセットの上書き。実機でつまみを振るときに使う */
+  qualityOverride?: QualityOverride
   /** 雲バッファの持ち方の比較用。決着したら消す */
   /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */
   cloudProbe?: number
@@ -141,6 +141,9 @@ export interface SceneOptions {
   cloudTemporal?: boolean
   /** キャプチャモードか。雲の収束の重み付けが変わる */
   cloudCaptureMode?: boolean
+  /** 地形と海面を描くか。GPU 時間の内訳を差分で測るための切り替え */
+  showTerrain?: boolean
+  showWater?: boolean
 }
 
 /**
@@ -153,8 +156,8 @@ export async function createScene(
   canvas: HTMLCanvasElement,
   options: SceneOptions,
 ): Promise<SceneHandle> {
-  const cloudOverride = options.cloudOverride ?? {}
-  let quality = applyCloudOverride(getQuality(options.preset), cloudOverride)
+  const qualityOverride = options.qualityOverride ?? {}
+  let quality = applyQualityOverride(getQuality(options.preset), qualityOverride)
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -211,9 +214,11 @@ export async function createScene(
   terrainUniforms.terrainNormalMap.value = normalTexture
 
   const terrainMesh: TerrainMesh = createTerrainMesh(terrain, quality, terrainUniforms)
+  terrainMesh.mesh.visible = options.showTerrain ?? true
   scene.add(terrainMesh.mesh)
 
   const water: Water = createWater(quality, terrainUniforms)
+  water.mesh.visible = options.showWater ?? true
   scene.add(water.mesh)
 
   const aircraft: AircraftView = createAircraftView()
@@ -419,7 +424,7 @@ export async function createScene(
     },
 
     setQuality(preset) {
-      quality = applyCloudOverride(getQuality(preset), cloudOverride)
+      quality = applyQualityOverride(getQuality(preset), qualityOverride)
       composer.setQuality(quality)
       cloudsPass.setQuality(quality)
       terrainMesh.setQuality(quality)

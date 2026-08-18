@@ -60,6 +60,20 @@ float terrainHeight(vec2 world) {
   return terrainCatmullRom(rows[0], rows[1], rows[2], rows[3], t.y);
 }
 
+/**
+ * いちばん近いテクセルの高さ m。1 タップ。
+ *
+ * 海面が浅瀬かどうかを判定するためだけに使う。48 m の粗さで足りる用途に
+ * 16 タップの双三次を掛けると、水平線まで覆う板の全画素でそれを払うことに
+ * なる。実測で GPU 時間の主因がここだった。
+ */
+float terrainHeightNearest(vec2 world) {
+  float halfExtent = terrainExtent * 0.5;
+  float texel = terrainExtent / terrainTexels;
+  vec2 grid = (world + halfExtent) / texel - 0.5;
+  return terrainTexelAt(ivec2(floor(grid + 0.5)));
+}
+
 /** 焼いた法線。双三次で 4 回引くと 1 画素 64 タップになるので焼いてある */
 vec3 terrainNormal(vec2 world) {
   vec2 uv = (world + terrainExtent * 0.5) / terrainExtent;

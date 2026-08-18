@@ -40,6 +40,11 @@ export interface QualitySettings {
    *
    * CDLOD は同じパッチを InstancedMesh で並べる方式なので、この 1 つの値で
    * 全レベルの細かさが決まる。三角形数は パッチ枚数 × セル数² × 2。
+   *
+   * 実機の実測では、ここを 32 から 24 へ落として三角形を 44% 減らしても
+   * GPU 時間は 0.03〜0.05 ms しか減らなかった。地形を丸ごと消しても
+   * 0.20〜0.32 ms。費用の主は雲と後処理なので、ここを絞る意味は薄い。
+   * 内訳は docs/terrain.md にある。
    */
   terrainPatchCells: number
   /**

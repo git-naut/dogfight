@@ -21,15 +21,24 @@ import type { MeasureConfig } from './scene'
 export interface BenchRow {
   label: string
   /**
-   * 最小値。これを代表値として読む。
+   * GPU クエリで測った ms。拡張が無い環境では null。
+   *
+   * CPU 側の経過と両方出す。片方だけを見て判断しないため。実際に、CPU 側の
+   * 経過だけで測っていたときは雲を切っても 1.8 ms しか減らず、実機の
+   * デバッグ表示が出す「うち雲 10.6 ms」と食い違った。
+   */
+  gpuMinMs: number | null
+  gpuMedianMs: number | null
+  /**
+   * CPU 側の経過 ms。最小値を代表値として読む。
    *
    * 「この 1 枚を描くのに何 ms かかるか」を知りたいので、外れ値は必ず上へ
    * しか出ない。他の処理が割り込めば遅くなるだけで、速くはならない。
    * 平均や中央値は環境の騒がしさを拾うが、最小値は拾わない。
    */
-  minMs: number
-  medianMs: number
-  maxMs: number
+  cpuMinMs: number
+  cpuMedianMs: number
+  cpuMaxMs: number
   triangles: number
 }
 
@@ -39,6 +48,7 @@ export interface BenchTarget {
   readonly quality: { lodDistanceScale: number; terrainPatchCells: number }
   setMeasureConfig(config: MeasureConfig): void
   render(): void
+  renderTimed(): number | null
 }
 
 /** 最初に捨てる回数。シェーダのコンパイルとテクスチャの常駐化が混ざる */
@@ -74,7 +84,8 @@ export function runBenchSweep(view: BenchTarget, samplesPerCase: number): BenchR
     { label: 'cells 24', config: { ...base, terrainPatchCells: 24 } },
   ]
 
-  const samples: number[][] = cases.map(() => [])
+  const cpuSamples: number[][] = cases.map(() => [])
+  const gpuSamples: number[][] = cases.map(() => [])
   const triangles: number[] = cases.map(() => 0)
 
   for (let i = 0; i < WARMUP; i++) {
@@ -92,9 +103,10 @@ export function runBenchSweep(view: BenchTarget, samplesPerCase: number): BenchR
       drain()
 
       const started = performance.now()
-      view.render()
+      const gpuMs = view.renderTimed()
       drain()
-      samples[c]!.push(performance.now() - started)
+      cpuSamples[c]!.push(performance.now() - started)
+      if (gpuMs !== null) gpuSamples[c]!.push(gpuMs)
       triangles[c] = view.terrainTriangles
     }
   }
@@ -103,12 +115,15 @@ export function runBenchSweep(view: BenchTarget, samplesPerCase: number): BenchR
   view.setMeasureConfig(base)
 
   return cases.map((item, c) => {
-    const list = [...samples[c]!].sort((a, b) => a - b)
+    const cpu = [...cpuSamples[c]!].sort((a, b) => a - b)
+    const gpu = [...gpuSamples[c]!].sort((a, b) => a - b)
     return {
       label: item.label,
-      minMs: list[0] ?? 0,
-      medianMs: list[Math.floor(list.length / 2)] ?? 0,
-      maxMs: list[list.length - 1] ?? 0,
+      gpuMinMs: gpu.length > 0 ? gpu[0]! : null,
+      gpuMedianMs: gpu.length > 0 ? gpu[Math.floor(gpu.length / 2)]! : null,
+      cpuMinMs: cpu[0] ?? 0,
+      cpuMedianMs: cpu[Math.floor(cpu.length / 2)] ?? 0,
+      cpuMaxMs: cpu[cpu.length - 1] ?? 0,
       triangles: triangles[c] ?? 0,
     }
   })

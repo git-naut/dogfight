@@ -117,6 +117,14 @@ export interface SceneHandle {
     snap?: boolean,
   ): void
   render(): void
+  /**
+   * 1 枚描いて GPU 側の経過 ms を返す。計測モード専用。拡張が無ければ null。
+   *
+   * 通常の render() はフレーム全体と雲のパスを 1 枚おきに交互で測っている
+   * （TIME_ELAPSED は入れ子にできないため）。計測中にそれが混ざると 1 枚ごとに
+   * クエリの有無が変わって値が揺れるので、ここでは内側の計測を止める。
+   */
+  renderTimed(): number | null
   resize(width: number, height: number, devicePixelRatio: number): void
   setQuality(preset: PresetName): void
   /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
@@ -264,6 +272,8 @@ export async function createScene(
   terrainUniforms.cloudShadowMap.value = cloudsPass.shadowTexture
 
   const gpuTimer: GpuTimer = createGpuTimer(renderer)
+  /** 雲のパスを描いているか。計測で切ったときは影の焼き込みも止める */
+  let cloudsEnabled = true
   let measureClouds = false
   const shadowCenter = new THREE.Vector2()
   const cameraWorld = new THREE.Vector3()
@@ -432,6 +442,15 @@ export async function createScene(
       if (!measureClouds) gpuTimer.end()
     },
 
+    renderTimed() {
+      cloudsPass.setTimingEnabled(false)
+      return gpuTimer.measureSync(() => {
+        // 雲を切っているときは影も焼かない。切った意味がなくなる
+        if (cloudsEnabled) cloudsPass.renderShadow(renderer)
+        composer.render()
+      })
+    },
+
     resize(width, height, devicePixelRatio) {
       cssWidth = width
       cssHeight = height
@@ -443,6 +462,7 @@ export async function createScene(
       if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
       if (config.water !== undefined) water.mesh.visible = config.water
       if (config.clouds !== undefined) {
+        cloudsEnabled = config.clouds
         cloudsPass.enabled = config.clouds
         // 差し込み口も外す。外さないと最後に焼いた雲が残り続ける
         atmosphere.setOverlay(config.clouds ? { map: cloudsPass.texture } : null)

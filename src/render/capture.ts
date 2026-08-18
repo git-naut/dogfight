@@ -171,9 +171,11 @@ export interface TestHook {
   /** ?sweep=1 のときの設定ごとの計測結果 */
   benchSweep: {
     label: string
-    minMs: number
-    medianMs: number
-    maxMs: number
+    gpuMinMs: number | null
+    gpuMedianMs: number | null
+    cpuMinMs: number
+    cpuMedianMs: number
+    cpuMaxMs: number
     triangles: number
   }[]
   /** ?probe=1 のときの密度サンプル数。画素あたり */

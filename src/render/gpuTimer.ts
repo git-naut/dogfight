@@ -33,6 +33,14 @@ export interface GpuTimer {
   begin(): void
   /** フレームの計測を終える。結果は数フレーム後に読める */
   end(): void
+  /**
+   * 1 回の描画を同期で測って ms を返す。計測モード専用。拡張が無ければ null。
+   *
+   * begin/end は結果が数フレーム後に届く非同期の計測で、途切れなく回る
+   * ループが前提になっている。設定を切り替えながら測るときは、その 1 枚の
+   * 値がその場で要る。クエリの完了を待ってから返す。
+   */
+  measureSync(draw: () => void): number | null
   dispose(): void
 }
 
@@ -42,6 +50,10 @@ const NOT_SUPPORTED: GpuTimer = {
   maxMs: 0,
   begin() {},
   end() {},
+  measureSync(draw) {
+    draw()
+    return null
+  },
   dispose() {},
 }
 
@@ -103,6 +115,45 @@ export function createGpuTimer(renderer: WebGLRenderer): GpuTimer {
       if (!measuring) return
       gl.endQuery(ext.TIME_ELAPSED_EXT)
       measuring = false
+    },
+
+    measureSync(draw) {
+      // 進行中の非同期計測があると入れ子になる。TIME_ELAPSED は入れ子にできない
+      if (measuring) {
+        gl.endQuery(ext.TIME_ELAPSED_EXT)
+        measuring = false
+      }
+      if (pending !== null) {
+        gl.deleteQuery(pending)
+        pending = null
+      }
+
+      const query = gl.createQuery()
+      if (query === null) {
+        draw()
+        return null
+      }
+
+      gl.beginQuery(ext.TIME_ELAPSED_EXT, query)
+      draw()
+      gl.endQuery(ext.TIME_ELAPSED_EXT)
+      // 完了させてから待つ。finish のあとなら数回のポーリングで揃う
+      gl.finish()
+
+      for (let i = 0; i < 100_000; i++) {
+        if (gl.getParameter(ext.GPU_DISJOINT_EXT) as boolean) {
+          gl.deleteQuery(query)
+          return null
+        }
+        if (gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE) as boolean) {
+          const nanoseconds = gl.getQueryParameter(query, gl.QUERY_RESULT) as number
+          gl.deleteQuery(query)
+          return nanoseconds / 1e6
+        }
+      }
+
+      gl.deleteQuery(query)
+      return null
     },
 
     dispose() {

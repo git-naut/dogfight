@@ -27,9 +27,11 @@ interface TestHook {
   benchMs: number
   benchSweep: {
     label: string
-    minMs: number
-    medianMs: number
-    maxMs: number
+    gpuMinMs: number | null
+    gpuMedianMs: number | null
+    cpuMinMs: number
+    cpuMedianMs: number
+    cpuMaxMs: number
     triangles: number
   }[]
   cloudSamples: { mean: number; max: number; p99: number }

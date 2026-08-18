@@ -124,7 +124,10 @@ async function main(): Promise<void> {
 
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる
-    const dpr = capture.enabled ? 1 : window.devicePixelRatio
+    // キャプチャは DPR 1 に固定する。基準画像を機械に依らせないため。
+    // ただし計測モードは別で、実際に遊ぶ解像度で測らないと意味がない。
+    // 実測で DPR 1.5 と 1.0 では画素数が 2.25 倍違い、そのぶん値がずれた
+    const dpr = capture.enabled && !capture.sweep ? 1 : window.devicePixelRatio
     view.resize(window.innerWidth, window.innerHeight, dpr)
   }
   applySize()

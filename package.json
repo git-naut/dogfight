@@ -6,7 +6,7 @@
   "type": "module",
   "description": "Arcade air combat game built with Three.js",
   "scripts": {
-    "assets": "node tools/copy-atmosphere-assets.mjs",
+    "assets": "node tools/copy-atmosphere-assets.mjs && node tools/ac3d-to-glb.mjs && python3 tools/sgi-to-webp.py",
     "dev": "vite",
     "predev": "npm run assets",
     "build": "tsc --noEmit && vite build",

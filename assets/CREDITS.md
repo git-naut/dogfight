@@ -26,7 +26,7 @@ GPLv2+ を許すのは、このリポジトリ自体を GPLv2+ にしたため�
 | assets/upstream/f18/f18tail.rgb | F/A-18C の尾部 | Fabrice Kauffmann | GPLv2+ | 同上 `Models/f18tail.rgb`（r997） | 2026-08-18 |
 | assets/upstream/f18/f18cockpit.rgb | F/A-18C の操縦席内装 | Fabrice Kauffmann | GPLv2+ | 同上 `Models/f18cockpit.rgb`（r997） | 2026-08-18 |
 
-大気の 3 ファイルは Bruneton の Precomputed Atmospheric Scattering をパッケージ側で事前計算したもの。合計 4.12 MB。機体のテクスチャは SGI 形式の 512×512 で、`tools/sgi-to-webp.py` が WebP へ変換する。
+大気の 3 ファイルは Bruneton の Precomputed Atmospheric Scattering をパッケージ側で事前計算したもの。合計 4.12 MB。機体のテクスチャは SGI 形式の 512×512 で、`tools/sgi-to-webp.py` が WebP へ変換する。変換結果は `assets/generated/f18/` にコミットしてある。Pillow は GitHub のランナーに入っていないので、ビルドの経路には入れない。
 
 ## 効果音
 

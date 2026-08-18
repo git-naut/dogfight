@@ -8,14 +8,18 @@
 
 原本を `assets/upstream/f18/` にコミットし、`npm run assets` が 2 本のツールを走らせて `public/aircraft/` を作る。ビルド時にネットワークを叩かない。
 
-| ツール | 入力 | 出力 |
-|---|---|---|
-| `tools/ac3d-to-glb.mjs` | `f18.ac`（AC3D、1,036,415 バイト） | `f18.glb`（1,001 KB） |
-| `tools/sgi-to-webp.py` | `f18top.rgb` ほか 3 枚（SGI 512×512） | WebP 3 枚（合計 65 KB） |
+| ツール | 入力 | 出力 | ビルドで走るか |
+|---|---|---|---|
+| `tools/ac3d-to-glb.mjs` | `f18.ac`（AC3D、1,036,415 バイト） | `public/aircraft/f18.glb`（1,001 KB） | 走る |
+| `tools/sgi-to-webp.py` | `f18top.rgb` ほか 3 枚（SGI 512×512） | `assets/generated/f18/` に WebP 3 枚（65 KB） | 走らない |
 
 原本をコミットする理由は 2 つある。ビルド時にネットワークを叩かないため。そして GPLv2 が改変に適した形式の提供を求めるからである。生成物の glb と WebP は改変に適した形式とは言えない。
 
 テクスチャは SGI 形式で、ブラウザは読めない。Pillow が読めるので WebP へ落とす。840 KB が 65 KB になった。
+
+Pillow をビルドの経路に入れてはいけない。GitHub のランナーに入っていない。`npm run assets` から呼んだ最初の版は、CI が `ModuleNotFoundError: No module named 'PIL'` で落ちた。node は必ずある。Python の追加パッケージは違う。
+
+変換結果を `assets/generated/f18/` にコミットして、ビルドでは `tools/ac3d-to-glb.mjs` が複製するだけにした。テクスチャが無ければ例外を投げ、走らせるコマンド名を出す。
 
 ## AC3D の形式
 

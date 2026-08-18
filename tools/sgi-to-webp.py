@@ -4,7 +4,12 @@
 FlightGear のテクスチャは SGI 形式で、ブラウザは読めない。Pillow が読めるので
 WebP へ落とす。PNG より小さく、Chrome と Firefox と Safari のいずれも読める。
 
-実行は `python3 tools/sgi-to-webp.py`。`npm run assets` から呼ばれる。
+出力はコミットする。このスクリプトはビルドの経路に入れない。GitHub の
+ランナーに Pillow が入っておらず、`npm run assets` から呼んだら CI が
+ModuleNotFoundError で落ちた。node は必ずあるが Python の追加パッケージは
+そうではない。原本を変えたときだけ手で走らせて、結果をコミットする。
+
+実行は `python3 tools/sgi-to-webp.py`。
 """
 
 from pathlib import Path
@@ -13,7 +18,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_DIR = ROOT / "assets" / "upstream" / "f18"
-OUT_DIR = ROOT / "public" / "aircraft"
+OUT_DIR = ROOT / "assets" / "generated" / "f18"
 
 # 品質 90 は 512² の手描きテクスチャでは目視で劣化が分からない水準。
 # 数値で確かめたいときは品質を振って sRGB の平均差を測る

@@ -11,7 +11,13 @@
  * 実行は `node tools/ac3d-to-glb.mjs`。`npm run assets` から呼ばれる。
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  copyFileSync,
+  existsSync,
+} from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
@@ -30,6 +36,16 @@ const ROOT = join(here, '..')
 const SOURCE = join(ROOT, 'assets/upstream/f18/f18.ac')
 const OUT_DIR = join(ROOT, 'public/aircraft')
 const OUT_GLB = join(OUT_DIR, 'f18.glb')
+
+/**
+ * 変換済みテクスチャの置き場。
+ *
+ * SGI から WebP への変換は Pillow が要るので、ビルドの経路に入れられない
+ * （GitHub のランナーに入っておらず CI が落ちた）。変換結果をコミットして、
+ * ここでは複製するだけにする。glb が同じディレクトリの相対名でテクスチャを
+ * 参照するので、出力先へ並べる必要がある。
+ */
+const TEXTURE_DIR = join(ROOT, 'assets/generated/f18')
 
 /** .ac のテクスチャ名から、変換後の WebP へ張り替える */
 const TEXTURE_MAP = {
@@ -409,6 +425,16 @@ function main() {
 
   mkdirSync(OUT_DIR, { recursive: true })
   writeFileSync(OUT_GLB, glb)
+
+  for (const file of Object.values(TEXTURE_MAP)) {
+    const from = join(TEXTURE_DIR, file)
+    if (!existsSync(from)) {
+      throw new Error(
+        `${file} が無い。python3 tools/sgi-to-webp.py を走らせてコミットすること`,
+      )
+    }
+    copyFileSync(from, join(OUT_DIR, file))
+  }
 
   const triangles = gltf.meshes.reduce(
     (sum, mesh) =>

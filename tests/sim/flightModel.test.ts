@@ -25,63 +25,72 @@ const DEG = Math.PI / 180
 
 describe('機体諸元', () => {
   it('アスペクト比が翼幅と翼面積から導かれている', () => {
-    // 翼幅 9.96 m、翼面積 28.87 m²
-    expect(AIRCRAFT.aspectRatio).toBeCloseTo((9.96 * 9.96) / 28.87, 10)
-    expect(AIRCRAFT.aspectRatio).toBeGreaterThan(3.4)
-    expect(AIRCRAFT.aspectRatio).toBeLessThan(3.5)
+    // 翼幅 11.43 m、翼面積 37.16 m²
+    expect(AIRCRAFT.aspectRatio).toBeCloseTo((11.43 * 11.43) / 37.16, 10)
+    expect(AIRCRAFT.aspectRatio).toBeGreaterThan(3.5)
+    expect(AIRCRAFT.aspectRatio).toBeLessThan(3.6)
   })
 
   it('誘導抗力係数が 1/(π·AR·e) と一致する', () => {
     const expected =
       1 / (Math.PI * AIRCRAFT.aspectRatio * AIRCRAFT.oswaldEfficiency)
     expect(INDUCED_DRAG_FACTOR).toBeCloseTo(expected, 12)
-    expect(INDUCED_DRAG_FACTOR).toBeCloseTo(0.1158, 3)
+    expect(INDUCED_DRAG_FACTOR).toBeCloseTo(0.1132, 3)
   })
 
   it('翼面荷重が戦闘機の妥当な範囲に入る', () => {
     const wingLoading = (AIRCRAFT.mass * GRAVITY) / AIRCRAFT.wingArea
-    // F-16 級はおよそ 3,300 N/m²
-    expect(wingLoading).toBeGreaterThan(3000)
-    expect(wingLoading).toBeLessThan(3800)
+    // F/A-18C の戦闘重量ではおよそ 4,400 N/m²。F-16 級の 3,300 より高い
+    expect(wingLoading).toBeGreaterThan(4100)
+    expect(wingLoading).toBeLessThan(4700)
   })
 
-  it('推力重量比が 1 を超える（アフターバーナー時）', () => {
-    expect(AIRCRAFT.maxThrust / (AIRCRAFT.mass * GRAVITY)).toBeGreaterThan(1)
+  it('推力重量比が戦闘機の妥当な範囲に入る', () => {
+    // F/A-18C は戦闘重量で 0.96。1 を割るのが実機どおり。F-16 は 1.28 だった
+    const ratio = AIRCRAFT.maxThrust / (AIRCRAFT.mass * GRAVITY)
+    expect(ratio).toBeGreaterThan(0.9)
+    expect(ratio).toBeLessThan(1.05)
   })
 })
 
 describe('揚力係数', () => {
   it('失速角までは迎角に比例する', () => {
-    for (const deg of [0, 2, 5, 10, 20, 26]) {
+    for (const deg of [0, 2, 5, 10, 20, 27]) {
       const a = deg * DEG
       expect(liftCoefficient(a)).toBeCloseTo(AIRCRAFT.liftSlope * a, 12)
     }
   })
 
-  it('失速角で最大になる', () => {
+  it('頭打ちの迎角で最大になり、失速角まで一定', () => {
+    expect(liftCoefficient(AIRCRAFT.clPeakAngle)).toBeCloseTo(CL_MAX, 12)
     expect(liftCoefficient(AIRCRAFT.stallAngle)).toBeCloseTo(CL_MAX, 12)
-    // LERX で渦揚力が伸びる戦闘機の妥当な範囲
-    expect(CL_MAX).toBeCloseTo(1.8152, 3)
+    expect(liftCoefficient(32 * DEG)).toBeCloseTo(CL_MAX, 12)
+    // LEX で渦揚力が伸びる戦闘機の妥当な範囲。平坦部なしに失速角を
+    // 38 度まで伸ばすと 2.66 になり実機から外れる
+    expect(CL_MAX).toBeCloseTo(1.899, 2)
+    expect(CL_MAX).toBeGreaterThan(1.8)
+    expect(CL_MAX).toBeLessThan(2.0)
   })
 
-  it('迎角制限が失速角の手前にある（制限器が失速を防げる）', () => {
+  it('迎角制限が平坦部の内側にある（制限角まで引いても揚力が落ちない）', () => {
+    expect(AIRCRAFT.aoaLimit).toBeGreaterThan(AIRCRAFT.clPeakAngle)
     expect(AIRCRAFT.aoaLimit).toBeLessThan(AIRCRAFT.stallAngle)
   })
 
   it('失速角を超えると揚力係数が下がる', () => {
-    expect(liftCoefficient(28 * DEG)).toBeLessThan(liftCoefficient(26 * DEG))
-    expect(liftCoefficient(32 * DEG)).toBeLessThan(liftCoefficient(28 * DEG))
+    expect(liftCoefficient(40 * DEG)).toBeLessThan(liftCoefficient(38 * DEG))
+    expect(liftCoefficient(44 * DEG)).toBeLessThan(liftCoefficient(40 * DEG))
   })
 
   it('下げ止まり以降は一定', () => {
     const floor = CL_MAX * AIRCRAFT.postStallRetention
-    expect(liftCoefficient(35 * DEG)).toBeCloseTo(floor, 12)
+    expect(liftCoefficient(48 * DEG)).toBeCloseTo(floor, 12)
     expect(liftCoefficient(60 * DEG)).toBeCloseTo(floor, 12)
     expect(liftCoefficient(90 * DEG)).toBeCloseTo(floor, 12)
   })
 
   it('負の迎角に対して対称', () => {
-    for (const deg of [1, 10, 26, 30, 40]) {
+    for (const deg of [1, 10, 27, 38, 44, 60]) {
       expect(liftCoefficient(-deg * DEG)).toBeCloseTo(-liftCoefficient(deg * DEG), 12)
     }
   })
@@ -201,9 +210,9 @@ describe('操縦の制限', () => {
     const v = 250
     const expected = (Math.sqrt(AIRCRAFT.gLimit ** 2 - 1) * GRAVITY) / v
     expect(gLimitedPitchRate(v)).toBeCloseTo(expected, 12)
-    // 250 m/s で 9G なら毎秒 20 度前後
-    expect(gLimitedPitchRate(250) / DEG).toBeGreaterThan(19)
-    expect(gLimitedPitchRate(250) / DEG).toBeLessThan(21)
+    // 250 m/s で 7.5G なら毎秒 17 度前後。F-16 の 9G では 20 度だった
+    expect(gLimitedPitchRate(250) / DEG).toBeGreaterThan(16)
+    expect(gLimitedPitchRate(250) / DEG).toBeLessThan(18)
   })
 
   it('停止寸前でも G 制限が発散しない', () => {
@@ -222,7 +231,8 @@ describe('操縦の制限', () => {
   })
 
   it('迎角制限器は手前で徐々に絞る', () => {
-    const near = applyAoaLimiter(1, 22 * DEG)
+    // 制限角 35 度の 3 割手前から絞り始める
+    const near = applyAoaLimiter(1, 31 * DEG)
     expect(near).toBeGreaterThan(0)
     expect(near).toBeLessThan(1)
   })
@@ -296,15 +306,17 @@ describe('水平定常飛行のトリム', () => {
     expect(Math.abs(thrust - drag) / drag).toBeLessThan(1e-9)
   })
 
-  it('高度 1000 m・速度 250 m/s の迎角が 1.37 度前後', () => {
+  it('高度 1000 m・速度 250 m/s の迎角が 1.8 度前後', () => {
+    // 翼面荷重が F-16 級の 3,330 から 4,395 N/m² へ上がったぶん、
+    // 同じ条件でも迎角が 1.37 度から増える
     const { alpha } = trimCondition(speed, rho)
-    expect(alpha / DEG).toBeCloseTo(1.37, 1)
+    expect(alpha / DEG).toBeCloseTo(1.81, 1)
   })
 
-  it('同じ条件のスロットルが 2 割弱', () => {
+  it('同じ条件のスロットルが 2 割半', () => {
     const { throttle } = trimCondition(speed, rho)
-    expect(throttle).toBeGreaterThan(0.15)
-    expect(throttle).toBeLessThan(0.25)
+    expect(throttle).toBeGreaterThan(0.2)
+    expect(throttle).toBeLessThan(0.3)
   })
 
   it('速度が上がるとトリム迎角が下がる', () => {

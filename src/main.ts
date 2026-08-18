@@ -49,6 +49,8 @@ const capture = readCaptureConfig(window.location.search)
 // 大気の LUT は tools/copy-atmosphere-assets.mjs が public/atmosphere/ へ置く。
 // GitHub Pages ではサイトが /dogfight/ 配下に出るので BASE_URL を挟む
 const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
+// 機体は tools/ac3d-to-glb.mjs が public/aircraft/ へ置く
+const AIRCRAFT_URL = `${import.meta.env.BASE_URL}aircraft/f18.glb`
 
 const hook = installTestHook({
   frame: 0,
@@ -73,6 +75,7 @@ const hook = installTestHook({
   terrainStats: { min: 0, max: 0, mean: 0 },
   terrainPatches: 0,
   terrainTriangles: 0,
+  aircraftTriangles: 0,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -93,6 +96,7 @@ async function main(): Promise<void> {
     preset: capture.preset,
     hour: capture.hour,
     texturesUrl: TEXTURES_URL,
+    aircraftUrl: AIRCRAFT_URL,
     coverage: capture.coverage,
     qualityOverride: {
       ...(capture.cloudScale !== null ? { resolutionScale: capture.cloudScale } : {}),
@@ -121,6 +125,7 @@ async function main(): Promise<void> {
   hook.cloudHdrTarget = view.cloudHdrTarget
   hook.terrainMs = view.terrainMs
   hook.terrainStats = view.terrainStats
+  hook.aircraftTriangles = view.aircraftTriangles
 
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる
@@ -141,6 +146,7 @@ async function main(): Promise<void> {
     hook.groundHeight = sample.groundHeight
     hook.terrainPatches = view.terrainPatches
     hook.terrainTriangles = view.terrainTriangles
+    hook.aircraftTriangles = view.aircraftTriangles
     hook.angleOfAttack = sample.angleOfAttack
     hook.bank = sample.bank
     hook.crashed = sample.crashed
@@ -297,6 +303,7 @@ async function main(): Promise<void> {
       cpuRenderMs,
       terrainPatches: view.terrainPatches,
       terrainTriangles: view.terrainTriangles,
+      aircraftTriangles: view.aircraftTriangles,
       drawingBufferWidth: view.renderer.domElement.width,
       drawingBufferHeight: view.renderer.domElement.height,
       devicePixelRatio: window.devicePixelRatio,

@@ -187,6 +187,8 @@ export interface TestHook {
   /** 描いている地形パッチの枚数と三角形数 */
   terrainPatches: number
   terrainTriangles: number
+  /** 機体の三角形数。読み込めていなければ 0 */
+  aircraftTriangles: number
   preset: PresetName
   hour: number
   // 飛行状態

@@ -42,6 +42,16 @@ const TEXTURE_MAP = {
 /** 降着装置。地上でしか使わないので別ノードにして隠せるようにする */
 const GEAR_PATTERN = /Door|Gear|Wheel|Tire|Strut|Hook/i
 
+/**
+ * 描画側で個別に出し入れする部品。
+ *
+ * 原本にはアフターバーナーの炎が入っている。FlightGear は
+ * engines/engine[0]/augmentation で ExternalFlame を出し入れし、InternalFlame は
+ * 常に見せている（f18.xml の select アニメーション）。同じ扱いにするので
+ * 別ノードへ切り出す。
+ */
+const EXTRA_NODES = ['ExternalFlame', 'InternalFlame']
+
 /** 操縦席の内装。外から見えないので別ノードにする */
 const COCKPIT_TEXTURE = 'f18cockpit.rgb'
 
@@ -71,6 +81,7 @@ function classify(parts) {
 
   for (const part of parts) {
     if (hingeNames.has(part.name)) put(part.name, part)
+    else if (EXTRA_NODES.includes(part.name)) put(part.name, part)
     else if (GEAR_PATTERN.test(part.name)) put('gear', part)
     else if (part.texture === COCKPIT_TEXTURE) put('cockpit', part)
     else put('body', part)
@@ -197,6 +208,11 @@ function materialFor(bucket, materials) {
     roughness = 0.8
   }
 
+  // 自発光。アフターバーナーの炎と灯火がこれを使っている。落とすと炎が
+  // 黒い板になる（実測。ExternalFlame は rgb 0,0,0 で emis だけを持つ）
+  const emissive = (src.emis[0] + src.emis[1] + src.emis[2]) / 3
+  if (emissive > 0.05) metallic = 0
+
   const alpha = 1 - src.trans
   const material = {
     name: `${name}${bucket.texture ? `_${bucket.texture}` : ''}`,
@@ -208,6 +224,9 @@ function materialFor(bucket, materials) {
       roughnessFactor: roughness,
     },
     doubleSided: bucket.twoSided,
+  }
+  if (emissive > 0.05) {
+    material.emissiveFactor = [src.emis[0], src.emis[1], src.emis[2]]
   }
   if (src.trans > 0) {
     material.alphaMode = 'BLEND'
@@ -287,6 +306,10 @@ function main() {
         images.set(file, imageIndex)
       }
       material.pbrMetallicRoughness.baseColorTexture = { index: imageIndex }
+      // 自発光もテクスチャで模様が付く。炎はテクスチャの一部を使っている
+      if (material.emissiveFactor !== undefined) {
+        material.emissiveTexture = { index: imageIndex }
+      }
     }
     // 同じ内容のマテリアルは 1 つにまとめる
     const serialized = JSON.stringify(material)

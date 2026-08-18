@@ -107,6 +107,8 @@ export interface SceneHandle {
   /** 描いている地形パッチの枚数と三角形数。予算の確認に使う */
   readonly terrainPatches: number
   readonly terrainTriangles: number
+  /** 機体の三角形数。読み込めていなければ 0 */
+  readonly aircraftTriangles: number
   readonly quality: QualitySettings
   /**
    * sim の状態を描画へ反映する。
@@ -161,6 +163,8 @@ export interface SceneOptions {
   exposure?: number
   /** 大気の LUT を置いた URL */
   texturesUrl: string
+  /** 機体モデルの glb の URL */
+  aircraftUrl: string
   /** プリセットの上書き。実機でつまみを振るときに使う */
   qualityOverride?: QualityOverride
   /** 雲バッファの持ち方の比較用。決着したら消す */
@@ -250,7 +254,7 @@ export async function createScene(
   water.mesh.visible = options.showWater ?? true
   scene.add(water.mesh)
 
-  const aircraft: AircraftView = createAircraftView()
+  const aircraft: AircraftView = await createAircraftView(options.aircraftUrl)
   scene.add(aircraft.object)
 
   const cloudsPass = new CloudsPass({
@@ -352,6 +356,10 @@ export async function createScene(
 
     get terrainStats() {
       return terrain.stats
+    },
+
+    get aircraftTriangles() {
+      return aircraft.triangles
     },
 
     get terrainPatches() {

@@ -174,8 +174,9 @@ describe('再生の決定論', () => {
 })
 
 describe('island-run — 島を越える', () => {
-  it('海上から主峰の稜線を越え、40 秒間墜落しない', () => {
-    const world = runScript(SCRIPTS['island-run'], SEC * 40)
+  it('海上から主峰の稜線を越え、45 秒間墜落しない', () => {
+    // F/A-18C は F-16 級より加速が鈍いので、島を抜けるまで 42 秒かかる
+    const world = runScript(SCRIPTS['island-run'], SEC * 45)
     const p = world.player
 
     expect(p.crashed).toBe(false)

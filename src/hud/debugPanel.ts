@@ -41,6 +41,8 @@ export interface RenderInfo {
   /** 描いている地形パッチの枚数と三角形数。予算の確認に使う */
   terrainPatches: number
   terrainTriangles: number
+  /** 機体の三角形数 */
+  aircraftTriangles: number
   /** 実際に描いている画素数。DPR とレンダースケールの積で決まる */
   drawingBufferWidth: number
   drawingBufferHeight: number
@@ -80,6 +82,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['gpuClouds', 'うち雲'],
     ['cpu', 'CPU 時間'],
     ['terrain', '地形'],
+    ['aircraft', '機体'],
     ['resolution', '解像度'],
   ] as const
 
@@ -164,6 +167,10 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       set(
         'terrain',
         `${render.terrainPatches} 枚 / ${(render.terrainTriangles / 1000).toFixed(0)}k 三角形`,
+      )
+      set(
+        'aircraft',
+        `${(render.aircraftTriangles / 1000).toFixed(1)}k 三角形`,
       )
       set(
         'resolution',

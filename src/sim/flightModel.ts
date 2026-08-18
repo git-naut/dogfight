@@ -4,19 +4,24 @@ import { GRAVITY, SEA_LEVEL_DENSITY, dynamicPressure } from './isa'
 /**
  * 機体諸元と空力。手触りの調整はこのファイルの数値だけで済ませる。
  *
- * 値は F-16 の実測値を基準にした。戦闘離陸重量 9,791 kg、主翼面積 28.87 m²、
- * 翼幅 9.96 m、F110 のアフターバーナー推力 122.77 kN。
+ * 値は F/A-18C の公表値を基準にした。戦闘重量 16,650 kg、主翼面積 37.16 m²、
+ * 翼幅 11.43 m、F404-GE-402 × 2 のアフターバーナー推力 157.47 kN。
  * 導出と根拠は docs/flight-model.md に書いてある。
+ *
+ * Phase 1 では F-16 を基準にしていた。Phase 4 で機体モデルに FlightGear の
+ * F/A-18C を取り込んだので、見えているものと物理を揃えるために書き換えた。
+ * モデルの実測は 全長 17.797 m / 翼幅 11.571 m / 全高 4.488 m で、公表値と
+ * 5% 以内で一致する（tests/tools/ac3d.test.ts が検査する）。
  */
 
 const DEG = Math.PI / 180
 
-const WING_SPAN = 9.96
-const WING_AREA = 28.87
+const WING_SPAN = 11.43
+const WING_AREA = 37.16
 
 export const AIRCRAFT = {
   /** 質量 kg */
-  mass: 9800,
+  mass: 16_650,
   /** 主翼面積 m² */
   wingArea: WING_AREA,
   /** アスペクト比 = 翼幅² / 翼面積 */
@@ -24,35 +29,50 @@ export const AIRCRAFT = {
   /** オズワルド効率。誘導抗力の効きを決める */
   oswaldEfficiency: 0.8,
 
-  /** 海面高度・アフターバーナー時の最大推力 N */
-  maxThrust: 122_770,
+  /** 海面高度・アフターバーナー時の最大推力 N。F404-GE-402 が 17,700 lbf × 2 */
+  maxThrust: 157_470,
 
   /**
    * 揚力傾斜 /rad。
-   * 薄翼理論の 2π にアスペクト比 3.44 の有限翼補正を掛けた値。
+   * 薄翼理論の 2π にアスペクト比 3.52 の有限翼補正を掛けた値。
    */
   liftSlope: 4.0,
   /**
-   * 失速角 rad。
+   * 揚力係数が頭打ちになる迎角 rad。
    *
-   * 素の翼型なら 16〜18 度だが、この機体は前縁付け根の延長（LERX）で
-   * 高迎角まで渦揚力が伸びる前提で 26 度に置く。下の迎角制限 25 度が
-   * 失速の手前で効くようにするため。18 度のままだと制限に達する前に
-   * 失速してしまい、制限器が意味をなさない。
+   * ここまでは迎角に比例して増え、ここから失速角までは一定になる。
+   * 27.2 度で CLmax が 1.90 になり、LEX を持つ戦闘機の妥当な範囲に収まる。
+   *
+   * この平坦部が F/A-18C の高迎角性能の表現。Hornet が 35 度まで引けるのは
+   * CLmax が高いからではなく、揚力が頭打ちになったあとも操縦できるため。
+   * 平坦部を作らずに失速角を 38 度まで伸ばすと CLmax が 2.66 になり、
+   * 実機の 1.8 前後から外れてしまう。
    */
-  stallAngle: 26 * DEG,
+  clPeakAngle: 27.2 * DEG,
+  /** 失速角 rad。ここから揚力係数が落ち始める */
+  stallAngle: 38 * DEG,
   /** 失速後、揚力係数が下げ止まる迎角 rad */
-  postStallAngle: 35 * DEG,
+  postStallAngle: 48 * DEG,
   /** 下げ止まったときの揚力係数の残り割合 */
   postStallRetention: 0.6,
 
-  /** 有害抗力係数。クリーン形態 */
-  cd0: 0.02,
+  /**
+   * 有害抗力係数。
+   *
+   * クリーン形態の F/A-18C は 0.024 前後。モデルは翼端ミサイルとパイロンを
+   * 付けた形態なので少し上げる。
+   */
+  cd0: 0.026,
 
   /** 構造の G 制限 */
-  gLimit: 9,
-  /** フライバイワイヤの迎角制限 rad。F-16 が実際に持つ機能 */
-  aoaLimit: 25 * DEG,
+  gLimit: 7.5,
+  /**
+   * フライバイワイヤの迎角制限 rad。
+   *
+   * Hornet の制御は 35 度まで許す。上の平坦部（27.2 度から 38 度）の内側に
+   * あるので、制限角まで引いても揚力は落ちない。
+   */
+  aoaLimit: 35 * DEG,
   /** 負の迎角側の制限 rad */
   aoaLimitNegative: -15 * DEG,
 
@@ -90,8 +110,8 @@ const REFERENCE_DYNAMIC_PRESSURE = dynamicPressure(
   AIRCRAFT.controlRefSpeed,
 )
 
-/** 失速角における揚力係数。以降の計算の基準になる */
-export const CL_MAX = AIRCRAFT.liftSlope * AIRCRAFT.stallAngle
+/** 最大揚力係数。平坦部に入る迎角で決まる。以降の計算の基準になる */
+export const CL_MAX = AIRCRAFT.liftSlope * AIRCRAFT.clPeakAngle
 
 export function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value
@@ -100,8 +120,13 @@ export function clamp(value: number, min: number, max: number): number {
 /**
  * 揚力係数を迎角から求める。
  *
- * 失速角までは線形に増え、そこを超えると失速して落ちる。落ち切ったあとは
- * 一定にする。負の迎角も対称に扱う。
+ * 3 段になっている。頭打ちの迎角までは線形に増え、そこから失速角までは
+ * 一定、失速角を超えると落ちて、落ち切ったあとは一定になる。負の迎角も
+ * 対称に扱う。
+ *
+ * 平坦部を持たせているのが F/A-18C の高迎角性能の表現。前縁付け根の延長
+ * （LEX）が作る渦揚力は、使える迎角を伸ばすが CLmax を比例して上げない。
+ * 平坦部なしに失速角を伸ばすと CLmax が実機から外れる。
  *
  * 実際の翼はもっと滑らかな曲線を描くが、折れ線でも「引きすぎると
  * 揚力を失う」という挙動は再現できる。
@@ -110,8 +135,12 @@ export function liftCoefficient(alpha: number): number {
   const sign = alpha < 0 ? -1 : 1
   const a = Math.abs(alpha)
 
-  if (a <= AIRCRAFT.stallAngle) {
+  if (a <= AIRCRAFT.clPeakAngle) {
     return sign * AIRCRAFT.liftSlope * a
+  }
+
+  if (a <= AIRCRAFT.stallAngle) {
+    return sign * CL_MAX
   }
 
   if (a >= AIRCRAFT.postStallAngle) {

@@ -39,6 +39,7 @@ interface TestHook {
   terrainStats: { min: number; max: number; mean: number }
   terrainPatches: number
   terrainTriangles: number
+  aircraftTriangles: number
   preset: string
   hour: number
   speed: number
@@ -388,6 +389,22 @@ test.describe('地形', () => {
     // 夕方のほうが赤い
     const warmth = (r: readonly number[]) => r[0]! / r[2]!
     expect(warmth(evening.sunRadiance)).toBeGreaterThan(warmth(morning.sunRadiance))
+  })
+})
+
+test.describe('機体', () => {
+  test('モデルが読み込めて三角形数が予算内', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 120 })
+
+    // 原本は 18,634 三角形。変換で増減していないこと
+    expect(hook.aircraftTriangles).toBe(18_634)
+    // 自機の予算。手続き生成をやめて実モデルにしたので実測値で固定する
+    expect(hook.aircraftTriangles).toBeLessThan(25_000)
+  })
+
+  test('地形と機体の合計がシーン予算 1.5M の内側', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 120, preset: 'ultra' })
+    expect(hook.terrainTriangles + hook.aircraftTriangles).toBeLessThan(1_500_000)
   })
 })
 

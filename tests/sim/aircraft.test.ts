@@ -110,7 +110,9 @@ describe('水平定常飛行', () => {
   it('スロットルを開けると加速する', () => {
     const { craft, input } = trimmed(250, 3000)
     run(craft, { ...input, throttle: 1 }, SECOND * 10)
-    expect(craft.speed).toBeGreaterThan(300)
+    // F/A-18C は推力重量比 0.96。F-16 の 1.28 だった頃は 10 秒で 300 m/s を
+    // 超えたが、いまは 295 m/s 前後まで
+    expect(craft.speed).toBeGreaterThan(285)
   })
 })
 
@@ -242,7 +244,9 @@ describe('風見安定と協調旋回', () => {
 
     const swept = Math.abs(heading(craft) - startHeading)
     expect(craft.bank).toBeGreaterThan(40 * DEG)
-    expect(swept).toBeGreaterThan(0.5) // 30 度以上まわった
+    // G 制限が 9 から 7.5 へ下がって指令ピッチ率の上限が 16% 下がったので、
+    // 同じ操作でも旋回が浅くなる。23 度以上まわれば協調旋回は成立している
+    expect(swept).toBeGreaterThan(0.4)
     expect(maxSideslip).toBeLessThan(6 * DEG)
   })
 })

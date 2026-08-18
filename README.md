@@ -47,4 +47,12 @@ Phase 4 で機体モデル、Phase 5 で武装と HUD。Phase 6 で敵 AI、Phas
 
 ## ライセンス
 
+GNU General Public License version 2 またはそれ以降（`LICENSE`）。
+
+機体モデルに FlightGear FGAddon の F/A-18C Hornet（作者 Fabrice Kauffmann、GPLv2+）を使っている。そのためリポジトリ全体を GPLv2+ にしてある。改変前の原本は `assets/upstream/f18/` にコミットしてある。GPLv2 が改変に適した形式の提供を求めるので、生成した glb と WebP だけでは足りない。
+
+アセットの出典は `assets/CREDITS.md`。判断の経緯は `docs/decisions/0005-aircraft.md`。
+
+## ライセンス
+
 コードは未定。アセットは CC0、パブリックドメイン、OFL、MIT のみを使い、出典を `assets/CREDITS.md` に記録する。

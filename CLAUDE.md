@@ -52,7 +52,9 @@ git config user.email   # naut8008@gmail.com が返ること
 
 ## アセットのライセンス
 
-使うのは CC0、パブリックドメイン、OFL のみ。取得したものは URL、作者、ライセンス、取得日を `assets/CREDITS.md` に記録する。記録のないアセットはコミットしない。
+使うのは CC0、パブリックドメイン、OFL、MIT、GPLv2+ のみ。取得したものは URL、作者、ライセンス、取得日を `assets/CREDITS.md` に記録する。記録のないアセットはコミットしない。
+
+GPLv2+ を許すのは、このリポジトリ自体を GPLv2+ にしたため。機体モデルを FlightGear から取り込んだ判断の経緯は `docs/decisions/0005-aircraft.md` にある。GPL のアセットは改変前の原本を `assets/upstream/` にコミットする。GPLv2 が改変に適した形式の提供を求めるので、生成物だけでは足りない。
 
 NASA 3D Resources のモデルは米国政府著作物として使えるが、インシグニアとロゴはパブリックドメインではない。テクスチャからマーキングを除去してから取り込む。
 

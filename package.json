@@ -2,6 +2,7 @@
   "name": "dogfight",
   "private": true,
   "version": "0.0.0",
+  "license": "GPL-2.0-or-later",
   "type": "module",
   "description": "Arcade air combat game built with Three.js",
   "scripts": {

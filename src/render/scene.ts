@@ -109,6 +109,8 @@ export interface SceneHandle {
   readonly terrainTriangles: number
   /** 機体の三角形数。読み込めていなければ 0 */
   readonly aircraftTriangles: number
+  /** 動かせた舵面の枚数。6 枚あるはず */
+  readonly aircraftSurfaces: number
   readonly quality: QualitySettings
   /**
    * sim の状態を描画へ反映する。
@@ -362,6 +364,10 @@ export async function createScene(
       return aircraft.triangles
     },
 
+    get aircraftSurfaces() {
+      return aircraft.surfaceCount
+    },
+
     get terrainPatches() {
       return terrainMesh.patchCount
     },
@@ -392,6 +398,9 @@ export async function createScene(
       )
       aircraft.object.quaternion.copy(quaternion)
       aircraft.setThrottle(sample.throttle)
+      // 舵面は sim が持つ位置をそのまま渡す。描画側で入力を読むと
+      // キャプチャモードで再現しない
+      aircraft.setControls(sample.elevator, sample.aileron, sample.rudder)
 
       // 太陽光と天空光の基準位置を機体に合わせる。高度によって透過率が変わる。
       // ライト本体の位置は update() が太陽方向から決めるので触らない

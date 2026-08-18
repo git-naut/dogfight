@@ -32,10 +32,30 @@ describe('品質プリセットの表', () => {
     }
   })
 
-  it('影のカスケード段数が段ごとに増える', () => {
-    const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].shadowCascades)
-    for (let i = 1; i < values.length; i++) {
-      expect(values[i]!).toBeGreaterThan(values[i - 1]!)
+  it('機体まわりの 3 項目が段ごとに増える', () => {
+    // 影マップ、環境反射、軌跡の分割数。Low は 0 で機能そのものを切る
+    for (const key of [
+      'aircraftShadowMapSize',
+      'environmentMapSize',
+      'trailSegments',
+    ] as const) {
+      const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n][key])
+      expect(values[0], `${key} の low は 0`).toBe(0)
+      for (let i = 1; i < values.length; i++) {
+        expect(values[i]!, `${key} の ${PRESET_ORDER[i]}`).toBeGreaterThan(values[i - 1]!)
+      }
+    }
+  })
+
+  it('影マップと環境反射の一辺が 2 のべき乗', () => {
+    // キューブマップとミップマップの都合。2 のべき乗でないと three が
+    // リサイズしたり品質が落ちたりする
+    for (const key of ['aircraftShadowMapSize', 'environmentMapSize'] as const) {
+      for (const name of PRESET_ORDER) {
+        const size = QUALITY_PRESETS[name][key]
+        if (size === 0) continue
+        expect(Math.log2(size) % 1, `${key} の ${name} が ${size}`).toBe(0)
+      }
     }
   })
 
@@ -149,13 +169,23 @@ describe('品質プリセットの表', () => {
     expect(getQuality(DEFAULT_PRESET).renderScale).toBe(1)
   })
 
-  it('すべての値が正で有限', () => {
+  it('すべての値が有限で、0 を許すのは機能を切る枠だけ', () => {
+    // 0 は「その機能を使わない」の意味。Low で影と環境反射と軌跡を切る
+    const zeroAllowed = new Set([
+      'aircraftShadowMapSize',
+      'environmentMapSize',
+      'trailSegments',
+    ])
     for (const name of PRESET_ORDER) {
       const q = QUALITY_PRESETS[name]
       for (const [key, value] of Object.entries(q)) {
         if (typeof value !== 'number') continue
         expect(Number.isFinite(value), `${name}.${key}`).toBe(true)
-        expect(value, `${name}.${key}`).toBeGreaterThan(0)
+        if (zeroAllowed.has(key)) {
+          expect(value, `${name}.${key}`).toBeGreaterThanOrEqual(0)
+        } else {
+          expect(value, `${name}.${key}`).toBeGreaterThan(0)
+        }
       }
     }
   })

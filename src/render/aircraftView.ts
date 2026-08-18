@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { loadAircraftModel, type AircraftModel } from './aircraft/model'
+import { createControlSurfaces, type ControlSurfaces } from './aircraft/surfaces'
 
 /**
  * 機体の表示。
@@ -20,8 +21,12 @@ export interface AircraftView {
   readonly object: THREE.Object3D
   /** 三角形の総数。予算の確認に使う */
   readonly triangles: number
+  /** 動かせた舵面の枚数。6 枚あるはず */
+  readonly surfaceCount: number
   /** アフターバーナーの強さ 0..1 */
   setThrottle(value: number): void
+  /** 舵面の位置 −1..1。sim の AircraftSample の値をそのまま渡す */
+  setControls(elevator: number, aileron: number, rudder: number): void
   dispose(): void
 }
 
@@ -31,9 +36,16 @@ export async function createAircraftView(url: string): Promise<AircraftView> {
   const externalFlame = model.object.getObjectByName('ExternalFlame') ?? null
   if (externalFlame !== null) externalFlame.visible = false
 
+  const surfaces: ControlSurfaces = createControlSurfaces(model.surfaces, model.hinges)
+
   return {
     object: model.object,
     triangles: model.triangles,
+    surfaceCount: surfaces.count,
+
+    setControls(elevator, aileron, rudder) {
+      surfaces.update(elevator, aileron, rudder)
+    },
 
     setThrottle(value: number) {
       if (externalFlame === null) return

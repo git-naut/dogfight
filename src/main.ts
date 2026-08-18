@@ -82,6 +82,10 @@ const hook = installTestHook({
   altitude: 0,
   agl: 0,
   groundHeight: 0,
+  elevator: 0,
+  aileron: 0,
+  rudder: 0,
+  aircraftSurfaces: 0,
   angleOfAttack: 0,
   bank: 0,
   crashed: false,
@@ -126,6 +130,7 @@ async function main(): Promise<void> {
   hook.terrainMs = view.terrainMs
   hook.terrainStats = view.terrainStats
   hook.aircraftTriangles = view.aircraftTriangles
+  hook.aircraftSurfaces = view.aircraftSurfaces
 
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる
@@ -144,9 +149,13 @@ async function main(): Promise<void> {
     hook.altitude = sample.altitude
     hook.agl = sample.agl
     hook.groundHeight = sample.groundHeight
+    hook.elevator = sample.elevator
+    hook.aileron = sample.aileron
+    hook.rudder = sample.rudder
     hook.terrainPatches = view.terrainPatches
     hook.terrainTriangles = view.terrainTriangles
     hook.aircraftTriangles = view.aircraftTriangles
+  hook.aircraftSurfaces = view.aircraftSurfaces
     hook.angleOfAttack = sample.angleOfAttack
     hook.bank = sample.bank
     hook.crashed = sample.crashed

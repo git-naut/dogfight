@@ -275,6 +275,55 @@ describe('スロットル', () => {
   })
 })
 
+describe('舵面', () => {
+  it('指令へ一次遅れで追従する', () => {
+    const { craft, input } = trimmed(250, 3000)
+    // 時定数 0.08 s。1 ステップでは届かない
+    craft.step({ ...input, roll: 1 }, FIXED_DT)
+    expect(craft.aileron).toBeGreaterThan(0)
+    expect(craft.aileron).toBeLessThan(0.2)
+
+    // 時定数ぶん進めば 63% を超える
+    for (let i = 1; i < Math.round(0.08 / FIXED_DT); i++) {
+      craft.step({ ...input, roll: 1 }, FIXED_DT)
+    }
+    expect(craft.aileron).toBeGreaterThan(0.6)
+    expect(craft.aileron).toBeLessThan(0.75)
+
+    // 十分に進めば張り付く
+    run(craft, { ...input, roll: 1 }, SECOND)
+    expect(craft.aileron).toBeCloseTo(1, 3)
+  })
+
+  it('−1..1 に収まる', () => {
+    const { craft, input } = trimmed(250, 3000)
+    run(craft, { ...input, roll: 5, yaw: -5 }, SECOND)
+    expect(craft.aileron).toBeLessThanOrEqual(1)
+    expect(craft.rudder).toBeGreaterThanOrEqual(-1)
+  })
+
+  it('エレベータは迎角制限を通したあとの指令に従う', () => {
+    // 制限が効いているのに舵面が振り切れていると、見えているものと
+    // 挙動が食い違う
+    const { craft, input } = trimmed(120, 1000)
+    run(craft, { ...input, pitch: 1 }, SECOND * 8)
+
+    expect(craft.angleOfAttack).toBeGreaterThan(20 * DEG)
+    expect(craft.elevator).toBeLessThan(0.5)
+  })
+
+  it('サンプルに載る', () => {
+    const { craft, input } = trimmed(250, 3000)
+    run(craft, { ...input, roll: -1 }, SECOND)
+
+    const out = createAircraftSample()
+    craft.sample(1, out)
+    expect(out.aileron).toBeCloseTo(craft.aileron, 12)
+    expect(out.elevator).toBeCloseTo(craft.elevator, 12)
+    expect(out.rudder).toBeCloseTo(craft.rudder, 12)
+  })
+})
+
 describe('地面と地形', () => {
   it('地形を渡さなければ海面（高度 0）で止まる', () => {
     const { craft, input } = trimmed(250, 300)

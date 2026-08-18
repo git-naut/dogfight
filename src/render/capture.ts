@@ -197,6 +197,12 @@ export interface TestHook {
   /** 対地高度 m と真下の地形の高さ m */
   agl: number
   groundHeight: number
+  /** 舵面の位置 −1..1 */
+  elevator: number
+  aileron: number
+  rudder: number
+  /** 動かせた舵面の枚数 */
+  aircraftSurfaces: number
   angleOfAttack: number
   bank: number
   crashed: boolean

@@ -86,6 +86,10 @@ export interface AircraftSample {
    * 変えると飛行モデルが狂う。低空飛行では読みたいのはこちらのほう。
    */
   agl: number
+  /** 舵面の位置 −1..1。描画が舵を切るのに使う */
+  elevator: number
+  aileron: number
+  rudder: number
 }
 
 // 毎ステップの一時変数。使い回してゴミを出さない。
@@ -124,6 +128,16 @@ export class Aircraft {
   bank = 0
   loadFactor = 1
   stalled = false
+
+  /**
+   * 舵面の位置 −1..1。指令へ一次遅れで追従する。
+   *
+   * 描画が使う。描画側で入力を読むとキャプチャモードで再現しない（sync が
+   * 1 回しか走らないため）。sim の状態として持つ。
+   */
+  elevator = 0
+  aileron = 0
+  rudder = 0
 
   // 描画補間用に前ステップの姿勢を持つ
   private readonly prevPosition = new Vec3()
@@ -190,6 +204,14 @@ export class Aircraft {
     const targetThrottle = clamp(input.throttle, 0, 1)
     this.throttle += (targetThrottle - this.throttle) * lagFactor(dt, AIRCRAFT.throttleTau)
 
+    // 舵面の位置。指令をそのまま見せると入力の瞬間に跳ねるので遅らせる。
+    // 制限器を通したあとのピッチ指令を使う。制限が効いているときに舵面が
+    // 動いたままだと、見えているものと挙動が食い違う
+    const surfaceLag = lagFactor(dt, AIRCRAFT.surfaceTau)
+    this.elevator += (pitchCommand - this.elevator) * surfaceLag
+    this.aileron += (clamp(input.roll, -1, 1) - this.aileron) * surfaceLag
+    this.rudder += (clamp(input.yaw, -1, 1) - this.rudder) * surfaceLag
+
     // 6. 力を合算する。tmpAero には重力以外を入れて荷重倍数の計算に使う
     tmpAero.set(0, 0, 0)
     tmpAero.addScaledVector(tmpForward, availableThrust(this.throttle, density))
@@ -254,6 +276,9 @@ export class Aircraft {
     out.crashed = this.crashed
     out.groundHeight = this.groundHeight
     out.agl = this.agl
+    out.elevator = this.elevator
+    out.aileron = this.aileron
+    out.rudder = this.rudder
     return out
   }
 
@@ -302,6 +327,9 @@ export function createAircraftSample(): AircraftSample {
     crashed: false,
     groundHeight: 0,
     agl: 0,
+    elevator: 0,
+    aileron: 0,
+    rudder: 0,
   }
 }
 

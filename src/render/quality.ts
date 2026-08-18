@@ -67,8 +67,29 @@ export interface QualitySettings {
    */
   lodDistanceScale: number
 
-  // Phase 4 で機体の影を入れるときに効くようになる枠
-  shadowCascades: number
+  /**
+   * 機体の影マップの一辺。0 で影なし。
+   *
+   * Phase 4 で `shadowCascades` を置き換えた。カスケードは実装しない。
+   * 遮蔽物が機体だけなので、機体を囲む正射影の箱 1 つで自己遮蔽と対地影の
+   * 両方をまかなえる。使われていない枠の名前を実装に合わせただけで、
+   * 列は増えていない。
+   */
+  aircraftShadowMapSize: number
+  /**
+   * 環境反射のキューブマップの一辺。0 で反射なし。
+   *
+   * 空のクアッドを 6 面に描き、PMREMGenerator で放射照度マップにする。
+   * 時刻が変わったときだけ焼き直すので毎フレームの費用はない。
+   */
+  environmentMapSize: number
+  /**
+   * 軌跡のリボンの分割数。0 で軌跡なし。
+   *
+   * コントレイルと翼端渦が使う。sim が持つ履歴のうち、後ろから何本を
+   * 描くかを決める。
+   */
+  trailSegments: number
 }
 
 export const PRESET_ORDER: readonly PresetName[] = ['low', 'medium', 'high', 'ultra']
@@ -91,7 +112,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainDetailNormals: false,
     waterSpecular: false,
     lodDistanceScale: 0.5,
-    shadowCascades: 1,
+    aircraftShadowMapSize: 0,
+    environmentMapSize: 0,
+    trailSegments: 0,
   },
   medium: {
     renderScale: 0.8,
@@ -108,7 +131,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainDetailNormals: true,
     waterSpecular: true,
     lodDistanceScale: 0.75,
-    shadowCascades: 2,
+    aircraftShadowMapSize: 512,
+    environmentMapSize: 64,
+    trailSegments: 32,
   },
   high: {
     renderScale: 1,
@@ -131,7 +156,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainDetailNormals: true,
     waterSpecular: true,
     lodDistanceScale: 1,
-    shadowCascades: 3,
+    aircraftShadowMapSize: 1024,
+    environmentMapSize: 128,
+    trailSegments: 96,
   },
   ultra: {
     renderScale: 1.25,
@@ -154,7 +181,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // 1.5 だと三角形が 2.19M になり、シーン予算 1.5M を単独で超える。
     // セル数を 48 へ上げたぶん、切り替え距離は控えめにする
     lodDistanceScale: 1.15,
-    shadowCascades: 4,
+    aircraftShadowMapSize: 2048,
+    environmentMapSize: 256,
+    trailSegments: 192,
   },
 }
 

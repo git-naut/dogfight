@@ -46,6 +46,10 @@ interface TestHook {
   altitude: number
   agl: number
   groundHeight: number
+  elevator: number
+  aileron: number
+  rudder: number
+  aircraftSurfaces: number
   angleOfAttack: number
   bank: number
   crashed: boolean

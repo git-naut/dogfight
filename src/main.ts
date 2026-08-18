@@ -86,6 +86,7 @@ const hook = installTestHook({
   aileron: 0,
   rudder: 0,
   aircraftSurfaces: 0,
+  environmentReady: false,
   angleOfAttack: 0,
   bank: 0,
   crashed: false,
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
     cloudCaptureMode: capture.enabled,
     showTerrain: capture.showTerrain,
     showWater: capture.showWater,
+    showEnvironment: capture.showEnvironment,
   })
 
   setBoot('描画の準備中')
@@ -131,6 +133,7 @@ async function main(): Promise<void> {
   hook.terrainStats = view.terrainStats
   hook.aircraftTriangles = view.aircraftTriangles
   hook.aircraftSurfaces = view.aircraftSurfaces
+  hook.environmentReady = view.environmentReady
 
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる
@@ -156,6 +159,7 @@ async function main(): Promise<void> {
     hook.terrainTriangles = view.terrainTriangles
     hook.aircraftTriangles = view.aircraftTriangles
   hook.aircraftSurfaces = view.aircraftSurfaces
+  hook.environmentReady = view.environmentReady
     hook.angleOfAttack = sample.angleOfAttack
     hook.bank = sample.bank
     hook.crashed = sample.crashed

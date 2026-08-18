@@ -207,21 +207,38 @@ function q(x) {
   return Math.round(x * 10000)
 }
 
-/** AC3D のマテリアルから PBR の値を決める。細かい調整は描画側で行う */
+/**
+ * AC3D のマテリアルから PBR の値を決める。
+ *
+ * **金属度を `spec` から決めてはいけない。**Gouraud の `spec` は誘電体でも
+ * 1 になる「ハイライトの色」で、金属かどうかとは無関係。機械的に写したら
+ * パイロントミサイルが金属度 1・粗さ 0.12 になり、環境反射を入れた瞬間に
+ * 鏡になった。実測で画素が (3,3,3) から (127,151,181) へ跳ね、空をそのまま
+ * 映していた。
+ *
+ * 既定は誘電体（金属度 0）。航空機で本当に金属なのは露出した排気口の内側
+ * くらいなので、そこだけ名前で拾う。粗さは 0.25 を下限にして、どこも鏡に
+ * ならないようにする。
+ */
 function materialFor(bucket, materials) {
   const src = materials[bucket.mat] ?? materials[0]
   const name = src.name
   const shine = Math.min(1, Math.max(0, src.shi / 128))
-  const spec = (src.spec[0] + src.spec[1] + src.spec[2]) / 3
 
-  let metallic = Math.min(1, spec)
-  let roughness = Math.min(0.95, Math.max(0.1, 1 - Math.sqrt(shine)))
+  let metallic = 0
+  let roughness = Math.min(0.95, Math.max(0.25, 1 - Math.sqrt(shine)))
   if (/Glass|HUD/i.test(name)) {
-    metallic = 0.0
     roughness = 0.05
+  } else if (/Reactor/i.test(name)) {
+    // 排気口の内側。ここは地金が出ている
+    metallic = 0.85
+    roughness = 0.35
   } else if (/Rubber|LCD|newmtl_0|Black/i.test(name)) {
-    metallic = 0.0
     roughness = 0.8
+  } else if (bucket.texture !== null) {
+    // 機体外板。塗装なので誘電体。塗膜の粗さは 0.45 前後が実機の写真に近い
+    metallic = 0.05
+    roughness = 0.45
   }
 
   // 自発光。アフターバーナーの炎と灯火がこれを使っている。落とすと炎が

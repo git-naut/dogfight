@@ -50,6 +50,7 @@ interface TestHook {
   aileron: number
   rudder: number
   aircraftSurfaces: number
+  environmentReady: boolean
   angleOfAttack: number
   bank: number
   crashed: boolean

@@ -13,6 +13,7 @@ import {
   type QualitySettings,
 } from './quality'
 import { createGpuTimer, type GpuTimer } from './gpuTimer'
+import { createEnvironmentProbe, type EnvironmentProbe } from './environment'
 import { generateCloudNoise, type CloudNoise } from './clouds/noise'
 import { CloudsPass, SHADOW_EXTENT } from './clouds/cloudsPass'
 import { cloudTime } from './clouds/geometry'
@@ -62,6 +63,10 @@ export interface MeasureConfig {
   sky?: boolean
   /** 地表の法線摂動。1 画素あたり値ノイズ 10 回ぶん */
   detailNormals?: boolean
+  /** 機体 */
+  aircraft?: boolean
+  /** 環境反射。scene.environment を外す */
+  environment?: boolean
   lodDistanceScale?: number
   terrainPatchCells?: number
 }
@@ -111,6 +116,8 @@ export interface SceneHandle {
   readonly aircraftTriangles: number
   /** 動かせた舵面の枚数。6 枚あるはず */
   readonly aircraftSurfaces: number
+  /** 環境反射が焼けているか。プリセットで切っていれば false */
+  readonly environmentReady: boolean
   readonly quality: QualitySettings
   /**
    * sim の状態を描画へ反映する。
@@ -179,6 +186,8 @@ export interface SceneOptions {
   /** 地形と海面を描くか。GPU 時間の内訳を差分で測るための切り替え */
   showTerrain?: boolean
   showWater?: boolean
+  /** 環境反射を使うか。質感の比較に使う */
+  showEnvironment?: boolean
 }
 
 /**
@@ -258,6 +267,16 @@ export async function createScene(
 
   const aircraft: AircraftView = await createAircraftView(options.aircraftUrl)
   scene.add(aircraft.object)
+
+  // 環境反射を空から焼く。機体を追加したあとに作ると、焼くあいだに機体を
+  // 隠す処理が効く（自分の映り込みを取り込まないため）
+  const environment: EnvironmentProbe = createEnvironmentProbe({
+    renderer,
+    scene,
+    sky: atmosphere.sky,
+    quality,
+  })
+  scene.environment = (options.showEnvironment ?? true) ? environment.texture : null
 
   const cloudsPass = new CloudsPass({
     camera,
@@ -366,6 +385,10 @@ export async function createScene(
 
     get aircraftSurfaces() {
       return aircraft.surfaceCount
+    },
+
+    get environmentReady() {
+      return scene.environment !== null
     },
 
     get terrainPatches() {
@@ -482,6 +505,10 @@ export async function createScene(
       if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
       if (config.water !== undefined) water.mesh.visible = config.water
       if (config.sky !== undefined) atmosphere.sky.visible = config.sky
+      if (config.aircraft !== undefined) aircraft.object.visible = config.aircraft
+      if (config.environment !== undefined) {
+        scene.environment = config.environment ? environment.texture : null
+      }
       if (config.detailNormals !== undefined) {
         terrainMesh.setDetailNormals(config.detailNormals)
       }
@@ -515,11 +542,18 @@ export async function createScene(
       cloudsPass.setQuality(quality)
       terrainMesh.setQuality(quality)
       water.setQuality(quality)
+      environment.setQuality(quality)
+      scene.environment = environment.texture
       applySize()
     },
 
     setHour(hour) {
       atmosphere.setHour(hour)
+      // 空が変わったら環境反射も焼き直す。時刻を変えたときだけなので安い。
+      // atmosphere.setHour は次の update() で反映されるので、その後に焼く
+      atmosphere.update()
+      environment.refresh()
+      scene.environment = environment.texture
     },
 
     setExposure(value) {
@@ -535,6 +569,7 @@ export async function createScene(
       composer.dispose()
       terrainMesh.dispose()
       water.dispose()
+      environment.dispose()
       heightTexture.dispose()
       normalTexture.dispose()
       renderer.dispose()

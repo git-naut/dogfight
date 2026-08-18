@@ -50,6 +50,8 @@ export interface CaptureConfig {
    */
   showTerrain: boolean
   showWater: boolean
+  /** 環境反射を使うか。`?env=0` で切る。質感の比較に使う */
+  showEnvironment: boolean
   /**
    * 描画を繰り返して 1 回あたりの時間を測る回数。0 なら測らない。
    *
@@ -107,6 +109,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     noDegrade: params.get('nodegrade') === '1',
     showTerrain: params.get('terrain') !== '0',
     showWater: params.get('water') !== '0',
+    showEnvironment: params.get('env') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
   }
@@ -203,6 +206,8 @@ export interface TestHook {
   rudder: number
   /** 動かせた舵面の枚数 */
   aircraftSurfaces: number
+  /** 環境反射が焼けているか */
+  environmentReady: boolean
   angleOfAttack: number
   bank: number
   crashed: boolean

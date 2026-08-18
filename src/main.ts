@@ -15,6 +15,8 @@ import { PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
+import { showBenchPanel } from './hud/benchPanel'
+import { runBenchSweep } from './render/bench'
 
 const canvas = document.querySelector<HTMLCanvasElement>('#viewport')
 const hudRoot = document.querySelector<HTMLElement>('#hud')
@@ -65,6 +67,7 @@ const hook = installTestHook({
   gpuTimerSupported: false,
   cloudHdrTarget: false,
   benchMs: 0,
+  benchSweep: [],
   cloudSamples: { mean: 0, max: 0, p99: 0 },
   terrainMs: 0,
   terrainStats: { min: 0, max: 0, mean: 0 },
@@ -166,7 +169,11 @@ async function main(): Promise<void> {
 
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
 
-    if (capture.bench > 0) {
+    if (capture.sweep) {
+      const rows = runBenchSweep(view, capture.bench > 0 ? capture.bench : 40)
+      hook.benchSweep = rows
+      if (hudRoot) showBenchPanel(hudRoot, rows)
+    } else if (capture.bench > 0) {
       const gl = view.renderer.getContext()
       const pixel = new Uint8Array(4)
       // gl.finish() では足りない。Chrome は描画コマンドを溜めるので、

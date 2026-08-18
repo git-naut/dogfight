@@ -48,6 +48,20 @@ import { FIXED_DT } from '../sim/loop'
  */
 const ATMOSPHERE_GROUND_ALBEDO = new THREE.Color(0x0a1c26)
 
+/**
+ * 計測用の描画の切り替え。
+ *
+ * 地形の費用は雲と違って実行量を数えられない。頂点とラスタライズが主なので、
+ * 切って差分で測るしかない。省略した項目は現状のまま。
+ */
+export interface MeasureConfig {
+  terrain?: boolean
+  water?: boolean
+  clouds?: boolean
+  lodDistanceScale?: number
+  terrainPatchCells?: number
+}
+
 export interface SceneHandle {
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
@@ -105,6 +119,8 @@ export interface SceneHandle {
   render(): void
   resize(width: number, height: number, devicePixelRatio: number): void
   setQuality(preset: PresetName): void
+  /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
+  setMeasureConfig(config: MeasureConfig): void
   setHour(hour: number): void
   setExposure(value: number): void
   dispose(): void
@@ -421,6 +437,32 @@ export async function createScene(
       cssHeight = height
       dpr = devicePixelRatio
       applySize()
+    },
+
+    setMeasureConfig(config) {
+      if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
+      if (config.water !== undefined) water.mesh.visible = config.water
+      if (config.clouds !== undefined) {
+        cloudsPass.enabled = config.clouds
+        // 差し込み口も外す。外さないと最後に焼いた雲が残り続ける
+        atmosphere.setOverlay(config.clouds ? { map: cloudsPass.texture } : null)
+      }
+      if (
+        config.lodDistanceScale !== undefined ||
+        config.terrainPatchCells !== undefined
+      ) {
+        quality = applyQualityOverride(quality, {
+          ...(config.lodDistanceScale !== undefined
+            ? { lodDistanceScale: config.lodDistanceScale }
+            : {}),
+          ...(config.terrainPatchCells !== undefined
+            ? { terrainPatchCells: config.terrainPatchCells }
+            : {}),
+        })
+        terrainMesh.setQuality(quality)
+        // パッチを選び直さないと、セル数だけ変わって枚数が古いままになる
+        terrainMesh.update(cameraWorld.x, cameraWorld.z)
+      }
     },
 
     setQuality(preset) {

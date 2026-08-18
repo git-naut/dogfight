@@ -58,6 +58,13 @@ export interface CaptureConfig {
    * 比べるには使える。実機の GPU 時間は ?debug=1 で読む
    */
   bench: number
+  /**
+   * 設定を振りながら同じ 1 枚を測るか。
+   *
+   * 実機で `?debug=1` の最大値を目で読む方式では 1 ms の差を分離できず、
+   * 描画を減らしたはずの設定のほうが遅いという矛盾した並びが出た。
+   */
+  sweep: boolean
 }
 
 export const DEFAULT_SEED = 20260816
@@ -101,6 +108,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showTerrain: params.get('terrain') !== '0',
     showWater: params.get('water') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
+    sweep: params.get('sweep') === '1',
   }
 }
 
@@ -160,6 +168,14 @@ export interface TestHook {
   cloudHdrTarget: boolean
   /** ?bench=N のときの 1 描画あたりの ms。測っていなければ 0 */
   benchMs: number
+  /** ?sweep=1 のときの設定ごとの計測結果 */
+  benchSweep: {
+    label: string
+    minMs: number
+    medianMs: number
+    maxMs: number
+    triangles: number
+  }[]
   /** ?probe=1 のときの密度サンプル数。画素あたり */
   cloudSamples: { mean: number; max: number; p99: number }
   /** 高さ場の生成にかかったミリ秒 */

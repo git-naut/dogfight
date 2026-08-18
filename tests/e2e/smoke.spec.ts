@@ -25,6 +25,13 @@ interface TestHook {
   gpuTimerSupported: boolean
   cloudHdrTarget: boolean
   benchMs: number
+  benchSweep: {
+    label: string
+    minMs: number
+    medianMs: number
+    maxMs: number
+    triangles: number
+  }[]
   cloudSamples: { mean: number; max: number; p99: number }
   terrainMs: number
   terrainStats: { min: number; max: number; mean: number }

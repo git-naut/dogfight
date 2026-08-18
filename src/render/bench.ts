@@ -12,30 +12,32 @@ import type { MeasureConfig } from './scene'
  * ここではカメラを止め、同じフレームを設定だけ変えて描く。視点も雲の位相も
  * 同じなので、差は設定の差だけになる。
  *
- * 設定ごとにまとめて測ってはいけない。最初にその形で組んだら、後半の設定ほど
- * 遅く出た（SwiftShader の実測で、描画を全部減らした設定が、地形だけ切った
- * 設定より 16 ms 遅い）。計測中に機械の状態が動くので、順番が結果に乗る。
- * 1 回ずつ総当たりで回せば、動きは全設定に等しく乗る。
+ * 組むときに踏んだ落とし穴が 4 つある。
+ *
+ * 設定ごとにまとめて測ってはいけない。計測中に機械の状態が動くので、順番が
+ * 結果に乗る。1 回ずつ総当たりで回せば、動きは全設定に等しく乗る。
+ *
+ * 代表値は最小値にする。割り込みは時間を増やす方向にしか効かない。
+ *
+ * キャプチャモードは DPR を 1 に固定しているので、そのままでは実際に遊ぶ
+ * 解像度と画素数が 2.25 倍違う。計測モードだけ実 DPR を使う（main.ts）。
+ *
+ * そして GPU タイマーのクエリは、同じタスクの中では結果が揃わない。
+ * `gl.finish()` を挟んで待っても揃わなかった。フレームをまたいで回収する。
  */
 
 export interface BenchRow {
   label: string
   /**
-   * GPU クエリで測った ms。拡張が無い環境では null。
+   * GPU クエリで測った ms。拡張が無い、または結果が回収できなければ null。
    *
-   * CPU 側の経過と両方出す。片方だけを見て判断しないため。実際に、CPU 側の
-   * 経過だけで測っていたときは雲を切っても 1.8 ms しか減らず、実機の
-   * デバッグ表示が出す「うち雲 10.6 ms」と食い違った。
+   * CPU 側の経過と両方出す。片方だけを見て判断しないため。CPU 側は
+   * Chrome が `performance.now()` を 0.1 ms に丸めるうえ、描画の完了を
+   * 待ち切れているかどうかを外から確かめられない。
    */
   gpuMinMs: number | null
   gpuMedianMs: number | null
-  /**
-   * CPU 側の経過 ms。最小値を代表値として読む。
-   *
-   * 「この 1 枚を描くのに何 ms かかるか」を知りたいので、外れ値は必ず上へ
-   * しか出ない。他の処理が割り込めば遅くなるだけで、速くはならない。
-   * 平均や中央値は環境の騒がしさを拾うが、最小値は拾わない。
-   */
+  /** CPU 側の経過 ms。最小値を代表値として読む */
   cpuMinMs: number
   cpuMedianMs: number
   cpuMaxMs: number
@@ -47,15 +49,39 @@ export interface BenchTarget {
   readonly terrainTriangles: number
   readonly quality: { lodDistanceScale: number; terrainPatchCells: number }
   setMeasureConfig(config: MeasureConfig): void
-  render(): void
-  renderTimed(): number | null
+  renderPlain(): void
+}
+
+interface TimerExtension {
+  TIME_ELAPSED_EXT: number
+  GPU_DISJOINT_EXT: number
+}
+
+interface Inflight {
+  query: WebGLQuery
+  caseIndex: number
 }
 
 /** 最初に捨てる回数。シェーダのコンパイルとテクスチャの常駐化が混ざる */
 const WARMUP = 3
 
-export function runBenchSweep(view: BenchTarget, samplesPerCase: number): BenchRow[] {
-  const gl = view.renderer.getContext()
+/** 最後にクエリを回収するために回すフレーム数 */
+const DRAIN_FRAMES = 90
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+}
+
+export async function runBenchSweep(
+  view: BenchTarget,
+  samplesPerCase: number,
+): Promise<BenchRow[]> {
+  const gl = view.renderer.getContext() as WebGL2RenderingContext
+  const ext = gl.getExtension(
+    'EXT_disjoint_timer_query_webgl2',
+  ) as TimerExtension | null
   const pixel = new Uint8Array(4)
 
   // gl.finish() では足りない。Chrome は描画コマンドを溜めるので、読み戻しで
@@ -70,16 +96,23 @@ export function runBenchSweep(view: BenchTarget, samplesPerCase: number): BenchR
     terrain: true,
     water: true,
     clouds: true,
+    sky: true,
+    detailNormals: true,
     lodDistanceScale: view.quality.lodDistanceScale,
     terrainPatchCells: view.quality.terrainPatchCells,
   }
 
   const cases: { label: string; config: MeasureConfig }[] = [
     { label: '基準', config: base },
+    { label: '空なし', config: { ...base, sky: false } },
     { label: '地形なし', config: { ...base, terrain: false } },
     { label: '海面なし', config: { ...base, water: false } },
     { label: '雲なし', config: { ...base, clouds: false } },
-    { label: '地形も海面もなし', config: { ...base, terrain: false, water: false } },
+    {
+      label: '後処理だけ',
+      config: { ...base, sky: false, terrain: false, water: false, clouds: false },
+    },
+    { label: '法線摂動なし', config: { ...base, detailNormals: false } },
     { label: 'lod 0.65', config: { ...base, lodDistanceScale: 0.65 } },
     { label: 'cells 24', config: { ...base, terrainPatchCells: 24 } },
   ]
@@ -87,29 +120,70 @@ export function runBenchSweep(view: BenchTarget, samplesPerCase: number): BenchR
   const cpuSamples: number[][] = cases.map(() => [])
   const gpuSamples: number[][] = cases.map(() => [])
   const triangles: number[] = cases.map(() => 0)
+  const inflight: Inflight[] = []
+
+  function collect(): void {
+    if (ext === null) return
+    // 乱れた区間の値は信用できない。読むとフラグは落ちる
+    const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT) as boolean
+    for (let i = inflight.length - 1; i >= 0; i--) {
+      const item = inflight[i]!
+      if (disjoint) {
+        gl.deleteQuery(item.query)
+        inflight.splice(i, 1)
+        continue
+      }
+      const ready = gl.getQueryParameter(
+        item.query,
+        gl.QUERY_RESULT_AVAILABLE,
+      ) as boolean
+      if (!ready) continue
+      const nanoseconds = gl.getQueryParameter(item.query, gl.QUERY_RESULT) as number
+      gpuSamples[item.caseIndex]!.push(nanoseconds / 1e6)
+      gl.deleteQuery(item.query)
+      inflight.splice(i, 1)
+    }
+  }
 
   for (let i = 0; i < WARMUP; i++) {
-    view.render()
+    view.renderPlain()
     drain()
   }
 
   for (let round = 0; round < samplesPerCase; round++) {
-    for (let c = 0; c < cases.length; c++) {
+    await nextFrame()
+    collect()
+
+    for (let k = 0; k < cases.length; k++) {
+      // 順番を 1 周ごとにずらす。固定にすると、1 周の中の後ろの設定ほど
+      // 遅く出た（実測。総当たりにしただけでは足りず、周回内の位置が
+      // そのまま結果に乗る）。ずらせば各設定が全部の位置を等しく通る
+      const c = (k + round) % cases.length
       view.setMeasureConfig(cases[c]!.config)
 
       // 設定を変えた直後の 1 枚は測らない。ジオメトリの作り直しや
       // バッファの再アップロードが乗る
-      view.render()
+      view.renderPlain()
       drain()
 
+      const query = ext !== null ? gl.createQuery() : null
+      if (query !== null && ext !== null) gl.beginQuery(ext.TIME_ELAPSED_EXT, query)
       const started = performance.now()
-      const gpuMs = view.renderTimed()
+      view.renderPlain()
+      if (query !== null && ext !== null) gl.endQuery(ext.TIME_ELAPSED_EXT)
       drain()
       cpuSamples[c]!.push(performance.now() - started)
-      if (gpuMs !== null) gpuSamples[c]!.push(gpuMs)
+      if (query !== null) inflight.push({ query, caseIndex: c })
+
       triangles[c] = view.terrainTriangles
     }
   }
+
+  for (let i = 0; i < DRAIN_FRAMES && inflight.length > 0; i++) {
+    await nextFrame()
+    collect()
+  }
+  for (const item of inflight) gl.deleteQuery(item.query)
 
   // 測り終えたら元に戻す。以降の描画が設定違いにならないように
   view.setMeasureConfig(base)

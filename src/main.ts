@@ -173,7 +173,7 @@ async function main(): Promise<void> {
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
 
     if (capture.sweep) {
-      const rows = runBenchSweep(view, capture.bench > 0 ? capture.bench : 40)
+      const rows = await runBenchSweep(view, capture.bench > 0 ? capture.bench : 40)
       hook.benchSweep = rows
       if (hudRoot) showBenchPanel(hudRoot, rows)
     } else if (capture.bench > 0) {

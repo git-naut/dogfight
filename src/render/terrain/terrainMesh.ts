@@ -79,6 +79,8 @@ export interface TerrainMesh {
   /** カメラ位置からパッチを選び直す。毎フレーム呼ぶ */
   update(cameraX: number, cameraZ: number): void
   setQuality(quality: QualitySettings): void
+  /** 計測用に法線の摂動だけを切り替える。プリセットは触らない */
+  setDetailNormals(enabled: boolean): void
   dispose(): void
 }
 
@@ -217,6 +219,10 @@ export function createTerrainMesh(
       geometry.dispose()
       geometry = rebuilt
       mesh.geometry = rebuilt
+    },
+
+    setDetailNormals(enabled) {
+      material.uniforms['detailNormals']!.value = enabled
     },
 
     dispose() {

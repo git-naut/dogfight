@@ -58,6 +58,10 @@ export interface MeasureConfig {
   terrain?: boolean
   water?: boolean
   clouds?: boolean
+  /** 空のフルスクリーンクアッド。遮蔽物を消すと逆に増える費用の切り分けに使う */
+  sky?: boolean
+  /** 地表の法線摂動。1 画素あたり値ノイズ 10 回ぶん */
+  detailNormals?: boolean
   lodDistanceScale?: number
   terrainPatchCells?: number
 }
@@ -118,13 +122,14 @@ export interface SceneHandle {
   ): void
   render(): void
   /**
-   * 1 枚描いて GPU 側の経過 ms を返す。計測モード専用。拡張が無ければ null。
+   * 内側の計測を挟まずに 1 枚描く。計測モード専用。
    *
    * 通常の render() はフレーム全体と雲のパスを 1 枚おきに交互で測っている
    * （TIME_ELAPSED は入れ子にできないため）。計測中にそれが混ざると 1 枚ごとに
-   * クエリの有無が変わって値が揺れるので、ここでは内側の計測を止める。
+   * クエリの有無が変わって値が揺れる。外側からクエリを張れるように、
+   * ここでは内側の計測を一切しない。
    */
-  renderTimed(): number | null
+  renderPlain(): void
   resize(width: number, height: number, devicePixelRatio: number): void
   setQuality(preset: PresetName): void
   /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
@@ -442,13 +447,11 @@ export async function createScene(
       if (!measureClouds) gpuTimer.end()
     },
 
-    renderTimed() {
+    renderPlain() {
       cloudsPass.setTimingEnabled(false)
-      return gpuTimer.measureSync(() => {
-        // 雲を切っているときは影も焼かない。切った意味がなくなる
-        if (cloudsEnabled) cloudsPass.renderShadow(renderer)
-        composer.render()
-      })
+      // 雲を切っているときは影も焼かない。切った意味がなくなる
+      if (cloudsEnabled) cloudsPass.renderShadow(renderer)
+      composer.render()
     },
 
     resize(width, height, devicePixelRatio) {
@@ -461,6 +464,10 @@ export async function createScene(
     setMeasureConfig(config) {
       if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
       if (config.water !== undefined) water.mesh.visible = config.water
+      if (config.sky !== undefined) atmosphere.sky.visible = config.sky
+      if (config.detailNormals !== undefined) {
+        terrainMesh.setDetailNormals(config.detailNormals)
+      }
       if (config.clouds !== undefined) {
         cloudsEnabled = config.clouds
         cloudsPass.enabled = config.clouds

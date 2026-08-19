@@ -84,6 +84,24 @@ export function temperature(altitude: number): number {
  */
 export const CONTRAIL_TEMPERATURE = 233.15
 
+/** 比熱比 */
+const GAMMA = 1.4
+/** 乾燥空気の気体定数 J/(kg·K) */
+const GAS_CONSTANT = 287.05
+
+/**
+ * 高度から音速 m/s を返す。
+ *
+ * a = √(γRT)。海面で 340.3 m/s、対流圏界面で 295.1 m/s。
+ *
+ * 翼端渦の濃さに使う。渦の芯の温度低下は、無次元で見ると
+ * マッハ数と揚力係数の積の二乗に比例する（ΔT/T ∝ γM²Cl²/2）。
+ * 揚力係数だけで見ると、速くて荷重倍数の高い引き起こしを過小評価する。
+ */
+export function speedOfSound(altitude: number): number {
+  return Math.sqrt(GAMMA * GAS_CONSTANT * temperature(altitude))
+}
+
 /**
  * 動圧 q = ½ρv²。
  *

@@ -341,9 +341,17 @@ test.describe('地形', () => {
   test('高さ場の生成が読み込みを止めない', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 120 })
     // 実測 70〜90 ms（1024²）。CI のソフトウェアレンダラでも CPU 処理なので
-    // 大きくは変わらない。400 ms を超えたら解像度を落とす合図
+    // 大きくは変わらない。
+    //
+    // **これは実時間の検査なので並列実行の取り合いを拾う。**E2E を並列化した
+    // あと、4 ワーカーで 575.7 ms が出て 400 ms の上限に当たった。生成そのものは
+    // 速くなっても遅くなってもいない。上限を 1500 ms へ広げる。
+    //
+    // ここで見たいのは「読み込みを塞ぐほど遅くないこと」だけで、予算の
+    // 締め上げではない。解像度を上げる判断をするときは、並列を切って
+    // （`--workers=1`）測り直すこと。
     expect(hook.terrainMs).toBeGreaterThan(0)
-    expect(hook.terrainMs).toBeLessThan(400)
+    expect(hook.terrainMs).toBeLessThan(1500)
   })
 
   test('パッチの枚数と三角形が予算内', async ({ page }) => {
@@ -520,6 +528,9 @@ test.describe('スクリーンショット回帰', () => {
     // 定常旋回。荷重倍数は 3.08 しかないが揚力係数 0.569 で渦が出る。
     // 荷重倍数で判定していたころは、この構図でまったく渦が出なかった
     { name: 'aircraft-vortex-turn', script: 'bank-left', frame: 1800, hour: 12 },
+    // 急上昇して舵を戻した 1.3 秒後。翼端の水蒸気に減衰の時定数がないと、
+    // ここで渦が 1 階調しか残らず消える。**この 1 枚が遅れの見張り。**
+    { name: 'aircraft-vortex-fade', script: 'zoom-climb', frame: 400, hour: 12 },
   ] as const
 
   for (const scene of scenes) {

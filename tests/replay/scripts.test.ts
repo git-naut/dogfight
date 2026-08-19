@@ -68,13 +68,14 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('5 本すべて引ける', () => {
+  it('6 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
       'pull-up',
       'low-pass',
       'island-run',
+      'zoom-climb',
     ])
     for (const name of SCRIPT_NAMES) {
       expect(getScript(name).name).toBe(name)

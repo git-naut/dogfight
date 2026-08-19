@@ -66,6 +66,24 @@ export const SCRIPTS = {
       { frame: 23 * SEC, input: { throttle: 1, pitch: 0 } },
     ],
   },
+  /**
+   * 急上昇して舵を戻す。翼端渦の長さを見るための台本。
+   *
+   * 渦は揚力係数が高いあいだだけ生まれる。引き起こしのあいだに濃い区間が
+   * でき、舵を戻すとそこで生成が止まる。その区間が後方へ遠ざかっていく
+   * ようすを撮る。**引き起こしを続ける台本では渦が画面の外へ抜けてしまい、
+   * 長さが足りているかを判断できない。**
+   */
+  'zoom-climb': {
+    name: 'zoom-climb',
+    seed: 20260816,
+    spawn: { altitude: 900, speed: 340 },
+    keyframes: [
+      { frame: 0, input: { pitch: 0.85, throttle: 1 } },
+      // 2 秒引いて機首を起こしたら中立へ戻す。以降は惰性で上昇する
+      { frame: 2 * SEC, input: { pitch: 0.02, throttle: 1 } },
+    ],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

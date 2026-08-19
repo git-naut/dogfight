@@ -35,20 +35,33 @@ import type { QualitySettings } from '../quality'
 const SECONDS_PER_POINT = TRAIL_STRIDE * FIXED_DT
 
 /**
- * 翼端渦の濃さを決める揚力係数の範囲。
+ * 翼端渦の濃さを決める水蒸気の範囲。
  *
- * 最初は荷重倍数で決めていたが、実測すると台本の当たり外れが出た。旋回は
- * 3.0〜3.3 G までしか出ないので閾値 3.5 に届かず**旋回でまったく渦が
- * 出ない**。逆に島へ向かう高速の引き起こしは 3.3 G で閾値近くまで来る。
+ * 元の駆動量は マッハ数 × 揚力係数で、sim が時定数つきで追従させている
+ * （`Aircraft.wingtipVapor`）。
  *
- * 揚力係数で見ると逆転する。旋回（速度 204〜254 m/s）は 0.47〜0.69、
- * 高速の引き起こし（速度 390 m/s）は 0.15〜0.17、水平飛行は 0.05。
- * 渦の芯の圧力低下は循環の二乗に比例し、循環は揚力係数に比例するので、
- * こちらが物理的にも正しい。遅くて迎角の高い旋回でよく出る、という
- * 実機の映像とも合う。
+ * 判定は 2 度作り直した。
+ *
+ * 荷重倍数だと旋回で出ない。定常旋回は 3.0〜3.3 G までしか出ないので
+ * 閾値 3.5 に届かず、旋回でまったく渦が出なかった。
+ *
+ * 揚力係数だけだと速い引き起こしで出ない。急上昇の実測は 6.86 G・340 m/s
+ * で揚力係数 0.453 しかなく、引き起こし直後でも渦が見えなかった。
+ *
+ * 芯の温度低下を無次元で書くと ΔT/T ∝ γM²Cl²/2 になる。マッハ数と揚力
+ * 係数の積が駆動量で、どちらか片方では足りない。実測値（M·Cl）。
+ *
+ * | 場面 | M | Cl | M·Cl |
+ * | 水平飛行 (low-pass f2500) | 1.20 | 0.044 | 0.053 |
+ * | 高速の引き起こし (island-run f2000) | 1.15 | 0.171 | 0.196 |
+ * | 浅い旋回 (bank-left f420) | 0.77 | 0.449 | 0.344 |
+ * | 定常旋回 (bank-left f1800) | 0.68 | 0.569 | 0.387 |
+ * | 急上昇 (zoom-climb f200) | 1.01 | 0.453 | 0.456 |
+ * | 引き起こし (pull-up f430) | 0.89 | 0.610 | 0.542 |
+ * | 高 G の引き起こし (pull-up f900) | 0.82 | 0.710 | 0.582 |
  */
-const VORTEX_CL_START = 0.3
-const VORTEX_CL_FULL = 0.8
+const VORTEX_DRIVE_START = 0.25
+const VORTEX_DRIVE_FULL = 0.6
 
 /** 翼端渦を出す位置。翼幅 11.571 m の少し内側 */
 const WINGTIP_OFFSET = 5.6
@@ -84,16 +97,19 @@ const SPREAD_LIMIT = 4
  * 測ると 28.7 → 12.7 階調、断面の積分は 1989 → 976。濃さを半分にしても
  * 見た目が半分にならないのは、重なった層の合成が飽和するため。
  */
-const VORTEX_OPACITY = 0.028
+const VORTEX_OPACITY = 0.018
 const CONTRAIL_OPACITY = 0.12
 
 /**
  * 消えるまでの秒数。
  *
- * 実機の翼端渦は数秒から十数秒で拡散して見えなくなる。コントレイルは
- * 分単位で残るが、履歴が 12.8 秒しかないので終端は下の先細りが処理する。
+ * 実機の翼端渦は十数秒から数十秒かけて拡散して見えなくなる。履歴を
+ * 25.6 秒へ伸ばしたので、寿命も 16 秒から 30 秒へ広げた。16 秒のままだと
+ * 伸ばした後ろ半分が減衰で消えて、伸ばした意味がなくなる。
+ *
+ * コントレイルは分単位で残る。終端は下の先細りが処理する。
  */
-const VORTEX_LIFETIME = 16
+const VORTEX_LIFETIME = 30
 const CONTRAIL_LIFETIME = 90
 
 /**
@@ -221,7 +237,7 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
 
       const isVortex = ribbon.kind === 'vortex'
       const strength = isVortex
-        ? vortexStrength(current.liftCoefficient) * VORTEX_OPACITY
+        ? vortexStrength(current.wingtipVapor) * VORTEX_OPACITY
         : contrailStrength(current.altitude, current.throttle) * CONTRAIL_OPACITY
       const lifetime = isVortex ? VORTEX_LIFETIME : CONTRAIL_LIFETIME
       // 履歴の末尾で切れないよう、描く本数の最後だけ 0 へ落とす
@@ -294,11 +310,12 @@ export function trailDecay(t: number): number {
  * 翼端渦の濃さ 0..1。
  *
  * 翼端で巻き上がる渦の中心は圧力が下がり、断熱膨張で温度が下がって
- * 水蒸気が凝結する。圧力低下は循環の二乗に比例し、循環は揚力係数に
- * 比例するので、揚力係数をそのまま濃さに使う。
+ * 水蒸気が凝結する。凝結した量そのものは sim が持つので、ここは範囲を
+ * 0..1 へ写すだけ。
  */
-export function vortexStrength(cl: number): number {
-  const t = (Math.abs(cl) - VORTEX_CL_START) / (VORTEX_CL_FULL - VORTEX_CL_START)
+export function vortexStrength(vapor: number): number {
+  const t =
+    (Math.abs(vapor) - VORTEX_DRIVE_START) / (VORTEX_DRIVE_FULL - VORTEX_DRIVE_START)
   return Math.min(1, Math.max(0, t))
 }
 

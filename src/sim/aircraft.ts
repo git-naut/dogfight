@@ -1,6 +1,6 @@
 import { Vec3 } from './vec3'
 import { Quat } from './quat'
-import { GRAVITY, airDensity, dynamicPressure } from './isa'
+import { GRAVITY, airDensity, dynamicPressure, speedOfSound } from './isa'
 import {
   AIRCRAFT,
   angleOfAttack,
@@ -67,15 +67,15 @@ export interface TerrainSampler {
 /**
  * 軌跡の履歴の長さ。
  *
- * 4 フレームごとに記録して 384 本。1/120 秒刻みなので 12.8 秒ぶん。
- * 300 m/s で飛べば 3.8 km 後ろまで残る。
+ * 4 フレームごとに記録して 768 本。1/120 秒刻みなので 25.6 秒ぶん。
+ * 340 m/s で飛べば 8.7 km 後ろまで残る。
  *
- * 画面に映るのは実測で 1 秒ぶん（約 270 m）しかない。追従カメラが機体の
- * すぐ後ろにいるので、それより古い点は視錐台の外へ出る。長さに余裕を
- * 持たせるのは、軌跡が途中で終わる原因を「履歴の尽き」ではなく
- * 「画面の縁」に固定するため。
+ * 引き起こしを続ける構図では画面に映るのは 1 秒ぶんしかない（視錐台が
+ * 先に切る）。効くのは**機動が終わったあと**で、そのときに置いてきた
+ * 濃い区間が後方へ遠ざかっていくのが見える。急上昇や急旋回のあとに
+ * 軌跡が短く見えたのはここが足りていなかった。
  */
-export const TRAIL_LENGTH = 384
+export const TRAIL_LENGTH = 768
 
 /** 何フレームごとに記録するか */
 export const TRAIL_STRIDE = 4
@@ -96,14 +96,8 @@ export interface TrailPoint {
   readonly up: Vec3
   /** 荷重倍数。描画側で使う予備。渦の濃さには使わない */
   readonly loadFactor: number
-  /**
-   * 揚力係数。翼端渦の濃さを決める。
-   *
-   * 渦の芯の圧力低下は循環の二乗に比例し、循環は揚力係数と弦長と速度の積で
-   * 決まる。同じ荷重倍数でも、速い高度の低い引き起こしより、遅い旋回の
-   * ほうが揚力係数が高く、渦がよく出る。実機の映像もそうなっている。
-   */
-  readonly liftCoefficient: number
+  /** 翼端の水蒸気。翼端渦の濃さを決める。詳細は `Aircraft.wingtipVapor` */
+  readonly wingtipVapor: number
   /** 実効スロットル。コントレイルの濃さを決める */
   readonly throttle: number
   /** 海抜 m。コントレイルが出る気温の判定に使う */
@@ -123,7 +117,7 @@ interface MutableTrailPoint {
   right: Vec3
   up: Vec3
   loadFactor: number
-  liftCoefficient: number
+  wingtipVapor: number
   throttle: number
   altitude: number
 }
@@ -203,6 +197,21 @@ export class Aircraft {
   aileron = 0
   rudder = 0
 
+  /**
+   * 翼端の水蒸気 0..。翼端渦の濃さの元になる。
+   *
+   * 駆動量は マッハ数 × 揚力係数。渦の芯の温度低下を無次元で書くと
+   * ΔT/T ∝ γM²Cl²/2 になるので、この積が要る。片方では足りない。
+   * 荷重倍数だけで見ると定常旋回（3.0〜3.3 G）を取りこぼし、揚力係数だけで
+   * 見ると速い引き起こし（6.86 G・340 m/s で Cl 0.453）を取りこぼす。
+   *
+   * **立ち上がりは速く、消えるのは遅い。**引くのをやめた瞬間に翼端の
+   * 水蒸気が消えると、軌跡は機体の真後ろだけの短い切れ端になる。追従カメラ
+   * から見えるのは 0.7 秒ぶんもないので、機動が終わると同時に何も残らない。
+   * いったん凝結した水蒸気は渦核が崩れるまで残るので、減衰に時定数を持たせる。
+   */
+  wingtipVapor = 0
+
   // 描画補間用に前ステップの姿勢を持つ
   private readonly prevPosition = new Vec3()
   private readonly prevOrientation = new Quat()
@@ -215,7 +224,7 @@ export class Aircraft {
       right: new Vec3(),
       up: new Vec3(),
       loadFactor: 1,
-      liftCoefficient: 0,
+      wingtipVapor: 0,
       throttle: 0,
       altitude: 0,
     }),
@@ -338,6 +347,14 @@ export class Aircraft {
 
     this.updateDerived(tmpAero, floor)
 
+    // 翼端の水蒸気。派生値のあとに置く。迎角と海抜が要るため
+    const vaporDrive =
+      (this.speed / speedOfSound(this.altitude)) *
+      Math.abs(liftCoefficient(this.angleOfAttack))
+    const vaporTau =
+      vaporDrive > this.wingtipVapor ? AIRCRAFT.vaporRiseTau : AIRCRAFT.vaporFallTau
+    this.wingtipVapor += (vaporDrive - this.wingtipVapor) * lagFactor(dt, vaporTau)
+
     // 軌跡の記録。派生値を更新したあとに置く。荷重倍数と海抜が要るため
     if (this.stepIndex % TRAIL_STRIDE === 0) this.recordTrail(tmpUp, tmpRight)
     this.stepIndex++
@@ -351,8 +368,8 @@ export class Aircraft {
   /**
    * 軌跡を 1 点記録する。
    *
-   * 呼ぶのは TRAIL_STRIDE ステップごと。1/120 秒ごとに残すと 384 本でも
-   * 3.2 秒ぶんしか持てない。
+   * 呼ぶのは TRAIL_STRIDE ステップごと。1/120 秒ごとに残すと 768 本でも
+   * 6.4 秒ぶんしか持てない。
    */
   private recordTrail(up: Vec3, right: Vec3): void {
     const slot = this.trail[this.trailWritten % TRAIL_LENGTH]!
@@ -360,7 +377,7 @@ export class Aircraft {
     slot.right.copy(right)
     slot.up.copy(up)
     slot.loadFactor = this.loadFactor
-    slot.liftCoefficient = liftCoefficient(this.angleOfAttack)
+    slot.wingtipVapor = this.wingtipVapor
     slot.throttle = this.throttle
     slot.altitude = this.altitude
     this.trailWritten++

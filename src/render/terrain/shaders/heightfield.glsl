@@ -11,6 +11,26 @@ uniform float terrainExtent;
 /** 高さ場の一辺のテクセル数 */
 uniform float terrainTexels;
 
+/**
+ * 機体の影。
+ *
+ * three が焼いた指向光の影マップを引く。種類は BasicShadowMap にしてある
+ * （aircraftShadow.ts）。深度テクスチャに比較モードが付かないので、ただの
+ * sampler2D で r 成分を読める。PCFShadowMap だと比較モードが付き、
+ * GL_INVALID_OPERATION: Mismatch between texture format and sampler type で
+ * 描画そのものが捨てられた。
+ *
+ * 縁が硬くならないよう 2x2 で平均する。
+ *
+ * 行列は light.shadow.matrix で、world から [0,1]³ の影空間へ写す。
+ * 影マップは機体を囲む 28 m 角しか覆っていない。範囲外は日向として扱う。
+ */
+uniform sampler2D aircraftShadowMap;
+uniform mat4 aircraftShadowMatrix;
+uniform float aircraftShadowEnabled;
+/** 影マップの 1 テクセルの大きさ */
+uniform float aircraftShadowTexel;
+
 uniform sampler2D cloudShadowMap;
 uniform vec2 cloudShadowCenter;
 uniform float cloudShadowExtent;
@@ -91,6 +111,35 @@ vec3 terrainNormal(vec2 world) {
  * 縁はフェードさせる。硬く切ると、影の領域の境界が空中に四角い線として出る。
  * 影マップは 30 km 四方しか覆っていないので、地形が遠くまで見えると目に付く。
  */
+/** 機体の影の明るさ 0..1。1 なら日向 */
+float terrainAircraftShade(vec3 world) {
+  if (aircraftShadowEnabled < 0.5) return 1.0;
+
+  vec4 coord = aircraftShadowMatrix * vec4(world, 1.0);
+  vec3 shadowUv = coord.xyz / coord.w;
+  // 箱の外は日向。機体を囲む 28 m 角しか覆っていない
+  if (
+    shadowUv.x < 0.0 || shadowUv.x > 1.0 ||
+    shadowUv.y < 0.0 || shadowUv.y > 1.0 ||
+    shadowUv.z < 0.0 || shadowUv.z > 1.0
+  ) {
+    return 1.0;
+  }
+
+  float lit = 0.0;
+  for (int y = 0; y < 2; y++) {
+    for (int x = 0; x < 2; x++) {
+      vec2 offset = (vec2(float(x), float(y)) - 0.5) * aircraftShadowTexel;
+      float depth = texture(aircraftShadowMap, shadowUv.xy + offset).r;
+      lit += shadowUv.z <= depth ? 1.0 : 0.0;
+    }
+  }
+  lit *= 0.25;
+
+  // 影でも真っ暗にはしない。空からの散乱光は届く
+  return mix(0.35, 1.0, lit);
+}
+
 float terrainCloudShade(vec3 world) {
   if (cloudShadowEnabled < 0.5) return 1.0;
 

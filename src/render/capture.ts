@@ -52,6 +52,8 @@ export interface CaptureConfig {
   showWater: boolean
   /** 環境反射を使うか。`?env=0` で切る。質感の比較に使う */
   showEnvironment: boolean
+  /** 機体の影を使うか。`?shadow=0` で切る。切り分けと計測に使う */
+  showAircraftShadow: boolean
   /**
    * 描画を繰り返して 1 回あたりの時間を測る回数。0 なら測らない。
    *
@@ -110,6 +112,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showTerrain: params.get('terrain') !== '0',
     showWater: params.get('water') !== '0',
     showEnvironment: params.get('env') !== '0',
+    showAircraftShadow: params.get('shadow') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
   }
@@ -208,6 +211,11 @@ export interface TestHook {
   aircraftSurfaces: number
   /** 環境反射が焼けているか */
   environmentReady: boolean
+  /** 機体の影マップが焼けているか */
+  aircraftShadowReady: boolean
+  /** 直前のフレームのドローコールと三角形。描かれていないものの検出に使う */
+  drawCalls: number
+  drawnTriangles: number
   angleOfAttack: number
   bank: number
   crashed: boolean

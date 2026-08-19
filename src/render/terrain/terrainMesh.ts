@@ -4,6 +4,7 @@ import {
   GLSL3,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
+  Matrix4,
   Mesh,
   ShaderChunk,
   ShaderMaterial,
@@ -43,6 +44,10 @@ export interface TerrainSharedUniforms {
   terrainNormalMap: { value: Texture | null }
   terrainExtent: { value: number }
   terrainTexels: { value: number }
+  aircraftShadowMap: { value: Texture | null }
+  aircraftShadowMatrix: { value: Matrix4 }
+  aircraftShadowEnabled: { value: number }
+  aircraftShadowTexel: { value: number }
   cloudShadowMap: { value: Texture | null }
   cloudShadowCenter: { value: Vector2 }
   cloudShadowExtent: { value: number }
@@ -61,6 +66,10 @@ export function createTerrainUniforms(
     terrainNormalMap: { value: null },
     terrainExtent: { value: terrain.extent },
     terrainTexels: { value: terrain.size },
+    aircraftShadowMap: { value: null },
+    aircraftShadowMatrix: { value: new Matrix4() },
+    aircraftShadowEnabled: { value: 0 },
+    aircraftShadowTexel: { value: 1 / 1024 },
     cloudShadowMap: { value: null },
     cloudShadowCenter: { value: new Vector2() },
     cloudShadowExtent: { value: cloudShadowExtent },

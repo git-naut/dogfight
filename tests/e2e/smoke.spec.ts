@@ -51,6 +51,9 @@ interface TestHook {
   rudder: number
   aircraftSurfaces: number
   environmentReady: boolean
+  aircraftShadowReady: boolean
+  drawCalls: number
+  drawnTriangles: number
   angleOfAttack: number
   bank: number
   crashed: boolean
@@ -405,6 +408,33 @@ test.describe('機体', () => {
     expect(hook.aircraftTriangles).toBe(18_634)
     // 自機の予算。手続き生成をやめて実モデルにしたので実測値で固定する
     expect(hook.aircraftTriangles).toBeLessThan(25_000)
+  })
+
+  test('影マップと環境反射が焼けている', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 120, preset: 'high' })
+    expect(hook.aircraftShadowReady).toBe(true)
+    expect(hook.environmentReady).toBe(true)
+  })
+
+  test('low では影も環境反射も切れている', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 120, preset: 'low' })
+    expect(hook.aircraftShadowReady).toBe(false)
+    expect(hook.environmentReady).toBe(false)
+  })
+
+  test('舵面が 6 枚とも動かせる', async ({ page }) => {
+    const hook = await capture(page, { script: 'bank-left', frame: 30 })
+    expect(hook.aircraftSurfaces).toBe(6)
+    // 左ロールの指令が入っている
+    expect(hook.aileron).toBeLessThan(-0.5)
+  })
+
+  test('描いた三角形が予算の内側', async ({ page }) => {
+    // 影のパスで機体をもう一度描くので、機体は 2 回ぶん乗る
+    const hook = await capture(page, { script: 'level', frame: 120, preset: 'high' })
+    expect(hook.drawnTriangles).toBeGreaterThan(hook.terrainTriangles)
+    expect(hook.drawnTriangles).toBeLessThan(1_500_000)
+    expect(hook.drawCalls).toBeGreaterThan(0)
   })
 
   test('地形と機体の合計がシーン予算 1.5M の内側', async ({ page }) => {

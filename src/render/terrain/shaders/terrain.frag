@@ -119,7 +119,7 @@ void main() {
   float mottleFade = 1.0 - smoothstep(DETAIL_NEAR, DETAIL_FAR * 2.0, toCamera);
   albedo *= 1.0 + (mottle / 1.5 - 0.5) * 0.22 * mottleFade;
 
-  float shade = terrainCloudShade(vWorld);
+  float shade = terrainCloudShade(vWorld) * terrainAircraftShade(vWorld);
   float lambert = max(dot(normal, sunDirectionWorld), 0.0);
 
   // 拡散反射は 1/pi。three の BRDF_Lambert と同じ式にする。掛け忘れると

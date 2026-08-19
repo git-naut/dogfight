@@ -88,7 +88,7 @@ void main() {
   float cosTheta = max(dot(view, normal), 0.0);
   float fresnel = 0.02 + 0.98 * pow(1.0 - cosTheta, 5.0);
 
-  float shade = terrainCloudShade(vWorld);
+  float shade = terrainCloudShade(vWorld) * terrainAircraftShade(vWorld);
 
   // 空の反射。天空光をそのまま使う。水平線へ向かうほど強く反射する
   vec3 reflected = skyRadiance * 3.0;

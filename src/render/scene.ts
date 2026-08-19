@@ -14,6 +14,11 @@ import {
 } from './quality'
 import { createGpuTimer, type GpuTimer } from './gpuTimer'
 import { createEnvironmentProbe, type EnvironmentProbe } from './environment'
+import {
+  createAircraftShadow,
+  type AircraftShadow,
+  type ShadowLight,
+} from './aircraftShadow'
 import { generateCloudNoise, type CloudNoise } from './clouds/noise'
 import { CloudsPass, SHADOW_EXTENT } from './clouds/cloudsPass'
 import { cloudTime } from './clouds/geometry'
@@ -118,6 +123,16 @@ export interface SceneHandle {
   readonly aircraftSurfaces: number
   /** 環境反射が焼けているか。プリセットで切っていれば false */
   readonly environmentReady: boolean
+  /** 機体の影マップが焼けているか。プリセットで切っていれば false */
+  readonly aircraftShadowReady: boolean
+  /**
+   * 直前のフレームで実際に投入したドローコールと三角形。
+   *
+   * 予算の確認に使う。それ以上に、何かが描かれていないことの検出に使う。
+   * 影を入れたときに地形が消えた事故は、この数字を見て切り分けた。
+   */
+  readonly drawCalls: number
+  readonly drawnTriangles: number
   readonly quality: QualitySettings
   /**
    * sim の状態を描画へ反映する。
@@ -188,6 +203,8 @@ export interface SceneOptions {
   showWater?: boolean
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean
+  /** 機体の影を使うか。切り分けと計測に使う */
+  showAircraftShadow?: boolean
 }
 
 /**
@@ -215,6 +232,10 @@ export async function createScene(
   // 輝度を「単位放射輝度の太陽の輝度」で正規化して返すので、空はその何桁も
   // 下の値になる。掛け直さないと真昼でも薄暗い絵にしかならない。
   renderer.toneMapping = THREE.NoToneMapping
+  // 統計を自動で消させない。既定では renderer.render() ごとに 0 へ戻るので、
+  // 最後のポストパスだけが残って「ドローコール 1」に見える。フレームの頭で
+  // 自分で消して、合計を読む
+  renderer.info.autoReset = false
   renderer.toneMappingExposure = options.exposure ?? DEFAULT_EXPOSURE
 
   const scene = new THREE.Scene()
@@ -268,6 +289,15 @@ export async function createScene(
   const aircraft: AircraftView = await createAircraftView(options.aircraftUrl)
   scene.add(aircraft.object)
 
+  // 機体の影。影マップ 1 枚で自己遮蔽と対地影の両方をまかなう
+  const aircraftShadow: AircraftShadow = createAircraftShadow({
+    renderer,
+    light: atmosphere.sunLight as ShadowLight,
+    caster: aircraft.object,
+    quality,
+  })
+  terrainUniforms.aircraftShadowMatrix.value = aircraftShadow.matrix
+
   // 環境反射を空から焼く。機体を追加したあとに作ると、焼くあいだに機体を
   // 隠す処理が効く（自分の映り込みを取り込まないため）
   const environment: EnvironmentProbe = createEnvironmentProbe({
@@ -307,6 +337,20 @@ export async function createScene(
   let measureClouds = false
   const shadowCenter = new THREE.Vector2()
   const cameraWorld = new THREE.Vector3()
+  /** 影の箱を合わせるのに使う。毎フレーム作らない */
+  const aircraftPosition = new THREE.Vector3()
+
+  const shadowAllowed = options.showAircraftShadow ?? true
+
+  /** 影のユニフォームを入れ直す。描画のたびに呼ぶ */
+  function updateShadowUniforms(): void {
+    // 型を合わせるため、切っているときも深度テクスチャを束縛したままにする
+    terrainUniforms.aircraftShadowMap.value = aircraftShadow.depthTexture
+    terrainUniforms.aircraftShadowEnabled.value =
+      shadowAllowed && aircraftShadow.ready ? 1 : 0
+    terrainUniforms.aircraftShadowTexel.value =
+      1 / Math.max(1, quality.aircraftShadowMapSize)
+  }
   const quaternion = new THREE.Quaternion()
   let cssWidth = 1280
   let cssHeight = 720
@@ -391,6 +435,18 @@ export async function createScene(
       return scene.environment !== null
     },
 
+    get drawCalls() {
+      return renderer.info.render.calls
+    },
+
+    get drawnTriangles() {
+      return renderer.info.render.triangles
+    },
+
+    get aircraftShadowReady() {
+      return aircraftShadow.ready
+    },
+
     get terrainPatches() {
       return terrainMesh.patchCount
     },
@@ -437,6 +493,10 @@ export async function createScene(
         sample.position.y,
         sample.position.z,
       )
+      // 影の箱を機体に合わせる。太陽光の位置は atmosphere.update() が
+      // target + sunDirection * distance で決めるので、その前に動かす
+      aircraftPosition.set(sample.position.x, sample.position.y, sample.position.z)
+      aircraftShadow.update(aircraftPosition, atmosphere.sunDirectionWorld)
       atmosphere.update()
 
       if (snap) chase.snap(sample, look)
@@ -475,6 +535,12 @@ export async function createScene(
     },
 
     render() {
+      renderer.info.reset()
+      // 影のテクスチャは three が最初の描画で作る。sync() で入れると
+      // 1 枚目が null のままになり、キャプチャモード（sync は 1 回だけ、
+      // 描画は 8 回）では影がまったく出ない。毎フレームここで入れ直す
+      updateShadowUniforms()
+
       // TIME_ELAPSED クエリは入れ子にできない。フレーム全体と雲のパスを
       // 1 フレームおきに交互で測る。どちらも定常状態なので値は使える
       measureClouds = !measureClouds
@@ -488,6 +554,8 @@ export async function createScene(
     },
 
     renderPlain() {
+      renderer.info.reset()
+      updateShadowUniforms()
       cloudsPass.setTimingEnabled(false)
       // 雲を切っているときは影も焼かない。切った意味がなくなる
       if (cloudsEnabled) cloudsPass.renderShadow(renderer)
@@ -544,6 +612,7 @@ export async function createScene(
       water.setQuality(quality)
       environment.setQuality(quality)
       scene.environment = environment.texture
+      aircraftShadow.setQuality(quality)
       applySize()
     },
 

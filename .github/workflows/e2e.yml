@@ -11,10 +11,9 @@ on:
 jobs:
   playwright:
     runs-on: ubuntu-latest
-    # 55 枚の基準画像を SwiftShader で撮るので、テスト本体だけで 13 分前後かかる。
-    # 20 分だとブラウザの導入が長引いた回に制限へ当たって cancelled になった
-    # （6f3ccf5 の回は導入だけで 15 分以上）。
-    timeout-minutes: 35
+    # 56 枚の基準画像を SwiftShader で撮るので、テスト本体だけで 11 分前後。
+    # 段ごとの上限を足したので、最悪でも 10 + 10 + 8 + 15 で収まる。
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
@@ -25,6 +24,22 @@ jobs:
 
       - run: npm ci
 
+      # apt にタイムアウトを設定する。
+      #
+      # 既定では取得の読み取りに上限がないので、mirror が黙ると無限に待つ。
+      # 実際に 2 回踏んだ（run 32218635136 と 32234323647）。後者のログでは
+      # azure.archive.ubuntu.com が Ign を返して archive.ubuntu.com へ倒れ、
+      # InRelease を 3 本取った 08:48:18 のあと 09:22:40 まで 34 分間、
+      # 1 行も出力せずジョブの制限に当たって cancelled になった。
+      - name: apt に取得のタイムアウトを入れる
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99-timeout >/dev/null <<'CONF'
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          Acquire::ftp::Timeout "20";
+          Acquire::Retries "3";
+          CONF
+
       # ブラウザ本体はキャッシュする。apt のほうは毎回入れる必要があるので
       # --with-deps をやめて 2 段に分ける。
       - uses: actions/cache@v4
@@ -33,12 +48,24 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - run: npx playwright install-deps chromium
+      # 詰まったら段だけ捨てて、もう一度引く。ジョブごと打ち切られるのを避ける。
+      - name: ブラウザの依存を入れる
+        id: deps
+        continue-on-error: true
+        timeout-minutes: 10
+        run: npx playwright install-deps chromium
+
+      - name: ブラウザの依存を入れる（やり直し）
+        if: steps.deps.outcome == 'failure'
+        timeout-minutes: 10
+        run: npx playwright install-deps chromium
 
       - run: npx playwright install chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 8
 
       - run: npm run test:e2e
+        timeout-minutes: 25
 
       - uses: actions/upload-artifact@v5
         if: ${{ !cancelled() }}

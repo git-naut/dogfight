@@ -15,8 +15,8 @@ jobs:
     # 1 台では 2 ワーカーが上限で、実測 9 分 50 秒（直列は 14 分 33 秒）。
     # 台数を増やすほうが効く。分割して 2 台で分担する。
     #
-    # 段ごとに上限を付けたので、最悪でも 10 + 10 + 8 + 15 で収まる。
-    timeout-minutes: 45
+    # apt を外したので、残る段はブラウザの取得（8 分）とテスト（15 分）。
+    timeout-minutes: 30
     strategy:
       # 1 台落ちても残りを走らせて、どこまで通ったかを見る
       fail-fast: false
@@ -32,41 +32,32 @@ jobs:
 
       - run: npm ci
 
-      # apt にタイムアウトを設定する。
+      # apt は使わない。
       #
-      # 既定では取得の読み取りに上限がないので、mirror が黙ると無限に待つ。
-      # 実際に 2 回踏んだ（run 32218635136 と 32234323647）。後者のログでは
-      # azure.archive.ubuntu.com が Ign を返して archive.ubuntu.com へ倒れ、
-      # InRelease を 3 本取った 08:48:18 のあと 09:22:40 まで 34 分間、
-      # 1 行も出力せずジョブの制限に当たって cancelled になった。
-      - name: apt に取得のタイムアウトを入れる
-        run: |
-          sudo tee /etc/apt/apt.conf.d/99-timeout >/dev/null <<'CONF'
-          Acquire::http::Timeout "20";
-          Acquire::https::Timeout "20";
-          Acquire::ftp::Timeout "20";
-          Acquire::Retries "3";
-          CONF
-
-      # ブラウザ本体はキャッシュする。apt のほうは毎回入れる必要があるので
-      # --with-deps をやめて 2 段に分ける。
+      # `playwright install-deps` の中身は apt で、3 回詰まった。
+      #
+      # run 32218635136（--with-deps）は 15 分以上かかってジョブの上限に当たり、
+      # run 32234323647 は InRelease を取った 08:48:18 のあと 09:22:40 まで
+      # 34 分間 1 行も出力せず cancelled、run 32245880550 の shard 1 は
+      # azure.archive.ubuntu.com からの `fonts-freefont-ttf` に 3 分 45 秒、
+      # 次の 1 本に 5 分 21 秒かかって 10 分の上限に当たった。
+      #
+      # 最初は `Acquire::http::Timeout` を入れて直そうとしたが効かない。
+      # **細くデータが流れ続けるので無通信のタイムアウトは発火しない。**
+      # 遅い mirror はタイムアウトでは直せない。
+      #
+      # やり直しの段も無駄だった。上限で殺した apt が dpkg を掴んだままなので、
+      # 2 回目は 6 秒で exit 100 になる。
+      #
+      # そもそも要らない。ubuntu-latest のイメージは Chrome と Edge を同梱して
+      # いるので Chromium が動く共有ライブラリは揃っている。install-deps が
+      # 追加で引くのは主にフォントで、このリポジトリが撮るのは canvas だけ。
+      # 足りなければ Chromium の起動が即座に失敗するので、黙って壊れはしない。
       - uses: actions/cache@v4
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
           key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-
-      # 詰まったら段だけ捨てて、もう一度引く。ジョブごと打ち切られるのを避ける。
-      - name: ブラウザの依存を入れる
-        id: deps
-        continue-on-error: true
-        timeout-minutes: 10
-        run: npx playwright install-deps chromium
-
-      - name: ブラウザの依存を入れる（やり直し）
-        if: steps.deps.outcome == 'failure'
-        timeout-minutes: 10
-        run: npx playwright install-deps chromium
 
       - run: npx playwright install chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'

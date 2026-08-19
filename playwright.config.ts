@@ -1,3 +1,4 @@
+import os from 'node:os'
 import { defineConfig, devices } from '@playwright/test'
 
 // スクリーンショット回帰を環境差から守るため、GPU を使わず
@@ -10,12 +11,40 @@ export default defineConfig({
    *
    * 雲は時間方向に足し込むので、キャプチャ 1 枚あたり 8 回描く。CI の
    * ソフトウェアレンダラでは 1 回が数百ミリ秒かかるため、30 秒を越える。
+   *
+   * 並列にすると 1 本あたりは遅くなる。実測の最遅は 40.0 秒（8 コア 4 本、
+   * 「時刻を変えると太陽高度が変わる」）。CI は直列の実測比で 1.27 倍
+   * 遅いので 51 秒ぶん見ておく。180 秒なら 3.5 倍の余裕がある。
+   * 固まったときの検出は e2e.yml の段の上限（25 分）が担う。
    */
-  timeout: 120_000,
-  fullyParallel: false,
+  timeout: 180_000,
+  /**
+   * 同じファイルの中でも並列に走らせる。
+   *
+   * キャプチャモードはフレーム番号だけから絵を決め、SwiftShader は CPU だけで
+   * ラスタライズするので、同時に何本走っていても画素は変わらない。実測でも
+   * 基準画像 16 枚が 1 枚も動かずに通った。
+   */
+  fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: 1,
+  /**
+   * コア数の半分。
+   *
+   * SwiftShader は CPU 律速で、Chromium 1 本がすでに複数スレッドで塗る。
+   * 詰め込みすぎると取り合いになって遅くなる。実測（56 件）。
+   *
+   * | コア | ワーカー | 所要 |
+   * | 8 | 1 | 11.4 分 |
+   * | 8 | 4 | **3.8 分** |
+   * | 8 | 8 | 4.7 分 |
+   * | 4 | 2 | 6.1 分 |
+   * | 4 | 3 | 5.8 分 |
+   *
+   * 8 コアで 8 本にすると 4 本より 24% 遅い。半分が実測の最適に近い。
+   * GitHub の ubuntu-latest は 4 コアなので 2 本になる。
+   */
+  workers: Math.max(1, Math.floor(os.cpus().length / 2)),
   // CI では github アノテーションに加えて HTML レポートも出す。
   // これがないと e2e.yml の upload-artifact が空振りする。
   reporter: process.env.CI

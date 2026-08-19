@@ -11,8 +11,9 @@ on:
 jobs:
   playwright:
     runs-on: ubuntu-latest
-    # 56 枚の基準画像を SwiftShader で撮るので、テスト本体だけで 11 分前後。
-    # 段ごとの上限を足したので、最悪でも 10 + 10 + 8 + 15 で収まる。
+    # 56 枚の基準画像を SwiftShader で撮る。並列化したのでテスト本体は
+    # 4 コア 2 ワーカーの実測で 6 分前後（直列は 14.5 分だった）。
+    # 段ごとに上限を付けたので、最悪でも 10 + 10 + 8 + 15 で収まる。
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -64,8 +65,9 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         timeout-minutes: 8
 
+      # 6 分前後で終わる想定。15 分に当たったら固まっている。
       - run: npm run test:e2e
-        timeout-minutes: 25
+        timeout-minutes: 15
 
       - uses: actions/upload-artifact@v5
         if: ${{ !cancelled() }}

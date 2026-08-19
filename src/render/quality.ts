@@ -86,8 +86,12 @@ export interface QualitySettings {
   /**
    * 軌跡のリボンの分割数。0 で軌跡なし。
    *
-   * コントレイルと翼端渦が使う。sim が持つ履歴のうち、後ろから何本を
-   * 描くかを決める。
+   * コントレイルと翼端渦が使う。sim が持つ履歴（384 本 = 12.8 秒）のうち、
+   * 新しいほうから何本を描くかを決める。濃さは経過秒で決まるので、段を
+   * 落としても見えている部分の絵は変わらない。短くなるだけ。
+   *
+   * 画面に出るのは実測で 48 本ぶんもない。high の 192 本は 4 倍の余裕で、
+   * 軌跡が途切れる原因を履歴ではなく画面の縁に固定するために持たせている。
    */
   trailSegments: number
 }
@@ -133,7 +137,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
     environmentMapSize: 64,
-    trailSegments: 32,
+    trailSegments: 96,
   },
   high: {
     renderScale: 1,
@@ -158,7 +162,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
     environmentMapSize: 128,
-    trailSegments: 96,
+    trailSegments: 192,
   },
   ultra: {
     renderScale: 1.25,
@@ -183,7 +187,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 1.15,
     aircraftShadowMapSize: 2048,
     environmentMapSize: 256,
-    trailSegments: 192,
+    trailSegments: 384,
   },
 }
 

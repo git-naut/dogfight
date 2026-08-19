@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { TRAIL_LENGTH, type TrailSource } from '../../sim/aircraft'
+import { FIXED_DT } from '../../sim/loop'
+import { TRAIL_LENGTH, TRAIL_STRIDE, type TrailSource } from '../../sim/aircraft'
 import { CONTRAIL_TEMPERATURE, temperature } from '../../sim/isa'
 import type { QualitySettings } from '../quality'
 
@@ -19,7 +20,19 @@ import type { QualitySettings } from '../quality'
  *
  * 出る条件は物理から決める。翼端渦は荷重倍数、コントレイルは気温。
  * どちらもフレーム番号から決まる sim の状態だけを読むので決定論が保たれる。
+ *
+ * 濃さと太さは経過秒で決める。履歴の何本目かで決めると、品質プリセットで
+ * 本数を変えたときに絵そのものが変わってしまう。秒で決めれば、段を落とした
+ * ときに変わるのは長さだけになる。
+ *
+ * 画面に出るのは実測で 1 秒弱・270 m ほど。追従カメラが機体のすぐ後ろに
+ * いるので、それより古い点は視錐台の外へ出る（`trailSegments` を 320 と
+ * 48 にしても画素が 1 ビットも違わない）。だから軌跡は薄れて消えるのでは
+ * なく画面の縁で切れる。長さの余裕はそれを保証するために持たせている。
  */
+
+/** 履歴 1 本ぶんの秒数。sim が TRAIL_STRIDE ステップごとに記録する */
+const SECONDS_PER_POINT = TRAIL_STRIDE * FIXED_DT
 
 /** 翼端渦が出始める荷重倍数。ここから濃くなる */
 const VORTEX_G_START = 3.5
@@ -30,15 +43,23 @@ const VORTEX_G_FULL = 6.5
 const WINGTIP_OFFSET = 5.6
 
 /**
- * リボンの半幅 m。根元の値。
+ * リボンの半幅 m。生まれたばかりの根元の値。
  *
  * 幅の中心が最も濃く、縁で 0 になる。だから見た目の太さは半幅より細い。
  * 0.18 の一様な帯より、0.30 の中心が濃い帯のほうが淡く見える。
  */
 const VORTEX_HALF_WIDTH = 0.3
 const CONTRAIL_HALF_WIDTH = 1.4
-/** 後ろへ行くほど広がる倍率 */
-const SPREAD = 1.6
+
+/**
+ * 1 秒あたり何倍に広がるか、と広がりの上限。
+ *
+ * 渦は乱流で拡散して太くなる。以前は履歴の何本目かに比例させていたので、
+ * 描く本数を変えると同じ形のまま伸び縮みした。秒あたりに変えて、上限で
+ * 頭打ちにする。0.35/秒・上限 4 倍なので 8.6 秒で太り切る。
+ */
+const SPREAD_PER_SECOND = 0.35
+const SPREAD_LIMIT = 4
 
 /**
  * 濃さの上限。
@@ -46,13 +67,44 @@ const SPREAD = 1.6
  * 1 画素ぶんの濃さがそのまま見た目になるわけではない。リボンは後方へ
  * 伸びるので、追従カメラからはほぼ真横ではなく長手方向に見る。1 本の視線が
  * 何区間も貫くため、実測で 5 枚ぶん重なっていた。0.22 でも空との差が
- * 95 階調あって白い筋に見える。
+ * 95 階調あって白い筋に見える。0.10 で 71 階調。
  *
- * 0.10 まで落として差が 71 階調。幅方向の減衰と合わせて、ようやく
- * 大気らしい淡さになった。
+ * さらに 0.028 へ。同じ断面（pull-up の frame 430、y=650）で空との差を
+ * 測ると 28.7 → 12.7 階調、断面の積分は 1989 → 976。濃さを半分にしても
+ * 見た目が半分にならないのは、重なった層の合成が飽和するため。
  */
-const VORTEX_OPACITY = 0.1
-const CONTRAIL_OPACITY = 0.18
+const VORTEX_OPACITY = 0.028
+const CONTRAIL_OPACITY = 0.12
+
+/**
+ * 消えるまでの秒数。
+ *
+ * 実機の翼端渦は数秒から十数秒で拡散して見えなくなる。コントレイルは
+ * 分単位で残るが、履歴が 12.8 秒しかないので終端は下の先細りが処理する。
+ */
+const VORTEX_LIFETIME = 16
+const CONTRAIL_LIFETIME = 90
+
+/**
+ * 減衰を始めるまでの割合。
+ *
+ * ここまでは濃さを保ち、そこから寿命まで滑らかに 0 へ落とす。
+ *
+ * 以前は履歴の何本目かに対して二乗で落としていた。描く本数を 96 に
+ * 制限していたので、画面に映る範囲で 3 割ほど薄くなり、軌跡が空中で
+ * 尻すぼみに消えた。秒で測って手前を保たせると、薄れて消えるのではなく
+ * 画面の縁で切れる。
+ */
+export const TRAIL_DECAY_HOLD = 0.15
+
+/**
+ * 終端を先細りさせる本数。
+ *
+ * 品質プリセットが履歴を途中で打ち切ると、そこで濃さが残ったまま切れる。
+ * 旋回して軌跡が視界へ回り込むと切り口が見えるので、末尾だけ 0 へ落とす。
+ * 1.07 秒ぶん。
+ */
+const TAPER_POINTS = 32
 
 export interface AircraftTrails {
   readonly object: THREE.Object3D
@@ -152,15 +204,18 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
       if (side.lengthSq() < 1e-8) side.set(1, 0, 0)
       side.normalize()
 
-      const age = count > 1 ? i / (count - 1) : 0
-      const width = halfWidth * (1 + age * SPREAD)
+      const age = i * SECONDS_PER_POINT
+      const width =
+        halfWidth * Math.min(SPREAD_LIMIT, 1 + age * SPREAD_PER_SECOND)
 
-      const strength =
-        ribbon.kind === 'vortex'
-          ? vortexStrength(current.loadFactor) * VORTEX_OPACITY
-          : contrailStrength(current.altitude, current.throttle) * CONTRAIL_OPACITY
-      // 後ろへ行くほど薄くなる。二乗で落として尾を細く見せる
-      const alpha = strength * (1 - age) * (1 - age)
+      const isVortex = ribbon.kind === 'vortex'
+      const strength = isVortex
+        ? vortexStrength(current.loadFactor) * VORTEX_OPACITY
+        : contrailStrength(current.altitude, current.throttle) * CONTRAIL_OPACITY
+      const lifetime = isVortex ? VORTEX_LIFETIME : CONTRAIL_LIFETIME
+      // 履歴の末尾で切れないよう、描く本数の最後だけ 0 へ落とす
+      const taper = Math.min(1, (count - 1 - i) / TAPER_POINTS)
+      const alpha = strength * trailDecay(age / lifetime) * taper
 
       const base = i * 3
       ribbon.position.setXYZ(
@@ -210,6 +265,18 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
       material.dispose()
     },
   }
+}
+
+/**
+ * 経過の割合 0..1 から濃さの倍率を返す。
+ *
+ * TRAIL_DECAY_HOLD までは 1 のまま、そこから smoothstep で 0 へ。
+ */
+export function trailDecay(t: number): number {
+  if (t <= TRAIL_DECAY_HOLD) return 1
+  if (t >= 1) return 0
+  const u = (t - TRAIL_DECAY_HOLD) / (1 - TRAIL_DECAY_HOLD)
+  return 1 - u * u * (3 - 2 * u)
 }
 
 /**

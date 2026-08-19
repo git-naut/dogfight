@@ -67,10 +67,15 @@ export interface TerrainSampler {
 /**
  * 軌跡の履歴の長さ。
  *
- * 4 フレームごとに記録して 256 本。1/120 秒刻みなので 8.5 秒ぶん。
- * 400 m/s で飛べば 3.4 km 後ろまで残る。
+ * 4 フレームごとに記録して 384 本。1/120 秒刻みなので 12.8 秒ぶん。
+ * 300 m/s で飛べば 3.8 km 後ろまで残る。
+ *
+ * 画面に映るのは実測で 1 秒ぶん（約 270 m）しかない。追従カメラが機体の
+ * すぐ後ろにいるので、それより古い点は視錐台の外へ出る。長さに余裕を
+ * 持たせるのは、軌跡が途中で終わる原因を「履歴の尽き」ではなく
+ * 「画面の縁」に固定するため。
  */
-export const TRAIL_LENGTH = 256
+export const TRAIL_LENGTH = 384
 
 /** 何フレームごとに記録するか */
 export const TRAIL_STRIDE = 4
@@ -336,8 +341,8 @@ export class Aircraft {
   /**
    * 軌跡を 1 点記録する。
    *
-   * 呼ぶのは TRAIL_STRIDE ステップごと。1/120 秒ごとに残すと 256 本で
-   * 2 秒ぶんしか持てない。
+   * 呼ぶのは TRAIL_STRIDE ステップごと。1/120 秒ごとに残すと 384 本でも
+   * 3.2 秒ぶんしか持てない。
    */
   private recordTrail(up: Vec3, right: Vec3): void {
     const slot = this.trail[this.trailWritten % TRAIL_LENGTH]!

@@ -508,10 +508,13 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'terrain-coast', script: 'low-pass', frame: 1800, hour: 9 },
     { name: 'terrain-peak', script: 'island-run', frame: 3240, hour: 17 },
     // 機体を主題にした構図。斜め後方からの接写、自分の影が地面を走るカット、
-    // 高 G で翼端渦が出るカット
+    // 高 G で翼端渦が出るカット、その渦が画面の縁で切れているカット
     { name: 'aircraft-close', script: 'bank-left', frame: 30, hour: 12 },
     { name: 'aircraft-shadow', script: 'low-pass', frame: 2500, hour: 16 },
     { name: 'aircraft-vortex', script: 'pull-up', frame: 430, hour: 12 },
+    // 引き起こしを続けて 7.5 秒。左右の渦が画面の下隅を突き抜ける。
+    // 軌跡が空中で尻すぼみに消えていないことを、この 1 枚で見張る
+    { name: 'aircraft-vortex-long', script: 'pull-up', frame: 900, hour: 12 },
   ] as const
 
   for (const scene of scenes) {

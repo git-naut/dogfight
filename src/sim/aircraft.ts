@@ -132,6 +132,8 @@ export interface AircraftSample {
   sideslip: number
   bank: number
   loadFactor: number
+  /** 翼端の水蒸気。軌跡の先頭を現在の翼端へ繋ぐのに使う */
+  wingtipVapor: number
   throttle: number
   stalled: boolean
   crashed: boolean
@@ -410,6 +412,7 @@ export class Aircraft {
     out.sideslip = this.sideslip
     out.bank = this.bank
     out.loadFactor = this.loadFactor
+    out.wingtipVapor = this.wingtipVapor
     out.throttle = this.throttle
     out.stalled = this.stalled
     out.crashed = this.crashed
@@ -461,6 +464,7 @@ export function createAircraftSample(): AircraftSample {
     sideslip: 0,
     bank: 0,
     loadFactor: 1,
+    wingtipVapor: 0,
     throttle: 0,
     stalled: false,
     crashed: false,

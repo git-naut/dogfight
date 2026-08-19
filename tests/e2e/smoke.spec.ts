@@ -531,6 +531,10 @@ test.describe('スクリーンショット回帰', () => {
     // 急上昇して舵を戻した 1.3 秒後。翼端の水蒸気に減衰の時定数がないと、
     // ここで渦が 1 階調しか残らず消える。**この 1 枚が遅れの見張り。**
     { name: 'aircraft-vortex-fade', script: 'zoom-climb', frame: 400, hour: 12 },
+    // 水平から 5.4 G の旋回へ入って 9 秒。引き始めた位置に水蒸気の段差が
+    // あり、その先細りが視界に入る。**この 1 枚が末端の見張り。**
+    // 先細りがないと、いちばん太いところで直角に切り落とされて見える
+    { name: 'aircraft-vortex-end', script: 'turn-in', frame: 1100, hour: 12 },
   ] as const
 
   for (const scene of scenes) {

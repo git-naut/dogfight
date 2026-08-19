@@ -125,13 +125,45 @@ const CONTRAIL_LIFETIME = 90
 export const TRAIL_DECAY_HOLD = 0.15
 
 /**
- * 終端を先細りさせる本数。
+ * 途切れる手前を先細りさせる本数。1.07 秒ぶん。
  *
- * 品質プリセットが履歴を途中で打ち切ると、そこで濃さが残ったまま切れる。
- * 旋回して軌跡が視界へ回り込むと切り口が見えるので、末尾だけ 0 へ落とす。
- * 1.07 秒ぶん。
+ * 濃さが 0 になる境目の手前を、0 へ向かって滑らかに落とす。
+ *
+ * **境目は履歴の末尾だけにあるのではない。**水蒸気は引き始めに 0.2 秒で
+ * 立ち上がるので、機動を始めた瞬間の位置に急な段差ができる。旋回を続けると
+ * その段差が視界へ回り込んできて、**直角に切り落としたような末端**に見える。
+ * 実機の 5.44 G 旋回のスクリーンショットで指摘された。
+ *
+ * だから本数で数えるのではなく、0 になる点からの距離で数える。履歴の
+ * 打ち切りも「その先が 0」と同じ扱いになるので、1 つの仕組みで両方に効く。
  */
 const TAPER_POINTS = 32
+
+/**
+ * 先細りで幅をどこまで絞るか。
+ *
+ * 濃さだけ落とすと、太いまま薄くなって靄の塊に見える。**淡く細く**
+ * 消えるように幅も絞る。0 で消える手前は元の 35%。
+ */
+const TAPER_WIDTH_FLOOR = 0.35
+
+/**
+ * いまの翼端の状態。リボンの先頭をここへ繋ぐ。
+ *
+ * 履歴は `TRAIL_STRIDE` ステップごとにしか記録しないので、最新の点は最大で
+ * 1/30 秒ぶん後ろにある。**翼端の目の前ではそれが数十画素の隙間になり、
+ * リボンの先頭が直角に切り落とされたように見える。**実機の 5.44 G 旋回で
+ * 指摘され、同じ構図を再現して x=1060 と翼端 x=1140 のあいだが空くのを
+ * 確かめた。補間した現在の状態を先頭に足して埋める。
+ */
+export interface TrailHead {
+  readonly position: THREE.Vector3
+  /** 機体右方向の単位ベクトル */
+  readonly right: THREE.Vector3
+  readonly wingtipVapor: number
+  readonly altitude: number
+  readonly throttle: number
+}
 
 export interface AircraftTrails {
   readonly object: THREE.Object3D
@@ -139,8 +171,9 @@ export interface AircraftTrails {
    * 履歴からリボンを張り直す。毎フレーム呼ぶ。
    *
    * @param cameraPosition リボンを向ける先
+   * @param head いまの翼端。リボンの先頭に足して隙間を埋める
    */
-  update(source: TrailSource, cameraPosition: THREE.Vector3): void
+  update(source: TrailSource, cameraPosition: THREE.Vector3, head: TrailHead): void
   setQuality(quality: QualitySettings): void
   dispose(): void
 }
@@ -197,18 +230,50 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
   const toCamera = new THREE.Vector3()
   const side = new THREE.Vector3()
 
+  // 使い回す。濃さと先細りは位置を書く前に 1 周して求める
+  const strengths = new Float32Array(TRAIL_LENGTH)
+  const tapers = new Float32Array(TRAIL_LENGTH)
+
+  /**
+   * 濃さと先細りを先に求める。
+   *
+   * 先細りは「濃さが 0 になる点からの距離」で決める。古いほうから新しい
+   * ほうへ数えるので、0 に当たるたびにやり直す。履歴の打ち切りも
+   * 「その先が 0」として同じ式で扱える。
+   */
+  function prepare(
+    ribbon: Ribbon,
+    source: TrailSource,
+    count: number,
+    head: TrailHead,
+  ): void {
+    const scale = ribbon.kind === 'vortex' ? VORTEX_OPACITY : CONTRAIL_OPACITY
+    for (let i = 0; i < count; i++) {
+      const point = i === 0 ? head : source.trailPoint(i - 1)
+      strengths[i] =
+        (ribbon.kind === 'vortex'
+          ? vortexStrength(point.wingtipVapor)
+          : contrailStrength(point.altitude, point.throttle)) * scale
+    }
+    fillTapers(strengths, count, tapers)
+  }
+
   function writeRibbon(
     ribbon: Ribbon,
     source: TrailSource,
     cameraPosition: THREE.Vector3,
     count: number,
+    head: TrailHead,
   ): void {
     const halfWidth =
       ribbon.kind === 'vortex' ? VORTEX_HALF_WIDTH : CONTRAIL_HALF_WIDTH
+    prepare(ribbon, source, count, head)
+    // index 0 は補間した現在の翼端。1 以降が履歴
+    const pointAt = (i: number) => (i === 0 ? head : source.trailPoint(i - 1))
 
     for (let i = 0; i < count; i++) {
-      const current = source.trailPoint(i)
-      const following = source.trailPoint(Math.min(i + 1, count - 1))
+      const current = pointAt(i)
+      const following = pointAt(Math.min(i + 1, count - 1))
 
       point
         .set(current.position.x, current.position.y, current.position.z)
@@ -232,17 +297,15 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
       side.normalize()
 
       const age = i * SECONDS_PER_POINT
+      const taper = tapers[i]!
       const width =
-        halfWidth * Math.min(SPREAD_LIMIT, 1 + age * SPREAD_PER_SECOND)
+        halfWidth *
+        Math.min(SPREAD_LIMIT, 1 + age * SPREAD_PER_SECOND) *
+        (TAPER_WIDTH_FLOOR + (1 - TAPER_WIDTH_FLOOR) * taper)
 
-      const isVortex = ribbon.kind === 'vortex'
-      const strength = isVortex
-        ? vortexStrength(current.wingtipVapor) * VORTEX_OPACITY
-        : contrailStrength(current.altitude, current.throttle) * CONTRAIL_OPACITY
-      const lifetime = isVortex ? VORTEX_LIFETIME : CONTRAIL_LIFETIME
-      // 履歴の末尾で切れないよう、描く本数の最後だけ 0 へ落とす
-      const taper = Math.min(1, (count - 1 - i) / TAPER_POINTS)
-      const alpha = strength * trailDecay(age / lifetime) * taper
+      const lifetime =
+        ribbon.kind === 'vortex' ? VORTEX_LIFETIME : CONTRAIL_LIFETIME
+      const alpha = strengths[i]! * trailDecay(age / lifetime) * taper
 
       const base = i * 3
       ribbon.position.setXYZ(
@@ -273,13 +336,16 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
   return {
     object: group,
 
-    update(source, cameraPosition) {
-      const count = Math.min(source.trailLength, segments)
+    update(source, cameraPosition, head) {
+      // 先頭に現在の翼端を足すので 1 本増える
+      const count = Math.min(source.trailLength + 1, segments)
       if (count < 2) {
         for (const ribbon of ribbons) ribbon.geometry.setDrawRange(0, 0)
         return
       }
-      for (const ribbon of ribbons) writeRibbon(ribbon, source, cameraPosition, count)
+      for (const ribbon of ribbons) {
+        writeRibbon(ribbon, source, cameraPosition, count, head)
+      }
     },
 
     setQuality(next) {
@@ -329,6 +395,32 @@ function contrailStrength(altitude: number, throttle: number): number {
   if (temperature(altitude) >= CONTRAIL_TEMPERATURE) return 0
   return Math.min(1, Math.max(0, throttle))
 }
+
+/**
+ * 濃さの列から先細りの列を作る。
+ *
+ * 濃さが 0 の点からの距離を、古いほうから新しいほうへ数える。0 に当たる
+ * たびにやり直すので、**区間ごとに古い側の縁が透明から立ち上がる**。
+ * 履歴の打ち切り（count の先）も「その先が 0」として同じ式で扱える。
+ *
+ * @param strengths 新しい順の濃さ。0 が「出ていない」
+ * @param count 有効な本数
+ * @param out 書き込み先。長さは strengths と同じ
+ */
+export function fillTapers(
+  strengths: Float32Array,
+  count: number,
+  out: Float32Array,
+): void {
+  let run = 0
+  for (let i = count - 1; i >= 0; i--) {
+    run = strengths[i]! > 0 ? run + 1 : 0
+    out[i] = Math.min(1, run / TAPER_POINTS)
+  }
+}
+
+/** 先細りに使う本数。テストから参照する */
+export const TRAIL_TAPER_POINTS = TAPER_POINTS
 
 /**
  * 3 × TRAIL_LENGTH 頂点のリボン。毎フレーム位置と色だけ書き換える。

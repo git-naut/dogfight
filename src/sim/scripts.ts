@@ -84,6 +84,25 @@ export const SCRIPTS = {
       { frame: 2 * SEC, input: { pitch: 0.02, throttle: 1 } },
     ],
   },
+  /**
+   * 水平飛行から急旋回へ入る。翼端渦の末端を見るための台本。
+   *
+   * 引き始める前の区間は水蒸気が出ていないので、そこに段差ができる。
+   * 旋回を続けるとその段差が視界へ回り込む。**最初から旋回している台本では
+   * 段差が履歴の先頭にあり、末端の見え方を確かめられない。**
+   */
+  'turn-in': {
+    name: 'turn-in',
+    seed: 20260816,
+    spawn: { altitude: 2000, speed: 260 },
+    keyframes: [
+      { frame: 0, input: { throttle: 0.28 } },
+      // 3 秒だけ水平に飛んでから、左へ倒して引く
+      { frame: 3 * SEC, input: { roll: -1, throttle: 0.28 } },
+      // ロールは 0.47 秒だけ。実測でバンク −95 度に収まる
+      { frame: Math.round(3.47 * SEC), input: { roll: 0, pitch: 0.75, throttle: 0.28 } },
+    ],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

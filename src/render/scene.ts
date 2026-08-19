@@ -359,6 +359,15 @@ export async function createScene(
   const shadowAllowed = options.showAircraftShadow ?? true
   /** 軌跡の履歴を読む先。main が World を作ったあとに渡す */
   let trailSource: TrailSource | null = null
+  // 軌跡の先頭。使い回す
+  const trailHead = {
+    position: new THREE.Vector3(),
+    right: new THREE.Vector3(),
+    wingtipVapor: 0,
+    altitude: 0,
+    throttle: 0,
+  }
+  const trailHeadQuaternion = new THREE.Quaternion()
   /** 計測で影を切っているか。setMeasureConfig から動かす */
   let measureShadow = true
 
@@ -549,8 +558,23 @@ export async function createScene(
       // chase の更新後に読むこと
       camera.getWorldPosition(cameraWorld)
 
-      // 軌跡。リボンをカメラへ向けるのでカメラ位置を渡す
-      if (trailSource !== null) trails.update(trailSource, cameraWorld)
+      // 軌跡。リボンをカメラへ向けるのでカメラ位置を渡す。
+      // 先頭は履歴ではなく補間した現在の翼端に繋ぐ。履歴は 1/30 秒ごとにしか
+      // 記録しないので、そのままだと翼端との間に隙間が空いて直角に切れて見える
+      if (trailSource !== null) {
+        trailHead.position.set(sample.position.x, sample.position.y, sample.position.z)
+        trailHeadQuaternion.set(
+          sample.orientation.x,
+          sample.orientation.y,
+          sample.orientation.z,
+          sample.orientation.w,
+        )
+        trailHead.right.set(1, 0, 0).applyQuaternion(trailHeadQuaternion)
+        trailHead.wingtipVapor = sample.wingtipVapor
+        trailHead.altitude = sample.altitude
+        trailHead.throttle = sample.throttle
+        trails.update(trailSource, cameraWorld, trailHead)
+      }
       terrainMesh.update(cameraWorld.x, cameraWorld.z)
       water.follow(cameraWorld.x, cameraWorld.z)
       // 波の位相もフレーム番号から導く。実時間を使うと絵が固定されない

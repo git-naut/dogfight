@@ -11,7 +11,10 @@ on:
 jobs:
   playwright:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 55 枚の基準画像を SwiftShader で撮るので、テスト本体だけで 13 分前後かかる。
+    # 20 分だとブラウザの導入が長引いた回に制限へ当たって cancelled になった
+    # （6f3ccf5 の回は導入だけで 15 分以上）。
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
 
@@ -22,7 +25,18 @@ jobs:
 
       - run: npm ci
 
-      - run: npx playwright install --with-deps chromium
+      # ブラウザ本体はキャッシュする。apt のほうは毎回入れる必要があるので
+      # --with-deps をやめて 2 段に分ける。
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npx playwright install-deps chromium
+
+      - run: npx playwright install chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
 
       - run: npm run test:e2e
 

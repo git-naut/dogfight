@@ -34,10 +34,21 @@ import type { QualitySettings } from '../quality'
 /** 履歴 1 本ぶんの秒数。sim が TRAIL_STRIDE ステップごとに記録する */
 const SECONDS_PER_POINT = TRAIL_STRIDE * FIXED_DT
 
-/** 翼端渦が出始める荷重倍数。ここから濃くなる */
-const VORTEX_G_START = 3.5
-/** 完全に濃くなる荷重倍数 */
-const VORTEX_G_FULL = 6.5
+/**
+ * 翼端渦の濃さを決める揚力係数の範囲。
+ *
+ * 最初は荷重倍数で決めていたが、実測すると台本の当たり外れが出た。旋回は
+ * 3.0〜3.3 G までしか出ないので閾値 3.5 に届かず**旋回でまったく渦が
+ * 出ない**。逆に島へ向かう高速の引き起こしは 3.3 G で閾値近くまで来る。
+ *
+ * 揚力係数で見ると逆転する。旋回（速度 204〜254 m/s）は 0.47〜0.69、
+ * 高速の引き起こし（速度 390 m/s）は 0.15〜0.17、水平飛行は 0.05。
+ * 渦の芯の圧力低下は循環の二乗に比例し、循環は揚力係数に比例するので、
+ * こちらが物理的にも正しい。遅くて迎角の高い旋回でよく出る、という
+ * 実機の映像とも合う。
+ */
+const VORTEX_CL_START = 0.3
+const VORTEX_CL_FULL = 0.8
 
 /** 翼端渦を出す位置。翼幅 11.571 m の少し内側 */
 const WINGTIP_OFFSET = 5.6
@@ -210,7 +221,7 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
 
       const isVortex = ribbon.kind === 'vortex'
       const strength = isVortex
-        ? vortexStrength(current.loadFactor) * VORTEX_OPACITY
+        ? vortexStrength(current.liftCoefficient) * VORTEX_OPACITY
         : contrailStrength(current.altitude, current.throttle) * CONTRAIL_OPACITY
       const lifetime = isVortex ? VORTEX_LIFETIME : CONTRAIL_LIFETIME
       // 履歴の末尾で切れないよう、描く本数の最後だけ 0 へ落とす
@@ -282,12 +293,12 @@ export function trailDecay(t: number): number {
 /**
  * 翼端渦の濃さ 0..1。
  *
- * 高 G で引き起こすと翼端から白い筋が出るのは実機で見える現象。翼端の
- * 渦の中心で圧力が下がり、水蒸気が凝結する。荷重倍数が上がるほど渦が
- * 強くなるので、そのまま濃さに使う。
+ * 翼端で巻き上がる渦の中心は圧力が下がり、断熱膨張で温度が下がって
+ * 水蒸気が凝結する。圧力低下は循環の二乗に比例し、循環は揚力係数に
+ * 比例するので、揚力係数をそのまま濃さに使う。
  */
-function vortexStrength(loadFactor: number): number {
-  const t = (Math.abs(loadFactor) - VORTEX_G_START) / (VORTEX_G_FULL - VORTEX_G_START)
+export function vortexStrength(cl: number): number {
+  const t = (Math.abs(cl) - VORTEX_CL_START) / (VORTEX_CL_FULL - VORTEX_CL_START)
   return Math.min(1, Math.max(0, t))
 }
 

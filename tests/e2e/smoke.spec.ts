@@ -497,6 +497,8 @@ test.describe('スクリーンショット回帰', () => {
   const scenes = [
     { name: 'level-afternoon', script: 'level', frame: 240, hour: 16 },
     { name: 'level-backlit', script: 'level', frame: 240, hour: 8 },
+    // バンク 66 度・3.27 G・揚力係数 0.449 なので翼端渦が 0.30 の濃さで出る。
+    // 荷重倍数で判定していたころは出なかった
     { name: 'bank-left-dusk', script: 'bank-left', frame: 420, hour: 18.3 },
     { name: 'low-pass-afternoon', script: 'low-pass', frame: 240, hour: 16 },
     // 雲を主題にした構図
@@ -515,6 +517,9 @@ test.describe('スクリーンショット回帰', () => {
     // 引き起こしを続けて 7.5 秒。左右の渦が画面の下隅を突き抜ける。
     // 軌跡が空中で尻すぼみに消えていないことを、この 1 枚で見張る
     { name: 'aircraft-vortex-long', script: 'pull-up', frame: 900, hour: 12 },
+    // 定常旋回。荷重倍数は 3.08 しかないが揚力係数 0.569 で渦が出る。
+    // 荷重倍数で判定していたころは、この構図でまったく渦が出なかった
+    { name: 'aircraft-vortex-turn', script: 'bank-left', frame: 1800, hour: 12 },
   ] as const
 
   for (const scene of scenes) {

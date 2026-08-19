@@ -94,8 +94,16 @@ export interface TrailPoint {
   readonly right: Vec3
   /** 機体上方向の単位ベクトル。リボンの向きに使う */
   readonly up: Vec3
-  /** 荷重倍数。翼端渦の濃さを決める */
+  /** 荷重倍数。描画側で使う予備。渦の濃さには使わない */
   readonly loadFactor: number
+  /**
+   * 揚力係数。翼端渦の濃さを決める。
+   *
+   * 渦の芯の圧力低下は循環の二乗に比例し、循環は揚力係数と弦長と速度の積で
+   * 決まる。同じ荷重倍数でも、速い高度の低い引き起こしより、遅い旋回の
+   * ほうが揚力係数が高く、渦がよく出る。実機の映像もそうなっている。
+   */
+  readonly liftCoefficient: number
   /** 実効スロットル。コントレイルの濃さを決める */
   readonly throttle: number
   /** 海抜 m。コントレイルが出る気温の判定に使う */
@@ -115,6 +123,7 @@ interface MutableTrailPoint {
   right: Vec3
   up: Vec3
   loadFactor: number
+  liftCoefficient: number
   throttle: number
   altitude: number
 }
@@ -206,6 +215,7 @@ export class Aircraft {
       right: new Vec3(),
       up: new Vec3(),
       loadFactor: 1,
+      liftCoefficient: 0,
       throttle: 0,
       altitude: 0,
     }),
@@ -350,6 +360,7 @@ export class Aircraft {
     slot.right.copy(right)
     slot.up.copy(up)
     slot.loadFactor = this.loadFactor
+    slot.liftCoefficient = liftCoefficient(this.angleOfAttack)
     slot.throttle = this.throttle
     slot.altitude = this.altitude
     this.trailWritten++

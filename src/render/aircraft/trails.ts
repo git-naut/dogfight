@@ -14,6 +14,9 @@ import type { QualitySettings } from '../quality'
  * 見たときに線に潰れて消える。進行方向と視線の両方に直交する向きを取れば、
  * どこから見ても幅が残る。
  *
+ * 1 点につき頂点を 3 個置く。左端・中心・右端で、濃さは端が 0、中心が最大。
+ * 端も中心も同じ濃さにすると縁の硬い帯になり、水蒸気に見えない。
+ *
  * 出る条件は物理から決める。翼端渦は荷重倍数、コントレイルは気温。
  * どちらもフレーム番号から決まる sim の状態だけを読むので決定論が保たれる。
  */
@@ -29,20 +32,27 @@ const WINGTIP_OFFSET = 5.6
 /**
  * リボンの半幅 m。根元の値。
  *
- * 0.35 で試したら白い板に見えた。翼端渦は細い筋なので 0.18 まで絞る。
+ * 幅の中心が最も濃く、縁で 0 になる。だから見た目の太さは半幅より細い。
+ * 0.18 の一様な帯より、0.30 の中心が濃い帯のほうが淡く見える。
  */
-const VORTEX_HALF_WIDTH = 0.18
-const CONTRAIL_HALF_WIDTH = 1.0
+const VORTEX_HALF_WIDTH = 0.3
+const CONTRAIL_HALF_WIDTH = 1.4
 /** 後ろへ行くほど広がる倍率 */
 const SPREAD = 1.6
 
 /**
  * 濃さの上限。
  *
- * 1.0 だと不透明な白になる。実際の渦は向こう側が透けるので抑える。
+ * 1 画素ぶんの濃さがそのまま見た目になるわけではない。リボンは後方へ
+ * 伸びるので、追従カメラからはほぼ真横ではなく長手方向に見る。1 本の視線が
+ * 何区間も貫くため、実測で 5 枚ぶん重なっていた。0.22 でも空との差が
+ * 95 階調あって白い筋に見える。
+ *
+ * 0.10 まで落として差が 71 階調。幅方向の減衰と合わせて、ようやく
+ * 大気らしい淡さになった。
  */
-const VORTEX_OPACITY = 0.55
-const CONTRAIL_OPACITY = 0.7
+const VORTEX_OPACITY = 0.1
+const CONTRAIL_OPACITY = 0.18
 
 export interface AircraftTrails {
   readonly object: THREE.Object3D
@@ -152,27 +162,30 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
       // 後ろへ行くほど薄くなる。二乗で落として尾を細く見せる
       const alpha = strength * (1 - age) * (1 - age)
 
-      const base = i * 2
+      const base = i * 3
       ribbon.position.setXYZ(
         base,
         point.x - side.x * width,
         point.y - side.y * width,
         point.z - side.z * width,
       )
+      ribbon.position.setXYZ(base + 1, point.x, point.y, point.z)
       ribbon.position.setXYZ(
-        base + 1,
+        base + 2,
         point.x + side.x * width,
         point.y + side.y * width,
         point.z + side.z * width,
       )
-      ribbon.color.setXYZW(base, 1, 1, 1, alpha)
+      // 縁は透明、中心が最大。硬い帯にしない
+      ribbon.color.setXYZW(base, 1, 1, 1, 0)
       ribbon.color.setXYZW(base + 1, 1, 1, 1, alpha)
+      ribbon.color.setXYZW(base + 2, 1, 1, 1, 0)
     }
 
     ribbon.position.needsUpdate = true
     ribbon.color.needsUpdate = true
-    // 使う三角形だけ描く。点が足りないうちは短く
-    ribbon.geometry.setDrawRange(0, Math.max(0, count - 1) * 6)
+    // 使う三角形だけ描く。点が足りないうちは短く。1 区間あたり 4 枚
+    ribbon.geometry.setDrawRange(0, Math.max(0, count - 1) * 12)
   }
 
   return {
@@ -222,28 +235,42 @@ function contrailStrength(altitude: number, throttle: number): number {
   return Math.min(1, Math.max(0, throttle))
 }
 
-/** 2 × TRAIL_LENGTH 頂点のリボン。毎フレーム位置と色だけ書き換える */
+/**
+ * 3 × TRAIL_LENGTH 頂点のリボン。毎フレーム位置と色だけ書き換える。
+ *
+ * 1 点につき 左端・中心・右端 の 3 個。区間ごとに 2 枚の帯（左半分と右半分）を
+ * 張るので三角形は 4 枚。
+ */
 function createRibbon(): {
   geometry: THREE.BufferGeometry
   position: THREE.BufferAttribute
   color: THREE.BufferAttribute
 } {
-  const vertices = TRAIL_LENGTH * 2
+  const vertices = TRAIL_LENGTH * 3
   const position = new THREE.BufferAttribute(new Float32Array(vertices * 3), 3)
   const color = new THREE.BufferAttribute(new Float32Array(vertices * 4), 4)
   position.setUsage(THREE.DynamicDrawUsage)
   color.setUsage(THREE.DynamicDrawUsage)
 
-  const index = new Uint16Array((TRAIL_LENGTH - 1) * 6)
+  const index = new Uint16Array((TRAIL_LENGTH - 1) * 12)
   for (let i = 0; i < TRAIL_LENGTH - 1; i++) {
-    const a = i * 2
-    const o = i * 6
+    const a = i * 3
+    const b = a + 3
+    const o = i * 12
+    // 左半分
     index[o] = a
-    index[o + 1] = a + 1
-    index[o + 2] = a + 2
+    index[o + 1] = b
+    index[o + 2] = a + 1
     index[o + 3] = a + 1
-    index[o + 4] = a + 3
-    index[o + 5] = a + 2
+    index[o + 4] = b
+    index[o + 5] = b + 1
+    // 右半分
+    index[o + 6] = a + 1
+    index[o + 7] = b + 1
+    index[o + 8] = a + 2
+    index[o + 9] = a + 2
+    index[o + 10] = b + 1
+    index[o + 11] = b + 2
   }
 
   const geometry = new THREE.BufferGeometry()

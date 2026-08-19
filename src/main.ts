@@ -193,6 +193,7 @@ async function main(): Promise<void> {
     }
 
     world.samplePlayer(1, sample)
+    view.setTrailSource(world.player)
     view.sync(sample, world.frame, 0, { yaw: 0, pitch: 0 }, true)
 
     // 雲は時間方向に足し込むので、1 枚だけ描いても収束しない。
@@ -248,6 +249,7 @@ async function main(): Promise<void> {
   const governor = new PerformanceGovernor()
   let preset: PresetName = capture.preset
   let world = spawnWorld()
+  view.setTrailSource(world.player)
   let lastTime = performance.now()
   let smoothedFps = 60
   // 1 フレームだけ見ると外れ値に振られるので平滑化して読む
@@ -276,6 +278,7 @@ async function main(): Promise<void> {
 
     if (keyboard.consumeReset()) {
       world = spawnWorld()
+      view.setTrailSource(world.player)
       driver.reset()
       mouse.reset()
       governor.reset()

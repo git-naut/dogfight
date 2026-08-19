@@ -51,6 +51,39 @@ export function airDensity(altitude: number): number {
   )
 }
 
+/** 海面高度の気温 K */
+export const SEA_LEVEL_TEMPERATURE = 288.15
+
+/** 対流圏の気温減率 K/m */
+const TEMPERATURE_LAPSE_RATE = 0.0065
+
+/** 対流圏界面より上の気温 K。等温層なので一定 */
+export const TROPOPAUSE_TEMPERATURE =
+  SEA_LEVEL_TEMPERATURE - TEMPERATURE_LAPSE_RATE * TROPOPAUSE_ALTITUDE
+
+/**
+ * 高度から気温 K を返す。
+ *
+ * コントレイルが出る条件の判定に使う。密度と違って力には効かないが、
+ * 「どの高度で飛行機雲が引けるか」は気温で決まる。
+ */
+export function temperature(altitude: number): number {
+  if (Number.isNaN(altitude)) return SEA_LEVEL_TEMPERATURE
+  if (altitude <= 0) return SEA_LEVEL_TEMPERATURE
+  if (altitude < TROPOPAUSE_ALTITUDE) {
+    return SEA_LEVEL_TEMPERATURE - TEMPERATURE_LAPSE_RATE * altitude
+  }
+  return TROPOPAUSE_TEMPERATURE
+}
+
+/**
+ * コントレイルが出始める気温 K。
+ *
+ * 排気の水蒸気が氷晶になるには −40 度あたりが目安。ISA だと高度 8,460 m
+ * より上。実際は湿度と気圧にも依るが、そこまで踏み込まない。
+ */
+export const CONTRAIL_TEMPERATURE = 233.15
+
 /**
  * 動圧 q = ½ρv²。
  *

@@ -98,6 +98,10 @@ export async function runBenchSweep(
     clouds: true,
     sky: true,
     detailNormals: true,
+    aircraft: true,
+    environment: true,
+    aircraftShadow: true,
+    trails: true,
     lodDistanceScale: view.quality.lodDistanceScale,
     terrainPatchCells: view.quality.terrainPatchCells,
   }
@@ -113,6 +117,10 @@ export async function runBenchSweep(
       config: { ...base, sky: false, terrain: false, water: false, clouds: false },
     },
     { label: '法線摂動なし', config: { ...base, detailNormals: false } },
+    { label: '機体なし', config: { ...base, aircraft: false } },
+    { label: '影なし', config: { ...base, aircraftShadow: false } },
+    { label: '環境反射なし', config: { ...base, environment: false } },
+    { label: '軌跡なし', config: { ...base, trails: false } },
     { label: 'lod 0.65', config: { ...base, lodDistanceScale: 0.65 } },
     { label: 'cells 24', config: { ...base, terrainPatchCells: 24 } },
   ]

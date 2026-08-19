@@ -64,6 +64,56 @@ export interface TerrainSampler {
   heightAt(x: number, z: number): number
 }
 
+/**
+ * 軌跡の履歴の長さ。
+ *
+ * 4 フレームごとに記録して 256 本。1/120 秒刻みなので 8.5 秒ぶん。
+ * 400 m/s で飛べば 3.4 km 後ろまで残る。
+ */
+export const TRAIL_LENGTH = 256
+
+/** 何フレームごとに記録するか */
+export const TRAIL_STRIDE = 4
+
+/**
+ * 軌跡の 1 点。
+ *
+ * 描画がコントレイルと翼端渦のリボンを作るのに使う。**履歴は sim が持つ。**
+ * 描画側にリングバッファを置くと、キャプチャモードは sync が 1 回しか
+ * 走らないので何も出ない。履歴は sim の状態なので、リプレイにも後の Phase の
+ * AI にも使える。
+ */
+export interface TrailPoint {
+  readonly position: Vec3
+  /** 機体右方向の単位ベクトル。翼端の位置を出すのに使う */
+  readonly right: Vec3
+  /** 機体上方向の単位ベクトル。リボンの向きに使う */
+  readonly up: Vec3
+  /** 荷重倍数。翼端渦の濃さを決める */
+  readonly loadFactor: number
+  /** 実効スロットル。コントレイルの濃さを決める */
+  readonly throttle: number
+  /** 海抜 m。コントレイルが出る気温の判定に使う */
+  readonly altitude: number
+}
+
+/** 履歴を読む側が要る最小限。描画は Aircraft の型に縛られない */
+export interface TrailSource {
+  /** 記録済みの点の数。TRAIL_LENGTH で頭打ち */
+  readonly trailLength: number
+  /** 新しい順に i 番目。0 が最新 */
+  trailPoint(index: number): TrailPoint
+}
+
+interface MutableTrailPoint {
+  position: Vec3
+  right: Vec3
+  up: Vec3
+  loadFactor: number
+  throttle: number
+  altitude: number
+}
+
 /** 描画とデバッグ表示に渡す読み取り用の状態。 */
 export interface AircraftSample {
   position: Vec3
@@ -142,6 +192,23 @@ export class Aircraft {
   // 描画補間用に前ステップの姿勢を持つ
   private readonly prevPosition = new Vec3()
   private readonly prevOrientation = new Quat()
+
+  /** 軌跡の履歴。使い回すので new は最初の 1 回だけ */
+  private readonly trail: MutableTrailPoint[] = Array.from(
+    { length: TRAIL_LENGTH },
+    () => ({
+      position: new Vec3(),
+      right: new Vec3(),
+      up: new Vec3(),
+      loadFactor: 1,
+      throttle: 0,
+      altitude: 0,
+    }),
+  )
+  /** 記録した通し番号。リングの位置と本数を出すのに使う */
+  private trailWritten = 0
+  /** ステップの通し番号。TRAIL_STRIDE ごとに記録する */
+  private stepIndex = 0
 
   constructor(init: AircraftInit = {}) {
     if (init.position) this.position.copy(init.position)
@@ -255,6 +322,10 @@ export class Aircraft {
     }
 
     this.updateDerived(tmpAero, floor)
+
+    // 軌跡の記録。派生値を更新したあとに置く。荷重倍数と海抜が要るため
+    if (this.stepIndex % TRAIL_STRIDE === 0) this.recordTrail(tmpUp, tmpRight)
+    this.stepIndex++
   }
 
   /**
@@ -262,6 +333,41 @@ export class Aircraft {
    *
    * @param alpha 0 が前ステップ、1 が現ステップ
    */
+  /**
+   * 軌跡を 1 点記録する。
+   *
+   * 呼ぶのは TRAIL_STRIDE ステップごと。1/120 秒ごとに残すと 256 本で
+   * 2 秒ぶんしか持てない。
+   */
+  private recordTrail(up: Vec3, right: Vec3): void {
+    const slot = this.trail[this.trailWritten % TRAIL_LENGTH]!
+    slot.position.copy(this.position)
+    slot.right.copy(right)
+    slot.up.copy(up)
+    slot.loadFactor = this.loadFactor
+    slot.throttle = this.throttle
+    slot.altitude = this.altitude
+    this.trailWritten++
+  }
+
+  /** 記録済みの点の数。TRAIL_LENGTH で頭打ち */
+  get trailLength(): number {
+    return Math.min(this.trailWritten, TRAIL_LENGTH)
+  }
+
+  /**
+   * 新しい順に index 番目の点。0 が最新。
+   *
+   * 返すのは内部の器そのもの。保持せずその場で使う。毎フレーム 256 本を
+   * 写すのは無駄なので、読む側の作法として決めておく。
+   */
+  trailPoint(index: number): TrailPoint {
+    const length = this.trailLength
+    const clamped = index < 0 ? 0 : index >= length ? length - 1 : index
+    const slot = (this.trailWritten - 1 - clamped + TRAIL_LENGTH * 2) % TRAIL_LENGTH
+    return this.trail[slot]!
+  }
+
   sample(alpha: number, out: AircraftSample): AircraftSample {
     out.position.copy(this.prevPosition).lerp(this.position, alpha)
     out.orientation.copy(this.prevOrientation).slerp(this.orientation, alpha)

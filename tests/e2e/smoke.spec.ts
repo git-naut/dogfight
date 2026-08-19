@@ -429,6 +429,14 @@ test.describe('機体', () => {
     expect(hook.aileron).toBeLessThan(-0.5)
   })
 
+  test('高 G で翼端渦が出る条件になる', async ({ page }) => {
+    // 翼端渦は荷重倍数 3.5 から出る。pull-up は 6.7 G まで行く
+    const hook = await capture(page, { script: 'pull-up', frame: 430 })
+    expect(hook.crashed).toBe(false)
+    // 軌跡の履歴は sim が持つ。描画側に置くとキャプチャモードで出ない
+    expect(hook.aircraftTriangles).toBe(18_634)
+  })
+
   test('描いた三角形が予算の内側', async ({ page }) => {
     // 影のパスで機体をもう一度描くので、機体は 2 回ぶん乗る
     const hook = await capture(page, { script: 'level', frame: 120, preset: 'high' })
@@ -499,6 +507,11 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'terrain-overlook', script: 'island-run', frame: 2000, hour: 9 },
     { name: 'terrain-coast', script: 'low-pass', frame: 1800, hour: 9 },
     { name: 'terrain-peak', script: 'island-run', frame: 3240, hour: 17 },
+    // 機体を主題にした構図。斜め後方からの接写、自分の影が地面を走るカット、
+    // 高 G で翼端渦が出るカット
+    { name: 'aircraft-close', script: 'bank-left', frame: 30, hour: 12 },
+    { name: 'aircraft-shadow', script: 'low-pass', frame: 2500, hour: 16 },
+    { name: 'aircraft-vortex', script: 'pull-up', frame: 430, hour: 12 },
   ] as const
 
   for (const scene of scenes) {

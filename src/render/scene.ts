@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { AircraftSample } from '../sim/aircraft'
+import type { AircraftSample, TrailSource } from '../sim/aircraft'
 import type { LookOffset } from '../input/mouseLook'
 import { createChaseCamera, type ChaseCamera } from './camera'
 import { createAircraftView, type AircraftView } from './aircraftView'
@@ -14,6 +14,7 @@ import {
 } from './quality'
 import { createGpuTimer, type GpuTimer } from './gpuTimer'
 import { createEnvironmentProbe, type EnvironmentProbe } from './environment'
+import { createAircraftTrails, type AircraftTrails } from './aircraft/trails'
 import {
   createAircraftShadow,
   type AircraftShadow,
@@ -72,6 +73,10 @@ export interface MeasureConfig {
   aircraft?: boolean
   /** 環境反射。scene.environment を外す */
   environment?: boolean
+  /** 機体の影。シェーダ側の参照を切る */
+  aircraftShadow?: boolean
+  /** コントレイルと翼端渦 */
+  trails?: boolean
   lodDistanceScale?: number
   terrainPatchCells?: number
 }
@@ -158,6 +163,13 @@ export interface SceneHandle {
   renderPlain(): void
   resize(width: number, height: number, devicePixelRatio: number): void
   setQuality(preset: PresetName): void
+  /**
+   * 軌跡の履歴を読む先を渡す。
+   *
+   * サンプルには載せない。毎フレーム 256 本を写すのは無駄なので、
+   * `Aircraft` から直接読む。ワールドを作り直したら呼び直す。
+   */
+  setTrailSource(source: TrailSource | null): void
   /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
   setMeasureConfig(config: MeasureConfig): void
   setHour(hour: number): void
@@ -290,6 +302,10 @@ export async function createScene(
   scene.add(aircraft.object)
 
   // 機体の影。影マップ 1 枚で自己遮蔽と対地影の両方をまかなう
+  // コントレイルと翼端渦。履歴は sim が持つので、ここは読んで張るだけ
+  const trails: AircraftTrails = createAircraftTrails(quality)
+  scene.add(trails.object)
+
   const aircraftShadow: AircraftShadow = createAircraftShadow({
     renderer,
     light: atmosphere.sunLight as ShadowLight,
@@ -341,13 +357,17 @@ export async function createScene(
   const aircraftPosition = new THREE.Vector3()
 
   const shadowAllowed = options.showAircraftShadow ?? true
+  /** 軌跡の履歴を読む先。main が World を作ったあとに渡す */
+  let trailSource: TrailSource | null = null
+  /** 計測で影を切っているか。setMeasureConfig から動かす */
+  let measureShadow = true
 
   /** 影のユニフォームを入れ直す。描画のたびに呼ぶ */
   function updateShadowUniforms(): void {
     // 型を合わせるため、切っているときも深度テクスチャを束縛したままにする
     terrainUniforms.aircraftShadowMap.value = aircraftShadow.depthTexture
     terrainUniforms.aircraftShadowEnabled.value =
-      shadowAllowed && aircraftShadow.ready ? 1 : 0
+      shadowAllowed && measureShadow && aircraftShadow.ready ? 1 : 0
     terrainUniforms.aircraftShadowTexel.value =
       1 / Math.max(1, quality.aircraftShadowMapSize)
   }
@@ -528,6 +548,9 @@ export async function createScene(
       // LOD はカメラ位置で決める。機体位置ではない（追従カメラは後方にいる）。
       // chase の更新後に読むこと
       camera.getWorldPosition(cameraWorld)
+
+      // 軌跡。リボンをカメラへ向けるのでカメラ位置を渡す
+      if (trailSource !== null) trails.update(trailSource, cameraWorld)
       terrainMesh.update(cameraWorld.x, cameraWorld.z)
       water.follow(cameraWorld.x, cameraWorld.z)
       // 波の位相もフレーム番号から導く。実時間を使うと絵が固定されない
@@ -569,6 +592,10 @@ export async function createScene(
       applySize()
     },
 
+    setTrailSource(source) {
+      trailSource = source
+    },
+
     setMeasureConfig(config) {
       if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
       if (config.water !== undefined) water.mesh.visible = config.water
@@ -577,6 +604,8 @@ export async function createScene(
       if (config.environment !== undefined) {
         scene.environment = config.environment ? environment.texture : null
       }
+      if (config.aircraftShadow !== undefined) measureShadow = config.aircraftShadow
+      if (config.trails !== undefined) trails.object.visible = config.trails
       if (config.detailNormals !== undefined) {
         terrainMesh.setDetailNormals(config.detailNormals)
       }
@@ -610,6 +639,7 @@ export async function createScene(
       cloudsPass.setQuality(quality)
       terrainMesh.setQuality(quality)
       water.setQuality(quality)
+      trails.setQuality(quality)
       environment.setQuality(quality)
       scene.environment = environment.texture
       aircraftShadow.setQuality(quality)
@@ -638,6 +668,7 @@ export async function createScene(
       composer.dispose()
       terrainMesh.dispose()
       water.dispose()
+      trails.dispose()
       environment.dispose()
       heightTexture.dispose()
       normalTexture.dispose()

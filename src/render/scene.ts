@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { AircraftSample, TrailSource } from '../sim/aircraft'
+import type { AircraftSample, AircraftTrailSource } from '../sim/aircraft'
 import type { LookOffset } from '../input/mouseLook'
 import { createChaseCamera, type ChaseCamera } from './camera'
 import { createAircraftView, type AircraftView } from './aircraftView'
@@ -169,7 +169,7 @@ export interface SceneHandle {
    * サンプルには載せない。毎フレーム 256 本を写すのは無駄なので、
    * `Aircraft` から直接読む。ワールドを作り直したら呼び直す。
    */
-  setTrailSource(source: TrailSource | null): void
+  setTrailSource(source: AircraftTrailSource | null): void
   /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
   setMeasureConfig(config: MeasureConfig): void
   setHour(hour: number): void
@@ -358,7 +358,7 @@ export async function createScene(
 
   const shadowAllowed = options.showAircraftShadow ?? true
   /** 軌跡の履歴を読む先。main が World を作ったあとに渡す */
-  let trailSource: TrailSource | null = null
+  let trailSource: AircraftTrailSource | null = null
   // 軌跡の先頭。使い回す
   const trailHead = {
     position: new THREE.Vector3(),

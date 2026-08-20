@@ -19,6 +19,7 @@ import {
   sideslipAngle,
 } from './flightModel'
 import type { InputState } from './input'
+import { TrailRing, type TrailSource } from './trail'
 
 /**
  * 機体の状態と1ステップの積分。
@@ -104,13 +105,13 @@ export interface TrailPoint {
   readonly altitude: number
 }
 
-/** 履歴を読む側が要る最小限。描画は Aircraft の型に縛られない */
-export interface TrailSource {
-  /** 記録済みの点の数。TRAIL_LENGTH で頭打ち */
-  readonly trailLength: number
-  /** 新しい順に i 番目。0 が最新 */
-  trailPoint(index: number): TrailPoint
-}
+/**
+ * 描画が読む機体の履歴。
+ *
+ * リングの仕組みそのものは `TrailRing` が持つ。ミサイルの煙も同じリングを
+ * 使うので、機体固有の点の型だけをここで固定する。
+ */
+export type AircraftTrailSource = TrailSource<TrailPoint>
 
 interface MutableTrailPoint {
   position: Vec3
@@ -218,21 +219,16 @@ export class Aircraft {
   private readonly prevPosition = new Vec3()
   private readonly prevOrientation = new Quat()
 
-  /** 軌跡の履歴。使い回すので new は最初の 1 回だけ */
-  private readonly trail: MutableTrailPoint[] = Array.from(
-    { length: TRAIL_LENGTH },
-    () => ({
-      position: new Vec3(),
-      right: new Vec3(),
-      up: new Vec3(),
-      loadFactor: 1,
-      wingtipVapor: 0,
-      throttle: 0,
-      altitude: 0,
-    }),
-  )
-  /** 記録した通し番号。リングの位置と本数を出すのに使う */
-  private trailWritten = 0
+  /** 軌跡の履歴。器は最初に作りきって使い回す */
+  private readonly trail = new TrailRing<MutableTrailPoint>(TRAIL_LENGTH, () => ({
+    position: new Vec3(),
+    right: new Vec3(),
+    up: new Vec3(),
+    loadFactor: 1,
+    wingtipVapor: 0,
+    throttle: 0,
+    altitude: 0,
+  }))
   /** ステップの通し番号。TRAIL_STRIDE ごとに記録する */
   private stepIndex = 0
 
@@ -363,18 +359,13 @@ export class Aircraft {
   }
 
   /**
-   * 描画用に前ステップと現ステップを補間した状態を書き込む。
-   *
-   * @param alpha 0 が前ステップ、1 が現ステップ
-   */
-  /**
    * 軌跡を 1 点記録する。
    *
    * 呼ぶのは TRAIL_STRIDE ステップごと。1/120 秒ごとに残すと 768 本でも
    * 6.4 秒ぶんしか持てない。
    */
   private recordTrail(up: Vec3, right: Vec3): void {
-    const slot = this.trail[this.trailWritten % TRAIL_LENGTH]!
+    const slot = this.trail.push()
     slot.position.copy(this.position)
     slot.right.copy(right)
     slot.up.copy(up)
@@ -382,27 +373,28 @@ export class Aircraft {
     slot.wingtipVapor = this.wingtipVapor
     slot.throttle = this.throttle
     slot.altitude = this.altitude
-    this.trailWritten++
   }
 
   /** 記録済みの点の数。TRAIL_LENGTH で頭打ち */
   get trailLength(): number {
-    return Math.min(this.trailWritten, TRAIL_LENGTH)
+    return this.trail.length
   }
 
   /**
    * 新しい順に index 番目の点。0 が最新。
    *
-   * 返すのは内部の器そのもの。保持せずその場で使う。毎フレーム 256 本を
+   * 返すのは内部の器そのもの。保持せずその場で使う。毎フレーム 768 本を
    * 写すのは無駄なので、読む側の作法として決めておく。
    */
   trailPoint(index: number): TrailPoint {
-    const length = this.trailLength
-    const clamped = index < 0 ? 0 : index >= length ? length - 1 : index
-    const slot = (this.trailWritten - 1 - clamped + TRAIL_LENGTH * 2) % TRAIL_LENGTH
-    return this.trail[slot]!
+    return this.trail.at(index)
   }
 
+  /**
+   * 描画用に前ステップと現ステップを補間した状態を書き込む。
+   *
+   * @param alpha 0 が前ステップ、1 が現ステップ
+   */
   sample(alpha: number, out: AircraftSample): AircraftSample {
     out.position.copy(this.prevPosition).lerp(this.position, alpha)
     out.orientation.copy(this.prevOrientation).slerp(this.orientation, alpha)

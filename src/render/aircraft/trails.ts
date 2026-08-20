@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { FIXED_DT } from '../../sim/loop'
-import { TRAIL_LENGTH, TRAIL_STRIDE, type TrailSource } from '../../sim/aircraft'
+import { TRAIL_LENGTH, TRAIL_STRIDE, type AircraftTrailSource } from '../../sim/aircraft'
 import { CONTRAIL_TEMPERATURE, temperature } from '../../sim/isa'
 import type { QualitySettings } from '../quality'
 
@@ -209,7 +209,7 @@ export interface AircraftTrails {
    * @param head いまの翼端。リボンの先頭に足して隙間を埋める
    */
   update(
-    source: TrailSource,
+    source: AircraftTrailSource,
     cameraPosition: THREE.Vector3,
     cameraForward: THREE.Vector3,
     head: TrailHead,
@@ -285,7 +285,7 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
    */
   function prepare(
     ribbon: Ribbon,
-    source: TrailSource,
+    source: AircraftTrailSource,
     count: number,
     head: TrailHead,
   ): void {
@@ -311,7 +311,7 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
    */
   function preparePositions(
     ribbon: Ribbon,
-    source: TrailSource,
+    source: AircraftTrailSource,
     head: TrailHead,
     cameraPosition: THREE.Vector3,
     cameraForward: THREE.Vector3,
@@ -347,7 +347,7 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
 
   function writeRibbon(
     ribbon: Ribbon,
-    source: TrailSource,
+    source: AircraftTrailSource,
     cameraPosition: THREE.Vector3,
     count: number,
     head: TrailHead,

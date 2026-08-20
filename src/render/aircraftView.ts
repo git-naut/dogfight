@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { loadAircraftModel, type AircraftModel } from './aircraft/model'
+import type { AircraftModel } from './aircraft/model'
 import { createControlSurfaces, type ControlSurfaces } from './aircraft/surfaces'
 
 /**
@@ -12,6 +12,11 @@ import { createControlSurfaces, type ControlSurfaces } from './aircraft/surfaces
  * アフターバーナーの炎は原本に入っている。FlightGear は
  * `engines/engine[0]/augmentation` で `ExternalFlame` を出し入れし、
  * `InternalFlame` は常に見せている。同じ扱いにする。
+ *
+ * **モデルは受け取るだけで読み込まない。**標的機が同じ機体を使うので、
+ * `loadAircraftModel` を呼ぶのは `scene.ts` の 1 回だけにする。2 回呼ぶと
+ * パースとテクスチャの復号が 2 度走り、ジオメトリとマテリアルが複製される。
+ * 破棄も呼び出し側がモデルに対して行う。
  */
 
 /** この値を超えたらアフターバーナーの炎を出す */
@@ -30,9 +35,7 @@ export interface AircraftView {
   dispose(): void
 }
 
-export async function createAircraftView(url: string): Promise<AircraftView> {
-  const model: AircraftModel = await loadAircraftModel(url)
-
+export function createAircraftView(model: AircraftModel): AircraftView {
   const externalFlame = model.object.getObjectByName('ExternalFlame') ?? null
   if (externalFlame !== null) externalFlame.visible = false
 
@@ -60,7 +63,8 @@ export async function createAircraftView(url: string): Promise<AircraftView> {
     },
 
     dispose() {
-      model.dispose()
+      // モデルの破棄はしない。標的機の複製と実体を共有しているので、
+      // ここで消すと標的まで壊れる。破棄は scene.ts がモデルに対して 1 回
     },
   }
 }

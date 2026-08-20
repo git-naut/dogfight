@@ -3,6 +3,7 @@ import { Quat } from './quat'
 import { airDensity } from './isa'
 import { trimCondition } from './flightModel'
 import { type InputState, neutralInput } from './input'
+import type { TargetSpec } from './target'
 
 /**
  * 入力スクリプトの再生。
@@ -36,6 +37,14 @@ export interface ReplayScript {
   name: string
   seed: number
   spawn: SpawnSpec
+  /**
+   * 標的機の配置。省略すると標的なし。
+   *
+   * 位置は自機のスポーン地点からの相対で書く。自機は必ず原点に湧くので、
+   * 台本 1 本で自機と標的の相対関係が決まる。キャプチャモードでもテストでも
+   * 同じ配置が再現される。
+   */
+  targets?: TargetSpec[]
   keyframes: ReplayKeyframe[]
 }
 

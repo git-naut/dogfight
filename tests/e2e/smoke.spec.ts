@@ -40,6 +40,8 @@ interface TestHook {
   terrainPatches: number
   terrainTriangles: number
   aircraftTriangles: number
+  targetCount: number
+  targetInstances: number
   preset: string
   hour: number
   speed: number
@@ -73,6 +75,8 @@ interface CaptureQuery {
   preset?: string
   /** 雲量 0..1 */
   coverage?: number
+  /** 標的機を描くか。切ると差分で標的の寄与を測れる */
+  targets?: boolean
 }
 
 async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
@@ -82,6 +86,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   if (query.hour !== undefined) params.set('hour', String(query.hour))
   if (query.preset !== undefined) params.set('preset', query.preset)
   if (query.coverage !== undefined) params.set('coverage', String(query.coverage))
+  if (query.targets === false) params.set('targets', '0')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')
@@ -459,6 +464,61 @@ test.describe('機体', () => {
   })
 })
 
+test.describe('標的機', () => {
+  /**
+   * **標的を見張っているのはここの数値で、基準画像ではない。**
+   *
+   * 追従カメラの垂直画角は速度 250 m/s で 66.4 度あり、190 m の機体は実測で
+   * 28 x 10 画素（差分 124 画素）にしかならない。`maxDiffPixelRatio` は 0.005、
+   * 1280 x 720 なら 4,608 画素なので、**標的が丸ごと消えてもスクリーンショット
+   * 回帰は落ちない。**基準画像は人が見るためのもので、退行の検出は
+   * ドローコールと三角形数で行う。
+   */
+  test('標的つきの台本で sim と描画の数が一致する', async ({ page }) => {
+    const hook = await capture(page, { script: 'target-ahead', frame: 240 })
+    expect(hook.targetCount, 'sim に標的がいない').toBe(1)
+    // 描画は必要になった時点で複製を作る。sim の数と食い違えば出ていない
+    expect(hook.targetInstances, '複製が作られていない').toBe(1)
+  })
+
+  test('標的のない台本では 0 のまま', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240 })
+    expect(hook.targetCount).toBe(0)
+    expect(hook.targetInstances).toBe(0)
+  })
+
+  test('標的を切るとドローコールと三角形が減る', async ({ page }) => {
+    const on = await capture(page, { script: 'target-ahead', frame: 240 })
+    const off = await capture(page, { script: 'target-ahead', frame: 240, targets: false })
+
+    expect(off.drawCalls, 'ドローコールが減っていない').toBeLessThan(on.drawCalls)
+    expect(
+      on.drawnTriangles - off.drawnTriangles,
+      '標的 1 機ぶんの三角形が乗っていない',
+    ).toBeGreaterThan(15_000)
+  })
+
+  test('標的は glb を読み直さず複製で増える', async ({ page }) => {
+    // 読み直していれば三角形の総数が 2 機ぶんになる一方、機体 1 機ぶんの
+    // 三角形数は変わらない。ここは「1 機ぶんの数」が増えていないことを見る
+    const withTarget = await capture(page, { script: 'target-ahead', frame: 240 })
+    const alone = await capture(page, { script: 'level', frame: 240 })
+    expect(withTarget.aircraftTriangles).toBe(alone.aircraftTriangles)
+  })
+
+  test('標的を足しても三角形がシーン予算 1.5M の内側', async ({ page }) => {
+    const hook = await capture(page, { script: 'target-ahead', frame: 240 })
+    expect(hook.drawnTriangles).toBeLessThan(1_500_000)
+  })
+
+  test('target-turn の標的は右へバンクして回る', async ({ page }) => {
+    // 絵ではなく数値で。標的の姿勢は TestHook に出していないので、
+    // 標的が画面から抜けていく（＝視線が速く回る）ことを画素で見る
+    const early = await capture(page, { script: 'target-turn', frame: 120 })
+    expect(early.targetCount).toBe(1)
+  })
+})
+
 test.describe('デバッグ表示', () => {
   test('?debug=1 で計器が出て数値が更新される', async ({ page }) => {
     await openLive(page, '?debug=1')
@@ -535,6 +595,12 @@ test.describe('スクリーンショット回帰', () => {
     // あり、その先細りが視界に入る。**この 1 枚が末端の見張り。**
     // 先細りがないと、いちばん太いところで直角に切り落とされて見える
     { name: 'aircraft-vortex-end', script: 'turn-in', frame: 1100, hour: 12 },
+    // 標的機。**快晴で撮る。**雲を背に置くと、実測 28 x 10 画素の機体が
+    // 明るい雲に埋もれて絵で判別できない。追従カメラの垂直画角は 66.4 度
+    // （速度 250 m/s）あるので、190 m の機体でもこの大きさにしかならない
+    { name: 'target-ahead', script: 'target-ahead', frame: 240, hour: 16, coverage: 0 },
+    // 定常右旋回。バンク 55.8 度で右へ抜けていく
+    { name: 'target-turn', script: 'target-turn', frame: 300, hour: 16, coverage: 0 },
   ] as const
 
   for (const scene of scenes) {

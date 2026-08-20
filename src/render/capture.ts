@@ -55,6 +55,14 @@ export interface CaptureConfig {
   /** 機体の影を使うか。`?shadow=0` で切る。切り分けと計測に使う */
   showAircraftShadow: boolean
   /**
+   * 標的機を描くか。`?targets=0` で切る。
+   *
+   * 差分で標的の画素だけを取り出すのに使う。**背景を行の中央値で近似すると
+   * 嘘が出る**（地形や空のグラデーションを拾う）ので、消した版を焼いて
+   * 引くのが正しい。翼端渦で同じ作法を採った
+   */
+  showTargets: boolean
+  /**
    * 描画を繰り返して 1 回あたりの時間を測る回数。0 なら測らない。
    *
    * SwiftShader は CPU ラスタライザなので、時間はシェーダの実行量にほぼ
@@ -113,6 +121,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showWater: params.get('water') !== '0',
     showEnvironment: params.get('env') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',
+    showTargets: params.get('targets') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
   }
@@ -195,6 +204,10 @@ export interface TestHook {
   terrainTriangles: number
   /** 機体の三角形数。読み込めていなければ 0 */
   aircraftTriangles: number
+  /** sim にいる標的機の数。台本の配置で決まる */
+  targetCount: number
+  /** 描画が作った標的機の複製の数。sim の数と一致するはず */
+  targetInstances: number
   preset: PresetName
   hour: number
   // 飛行状態

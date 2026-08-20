@@ -1,6 +1,7 @@
 import { FixedStepDriver, FIXED_DT } from './sim/loop'
 import { World, createWorldFromScript } from './sim/world'
 import { createAircraftSample } from './sim/aircraft'
+import { createTargetSample, type TargetSample } from './sim/target'
 import { getScript } from './sim/scripts'
 import { spawnFromSpec } from './sim/replay'
 import { createScene } from './render/scene'
@@ -76,6 +77,8 @@ const hook = installTestHook({
   terrainPatches: 0,
   terrainTriangles: 0,
   aircraftTriangles: 0,
+  targetCount: 0,
+  targetInstances: 0,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -97,6 +100,19 @@ const hook = installTestHook({
 })
 
 const sample = createAircraftSample()
+
+/**
+ * 標的機の器。標的の数だけ使い回す。
+ *
+ * ワールドを作り直すと数が変わるので、そのつど合わせる。毎フレーム作ると
+ * ゴミが増える
+ */
+let targetSamples: TargetSample[] = []
+
+function fitTargetSamples(count: number): void {
+  while (targetSamples.length < count) targetSamples.push(createTargetSample())
+  if (targetSamples.length > count) targetSamples.length = count
+}
 
 async function main(): Promise<void> {
   setBoot('大気の散乱テーブルを読み込み中')
@@ -121,6 +137,7 @@ async function main(): Promise<void> {
     showWater: capture.showWater,
     showEnvironment: capture.showEnvironment,
     showAircraftShadow: capture.showAircraftShadow,
+    showTargets: capture.showTargets,
   })
 
   setBoot('描画の準備中')
@@ -165,6 +182,8 @@ async function main(): Promise<void> {
     hook.terrainPatches = view.terrainPatches
     hook.terrainTriangles = view.terrainTriangles
     hook.aircraftTriangles = view.aircraftTriangles
+    hook.targetCount = targetSamples.length
+    hook.targetInstances = view.targetInstances
   hook.aircraftSurfaces = view.aircraftSurfaces
   hook.environmentReady = view.environmentReady
   hook.aircraftShadowReady = view.aircraftShadowReady
@@ -193,8 +212,10 @@ async function main(): Promise<void> {
     }
 
     world.samplePlayer(1, sample)
+    fitTargetSamples(world.targets.length)
+    world.sampleTargets(1, targetSamples)
     view.setTrailSource(world.player)
-    view.sync(sample, world.frame, 0, { yaw: 0, pitch: 0 }, true)
+    view.sync(sample, targetSamples, world.frame, 0, { yaw: 0, pitch: 0 }, true)
 
     // 雲は時間方向に足し込むので、1 枚だけ描いても収束しない。
     // カメラを止めたまま必要な本数を描く。実時間は使わないので決定論は保たれる
@@ -258,10 +279,11 @@ async function main(): Promise<void> {
   let cpuRenderMs = 0
 
   function spawnWorld(): World {
-    // 既定のスポーンは level スクリプトと同じ条件にしておく
-    const spawn = spawnFromSpec(getScript('level').spawn)
+    // ライブでも台本の初期条件を使う。?script= で標的つきの台本を選べる
+    const script = getScript(capture.script)
+    const spawn = spawnFromSpec(script.spawn)
     keyboard.setThrottle(spawn.throttle)
-    return new World({
+    const world = new World({
       seed: DEFAULT_SEED,
       aircraft: {
         position: spawn.position,
@@ -269,7 +291,10 @@ async function main(): Promise<void> {
         orientation: spawn.orientation,
         throttle: spawn.throttle,
       },
+      ...(script.targets ? { targets: script.targets } : {}),
     })
+    fitTargetSamples(world.targets.length)
+    return world
   }
 
   const frame = (now: number) => {
@@ -290,7 +315,8 @@ async function main(): Promise<void> {
 
     const t1 = performance.now()
     world.samplePlayer(alpha, sample)
-    view.sync(sample, world.frame, delta, mouse.update(delta))
+    world.sampleTargets(alpha, targetSamples)
+    view.sync(sample, targetSamples, world.frame, delta, mouse.update(delta))
 
     const t2 = performance.now()
     view.render()
@@ -340,7 +366,9 @@ async function main(): Promise<void> {
 
   // 初期姿勢でカメラを定位置に置いてから回し始める
   world.samplePlayer(1, sample)
-  view.sync(sample, world.frame, FIXED_DT, mouse.offset, true)
+  fitTargetSamples(world.targets.length)
+  world.sampleTargets(1, targetSamples)
+  view.sync(sample, targetSamples, world.frame, FIXED_DT, mouse.offset, true)
   view.render()
   finishBoot()
   requestAnimationFrame(frame)

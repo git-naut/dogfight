@@ -1,8 +1,11 @@
 import * as THREE from 'three'
 import type { AircraftSample, AircraftTrailSource } from '../sim/aircraft'
+import type { TargetSample } from '../sim/target'
 import type { LookOffset } from '../input/mouseLook'
 import { createChaseCamera, type ChaseCamera } from './camera'
 import { createAircraftView, type AircraftView } from './aircraftView'
+import { loadAircraftModel, type AircraftModel } from './aircraft/model'
+import { createTargetViews, type TargetViews } from './targetView'
 import { createAtmosphere, DEFAULT_HOUR, type AtmosphereHandle } from './atmosphere'
 import { createComposer, type ComposerHandle } from './composer'
 import {
@@ -77,6 +80,8 @@ export interface MeasureConfig {
   aircraftShadow?: boolean
   /** コントレイルと翼端渦 */
   trails?: boolean
+  /** 標的機 */
+  targets?: boolean
   lodDistanceScale?: number
   terrainPatchCells?: number
 }
@@ -124,6 +129,8 @@ export interface SceneHandle {
   readonly terrainTriangles: number
   /** 機体の三角形数。読み込めていなければ 0 */
   readonly aircraftTriangles: number
+  /** 作った標的機の複製の数。三角形はこの数だけ増える */
+  readonly targetInstances: number
   /** 動かせた舵面の枚数。6 枚あるはず */
   readonly aircraftSurfaces: number
   /** 環境反射が焼けているか。プリセットで切っていれば false */
@@ -146,6 +153,7 @@ export interface SceneHandle {
    */
   sync(
     sample: AircraftSample,
+    targets: readonly TargetSample[],
     frame: number,
     dt: number,
     look: LookOffset,
@@ -190,6 +198,14 @@ export const DEFAULT_EXPOSURE = 6
 /** 既定の雲量。点在する積雲になる値 */
 export const DEFAULT_COVERAGE = 0.3
 
+/**
+ * 同時に出せる標的機の上限。
+ *
+ * Phase 7 のミッション 01 が敵 8 機撃墜なので、器はそこに合わせておく。
+ * 複製は使う数だけ作るので、余らせても費用はかからない。
+ */
+export const MAX_TARGETS = 8
+
 export interface SceneOptions {
   preset: PresetName
   hour?: number
@@ -217,6 +233,8 @@ export interface SceneOptions {
   showEnvironment?: boolean
   /** 機体の影を使うか。切り分けと計測に使う */
   showAircraftShadow?: boolean
+  /** 標的機を描くか。差分で標的の画素だけを取り出すのに使う */
+  showTargets?: boolean
 }
 
 /**
@@ -298,8 +316,17 @@ export async function createScene(
   water.mesh.visible = options.showWater ?? true
   scene.add(water.mesh)
 
-  const aircraft: AircraftView = await createAircraftView(options.aircraftUrl)
+  // glb を読むのはここ 1 回だけ。自機と標的機が同じモデルを共有する。
+  // 2 回読むとパースとテクスチャの復号が 2 度走り、実体が複製される
+  const aircraftModel: AircraftModel = await loadAircraftModel(options.aircraftUrl)
+  const aircraft: AircraftView = createAircraftView(aircraftModel)
   scene.add(aircraft.object)
+
+  // 標的機。複製は必要になった時点で作る。Phase 6 のミッションが敵 8 機なので
+  // 器はそこまで用意しておく
+  const targetViews: TargetViews = createTargetViews(aircraftModel, MAX_TARGETS)
+  targetViews.object.visible = options.showTargets ?? true
+  scene.add(targetViews.object)
 
   // 機体の影。影マップ 1 枚で自己遮蔽と対地影の両方をまかなう
   // コントレイルと翼端渦。履歴は sim が持つので、ここは読んで張るだけ
@@ -462,6 +489,10 @@ export async function createScene(
       return aircraft.surfaceCount
     },
 
+    get targetInstances() {
+      return targetViews.instanceCount
+    },
+
     get environmentReady() {
       return scene.environment !== null
     },
@@ -494,7 +525,9 @@ export async function createScene(
       return quality
     },
 
-    sync(sample, frame, dt, look, snap = false) {
+    sync(sample, targets, frame, dt, look, snap = false) {
+      targetViews.update(targets)
+
       aircraft.object.position.set(
         sample.position.x,
         sample.position.y,
@@ -633,6 +666,7 @@ export async function createScene(
       }
       if (config.aircraftShadow !== undefined) measureShadow = config.aircraftShadow
       if (config.trails !== undefined) trails.object.visible = config.trails
+      if (config.targets !== undefined) targetViews.object.visible = config.targets
       if (config.detailNormals !== undefined) {
         terrainMesh.setDetailNormals(config.detailNormals)
       }
@@ -688,7 +722,11 @@ export async function createScene(
 
     dispose() {
       gpuTimer.dispose()
+      targetViews.dispose()
       aircraft.dispose()
+      // ジオメトリとマテリアルの実体はモデルが持つ。自機と標的で共有して
+      // いるので、破棄はここで 1 回だけ
+      aircraftModel.dispose()
       cloudsPass.dispose()
       noise.dispose()
       atmosphere.dispose()

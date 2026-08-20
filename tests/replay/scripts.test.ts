@@ -68,7 +68,7 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('7 本すべて引ける', () => {
+  it('9 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
@@ -77,10 +77,19 @@ describe('スクリプトの登録', () => {
       'island-run',
       'zoom-climb',
       'turn-in',
+      'target-ahead',
+      'target-turn',
     ])
     for (const name of SCRIPT_NAMES) {
       expect(getScript(name).name).toBe(name)
     }
+  })
+
+  it('標的つきの台本だけが標的を持つ', () => {
+    // SCRIPTS は as const なので、targets を持たない要素との union では
+    // プロパティを引けない。ReplayScript として読む getScript を通す
+    const withTargets = SCRIPT_NAMES.filter((n) => getScript(n).targets !== undefined)
+    expect(withTargets).toEqual(['target-ahead', 'target-turn'])
   })
 
   it('未知の名前は level に倒れる', () => {
@@ -154,6 +163,82 @@ describe('low-pass — 低空通過', () => {
   })
 })
 
+describe('target-ahead — 標的が前方を直進する', () => {
+  it('標的が 1 機いて、自機の前方やや右上に湧く', () => {
+    const world = runScript(SCRIPTS['target-ahead'], 1)
+    expect(world.targets).toHaveLength(1)
+
+    const t = world.targets[0]!
+    // 自機は原点の高度 3000 m。offset は (35, 12, -190)
+    expect(t.position.x).toBeCloseTo(35, 6)
+    expect(t.position.y).toBeCloseTo(3012, 6)
+    expect(t.bank).toBe(0)
+  })
+
+  it('自機のほうが速いので間合いが詰まる', () => {
+    const near = runScript(SCRIPTS['target-ahead'], SEC * 1)
+    const far = runScript(SCRIPTS['target-ahead'], SEC * 20)
+
+    const gap = (w: typeof near): number =>
+      w.player.position.distanceTo(w.targets[0]!.position)
+
+    expect(gap(far)).toBeLessThan(gap(near))
+    // 自機 250 m/s・標的 245 m/s。19 秒で 95 m 詰まる勘定
+    expect(gap(near) - gap(far)).toBeGreaterThan(60)
+  })
+
+  it('撮る範囲では機体と分かる大きさにいる', () => {
+    // 追従カメラの垂直画角は速度 250 m/s で 66.4 度。翼幅 11.6 m は 900 m で
+    // 実測 10 x 7 画素にしかならず、絵でまったく判別できなかった。190 m まで
+    // 寄せて 28 x 10 画素。**この距離は絵で測って決めた値**なので、
+    // 台本をいじるときは `extent.mjs` で撮り直して確かめる
+    for (const sec of [0, 5, 10]) {
+      const w = runScript(SCRIPTS['target-ahead'], SEC * sec)
+      const gap = w.player.position.distanceTo(w.targets[0]!.position)
+      expect(gap, `${sec} 秒`).toBeGreaterThan(130)
+      expect(gap, `${sec} 秒`).toBeLessThan(220)
+    }
+  })
+
+  it('標的が高度を保つ', () => {
+    const world = runScript(SCRIPTS['target-ahead'], SEC * 20)
+    expect(world.targets[0]!.position.y).toBeCloseTo(3012, 6)
+  })
+
+  it('60 秒飛んでも自機が地形に当たらない', () => {
+    // 地図の最高点は実測 2,224.5 m @ (800, -12600) で、この回廊上にある。
+    // 高度 2,000 m だとここで止まる。**止まったあとの高度は地形の高さに
+    // なるので、高度だけを見る検査では気づけない。**速度で見る
+    const world = runScript(SCRIPTS['target-ahead'], SEC * 60)
+    expect(world.player.crashed).toBe(false)
+    expect(world.player.speed).toBeGreaterThan(200)
+  })
+})
+
+describe('target-turn — 標的が定常旋回する', () => {
+  it('右へバンクして右へ回る', () => {
+    const world = runScript(SCRIPTS['target-turn'], SEC * 10)
+    const t = world.targets[0]!
+
+    // 55.8 度。絵では 220 m で 19 x 27 画素になり、倒れているのが読める
+    expect(t.bank).toBeGreaterThan(50 * DEG)
+    // 右は +X。半径 4,000 m を 0.6 rad 回ると 700 m 右へ膨らむ
+    expect(t.position.x).toBeGreaterThan(500)
+  })
+
+  it('視線の回転率が 0 でない。比例航法を検証できる構図', () => {
+    // 自機から見た標的の方位が動いていることを、2 時点の視線の角度差で見る
+    const angleAt = (frames: number): number => {
+      const w = runScript(SCRIPTS['target-turn'], frames)
+      const los = w.targets[0]!.position.clone().sub(w.player.position).normalize()
+      return Math.atan2(los.x, -los.z)
+    }
+    const drift = Math.abs(angleAt(SEC * 8) - angleAt(SEC * 2))
+    // 直進する的なら 1 度も動かない。旋回していれば大きく振れる
+    expect(drift).toBeGreaterThan(10 * DEG)
+  })
+})
+
 describe('再生の決定論', () => {
   it.each(SCRIPT_NAMES)('%s は 2 回再生しても同じ結果になる', (name) => {
     const a = runScript(SCRIPTS[name], SEC * 5)
@@ -163,6 +248,14 @@ describe('再生の決定論', () => {
     expect(a.player.position.toArray()).toEqual(b.player.position.toArray())
     expect(a.player.velocity.toArray()).toEqual(b.player.velocity.toArray())
     expect(a.player.orientation.toArray()).toEqual(b.player.orientation.toArray())
+
+    expect(a.targets).toHaveLength(b.targets.length)
+    for (let i = 0; i < a.targets.length; i++) {
+      expect(a.targets[i]!.position.toArray()).toEqual(b.targets[i]!.position.toArray())
+      expect(a.targets[i]!.orientation.toArray()).toEqual(
+        b.targets[i]!.orientation.toArray(),
+      )
+    }
   })
 
   it('途中経過も一致する（部分再生と通し再生が同じ）', () => {

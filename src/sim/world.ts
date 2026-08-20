@@ -4,6 +4,7 @@ import { Quat } from './quat'
 import { Vec3 } from './vec3'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
 import { ReplayPlayer, spawnFromSpec, type ReplayScript } from './replay'
+import { Target, type TargetSample, type TargetSpec } from './target'
 import type { InputState } from './input'
 import { defaultTerrain, type Terrain } from './terrain'
 
@@ -21,6 +22,13 @@ export interface WorldOptions {
     throttle?: number
   }
   step?: StepOptions
+  /**
+   * 標的機の配置。自機のスポーン地点からの相対。
+   *
+   * Phase 5 の的。飛行モデルは載せず、決められた軌跡を飛ぶ剛体として扱う。
+   * 敵 AI とダメージは Phase 6。
+   */
+  targets?: TargetSpec[]
   /**
    * 地形。省略すると共有の既定地形を使う。
    *
@@ -40,13 +48,15 @@ export const DEFAULT_SPAWN = {
 /**
  * シミュレーション世界。
  *
- * Phase 1 の時点では自機 1 機のみ。敵機とミサイルは後続の Phase で
- * ここにぶら下げる。
+ * 自機と標的機を持つ。武装（弾・ミサイル・爆発）は Phase 5 の後続の段で
+ * `Combat` としてここにぶら下げる。`step()` が並べる処理を増やしすぎない。
  */
 export class World {
   readonly rng: Rng
   readonly seed: number
   readonly player: Aircraft
+  /** 標的機。台本に配置が書かれていなければ空 */
+  readonly targets: readonly Target[]
   /** 地形。描画側も同じものを読んで、当たる山と見える山を一致させる */
   readonly terrain: Terrain
 
@@ -67,6 +77,11 @@ export class World {
       ...(spawn.orientation ? { orientation: spawn.orientation } : {}),
       ...(spawn.throttle !== undefined ? { throttle: spawn.throttle } : {}),
     })
+
+    // 標的の位置は自機のスポーン地点からの相対。自機を作ったあとに読む
+    this.targets = (options.targets ?? []).map(
+      (spec) => new Target(spec, this.player.position),
+    )
   }
 
   get frame(): number {
@@ -87,12 +102,24 @@ export class World {
   /** 1ステップ進める。呼び出しは必ず FixedStepDriver 経由にする。 */
   step(input: InputState): void {
     this.player.step(input, FIXED_DT, this.stepOptions)
+    for (const target of this.targets) target.step(FIXED_DT)
     this._frame++
   }
 
   /** 描画用に補間した自機の状態を書き込む。 */
   samplePlayer(alpha: number, out: AircraftSample): AircraftSample {
     return this.player.sample(alpha, out)
+  }
+
+  /**
+   * 描画用に補間した標的機の状態を書き込む。
+   *
+   * 器は呼び出し側が使い回す。標的の数だけ渡すこと。
+   */
+  sampleTargets(alpha: number, out: TargetSample[]): void {
+    for (let i = 0; i < this.targets.length && i < out.length; i++) {
+      this.targets[i]!.sample(alpha, out[i]!)
+    }
   }
 }
 
@@ -110,6 +137,7 @@ export function createWorldFromScript(script: ReplayScript): {
       orientation: spawn.orientation,
       throttle: spawn.throttle,
     },
+    ...(script.targets ? { targets: script.targets } : {}),
   })
   return { world, player: new ReplayPlayer(script) }
 }

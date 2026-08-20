@@ -368,6 +368,8 @@ export async function createScene(
     throttle: 0,
   }
   const trailHeadQuaternion = new THREE.Quaternion()
+  // 視線方向。near 面の手前で軌跡を終端するのに使う
+  const cameraForward = new THREE.Vector3()
   /** 計測で影を切っているか。setMeasureConfig から動かす */
   let measureShadow = true
 
@@ -573,7 +575,8 @@ export async function createScene(
         trailHead.wingtipVapor = sample.wingtipVapor
         trailHead.altitude = sample.altitude
         trailHead.throttle = sample.throttle
-        trails.update(trailSource, cameraWorld, trailHead)
+        camera.getWorldDirection(cameraForward)
+        trails.update(trailSource, cameraWorld, cameraForward, trailHead)
       }
       terrainMesh.update(cameraWorld.x, cameraWorld.z)
       water.follow(cameraWorld.x, cameraWorld.z)

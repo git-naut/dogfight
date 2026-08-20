@@ -72,7 +72,7 @@ const WINGTIP_OFFSET = 5.6
  * 幅の中心が最も濃く、縁で 0 になる。だから見た目の太さは半幅より細い。
  * 0.18 の一様な帯より、0.30 の中心が濃い帯のほうが淡く見える。
  */
-const VORTEX_HALF_WIDTH = 0.3
+const VORTEX_HALF_WIDTH = 0.6
 const CONTRAIL_HALF_WIDTH = 1.4
 
 /**
@@ -95,9 +95,15 @@ const SPREAD_LIMIT = 4
  *
  * さらに 0.028 へ。同じ断面（pull-up の frame 430、y=650）で空との差を
  * 測ると 28.7 → 12.7 階調、断面の積分は 1989 → 976。濃さを半分にしても
- * 見た目が半分にならないのは、重なった層の合成が飽和するため。
+ * 見た目が半分にならないのは、重なった層の合成が飽和するため。0.018 まで下げた。
+ *
+ * そこから 0.09 へ引き上げた。near 面の手前で終端するようにしたので、
+ * **見えていた軌跡の大半（カメラ脇を通る 7 m ぶんが拡大されたもの）が
+ * なくなった。**実測で最大 45 → 7 階調、平均 18.8 → 1.8。残るのは遠方の
+ * 細い部分なので、そこが読める濃さに上げ直す。半幅も 0.3 → 0.6 m にして
+ * 遠方で 1 画素を割らないようにする。
  */
-const VORTEX_OPACITY = 0.018
+const VORTEX_OPACITY = 0.09
 const CONTRAIL_OPACITY = 0.12
 
 /**
@@ -140,6 +146,34 @@ export const TRAIL_DECAY_HOLD = 0.15
 const TAPER_POINTS = 32
 
 /**
+ * カメラのこれより手前ではリボンを打ち切る距離 m。
+ *
+ * **軌跡が空中で直角に切れる原因はこれだった。**リボンは後方へ伸びて
+ * カメラの脇を通り、near 面（`scene.ts` の 5 m）を越える。越えた三角形は
+ * ラスタライザが near 面で切り、切り口の直線がそのまま画面に出る。濃さも
+ * 幅も残っているので断面が露出する。
+ *
+ * 切り分けの経緯。減衰と先細りを両方外しても画素が 1 つも変わらなかった
+ * （turn-in の frame 1000 で輪郭 4700 画素・最悪 22 階調が一致）。つまり
+ * 見えている範囲は全部「減衰なし」の領域で、端はリボンの終端ではない。
+ * 残るのは視錐台の切り取りだけ。
+ *
+ * 頂点を淡くするだけでは直らない。**クリップされた辺の色は両端の頂点から
+ * 補間されるので、切り口には手前の頂点の濃さが乗る。**実測でも距離フェード
+ * 5→18 m は断面を 22 から 19 階調にしか下げず、5→30 m にすると消える代わりに
+ * 軌跡の平均濃さが 18.8 から 4.0 へ落ちた。
+ *
+ * だから淡くするのではなく、**near 面の手前へ頂点を寄せて、幅と濃さを 0 に
+ * して終端する。**クリップが起きないので切り口が生まれない。細く消える。
+ *
+ * 半径で測ってはいけない。追従カメラは機体の 23 m 後方・6.8 m 上にいる
+ * （`camera.ts` の OFFSET）ので、翼端の軌跡は 8.8 m まで近づく。半径 14 m で
+ * 打ち切ると 3 点目で終わり、実測で渦の画素が 181,649 から 240 へ落ちた。
+ * クリップは視線方向の深度で起きるので、深度で測る。near 面 5 m に対して 7 m。
+ */
+const NEAR_CLIP_DEPTH = 7
+
+/**
  * 先細りで幅をどこまで絞るか。
  *
  * 濃さだけ落とすと、太いまま薄くなって靄の塊に見える。**淡く細く**
@@ -171,9 +205,15 @@ export interface AircraftTrails {
    * 履歴からリボンを張り直す。毎フレーム呼ぶ。
    *
    * @param cameraPosition リボンを向ける先
+   * @param cameraForward 視線方向の単位ベクトル。near 面の手前で終端するのに使う
    * @param head いまの翼端。リボンの先頭に足して隙間を埋める
    */
-  update(source: TrailSource, cameraPosition: THREE.Vector3, head: TrailHead): void
+  update(
+    source: TrailSource,
+    cameraPosition: THREE.Vector3,
+    cameraForward: THREE.Vector3,
+    head: TrailHead,
+  ): void
   setQuality(quality: QualitySettings): void
   dispose(): void
 }
@@ -230,9 +270,11 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
   const toCamera = new THREE.Vector3()
   const side = new THREE.Vector3()
 
-  // 使い回す。濃さと先細りは位置を書く前に 1 周して求める
+  // 使い回す。位置・濃さ・先細りは書き込む前に 1 周して求める
+  const positions = new Float32Array(TRAIL_LENGTH * 3)
   const strengths = new Float32Array(TRAIL_LENGTH)
   const tapers = new Float32Array(TRAIL_LENGTH)
+  const previous = new THREE.Vector3()
 
   /**
    * 濃さと先細りを先に求める。
@@ -258,35 +300,67 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
     fillTapers(strengths, count, tapers)
   }
 
-  function writeRibbon(
+  /**
+   * 位置を作りながら、near 面の手前で終端させる。
+   *
+   * 視線方向の深度が `NEAR_CLIP_DEPTH` を割る点が出たら、直前の点との間を
+   * 深度がちょうど閾値になるところで割って、そこを最後の点にする。返り値の
+   * `cut` がその添字で、呼び出し側は幅と濃さを 0 にする。
+   *
+   * @returns 使う本数と、終端にした添字（なければ -1）
+   */
+  function preparePositions(
     ribbon: Ribbon,
     source: TrailSource,
-    cameraPosition: THREE.Vector3,
-    count: number,
     head: TrailHead,
-  ): void {
-    const halfWidth =
-      ribbon.kind === 'vortex' ? VORTEX_HALF_WIDTH : CONTRAIL_HALF_WIDTH
-    prepare(ribbon, source, count, head)
-    // index 0 は補間した現在の翼端。1 以降が履歴
-    const pointAt = (i: number) => (i === 0 ? head : source.trailPoint(i - 1))
-
-    for (let i = 0; i < count; i++) {
-      const current = pointAt(i)
-      const following = pointAt(Math.min(i + 1, count - 1))
-
+    cameraPosition: THREE.Vector3,
+    cameraForward: THREE.Vector3,
+    available: number,
+  ): { count: number; cut: number } {
+    for (let i = 0; i < available; i++) {
+      const current = i === 0 ? head : source.trailPoint(i - 1)
       point
         .set(current.position.x, current.position.y, current.position.z)
         .addScaledVector(
           side.set(current.right.x, current.right.y, current.right.z),
           ribbon.offset,
         )
-      next
-        .set(following.position.x, following.position.y, following.position.z)
-        .addScaledVector(
-          tangent.set(following.right.x, following.right.y, following.right.z),
-          ribbon.offset,
-        )
+      const depth = next.subVectors(point, cameraPosition).dot(cameraForward)
+      if (depth < NEAR_CLIP_DEPTH) {
+        if (i === 0) return { count: 0, cut: -1 }
+        // 直前の点は閾値より奥にある。深度が閾値になる位置まで戻す
+        previous.set(positions[(i - 1) * 3]!, positions[(i - 1) * 3 + 1]!, positions[(i - 1) * 3 + 2]!)
+        const before = next.subVectors(previous, cameraPosition).dot(cameraForward)
+        const t = (before - NEAR_CLIP_DEPTH) / (before - depth)
+        point.lerpVectors(previous, point, Math.min(1, Math.max(0, t)))
+        positions[i * 3] = point.x
+        positions[i * 3 + 1] = point.y
+        positions[i * 3 + 2] = point.z
+        return { count: i + 1, cut: i }
+      }
+      positions[i * 3] = point.x
+      positions[i * 3 + 1] = point.y
+      positions[i * 3 + 2] = point.z
+    }
+    return { count: available, cut: -1 }
+  }
+
+  function writeRibbon(
+    ribbon: Ribbon,
+    source: TrailSource,
+    cameraPosition: THREE.Vector3,
+    count: number,
+    head: TrailHead,
+    cut: number,
+  ): void {
+    const halfWidth =
+      ribbon.kind === 'vortex' ? VORTEX_HALF_WIDTH : CONTRAIL_HALF_WIDTH
+    prepare(ribbon, source, count, head)
+
+    for (let i = 0; i < count; i++) {
+      const j = Math.min(i + 1, count - 1) * 3
+      point.set(positions[i * 3]!, positions[i * 3 + 1]!, positions[i * 3 + 2]!)
+      next.set(positions[j]!, positions[j + 1]!, positions[j + 2]!)
 
       tangent.subVectors(next, point)
       if (tangent.lengthSq() < 1e-8) tangent.set(0, 0, 1)
@@ -298,14 +372,17 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
 
       const age = i * SECONDS_PER_POINT
       const taper = tapers[i]!
+      // near 面の手前へ寄せた終端は、幅も濃さも 0 にして細く消す
+      const terminal = i === cut ? 0 : 1
       const width =
         halfWidth *
         Math.min(SPREAD_LIMIT, 1 + age * SPREAD_PER_SECOND) *
-        (TAPER_WIDTH_FLOOR + (1 - TAPER_WIDTH_FLOOR) * taper)
+        (TAPER_WIDTH_FLOOR + (1 - TAPER_WIDTH_FLOOR) * taper) *
+        terminal
 
       const lifetime =
         ribbon.kind === 'vortex' ? VORTEX_LIFETIME : CONTRAIL_LIFETIME
-      const alpha = strengths[i]! * trailDecay(age / lifetime) * taper
+      const alpha = strengths[i]! * trailDecay(age / lifetime) * taper * terminal
 
       const base = i * 3
       ribbon.position.setXYZ(
@@ -336,15 +413,28 @@ export function createAircraftTrails(quality: QualitySettings): AircraftTrails {
   return {
     object: group,
 
-    update(source, cameraPosition, head) {
+    update(source, cameraPosition, cameraForward, head) {
       // 先頭に現在の翼端を足すので 1 本増える
-      const count = Math.min(source.trailLength + 1, segments)
-      if (count < 2) {
+      const available = Math.min(source.trailLength + 1, segments)
+      if (available < 2) {
         for (const ribbon of ribbons) ribbon.geometry.setDrawRange(0, 0)
         return
       }
       for (const ribbon of ribbons) {
-        writeRibbon(ribbon, source, cameraPosition, count, head)
+        // near 面の手前で終端させる。またぐとクリップされて断面が出る
+        const { count, cut } = preparePositions(
+          ribbon,
+          source,
+          head,
+          cameraPosition,
+          cameraForward,
+          available,
+        )
+        if (count < 2) {
+          ribbon.geometry.setDrawRange(0, 0)
+          continue
+        }
+        writeRibbon(ribbon, source, cameraPosition, count, head, cut)
       }
     },
 

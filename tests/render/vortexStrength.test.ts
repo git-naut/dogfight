@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { vortexStrength } from '../../src/render/aircraft/trails'
+import { vortexStrength } from '@render/aircraft/trails'
 
 /**
  * 翼端渦の濃さへの写像。

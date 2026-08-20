@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { TRAIL_TAPER_POINTS, fillTapers } from '../../src/render/aircraft/trails'
+import { fillTapers } from '@render/ribbon'
+import { TRAIL_TAPER_POINTS } from '@render/aircraft/trails'
 
 /**
  * 途切れる手前の先細り。
@@ -18,7 +19,7 @@ describe('fillTapers', () => {
   function taper(values: number[]): number[] {
     const strengths = new Float32Array(values)
     const out = new Float32Array(values.length)
-    fillTapers(strengths, values.length, out)
+    fillTapers(strengths, values.length, N, out)
     return Array.from(out)
   }
 

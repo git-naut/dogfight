@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { TRAIL_DECAY_HOLD, trailDecay } from '../../src/render/aircraft/trails'
+import { ribbonDecay } from '@render/ribbon'
+import { TRAIL_DECAY_HOLD } from '@render/aircraft/trails'
 
 /**
  * 軌跡の減衰。
@@ -7,7 +8,12 @@ import { TRAIL_DECAY_HOLD, trailDecay } from '../../src/render/aircraft/trails'
  * 以前は履歴の何本目かに対して二乗で落としていたので、画面に映る範囲で
  * すでに薄くなり、軌跡が空中で尻すぼみに消えた。手前を保つ形に変えた。
  * その性質を固定する。
+ *
+ * 式は `ribbon.ts` が持ち、保持の割合は軌跡が決める。ミサイルの煙も同じ式を
+ * 別の値で使うので、ここで見るのは「軌跡の値を入れたときの振る舞い」。
  */
+const trailDecay = (t: number): number => ribbonDecay(t, TRAIL_DECAY_HOLD)
+
 describe('trailDecay', () => {
   it('生まれたばかりの点は減衰しない', () => {
     expect(trailDecay(0)).toBe(1)

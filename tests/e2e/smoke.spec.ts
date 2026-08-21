@@ -40,6 +40,11 @@ interface TestHook {
   terrainPatches: number
   terrainTriangles: number
   aircraftTriangles: number
+  hudReady: boolean
+  hudSpeedKt: number
+  hudAltitudeFt: number
+  hudHeadingDeg: number
+  hudFlightPathOnScreen: boolean
   targetCount: number
   targetInstances: number
   preset: string
@@ -77,6 +82,8 @@ interface CaptureQuery {
   coverage?: number
   /** 標的機を描くか。切ると差分で標的の寄与を測れる */
   targets?: boolean
+  /** HUD を出すか。キャプチャの既定はオフ */
+  hud?: boolean
 }
 
 async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
@@ -87,6 +94,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   if (query.preset !== undefined) params.set('preset', query.preset)
   if (query.coverage !== undefined) params.set('coverage', String(query.coverage))
   if (query.targets === false) params.set('targets', '0')
+  if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')
@@ -464,6 +472,74 @@ test.describe('機体', () => {
   })
 })
 
+test.describe('HUD', () => {
+  test('キャプチャの既定では出さない', async ({ page }) => {
+    // HUD は画面の広い範囲に線を引く。全カットに入れると、ピッチラダーの
+    // 刻みを 1 度動かすだけで基準画像が全部差分を出す
+    const hook = await capture(page, { script: 'level', frame: 240 })
+    expect(hook.hudReady).toBe(false)
+    expect(await page.locator('canvas.hud-canvas').count()).toBe(0)
+  })
+
+  test('?hud=1 で出る', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240, hud: true })
+    expect(hook.hudReady).toBe(true)
+    expect(await page.locator('canvas.hud-canvas').count()).toBe(1)
+  })
+
+  test('ライブループでは既定で出る', async ({ page }) => {
+    await openLive(page)
+    expect(await page.locator('canvas.hud-canvas').count()).toBe(1)
+    const hook = await readHook(page)
+    expect(hook?.hudReady).toBe(true)
+  })
+
+  test('?hud=0 でライブループからも消せる', async ({ page }) => {
+    await openLive(page, '?hud=0')
+    expect(await page.locator('canvas.hud-canvas').count()).toBe(0)
+  })
+
+  test('単位の変換が表示層だけで起きている', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240, hud: true })
+    // sim は m/s と m のまま。HUD だけが kt と ft へ写す
+    expect(hook.hudSpeedKt).toBeCloseTo(hook.speed * (3600 / 1852), 6)
+    expect(hook.hudAltitudeFt).toBeCloseTo(hook.altitude / 0.3048, 6)
+  })
+
+  test('方位が 0..360 に収まる', async ({ page }) => {
+    for (const script of ['level', 'bank-left', 'turn-in']) {
+      const hook = await capture(page, { script, frame: 600, hud: true })
+      expect(hook.hudHeadingDeg, script).toBeGreaterThanOrEqual(0)
+      expect(hook.hudHeadingDeg, script).toBeLessThan(360)
+    }
+  })
+
+  test('水平飛行ではフライトパスマーカーが画面に入る', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240, hud: true })
+    expect(hook.hudFlightPathOnScreen).toBe(true)
+  })
+
+  test('HUD の canvas が実解像度でできている。キャプチャは DPR 1', async ({ page }) => {
+    await capture(page, { script: 'level', frame: 240, hud: true })
+    const size = await page.evaluate(() => {
+      const c = document.querySelector<HTMLCanvasElement>('canvas.hud-canvas')
+      return c === null ? null : { w: c.width, h: c.height, cw: c.clientWidth, ch: c.clientHeight }
+    })
+    expect(size).not.toBeNull()
+    // 基準画像を機械に依らせないため、キャプチャでは DPR を 1 に固定する
+    expect(size!.w).toBe(size!.cw)
+    expect(size!.h).toBe(size!.ch)
+  })
+
+  test('同じフレームを 2 回撮ると HUD の値も一致する', async ({ page }) => {
+    const a = await capture(page, { script: 'bank-left', frame: 420, hud: true })
+    const b = await capture(page, { script: 'bank-left', frame: 420, hud: true })
+    expect(a.hudSpeedKt).toBe(b.hudSpeedKt)
+    expect(a.hudAltitudeFt).toBe(b.hudAltitudeFt)
+    expect(a.hudHeadingDeg).toBe(b.hudHeadingDeg)
+  })
+})
+
 test.describe('標的機', () => {
   /**
    * **標的を見張っているのはここの数値で、基準画像ではない。**
@@ -601,6 +677,14 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'target-ahead', script: 'target-ahead', frame: 240, hour: 16, coverage: 0 },
     // 定常右旋回。バンク 55.8 度で右へ抜けていく
     { name: 'target-turn', script: 'target-turn', frame: 300, hour: 16, coverage: 0 },
+    // HUD。**この 3 枚だけが HUD を含む。**ほかのカットに入れると、
+    // ピッチラダーの刻みを 1 度動かすだけで全部が差分を出す
+    { name: 'hud-level', script: 'target-ahead', frame: 240, hour: 16, coverage: 0, hud: true },
+    // バンク 66 度。ピッチラダーが世界に重なって傾き、水平線が実際の
+    // 水平線と一致することを、この 1 枚で見張る
+    { name: 'hud-bank', script: 'bank-left', frame: 420, hour: 16, coverage: 0, hud: true },
+    // 仰角 35 度。フライトパスマーカーと機首の十字が迎角ぶん離れる
+    { name: 'hud-climb', script: 'pull-up', frame: 430, hour: 16, coverage: 0, hud: true },
   ] as const
 
   for (const scene of scenes) {

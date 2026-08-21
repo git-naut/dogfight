@@ -131,6 +131,14 @@ export interface SceneHandle {
   readonly aircraftTriangles: number
   /** 作った標的機の複製の数。三角形はこの数だけ増える */
   readonly targetInstances: number
+  /**
+   * ビュー射影行列。列優先 16 要素。
+   *
+   * HUD がこれだけを受け取って投影する。**HUD 側は three に触らない。**
+   * 行列の出どころは three のカメラ 1 つのままで、投影の算術は node の
+   * 単体テストで固定できる（`src/hud/project.ts`）。
+   */
+  readonly viewProjection: ArrayLike<number>
   /** 動かせた舵面の枚数。6 枚あるはず */
   readonly aircraftSurfaces: number
   /** 環境反射が焼けているか。プリセットで切っていれば false */
@@ -410,6 +418,8 @@ export async function createScene(
       1 / Math.max(1, quality.aircraftShadowMapSize)
   }
   const quaternion = new THREE.Quaternion()
+  /** HUD へ渡すビュー射影行列。毎フレーム組み直す */
+  const viewProjection = new THREE.Matrix4()
   let cssWidth = 1280
   let cssHeight = 720
   let dpr = 1
@@ -491,6 +501,10 @@ export async function createScene(
 
     get targetInstances() {
       return targetViews.instanceCount
+    },
+
+    get viewProjection() {
+      return viewProjection.elements
     },
 
     get environmentReady() {
@@ -592,6 +606,11 @@ export async function createScene(
       // LOD はカメラ位置で決める。機体位置ではない（追従カメラは後方にいる）。
       // chase の更新後に読むこと
       camera.getWorldPosition(cameraWorld)
+
+      // HUD へ渡す行列。カメラの位置と画角が決まったあとに組む。
+      // Camera.updateMatrixWorld が matrixWorldInverse も作り直す
+      camera.updateMatrixWorld()
+      viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
 
       // 軌跡。リボンをカメラへ向けるのでカメラ位置を渡す。
       // 先頭は履歴ではなく補間した現在の翼端に繋ぐ。履歴は 1/30 秒ごとにしか

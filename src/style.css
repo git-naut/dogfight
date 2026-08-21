@@ -32,6 +32,18 @@ body {
   color: #d8f4e4;
 }
 
+/*
+ * HUD。3D の上に重ねる 2D canvas。
+ *
+ * 実解像度は JS が devicePixelRatio を掛けて決め、CSS の大きさも
+ * インラインで入れる。キャプチャモードでは 1 に固定して、基準画像を
+ * 機械に依らせない。
+ */
+.hud-canvas {
+  position: absolute;
+  inset: 0;
+}
+
 /* 飛行モデル調整用の計器。?debug=1 のときだけ出る */
 .debug-panel {
   position: absolute;

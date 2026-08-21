@@ -16,6 +16,7 @@ import { PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
+import { createHud, type Hud } from './hud/hud'
 import { showBenchPanel } from './hud/benchPanel'
 import { runBenchSweep } from './render/bench'
 
@@ -77,6 +78,11 @@ const hook = installTestHook({
   terrainPatches: 0,
   terrainTriangles: 0,
   aircraftTriangles: 0,
+  hudReady: false,
+  hudSpeedKt: 0,
+  hudAltitudeFt: 0,
+  hudHeadingDeg: 0,
+  hudFlightPathOnScreen: false,
   targetCount: 0,
   targetInstances: 0,
   preset: capture.preset,
@@ -159,6 +165,14 @@ async function main(): Promise<void> {
   hook.drawCalls = view.drawCalls
   hook.drawnTriangles = view.drawnTriangles
 
+  /**
+   * HUD。`?hud=1` / `?hud=0` で明示でき、省略時はライブで出しキャプチャで出さない。
+   *
+   * 2D canvas なので composer の外。HUD の緑がトーンマッピングを通らない
+   */
+  const hud: Hud | null = capture.showHud ? createHud(hudRoot!) : null
+  hook.hudReady = hud !== null
+
   const applySize = () => {
     // capture モードでは端末の DPR に依存させない。環境差の主要因になる
     // キャプチャは DPR 1 に固定する。基準画像を機械に依らせないため。
@@ -166,9 +180,21 @@ async function main(): Promise<void> {
     // 実測で DPR 1.5 と 1.0 では画素数が 2.25 倍違い、そのぶん値がずれた
     const dpr = capture.enabled && !capture.sweep ? 1 : window.devicePixelRatio
     view.resize(window.innerWidth, window.innerHeight, dpr)
+    // HUD も同じ DPR にそろえる。ずらすと基準画像が機械に依る
+    hud?.resize(window.innerWidth, window.innerHeight, dpr)
   }
   applySize()
   window.addEventListener('resize', applySize)
+
+  /** HUD を 1 枚描き直して、読み取れる値をフックへ載せる */
+  const drawHud = () => {
+    if (hud === null) return
+    hud.update(sample, view.viewProjection)
+    hook.hudSpeedKt = hud.readout.speedKt
+    hook.hudAltitudeFt = hud.readout.altitudeFt
+    hook.hudHeadingDeg = hud.readout.headingDeg
+    hook.hudFlightPathOnScreen = hud.flightPathOnScreen
+  }
 
   const publish = (frame: number) => {
     hook.frame = frame
@@ -216,6 +242,9 @@ async function main(): Promise<void> {
     world.sampleTargets(1, targetSamples)
     view.setTrailSource(world.player)
     view.sync(sample, targetSamples, world.frame, 0, { yaw: 0, pitch: 0 }, true)
+    // HUD は sync のあと。行列がそろってから 1 枚描く。雲の収束で render を
+    // 何度も回すが、HUD は別の canvas なので描き直す必要はない
+    drawHud()
 
     // 雲は時間方向に足し込むので、1 枚だけ描いても収束しない。
     // カメラを止めたまま必要な本数を描く。実時間は使わないので決定論は保たれる
@@ -277,6 +306,7 @@ async function main(): Promise<void> {
   let cpuSimMs = 0
   let cpuSyncMs = 0
   let cpuRenderMs = 0
+  let cpuHudMs = 0
 
   function spawnWorld(): World {
     // ライブでも台本の初期条件を使う。?script= で標的つきの台本を選べる
@@ -321,10 +351,13 @@ async function main(): Promise<void> {
     const t2 = performance.now()
     view.render()
     const t3 = performance.now()
+    drawHud()
+    const t4 = performance.now()
 
     cpuSimMs += (t1 - t0 - cpuSimMs) * 0.1
     cpuSyncMs += (t2 - t1 - cpuSyncMs) * 0.1
     cpuRenderMs += (t3 - t2 - cpuRenderMs) * 0.1
+    cpuHudMs += (t4 - t3 - cpuHudMs) * 0.1
 
     if (delta > 0) {
       smoothedFps += (1 / delta - smoothedFps) * 0.08
@@ -353,6 +386,7 @@ async function main(): Promise<void> {
       cpuSimMs,
       cpuSyncMs,
       cpuRenderMs,
+      cpuHudMs,
       terrainPatches: view.terrainPatches,
       terrainTriangles: view.terrainTriangles,
       aircraftTriangles: view.aircraftTriangles,
@@ -370,6 +404,7 @@ async function main(): Promise<void> {
   world.sampleTargets(1, targetSamples)
   view.sync(sample, targetSamples, world.frame, FIXED_DT, mouse.offset, true)
   view.render()
+  drawHud()
   finishBoot()
   requestAnimationFrame(frame)
 }

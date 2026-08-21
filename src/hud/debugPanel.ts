@@ -38,6 +38,13 @@ export interface RenderInfo {
   cpuSimMs: number
   cpuSyncMs: number
   cpuRenderMs: number
+  /**
+   * HUD の描画 ms。
+   *
+   * 2D canvas に 200 本ほど線を引くので、投入時間とは別に見る。GPU は
+   * 使わないぶん、重ければ CPU 律速の側に効く
+   */
+  cpuHudMs: number
   /** 描いている地形パッチの枚数と三角形数。予算の確認に使う */
   terrainPatches: number
   terrainTriangles: number
@@ -161,8 +168,8 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       // CPU 律速、GPU 時間に近ければ GPU 律速
       set(
         'cpu',
-        `${(render.cpuSimMs + render.cpuSyncMs + render.cpuRenderMs).toFixed(1)} ms ` +
-          `(シム ${render.cpuSimMs.toFixed(1)} / 準備 ${render.cpuSyncMs.toFixed(1)} / 投入 ${render.cpuRenderMs.toFixed(1)})`,
+        `${(render.cpuSimMs + render.cpuSyncMs + render.cpuRenderMs + render.cpuHudMs).toFixed(1)} ms ` +
+          `(シム ${render.cpuSimMs.toFixed(1)} / 準備 ${render.cpuSyncMs.toFixed(1)} / 投入 ${render.cpuRenderMs.toFixed(1)} / HUD ${render.cpuHudMs.toFixed(1)})`,
       )
       set(
         'terrain',

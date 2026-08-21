@@ -127,6 +127,15 @@ interface MutableTrailPoint {
 export interface AircraftSample {
   position: Vec3
   orientation: Quat
+  /**
+   * 速度ベクトル m/s。
+   *
+   * HUD のフライトパスマーカー（機体が実際に向かっている先）に使う。
+   * 機首の向きとは迎角と横滑りのぶんだけずれるので、`orientation` から
+   * 導けない。補間はしない。速度は姿勢より緩やかに変わるので、1 ステップの
+   * ずれは絵に出ない。
+   */
+  velocity: Vec3
   speed: number
   altitude: number
   angleOfAttack: number
@@ -398,6 +407,7 @@ export class Aircraft {
   sample(alpha: number, out: AircraftSample): AircraftSample {
     out.position.copy(this.prevPosition).lerp(this.position, alpha)
     out.orientation.copy(this.prevOrientation).slerp(this.orientation, alpha)
+    out.velocity.copy(this.velocity)
     out.speed = this.speed
     out.altitude = this.altitude
     out.angleOfAttack = this.angleOfAttack
@@ -450,6 +460,7 @@ export function createAircraftSample(): AircraftSample {
   return {
     position: new Vec3(),
     orientation: new Quat(),
+    velocity: new Vec3(),
     speed: 0,
     altitude: 0,
     angleOfAttack: 0,

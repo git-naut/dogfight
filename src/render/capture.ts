@@ -63,6 +63,15 @@ export interface CaptureConfig {
    */
   showTargets: boolean
   /**
+   * HUD を出すか。
+   *
+   * `?hud=1` / `?hud=0` で明示できる。省略したときはライブで出し、
+   * キャプチャでは出さない。**HUD は画面の広い範囲に線を引くので、
+   * 全カットに入れるとピッチラダーの刻みを 1 度動かすだけで基準画像が
+   * 全部差分を出す。**地形・雲・機体・渦の見張りを HUD の調整から切り離す。
+   */
+  showHud: boolean
+  /**
    * 描画を繰り返して 1 回あたりの時間を測る回数。0 なら測らない。
    *
    * SwiftShader は CPU ラスタライザなので、時間はシェーダの実行量にほぼ
@@ -122,6 +131,9 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showEnvironment: params.get('env') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',
+    showHud: params.has('hud')
+      ? params.get('hud') === '1'
+      : params.get('capture') !== '1',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
   }
@@ -204,6 +216,16 @@ export interface TestHook {
   terrainTriangles: number
   /** 機体の三角形数。読み込めていなければ 0 */
   aircraftTriangles: number
+  /** HUD が出ているか */
+  hudReady: boolean
+  /** HUD が出している対気速度 kt。単位変換が表示層だけで起きていることの検査 */
+  hudSpeedKt: number
+  /** HUD が出している海抜 ft */
+  hudAltitudeFt: number
+  /** HUD が出している機首方位 度。0..360 */
+  hudHeadingDeg: number
+  /** フライトパスマーカーが画面に入っているか */
+  hudFlightPathOnScreen: boolean
   /** sim にいる標的機の数。台本の配置で決まる */
   targetCount: number
   /** 描画が作った標的機の複製の数。sim の数と一致するはず */

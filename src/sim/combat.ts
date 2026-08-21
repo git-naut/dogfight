@@ -10,6 +10,7 @@ import {
   sweptHitsAircraft,
   type HitResult,
 } from './weapons/hitbox'
+import { Lock } from './weapons/lock'
 
 /**
  * 交戦の処理。
@@ -48,6 +49,8 @@ const hit: HitResult = createHitResult()
 
 export class Combat {
   readonly gun = new Gun()
+  /** シーカーの捕捉。ミサイルの発射条件になる */
+  readonly lock = new Lock()
 
   /** 命中した弾の数 */
   hits = 0
@@ -93,6 +96,24 @@ export class Combat {
     this.gun.advance(dt, this.groundLimit, this.terrain)
     this.resolveHits()
     this.fireGun(input, player, dt)
+
+    // ロックは当たり判定のあと。落とした相手を掴み続けない
+    if (player.crashed) this.lock.release()
+    else {
+      this.lock.step(
+        player.position,
+        player.velocity,
+        player.orientation,
+        this.targets,
+        dt,
+      )
+    }
+  }
+
+  /** ロックしている標的。捉えていなければ null */
+  get lockedTarget(): Target | null {
+    if (this.lock.index < 0) return null
+    return this.targets[this.lock.index] ?? null
   }
 
   /** 発射。機体の姿勢から銃口の位置と向きを出す */
@@ -173,6 +194,7 @@ export class Combat {
 
   reset(): void {
     this.gun.reset()
+    this.lock.release()
     this.hits = 0
     this.kills = 0
   }

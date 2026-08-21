@@ -249,6 +249,18 @@ export interface TestHook {
   kills: number
   /** 残弾 */
   rounds: number
+  /** ロックの段階。none / acquiring / locked */
+  lockState: string
+  /** ロックしている標的までの距離 m。捉えていなければ 0 */
+  lockRange: number
+  /** 接近速度 m/s。正が接近 */
+  closingSpeed: number
+  /** 機軸からの角度 度 */
+  lockAngleDeg: number
+  /** 捕捉の進み 0..1 */
+  lockProgress: number
+  /** ロックボックスが画面に入っているか */
+  hudLockBoxOnScreen: boolean
   preset: PresetName
   hour: number
   // 飛行状態

@@ -3,6 +3,8 @@ import { AIRCRAFT } from '../sim/flightModel'
 import { GRAVITY } from '../sim/isa'
 import { Vec3 } from '../sim/vec3'
 import { MAGAZINE, MUZZLE_OFFSET, bulletTimeToRange } from '../sim/weapons/gun'
+import { AIRCRAFT_SIZE } from '../sim/weapons/hitbox'
+import type { LockState } from '../sim/weapons/lock'
 import {
   createScreenPoint,
   directionFromAzimuthElevation,
@@ -97,15 +99,43 @@ const LOW_ALTITUDE_FT = 500
  */
 const GUN_REFERENCE_RANGE = 300
 
+/** ロックボックスの大きさの下限と上限 画面画素 */
+const LOCK_BOX_MIN = 11
+const LOCK_BOX_MAX = 90
+
 /**
  * 武装の状態。
  *
- * `AircraftSample` には載せない。飛行の状態ではないし、ロックオンと DLZ を
+ * `AircraftSample` には載せない。飛行の状態ではないし、DLZ と残ミサイルを
  * 足すときにここへ増やしていける。
  */
 export interface HudArmament {
   /** 機銃の残弾 */
   rounds: number
+  /** シーカーの捕捉 */
+  lock: HudLock
+}
+
+export interface HudLock {
+  state: LockState
+  /** 目標の世界座標。state が none のときは読まない */
+  readonly position: Vec3
+  /** 距離 m */
+  range: number
+  /** 接近速度 m/s。正が接近 */
+  closingSpeed: number
+  /** 捕捉の進み 0..1 */
+  progress: number
+}
+
+export function createHudLock(): HudLock {
+  return {
+    state: 'none',
+    position: new Vec3(),
+    range: 0,
+    closingSpeed: 0,
+    progress: 0,
+  }
 }
 
 export interface Hud {
@@ -115,6 +145,8 @@ export interface Hud {
   readonly flightPathOnScreen: boolean
   /** ガンレティクルが画面に入っているか */
   readonly gunReticleOnScreen: boolean
+  /** ロックボックスが画面に入っているか */
+  readonly lockBoxOnScreen: boolean
   resize(width: number, height: number, devicePixelRatio: number): void
   /**
    * 1 枚描き直す。
@@ -140,6 +172,10 @@ export function createHud(host: HTMLElement): Hud {
   let dpr = 1
   let onScreen = false
   let reticleOnScreen = false
+  let lockOnScreen = false
+
+  // ロックボックスの計算に使う。使い回す
+  const lockEdge = new Vec3()
 
   // ガンレティクルの計算に使う。使い回す
   const muzzleWorld = new Vec3()
@@ -487,6 +523,80 @@ export function createHud(host: HTMLElement): Hud {
     ctx!.fillText(`${GUN_REFERENCE_RANGE}`, p.x + 21, p.y)
   }
 
+  /**
+   * ロックボックス。
+   *
+   * 箱の大きさは目標の見かけの大きさに合わせる。翼幅の半分ぶん上へずらした
+   * 点を一緒に投影して、画面上の距離を半径として使う。**画角を HUD へ渡さずに
+   * 見かけの大きさが出せる。**画面の端では歪むが、ロックする相手はたいてい
+   * 中央寄りにいる。
+   *
+   * 捕捉中は破線、ロックしたら実線の角括弧にする。段階が絵で分かるように、
+   * 形そのものを変える（色だけだと分かりにくい）。
+   */
+  function drawLockBox(m: Mat4, lock: HudLock): void {
+    lockOnScreen = false
+    if (lock.state === 'none') return
+
+    const center = projectPoint(m, lock.position.x, lock.position.y, lock.position.z, width, height, a)
+    if (!center.inFront) return
+
+    lockEdge.copy(lock.position)
+    lockEdge.y += AIRCRAFT_SIZE.span * 0.5
+    const edge = projectPoint(m, lockEdge.x, lockEdge.y, lockEdge.z, width, height, b)
+    const measured = edge.inFront ? Math.hypot(edge.x - center.x, edge.y - center.y) : 0
+    const half = Math.min(LOCK_BOX_MAX, Math.max(LOCK_BOX_MIN, measured))
+
+    lockOnScreen =
+      center.x >= 0 && center.x <= width && center.y >= 0 && center.y <= height
+
+    const locked = lock.state === 'locked'
+    ctx!.strokeStyle = PRIMARY
+    ctx!.lineWidth = locked ? LINE_WIDTH * 1.4 : LINE_WIDTH
+
+    if (locked) {
+      // 四隅の角括弧。ロックしたことが形で分かる
+      const arm = half * 0.45
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          const cx = center.x + sx * half
+          const cy = center.y + sy * half
+          ctx!.beginPath()
+          ctx!.moveTo(cx - sx * arm, cy)
+          ctx!.lineTo(cx, cy)
+          ctx!.lineTo(cx, cy - sy * arm)
+          ctx!.stroke()
+        }
+      }
+    } else {
+      ctx!.setLineDash([5, 4])
+      ctx!.strokeRect(center.x - half, center.y - half, half * 2, half * 2)
+      ctx!.setLineDash([])
+      // 捕捉の進みを上辺の帯で見せる
+      ctx!.strokeStyle = DIM
+      ctx!.lineWidth = 2.5
+      ctx!.beginPath()
+      ctx!.moveTo(center.x - half, center.y - half - 5)
+      ctx!.lineTo(center.x - half + half * 2 * lock.progress, center.y - half - 5)
+      ctx!.stroke()
+    }
+
+    // 距離と接近速度。1,000 m を境に単位を変える
+    const rangeText =
+      lock.range >= 1000 ? `${(lock.range / 1000).toFixed(1)}K` : `${Math.round(lock.range)}`
+    ctx!.font = SMALL_FONT
+    ctx!.fillStyle = PRIMARY
+    ctx!.textAlign = 'left'
+    ctx!.textBaseline = 'top'
+    ctx!.fillText(rangeText, center.x + half + 6, center.y - half)
+    ctx!.fillStyle = DIM
+    ctx!.fillText(
+      `${lock.closingSpeed >= 0 ? '+' : ''}${Math.round(lock.closingSpeed)}`,
+      center.x + half + 6,
+      center.y - half + 13,
+    )
+  }
+
   /** 残弾。機銃の帯として下部に置く */
   function drawArmament(armament: HudArmament): void {
     ctx!.font = SMALL_FONT
@@ -550,6 +660,10 @@ export function createHud(host: HTMLElement): Hud {
       return reticleOnScreen
     },
 
+    get lockBoxOnScreen() {
+      return lockOnScreen
+    },
+
     resize(w, h, ratio) {
       width = w
       height = h
@@ -570,6 +684,7 @@ export function createHud(host: HTMLElement): Hud {
       drawLadder(viewProjection, heading)
       drawBoresight(viewProjection)
       drawGunReticle(viewProjection, sample)
+      drawLockBox(viewProjection, armament.lock)
       drawFlightPath(viewProjection)
 
       drawVerticalTape(

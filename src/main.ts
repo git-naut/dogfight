@@ -16,7 +16,7 @@ import { PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
-import { createHud, type Hud } from './hud/hud'
+import { createHud, createHudLock, type Hud } from './hud/hud'
 import { showBenchPanel } from './hud/benchPanel'
 import { runBenchSweep } from './render/bench'
 
@@ -93,6 +93,12 @@ const hook = installTestHook({
   hits: 0,
   kills: 0,
   rounds: 0,
+  lockState: 'none',
+  lockRange: 0,
+  closingSpeed: 0,
+  lockAngleDeg: 0,
+  lockProgress: 0,
+  hudLockBoxOnScreen: false,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -196,18 +202,35 @@ async function main(): Promise<void> {
   window.addEventListener('resize', applySize)
 
   /** HUD へ渡す武装の状態。使い回す */
-  const armament = { rounds: 0 }
+  const armament = { rounds: 0, lock: createHudLock() }
 
   /** HUD を 1 枚描き直して、読み取れる値をフックへ載せる */
   const drawHud = (currentWorld: World) => {
     if (hud === null) return
     armament.rounds = currentWorld.combat.rounds
+
+    const lock = currentWorld.combat.lock
+    armament.lock.state = lock.state
+    armament.lock.range = lock.range
+    armament.lock.closingSpeed = lock.closingSpeed
+    armament.lock.progress = lock.progress
+    const locked = currentWorld.combat.lockedTarget
+    // ロックボックスは補間した位置に置く。sim の位置をそのまま使うと、
+    // 60fps の描画で 1 ステップぶん（最大 1/120 秒）遅れて機体からずれる
+    if (locked !== null) {
+      const index = lock.index
+      const interpolated = targetSamples[index]
+      if (interpolated !== undefined) armament.lock.position.copy(interpolated.position)
+      else armament.lock.position.copy(locked.position)
+    }
+
     hud.update(sample, armament, view.viewProjection)
     hook.hudSpeedKt = hud.readout.speedKt
     hook.hudAltitudeFt = hud.readout.altitudeFt
     hook.hudHeadingDeg = hud.readout.headingDeg
     hook.hudFlightPathOnScreen = hud.flightPathOnScreen
     hook.hudGunReticleOnScreen = hud.gunReticleOnScreen
+    hook.hudLockBoxOnScreen = hud.lockBoxOnScreen
   }
 
   /**
@@ -240,6 +263,11 @@ async function main(): Promise<void> {
     hook.hits = currentWorld.combat.hits
     hook.kills = currentWorld.combat.kills
     hook.rounds = currentWorld.combat.rounds
+    hook.lockState = currentWorld.combat.lock.state
+    hook.lockRange = currentWorld.combat.lock.range
+    hook.closingSpeed = currentWorld.combat.lock.closingSpeed
+    hook.lockAngleDeg = (currentWorld.combat.lock.angleOffBoresight * 180) / Math.PI
+    hook.lockProgress = currentWorld.combat.lock.progress
   hook.aircraftSurfaces = view.aircraftSurfaces
   hook.environmentReady = view.environmentReady
   hook.aircraftShadowReady = view.aircraftShadowReady

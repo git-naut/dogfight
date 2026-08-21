@@ -30,6 +30,22 @@ import type { Quat } from '../quat'
  * 覆うために球を太らせると、外を通った弾が当たるほうの誤りが増える。
  */
 
+/**
+ * 機体の外形の実測 m。
+ *
+ * `assets/upstream/f18/f18.ac` を当プロジェクトの座標へ写して測った値。
+ * 当たり判定だけでなく、HUD のロックボックスの大きさにも使う（見かけの
+ * 大きさは翼幅で決まる）。
+ */
+export const AIRCRAFT_SIZE = {
+  /** 翼幅。翼端ランチャを含む */
+  span: 11.571,
+  /** 全長 */
+  length: 17.797,
+  /** 全高 */
+  height: 4.488,
+} as const
+
 /** 軸の線分と半径で表す当たり判定。座標は機体座標系 */
 export interface Capsule {
   readonly a: Vec3

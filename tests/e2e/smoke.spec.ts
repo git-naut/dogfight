@@ -55,6 +55,12 @@ interface TestHook {
   hits: number
   kills: number
   rounds: number
+  lockState: string
+  lockRange: number
+  closingSpeed: number
+  lockAngleDeg: number
+  lockProgress: number
+  hudLockBoxOnScreen: boolean
   preset: string
   hour: number
   speed: number
@@ -676,6 +682,74 @@ test.describe('機銃', () => {
   })
 })
 
+test.describe('ロックオン', () => {
+  test('前方の標的を 0.7 秒で捉える', async ({ page }) => {
+    // 実測。捕捉にかかるのは 0.7 秒 = 84 フレーム
+    const acquiring = await capture(page, { script: 'target-ahead', frame: 40 })
+    expect(acquiring.lockState).toBe('acquiring')
+    expect(acquiring.lockProgress).toBeGreaterThan(0.4)
+    expect(acquiring.lockProgress).toBeLessThan(0.6)
+
+    const locked = await capture(page, { script: 'target-ahead', frame: 240 })
+    expect(locked.lockState).toBe('locked')
+    expect(locked.lockProgress).toBe(1)
+  })
+
+  test('距離と接近速度と角度を出す', async ({ page }) => {
+    const hook = await capture(page, { script: 'target-ahead', frame: 240 })
+    // 自機 250 m/s・標的 245 m/s なので 5 m/s で詰まる
+    expect(hook.closingSpeed).toBeCloseTo(5, 0)
+    expect(hook.lockRange).toBeGreaterThan(150)
+    expect(hook.lockRange).toBeLessThan(220)
+    // 捕捉の視野は機軸から 20 度
+    expect(hook.lockAngleDeg).toBeLessThan(20)
+  })
+
+  test('標的のいない台本ではロックが立たない', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240 })
+    expect(hook.lockState).toBe('none')
+    expect(hook.lockRange).toBe(0)
+  })
+
+  test('標的が視野を抜けるとロックが落ちる', async ({ page }) => {
+    const held = await capture(page, { script: 'target-turn', frame: 240 })
+    expect(held.lockState).toBe('locked')
+    // 右へ抜けていくと追従の視野 40 度を超える
+    const lost = await capture(page, { script: 'target-turn', frame: 1440 })
+    expect(lost.lockState).toBe('none')
+  })
+
+  test('機銃はシーカーより速い。ロックが立つ前に落とす', async ({ page }) => {
+    const half = await capture(page, { script: 'gun-pass', frame: 60 })
+    expect(half.lockState).toBe('acquiring')
+    const after = await capture(page, { script: 'gun-pass', frame: 120 })
+    expect(after.kills).toBe(1)
+    expect(after.lockState).toBe('none')
+  })
+
+  test('ロックボックスが画面に入る', async ({ page }) => {
+    const hook = await capture(page, { script: 'target-ahead', frame: 240, hud: true })
+    expect(hook.hudLockBoxOnScreen).toBe(true)
+  })
+
+  test('HUD を出さなければロックボックスも出ない', async ({ page }) => {
+    const hook = await capture(page, { script: 'target-ahead', frame: 240 })
+    expect(hook.hudReady).toBe(false)
+    expect(hook.hudLockBoxOnScreen).toBe(false)
+    // sim 側のロックは HUD の有無に関係なく立つ
+    expect(hook.lockState).toBe('locked')
+  })
+
+  test('同じフレームを 2 回撮るとロックの値が一致する', async ({ page }) => {
+    const a = await capture(page, { script: 'target-turn', frame: 600 })
+    const b = await capture(page, { script: 'target-turn', frame: 600 })
+    expect(a.lockState).toBe(b.lockState)
+    expect(a.lockRange).toBe(b.lockRange)
+    expect(a.closingSpeed).toBe(b.closingSpeed)
+    expect(a.lockProgress).toBe(b.lockProgress)
+  })
+})
+
 test.describe('デバッグ表示', () => {
   test('?debug=1 で計器が出て数値が更新される', async ({ page }) => {
     await openLive(page, '?debug=1')
@@ -768,6 +842,9 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'hud-climb', script: 'pull-up', frame: 430, hour: 16, coverage: 0, hud: true },
     // 機銃。曳光弾の帯とガンレティクルと残弾。実測で 304 画素・最大 165 階調
     { name: 'gun-firing', script: 'gun-pass', frame: 60, hour: 16, coverage: 0, hud: true },
+    // 捕捉中。破線の箱と進みの帯。ロック後は hud-level が見張る（同じ台本の
+    // frame 240 で、そちらは角括弧になる）
+    { name: 'hud-acquiring', script: 'target-ahead', frame: 40, hour: 16, coverage: 0, hud: true },
   ] as const
 
   for (const scene of scenes) {

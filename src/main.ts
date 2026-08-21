@@ -2,9 +2,11 @@ import { FixedStepDriver, FIXED_DT } from './sim/loop'
 import { World, createWorldFromScript } from './sim/world'
 import { createAircraftSample } from './sim/aircraft'
 import { createTargetSample, type TargetSample } from './sim/target'
+import { Vec3 } from './sim/vec3'
+import { Quat } from './sim/quat'
 import { getScript } from './sim/scripts'
 import { spawnFromSpec } from './sim/replay'
-import { createScene } from './render/scene'
+import { createScene, createMissilePose, type MissilePose } from './render/scene'
 import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/cloudsPass'
 import {
   readCaptureConfig,
@@ -99,6 +101,10 @@ const hook = installTestHook({
   lockAngleDeg: 0,
   lockProgress: 0,
   hudLockBoxOnScreen: false,
+  missilesInFlight: 0,
+  missilesDrawn: 0,
+  missilesFired: 0,
+  missilesLeft: 0,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -134,6 +140,45 @@ function fitTargetSamples(count: number): void {
   if (targetSamples.length > count) targetSamples.length = count
 }
 
+/**
+ * 飛んでいるミサイルの姿勢。器は使い回す。
+ *
+ * サンプルには載せない。飛んでいるのは多くて 6 発だが、位置と姿勢を毎フレーム
+ * 写すよりも、補間だけをここでやって描画へ渡すほうが素直。
+ */
+const missilePoses: MissilePose[] = []
+
+/** 飛んでいるミサイルの補間した姿勢を集める。返すのは有効な本数 */
+function collectMissilePoses(world: World, alpha: number): MissilePose[] {
+  let count = 0
+  for (const missile of world.combat.missiles) {
+    if (missile.state !== 'flying') continue
+    while (missilePoses.length <= count) missilePoses.push(createMissilePose())
+    const pose = missilePoses[count]!
+    missile.sample(alpha, missileScratch.position, missileScratch.orientation)
+    pose.position.set(
+      missileScratch.position.x,
+      missileScratch.position.y,
+      missileScratch.position.z,
+    )
+    pose.quaternion.set(
+      missileScratch.orientation.x,
+      missileScratch.orientation.y,
+      missileScratch.orientation.z,
+      missileScratch.orientation.w,
+    )
+    count++
+  }
+  activeMissilePoses.length = 0
+  for (let i = 0; i < count; i++) activeMissilePoses.push(missilePoses[i]!)
+  return activeMissilePoses
+}
+
+/** sim 側の器。three へ写す前の受け皿 */
+const missileScratch = { position: new Vec3(), orientation: new Quat() }
+/** 描画へ渡す配列。長さが有効な本数になる */
+const activeMissilePoses: MissilePose[] = []
+
 async function main(): Promise<void> {
   setBoot('大気の散乱テーブルを読み込み中')
   const view = await createScene(canvas!, {
@@ -159,6 +204,10 @@ async function main(): Promise<void> {
     showAircraftShadow: capture.showAircraftShadow,
     showTargets: capture.showTargets,
     showTracers: capture.showTracers,
+    showAircraft: capture.showAircraft,
+    showTrails: capture.showTrails,
+    showMissiles: capture.showMissiles,
+    showSmoke: capture.showSmoke,
   })
 
   setBoot('描画の準備中')
@@ -268,6 +317,10 @@ async function main(): Promise<void> {
     hook.closingSpeed = currentWorld.combat.lock.closingSpeed
     hook.lockAngleDeg = (currentWorld.combat.lock.angleOffBoresight * 180) / Math.PI
     hook.lockProgress = currentWorld.combat.lock.progress
+    hook.missilesInFlight = currentWorld.combat.missilesInFlight
+    hook.missilesDrawn = view.missilesDrawn
+    hook.missilesFired = currentWorld.combat.missilesFired
+    hook.missilesLeft = currentWorld.combat.missilesLeft
   hook.aircraftSurfaces = view.aircraftSurfaces
   hook.environmentReady = view.environmentReady
   hook.aircraftShadowReady = view.aircraftShadowReady
@@ -300,7 +353,16 @@ async function main(): Promise<void> {
     world.sampleTargets(1, targetSamples)
     view.setTrailSource(world.player)
     view.setBulletSource(world.combat.bullets)
-    view.sync(sample, targetSamples, world.frame, 0, { yaw: 0, pitch: 0 }, true)
+    view.setSmokeSources(world.combat.smokeSources)
+    view.sync(
+      sample,
+      targetSamples,
+      collectMissilePoses(world, 1),
+      world.frame,
+      0,
+      { yaw: 0, pitch: 0 },
+      true,
+    )
     // HUD は sync のあと。行列がそろってから 1 枚描く。雲の収束で render を
     // 何度も回すが、HUD は別の canvas なので描き直す必要はない
     drawHud(world)
@@ -360,6 +422,7 @@ async function main(): Promise<void> {
   let world = spawnWorld()
   view.setTrailSource(world.player)
   view.setBulletSource(world.combat.bullets)
+  view.setSmokeSources(world.combat.smokeSources)
   let lastTime = performance.now()
   let smoothedFps = 60
   // 1 フレームだけ見ると外れ値に振られるので平滑化して読む
@@ -395,6 +458,7 @@ async function main(): Promise<void> {
       world = spawnWorld()
       view.setTrailSource(world.player)
       view.setBulletSource(world.combat.bullets)
+      view.setSmokeSources(world.combat.smokeSources)
       driver.reset()
       mouse.reset()
       governor.reset()
@@ -407,7 +471,14 @@ async function main(): Promise<void> {
     const t1 = performance.now()
     world.samplePlayer(alpha, sample)
     world.sampleTargets(alpha, targetSamples)
-    view.sync(sample, targetSamples, world.frame, delta, mouse.update(delta))
+    view.sync(
+      sample,
+      targetSamples,
+      collectMissilePoses(world, alpha),
+      world.frame,
+      delta,
+      mouse.update(delta),
+    )
 
     const t2 = performance.now()
     view.render()
@@ -463,7 +534,15 @@ async function main(): Promise<void> {
   world.samplePlayer(1, sample)
   fitTargetSamples(world.targets.length)
   world.sampleTargets(1, targetSamples)
-  view.sync(sample, targetSamples, world.frame, FIXED_DT, mouse.offset, true)
+  view.sync(
+    sample,
+    targetSamples,
+    collectMissilePoses(world, 1),
+    world.frame,
+    FIXED_DT,
+    mouse.offset,
+    true,
+  )
   view.render()
   drawHud(world)
   finishBoot()

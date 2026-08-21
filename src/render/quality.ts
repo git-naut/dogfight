@@ -95,6 +95,19 @@ export interface QualitySettings {
    * いくのを見せるとき。high は 384 本 = 12.8 秒ぶん。
    */
   trailSegments: number
+
+  /**
+   * ミサイルの煙のリボンの分割数。0 で煙なし。
+   *
+   * `trailSegments` と同じ考え方。sim が持つ履歴（512 本 = 17.1 秒）のうち、
+   * 新しいほうから何本を描くかを決める。濃さは経過秒で決まるので、段を
+   * 落としても見えている部分の絵は変わらず、短くなるだけ。
+   *
+   * **翼端渦とは効き方が違う。**渦は追従カメラのすぐ後ろにあるので視錐台が
+   * 先に切り、320 本と 48 本で画素が 1 ビットも変わらなかった。煙は前方へ
+   * 数キロ伸びて画面に映り続けるので、本数が絵に出る。
+   */
+  missileTrailSegments: number
 }
 
 export const PRESET_ORDER: readonly PresetName[] = ['low', 'medium', 'high', 'ultra']
@@ -120,6 +133,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     aircraftShadowMapSize: 0,
     environmentMapSize: 0,
     trailSegments: 0,
+    missileTrailSegments: 0,
   },
   medium: {
     renderScale: 0.8,
@@ -139,6 +153,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     aircraftShadowMapSize: 512,
     environmentMapSize: 64,
     trailSegments: 192,
+    missileTrailSegments: 192,
   },
   high: {
     renderScale: 1,
@@ -164,6 +179,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     aircraftShadowMapSize: 1024,
     environmentMapSize: 128,
     trailSegments: 384,
+    missileTrailSegments: 384,
   },
   ultra: {
     renderScale: 1.25,
@@ -189,6 +205,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     aircraftShadowMapSize: 2048,
     environmentMapSize: 256,
     trailSegments: 768,
+    missileTrailSegments: 512,
   },
 }
 

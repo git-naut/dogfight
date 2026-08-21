@@ -61,6 +61,10 @@ interface TestHook {
   lockAngleDeg: number
   lockProgress: number
   hudLockBoxOnScreen: boolean
+  missilesInFlight: number
+  missilesDrawn: number
+  missilesFired: number
+  missilesLeft: number
   preset: string
   hour: number
   speed: number
@@ -100,6 +104,8 @@ interface CaptureQuery {
   hud?: boolean
   /** 曳光弾を描くか。切ると差分で寄与を測れる */
   tracers?: boolean
+  /** ミサイルの煙を描くか。切ると差分で寄与を測れる */
+  smoke?: boolean
 }
 
 async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
@@ -112,6 +118,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   if (query.targets === false) params.set('targets', '0')
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
   if (query.tracers === false) params.set('tracers', '0')
+  if (query.smoke === false) params.set('smoke', '0')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')
@@ -750,6 +757,72 @@ test.describe('ロックオン', () => {
   })
 })
 
+test.describe('ミサイル', () => {
+  test('ロックしてから撃つと飛ぶ', async ({ page }) => {
+    // 台本は 1 秒で撃つ。捕捉に 0.7 秒かかるのでロックが立っている
+    const before = await capture(page, { script: 'missile-shot', frame: 110 })
+    expect(before.lockState).toBe('locked')
+    expect(before.missilesFired).toBe(0)
+
+    const after = await capture(page, { script: 'missile-shot', frame: 150 })
+    expect(after.missilesFired).toBe(1)
+    expect(after.missilesInFlight).toBe(1)
+    expect(after.missilesLeft).toBe(5)
+  })
+
+  test('sim と描画のミサイルの数が一致する', async ({ page }) => {
+    const hook = await capture(page, { script: 'missile-shot', frame: 300 })
+    expect(hook.missilesInFlight).toBe(1)
+    expect(hook.missilesDrawn).toBe(1)
+  })
+
+  test('比例航法で命中して標的が落ちる', async ({ page }) => {
+    // 実測。3,000 m の的に 9 秒で当たる
+    const hook = await capture(page, { script: 'missile-shot', frame: 1200 })
+    expect(hook.hits).toBe(1)
+    expect(hook.kills).toBe(1)
+    expect(hook.targetsAlive).toBe(0)
+    expect(hook.missilesInFlight).toBe(0)
+  })
+
+  test('届かない距離では外れる', async ({ page }) => {
+    // 実測で有効射程は 12 km。15 km では寿命 60 秒を使い切って
+    // 3,115 m 手前で落ちる
+    const hook = await capture(page, { script: 'missile-miss', frame: 7440 })
+    expect(hook.missilesFired).toBe(1)
+    expect(hook.hits).toBe(0)
+    expect(hook.kills).toBe(0)
+    expect(hook.targetsAlive).toBe(1)
+    expect(hook.missilesInFlight).toBe(0)
+  })
+
+  test('ロックしていなければ撃てない', async ({ page }) => {
+    // 標的のいない台本。引き金を引いても出ない
+    const hook = await capture(page, { script: 'level', frame: 240 })
+    expect(hook.lockState).toBe('none')
+    expect(hook.missilesFired).toBe(0)
+  })
+
+  test('煙を切ると描画が減る', async ({ page }) => {
+    const on = await capture(page, { script: 'missile-shot', frame: 300 })
+    const off = await capture(page, { script: 'missile-shot', frame: 300, smoke: false })
+    expect(on.drawnTriangles).toBeGreaterThan(off.drawnTriangles)
+  })
+
+  test('ミサイルを足しても三角形が予算の内側', async ({ page }) => {
+    const hook = await capture(page, { script: 'missile-shot', frame: 300 })
+    expect(hook.drawnTriangles).toBeLessThan(1_500_000)
+  })
+
+  test('同じフレームを 2 回撮ると戦績が一致する', async ({ page }) => {
+    const a = await capture(page, { script: 'missile-shot', frame: 400 })
+    const b = await capture(page, { script: 'missile-shot', frame: 400 })
+    expect(a.missilesFired).toBe(b.missilesFired)
+    expect(a.missilesInFlight).toBe(b.missilesInFlight)
+    expect(a.hits).toBe(b.hits)
+  })
+})
+
 test.describe('デバッグ表示', () => {
   test('?debug=1 で計器が出て数値が更新される', async ({ page }) => {
     await openLive(page, '?debug=1')
@@ -845,6 +918,11 @@ test.describe('スクリーンショット回帰', () => {
     // 捕捉中。破線の箱と進みの帯。ロック後は hud-level が見張る（同じ台本の
     // frame 240 で、そちらは角括弧になる）
     { name: 'hud-acquiring', script: 'target-ahead', frame: 40, hour: 16, coverage: 0, hud: true },
+    // ミサイル。発射から 1.5 秒。煙が後方へ伸び、本体が前方にいる
+    { name: 'missile-launch', script: 'missile-shot', frame: 300, hour: 16, coverage: 0, hud: true },
+    // 自機が自分の煙の筋に沿って飛ぶ。**near 面の見張り。**実測で
+    // このフレームの煙の中ほどがカメラの 0.1 m を通る（濃さ 1）
+    { name: 'missile-smoke-near', script: 'missile-near', frame: 841, hour: 16, coverage: 0 },
   ] as const
 
   for (const scene of scenes) {

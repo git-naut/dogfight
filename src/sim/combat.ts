@@ -11,6 +11,26 @@ import {
   type HitResult,
 } from './weapons/hitbox'
 import { Lock } from './weapons/lock'
+import { Missile, type SmokeSource } from './weapons/missile'
+
+/**
+ * 搭載するミサイルの数。
+ *
+ * F/A-18C のモデルには Sidewinder が 6 発付いている。同時に飛ばせる数と
+ * 搭載数は別だが、Phase 5 では区別しないでプールも同じ数にする。
+ */
+export const MISSILE_COUNT = 6
+
+/**
+ * 発射の間隔 秒。
+ *
+ * 押しっぱなしで全弾が 1 フレームに出るのを防ぐ。押しっぱなしでは 1 発しか
+ * 出さないので二重の歯止めになるが、離して押し直す速さには上限が要る。
+ */
+export const MISSILE_INTERVAL = 0.8
+
+/** ミサイル 1 発が与えるダメージ。標的の耐久 20 を 1 発で削り切る */
+const MISSILE_DAMAGE = 100
 
 /**
  * 交戦の処理。
@@ -51,6 +71,20 @@ export class Combat {
   readonly gun = new Gun()
   /** シーカーの捕捉。ミサイルの発射条件になる */
   readonly lock = new Lock()
+  /** ミサイル。撃った順に使い、飛び終われば器を再利用する */
+  readonly missiles: readonly Missile[] = Array.from(
+    { length: MISSILE_COUNT },
+    () => new Missile(),
+  )
+
+  /** 残ミサイル */
+  missilesLeft = MISSILE_COUNT
+  /** 撃ったミサイルの総数 */
+  missilesFired = 0
+  /** 前回の発射からの経過 秒。間隔の判定に使う */
+  private sinceLaunch = MISSILE_INTERVAL
+  /** 前ステップで引き金が押されていたか。押しっぱなしで連射しない */
+  private missileHeld = false
 
   /** 命中した弾の数 */
   hits = 0
@@ -108,6 +142,65 @@ export class Combat {
         dt,
       )
     }
+
+    this.advanceMissiles(dt)
+    this.fireMissile(input, player, dt)
+  }
+
+  /**
+   * ミサイルを進めて、起爆したものを片づける。
+   *
+   * 相手は `targetIndex` で引く。**シーカーが見失っても添字は残す。**
+   * 近接信管は失探後も働くので、判定のために相手を渡し続ける必要がある。
+   */
+  private advanceMissiles(dt: number): void {
+    for (const missile of this.missiles) {
+      if (missile.state !== 'flying') continue
+      const target = this.targets[missile.targetIndex] ?? null
+      if (!missile.step(dt, target) || target === null) continue
+
+      this.hits++
+      if (target.damage(MISSILE_DAMAGE)) this.kills++
+    }
+  }
+
+  /**
+   * ミサイルの発射。
+   *
+   * ロックが立っているときだけ出す。押しっぱなしでは 1 発しか出さず、
+   * 離して押し直すか間隔が空くのを待つ。
+   */
+  private fireMissile(input: InputState, player: Aircraft, dt: number): void {
+    this.sinceLaunch += dt
+    const pressed = input.fireMissile && !player.crashed
+    const edge = pressed && !this.missileHeld
+    this.missileHeld = pressed
+
+    if (!edge) return
+    if (this.lock.state !== 'locked') return
+    if (this.missilesLeft <= 0) return
+    if (this.sinceLaunch < MISSILE_INTERVAL) return
+
+    const missile = this.missiles.find((m) => m.state !== 'flying')
+    if (missile === undefined) return
+
+    // パイロンの位置は入れていない。翼下 3 m の差は誘導に効かない
+    missile.launch(player.position, player.velocity, player.orientation, this.lock.index)
+    this.missilesLeft--
+    this.sinceLaunch = 0
+    this.missilesFired++
+  }
+
+  /** 飛んでいるミサイルの数 */
+  get missilesInFlight(): number {
+    let count = 0
+    for (const missile of this.missiles) if (missile.state === 'flying') count++
+    return count
+  }
+
+  /** 煙を読む口。描画へ渡す */
+  get smokeSources(): readonly SmokeSource[] {
+    return this.missiles
   }
 
   /** ロックしている標的。捉えていなければ null */
@@ -195,6 +288,11 @@ export class Combat {
   reset(): void {
     this.gun.reset()
     this.lock.release()
+    for (const missile of this.missiles) missile.reset()
+    this.missilesLeft = MISSILE_COUNT
+    this.missilesFired = 0
+    this.sinceLaunch = MISSILE_INTERVAL
+    this.missileHeld = false
     this.hits = 0
     this.kills = 0
   }

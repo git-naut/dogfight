@@ -65,6 +65,20 @@ export interface CaptureConfig {
   /** 曳光弾を描くか。`?tracers=0` で切る。差分で見え方を測るのに使う */
   showTracers: boolean
   /**
+   * 自機を描くか。`?aircraft=0` で切る。
+   *
+   * 煙や曳光弾の断面を測るのに要る。機体が煙を隠す境界は、差分で見ると
+   * 輪郭として立つ。**near 面の切り口と区別が付かない。**実際に排気口の
+   * 位置で 54 階調の「断面」を検出して誤診しかけた。機体を消せば分かれる。
+   */
+  showAircraft: boolean
+  /** 翼端渦とコントレイルを描くか。`?trails=0` で切る */
+  showTrails: boolean
+  /** ミサイルの本体を描くか。`?missiles=0` で切る */
+  showMissiles: boolean
+  /** ミサイルの煙を描くか。`?smoke=0` で切る。差分で断面を測るのに使う */
+  showSmoke: boolean
+  /**
    * HUD を出すか。
    *
    * `?hud=1` / `?hud=0` で明示できる。省略したときはライブで出し、
@@ -134,6 +148,10 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',
     showTracers: params.get('tracers') !== '0',
+    showAircraft: params.get('aircraft') !== '0',
+    showTrails: params.get('trails') !== '0',
+    showMissiles: params.get('missiles') !== '0',
+    showSmoke: params.get('smoke') !== '0',
     showHud: params.has('hud')
       ? params.get('hud') === '1'
       : params.get('capture') !== '1',
@@ -261,6 +279,14 @@ export interface TestHook {
   lockProgress: number
   /** ロックボックスが画面に入っているか */
   hudLockBoxOnScreen: boolean
+  /** 飛んでいるミサイルの数 */
+  missilesInFlight: number
+  /** 描いたミサイルの数。sim の数と一致するはず */
+  missilesDrawn: number
+  /** 撃ったミサイルの総数 */
+  missilesFired: number
+  /** 残ミサイル */
+  missilesLeft: number
   preset: PresetName
   hour: number
   // 飛行状態

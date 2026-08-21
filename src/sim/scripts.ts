@@ -172,6 +172,75 @@ export const SCRIPTS = {
     targets: [{ offset: new Vec3(0, 11.1, -300), speed: 245 }],
     keyframes: [{ frame: 0, input: { fireGun: true } }],
   },
+
+  /**
+   * ロックしてミサイルを撃ち、命中まで。
+   *
+   * 3,000 m 先を直進する相手。捕捉に 0.7 秒かかるので 1 秒で撃つ。発射は
+   * 押した瞬間だけ効くので、1 フレームだけ立てて戻す。
+   */
+  'missile-shot': {
+    name: 'missile-shot',
+    seed: 20260816,
+    spawn: { altitude: 3000, speed: 250 },
+    targets: [{ offset: new Vec3(0, 0, -3000), speed: 240 }],
+    keyframes: [
+      { frame: 1 * SEC, input: { fireMissile: true } },
+      { frame: 1 * SEC + 1, input: { fireMissile: false } },
+    ],
+  },
+
+  /**
+   * 届かない距離で撃って外す。
+   *
+   * **有効射程は実測で決めた。**12,000 m までは当たり、15,000 m では寿命
+   * 60 秒を使い切って 2,888 m 手前で落ちる。燃焼が終わると減速するので、
+   * 遠いほど終端のマッハ数が下がる（12,000 m で 0.84）。
+   */
+  'missile-miss': {
+    name: 'missile-miss',
+    seed: 20260816,
+    spawn: { altitude: 3000, speed: 250 },
+    targets: [{ offset: new Vec3(0, 0, -15000), speed: 240 }],
+    keyframes: [
+      { frame: 1 * SEC, input: { fireMissile: true } },
+      { frame: 1 * SEC + 1, input: { fireMissile: false } },
+    ],
+  },
+
+  /**
+   * 自機が自分のミサイルの煙の筋に沿って飛ぶ構図。**near 面の見張り。**
+   *
+   * ミサイルは前方へ飛び、自機も同じ向きへ直進するので、**自機が煙の筋を
+   * 追いかける形になる。**リボンの中ほど（濃さが上限のまま）がカメラの
+   * すぐ脇を通る。
+   *
+   * **実測で撮るフレームを決めた。**煙の点の視線深度を計算すると、
+   * 発射直後（f130）は 4.8 m まで近づくが、そこはリボンの古い端で
+   * 先細りが効いている。中ほどが近づくのは f841 で、深度 0.1 m・濃さ 1。
+   * **最初は f130〜f300 で測って「断面なし」と読み違えた。**
+   *
+   * f841 の A/B（`blunt2.mjs`、機体とミサイル本体を消して測った）。
+   *
+   * | | 輪郭 | 12 階調以上 | 最悪 |
+   * | 終端あり | 461 px | 0 | 6 階調 |
+   * | 終端なし | 1,886 px | 0 | 8 階調 |
+   * | 参考: 翼端渦 | 1,335 px | 7 | 29 階調 |
+   *
+   * 終端は 28,375 画素・最大 21 階調ぶんの淡い広がりを消す。翼端渦のような
+   * 鋭い切り口にはならない。煙は 1 層が淡く（0.16）広がりが大きい（6 倍）ので、
+   * カメラ 0.1 m を通ると切り口ではなく画面全体の靄になるため。
+   */
+  'missile-near': {
+    name: 'missile-near',
+    seed: 20260816,
+    spawn: { altitude: 3000, speed: 250 },
+    targets: [{ offset: new Vec3(0, 30, -2500), speed: 245 }],
+    keyframes: [
+      { frame: 1 * SEC, input: { fireMissile: true } },
+      { frame: 1 * SEC + 1, input: { fireMissile: false } },
+    ],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

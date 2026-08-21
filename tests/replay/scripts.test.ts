@@ -68,7 +68,7 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('10 本すべて引ける', () => {
+  it('13 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
@@ -80,6 +80,9 @@ describe('スクリプトの登録', () => {
       'target-ahead',
       'target-turn',
       'gun-pass',
+      'missile-shot',
+      'missile-miss',
+      'missile-near',
     ])
     for (const name of SCRIPT_NAMES) {
       expect(getScript(name).name).toBe(name)
@@ -90,7 +93,14 @@ describe('スクリプトの登録', () => {
     // SCRIPTS は as const なので、targets を持たない要素との union では
     // プロパティを引けない。ReplayScript として読む getScript を通す
     const withTargets = SCRIPT_NAMES.filter((n) => getScript(n).targets !== undefined)
-    expect(withTargets).toEqual(['target-ahead', 'target-turn', 'gun-pass'])
+    expect(withTargets).toEqual([
+      'target-ahead',
+      'target-turn',
+      'gun-pass',
+      'missile-shot',
+      'missile-miss',
+      'missile-near',
+    ])
   })
 
   it('未知の名前は level に倒れる', () => {

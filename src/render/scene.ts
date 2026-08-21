@@ -7,7 +7,21 @@ import { createAircraftView, type AircraftView } from './aircraftView'
 import { loadAircraftModel, type AircraftModel } from './aircraft/model'
 import { createTargetViews, type TargetViews } from './targetView'
 import { createTracers, type Tracers } from './weapons/tracers'
+import { createMissileViews, type MissileViews } from './weapons/missileView'
+import { createMissileSmoke, type MissileSmoke } from './weapons/missileSmoke'
 import { BULLET_POOL, type BulletSource } from '../sim/weapons/gun'
+import type { SmokeSource } from '../sim/weapons/missile'
+import { MISSILE_COUNT } from '../sim/combat'
+
+/** 描画へ渡すミサイルの姿勢。補間済みの値を main が詰める */
+export interface MissilePose {
+  position: THREE.Vector3
+  quaternion: THREE.Quaternion
+}
+
+export function createMissilePose(): MissilePose {
+  return { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() }
+}
 import { createAtmosphere, DEFAULT_HOUR, type AtmosphereHandle } from './atmosphere'
 import { createComposer, type ComposerHandle } from './composer'
 import {
@@ -86,6 +100,10 @@ export interface MeasureConfig {
   targets?: boolean
   /** 曳光弾 */
   tracers?: boolean
+  /** ミサイルの本体 */
+  missiles?: boolean
+  /** ミサイルの煙 */
+  smoke?: boolean
   lodDistanceScale?: number
   terrainPatchCells?: number
 }
@@ -137,6 +155,8 @@ export interface SceneHandle {
   readonly targetInstances: number
   /** 描いた曳光弾の線分の数。5 発に 1 発なので飛行中の弾の 1/5 前後 */
   readonly tracersDrawn: number
+  /** 描いたミサイルの数 */
+  readonly missilesDrawn: number
   /**
    * ビュー射影行列。列優先 16 要素。
    *
@@ -168,6 +188,7 @@ export interface SceneHandle {
   sync(
     sample: AircraftSample,
     targets: readonly TargetSample[],
+    missiles: readonly MissilePose[],
     frame: number,
     dt: number,
     look: LookOffset,
@@ -199,6 +220,8 @@ export interface SceneHandle {
    * 履歴と同じ作法で `Gun` から直接読む。ワールドを作り直したら呼び直す
    */
   setBulletSource(source: BulletSource | null): void
+  /** 煙の履歴を読む先を渡す。ワールドを作り直したら呼び直す */
+  setSmokeSources(sources: readonly SmokeSource[]): void
   /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
   setMeasureConfig(config: MeasureConfig): void
   setHour(hour: number): void
@@ -258,6 +281,14 @@ export interface SceneOptions {
   showTargets?: boolean
   /** 曳光弾を描くか。差分で見え方を測るのに使う */
   showTracers?: boolean
+  /** 自機を描くか。煙や曳光弾の断面を測るのに使う */
+  showAircraft?: boolean
+  /** 翼端渦とコントレイルを描くか。断面を測るのに使う */
+  showTrails?: boolean
+  /** ミサイルの本体を描くか */
+  showMissiles?: boolean
+  /** ミサイルの煙を描くか。差分で断面を測るのに使う */
+  showSmoke?: boolean
 }
 
 /**
@@ -343,6 +374,7 @@ export async function createScene(
   // 2 回読むとパースとテクスチャの復号が 2 度走り、実体が複製される
   const aircraftModel: AircraftModel = await loadAircraftModel(options.aircraftUrl)
   const aircraft: AircraftView = createAircraftView(aircraftModel)
+  aircraft.object.visible = options.showAircraft ?? true
   scene.add(aircraft.object)
 
   // 標的機。複製は必要になった時点で作る。Phase 6 のミッションが敵 8 機なので
@@ -357,9 +389,18 @@ export async function createScene(
   tracers.object.visible = options.showTracers ?? true
   scene.add(tracers.object)
 
+  // ミサイルの本体と煙
+  const missileViews: MissileViews = createMissileViews(MISSILE_COUNT)
+  missileViews.object.visible = options.showMissiles ?? true
+  scene.add(missileViews.object)
+  const missileSmoke: MissileSmoke = createMissileSmoke(MISSILE_COUNT, quality)
+  missileSmoke.object.visible = options.showSmoke ?? true
+  scene.add(missileSmoke.object)
+
   // 機体の影。影マップ 1 枚で自己遮蔽と対地影の両方をまかなう
   // コントレイルと翼端渦。履歴は sim が持つので、ここは読んで張るだけ
   const trails: AircraftTrails = createAircraftTrails(quality)
+  trails.object.visible = options.showTrails ?? true
   scene.add(trails.object)
 
   const aircraftShadow: AircraftShadow = createAircraftShadow({
@@ -417,6 +458,8 @@ export async function createScene(
   let trailSource: AircraftTrailSource | null = null
   /** 弾を読む先。main が World を作ったあとに渡す */
   let bulletSource: BulletSource | null = null
+  /** 煙の履歴を読む先 */
+  let smokeSources: readonly SmokeSource[] = []
   // 軌跡の先頭。使い回す
   const trailHead = {
     position: new THREE.Vector3(),
@@ -530,6 +573,10 @@ export async function createScene(
       return tracers.drawn
     },
 
+    get missilesDrawn() {
+      return missileViews.drawn
+    },
+
     get viewProjection() {
       return viewProjection.elements
     },
@@ -566,8 +613,9 @@ export async function createScene(
       return quality
     },
 
-    sync(sample, targets, frame, dt, look, snap = false) {
+    sync(sample, targets, missiles, frame, dt, look, snap = false) {
       targetViews.update(targets)
+      missileViews.update(missiles)
 
       aircraft.object.position.set(
         sample.position.x,
@@ -668,6 +716,11 @@ export async function createScene(
         tracers.update(bulletSource, cameraWorld, cameraForward, radiansPerPixel)
       }
 
+      // 煙。**発射した位置から前方へ伸びるので、カメラがその中を通る。**
+      // near 面の終端は Ribbon が必ず通すので、視線方向を渡すだけでよい
+      camera.getWorldDirection(cameraForward)
+      missileSmoke.update(smokeSources, cameraWorld, cameraForward)
+
       terrainMesh.update(cameraWorld.x, cameraWorld.z)
       water.follow(cameraWorld.x, cameraWorld.z)
       // 波の位相もフレーム番号から導く。実時間を使うと絵が固定されない
@@ -717,6 +770,10 @@ export async function createScene(
       bulletSource = source
     },
 
+    setSmokeSources(sources) {
+      smokeSources = sources
+    },
+
     setMeasureConfig(config) {
       if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
       if (config.water !== undefined) water.mesh.visible = config.water
@@ -729,6 +786,8 @@ export async function createScene(
       if (config.trails !== undefined) trails.object.visible = config.trails
       if (config.targets !== undefined) targetViews.object.visible = config.targets
       if (config.tracers !== undefined) tracers.object.visible = config.tracers
+      if (config.missiles !== undefined) missileViews.object.visible = config.missiles
+      if (config.smoke !== undefined) missileSmoke.object.visible = config.smoke
       if (config.detailNormals !== undefined) {
         terrainMesh.setDetailNormals(config.detailNormals)
       }
@@ -763,6 +822,7 @@ export async function createScene(
       terrainMesh.setQuality(quality)
       water.setQuality(quality)
       trails.setQuality(quality)
+      missileSmoke.setQuality(quality)
       environment.setQuality(quality)
       scene.environment = environment.texture
       aircraftShadow.setQuality(quality)
@@ -784,6 +844,8 @@ export async function createScene(
 
     dispose() {
       gpuTimer.dispose()
+      missileSmoke.dispose()
+      missileViews.dispose()
       tracers.dispose()
       targetViews.dispose()
       aircraft.dispose()

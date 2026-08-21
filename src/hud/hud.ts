@@ -1,10 +1,14 @@
 import type { AircraftSample } from '../sim/aircraft'
 import { AIRCRAFT } from '../sim/flightModel'
+import { GRAVITY } from '../sim/isa'
+import { Vec3 } from '../sim/vec3'
+import { MAGAZINE, MUZZLE_OFFSET, bulletTimeToRange } from '../sim/weapons/gun'
 import {
   createScreenPoint,
   directionFromAzimuthElevation,
   headingOf,
   projectDirection,
+  projectPoint,
   type Mat4,
   type ScreenPoint,
 } from './project'
@@ -80,18 +84,44 @@ const HEADING_RANGE = 30
 /** 低高度の警告を出す対地高度 ft。150 m 相当 */
 const LOW_ALTITUDE_FT = 500
 
+/**
+ * ガンレティクルを合わせる基準の距離 m。
+ *
+ * 機銃の着弾点は距離で変わる（弾が落ちるので、遠いほど下に当たる）。距離が
+ * 決まらないと 1 点に描けない。ロックオンを入れるまでは基準の距離で置き、
+ * 数字を添えて「この距離での着弾点」だと分かるようにする。
+ *
+ * 300 m にしたのは、弾の飛行時間が 0.32 秒・落ちが 0.5 m で、実際に狙って
+ * 当たる間合いだから。**この距離での機軸と着弾点の差は 0.5 m しかないので、
+ * レティクルはほぼ機首の十字に重なる。**遠い距離を基準にすると離れる。
+ */
+const GUN_REFERENCE_RANGE = 300
+
+/**
+ * 武装の状態。
+ *
+ * `AircraftSample` には載せない。飛行の状態ではないし、ロックオンと DLZ を
+ * 足すときにここへ増やしていける。
+ */
+export interface HudArmament {
+  /** 機銃の残弾 */
+  rounds: number
+}
+
 export interface Hud {
   /** 直近の update で作った数値。E2E とデバッグから読む */
   readonly readout: HudReadout
   /** フライトパスマーカーが画面に入っているか */
   readonly flightPathOnScreen: boolean
+  /** ガンレティクルが画面に入っているか */
+  readonly gunReticleOnScreen: boolean
   resize(width: number, height: number, devicePixelRatio: number): void
   /**
    * 1 枚描き直す。
    *
    * @param viewProjection カメラのビュー射影行列。列優先 16 要素
    */
-  update(sample: AircraftSample, viewProjection: Mat4): void
+  update(sample: AircraftSample, armament: HudArmament, viewProjection: Mat4): void
   dispose(): void
 }
 
@@ -109,6 +139,15 @@ export function createHud(host: HTMLElement): Hud {
   let height = 720
   let dpr = 1
   let onScreen = false
+  let reticleOnScreen = false
+
+  // ガンレティクルの計算に使う。使い回す
+  const muzzleWorld = new Vec3()
+  const impact = new Vec3()
+  /** 基準の距離まで飛ぶ時間 秒。定数なので 1 度だけ解く */
+  const gunFlightTime = bulletTimeToRange(GUN_REFERENCE_RANGE)
+  /** 基準の距離での重力の落ち m */
+  const gunDrop = 0.5 * GRAVITY * gunFlightTime * gunFlightTime
 
   // 使い回す。毎フレーム作らない
   const a = createScreenPoint()
@@ -409,6 +448,67 @@ export function createHud(host: HTMLElement): Hud {
     ctx!.stroke()
   }
 
+  /**
+   * ガンレティクル。基準の距離での着弾点。
+   *
+   * 銃口から機軸へ距離ぶん進み、重力の落ちを引いた点を投影する。**方向ではなく
+   * 点として投影する。**距離が決まっている点なので、無限遠として扱うと落ちが
+   * 効かない。
+   *
+   * 弾が機体の速度を引き継ぐぶんは入れていない。機体と同じ速度で飛ぶ相手に
+   * 対しては、機体座標で見た着弾点がこの式になる。
+   */
+  function drawGunReticle(m: Mat4, sample: AircraftSample): void {
+    sample.orientation.rotate(MUZZLE_OFFSET, muzzleWorld)
+    muzzleWorld.add(sample.position)
+    impact.copy(muzzleWorld).addScaledVector(readout.nose, GUN_REFERENCE_RANGE)
+    impact.y -= gunDrop
+
+    const p = projectPoint(m, impact.x, impact.y, impact.z, width, height, a)
+    reticleOnScreen = p.inFront && p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height
+    if (!p.inFront) return
+
+    ctx!.strokeStyle = PRIMARY
+    ctx!.lineWidth = LINE_WIDTH
+    ctx!.beginPath()
+    ctx!.arc(p.x, p.y, 16, 0, Math.PI * 2)
+    ctx!.stroke()
+
+    // 中心の点。着弾点そのもの
+    ctx!.fillStyle = PRIMARY
+    ctx!.beginPath()
+    ctx!.arc(p.x, p.y, 1.6, 0, Math.PI * 2)
+    ctx!.fill()
+
+    ctx!.font = SMALL_FONT
+    ctx!.fillStyle = DIM
+    ctx!.textAlign = 'left'
+    ctx!.textBaseline = 'middle'
+    ctx!.fillText(`${GUN_REFERENCE_RANGE}`, p.x + 21, p.y)
+  }
+
+  /** 残弾。機銃の帯として下部に置く */
+  function drawArmament(armament: HudArmament): void {
+    ctx!.font = SMALL_FONT
+    ctx!.textAlign = 'center'
+    ctx!.textBaseline = 'alphabetic'
+    ctx!.fillStyle = armament.rounds > 0 ? DIM : WARN
+    const x = width * 0.5
+    const y = height * 0.9
+    ctx!.fillText(`GUN ${armament.rounds}`, x, y)
+
+    // 残りを帯で見せる。数字より先に減りが目に入る
+    const barWidth = 120
+    const filled = (barWidth * Math.max(0, armament.rounds)) / MAGAZINE
+    ctx!.strokeStyle = DIM
+    ctx!.lineWidth = 1
+    ctx!.strokeRect(x - barWidth / 2, y + 6, barWidth, 5)
+    if (filled > 0) {
+      ctx!.fillStyle = armament.rounds > 0 ? PRIMARY : WARN
+      ctx!.fillRect(x - barWidth / 2, y + 6, filled, 5)
+    }
+  }
+
   function drawReadouts(): void {
     ctx!.font = SMALL_FONT
     ctx!.textAlign = 'left'
@@ -446,6 +546,10 @@ export function createHud(host: HTMLElement): Hud {
       return onScreen
     },
 
+    get gunReticleOnScreen() {
+      return reticleOnScreen
+    },
+
     resize(w, h, ratio) {
       width = w
       height = h
@@ -453,7 +557,7 @@ export function createHud(host: HTMLElement): Hud {
       applySize()
     },
 
-    update(sample, viewProjection) {
+    update(sample, armament, viewProjection) {
       computeReadout(sample, readout)
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -465,6 +569,7 @@ export function createHud(host: HTMLElement): Hud {
       const heading = headingOf(readout.nose.x, readout.nose.y, readout.nose.z)
       drawLadder(viewProjection, heading)
       drawBoresight(viewProjection)
+      drawGunReticle(viewProjection, sample)
       drawFlightPath(viewProjection)
 
       drawVerticalTape(
@@ -486,6 +591,7 @@ export function createHud(host: HTMLElement): Hud {
         true,
       )
       drawHeadingTape(readout.headingDeg)
+      drawArmament(armament)
       drawReadouts()
     },
 

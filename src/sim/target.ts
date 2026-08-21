@@ -45,6 +45,16 @@ export interface TargetSpec {
   turnRate?: number
 }
 
+/**
+ * 標的の耐久。20mm 弾 1 発を 1 とする。
+ *
+ * **実弾で何発当てれば落ちるかの公表値はない。**戦闘機に対する 20mm HEI の
+ * 必要弾数は資料でも幅がある。ここは手触りの値として置いた。100 発/秒なので、
+ * 300 m から当て続ければ 1 秒に届かずに落ちる。ミサイルはこれを超える
+ * ダメージを与えて 1 発で落とす。
+ */
+export const TARGET_INTEGRITY = 20
+
 /** 描画とデバッグ表示に渡す読み取り用の状態 */
 export interface TargetSample {
   position: Vec3
@@ -53,6 +63,10 @@ export interface TargetSample {
   altitude: number
   /** バンク角 rad。右が正 */
   bank: number
+  /** 生きているか。落ちたら描画から消す */
+  alive: boolean
+  /** 残りの耐久 0..TARGET_INTEGRITY */
+  integrity: number
 }
 
 export function createTargetSample(): TargetSample {
@@ -62,6 +76,8 @@ export function createTargetSample(): TargetSample {
     speed: 0,
     altitude: 0,
     bank: 0,
+    alive: true,
+    integrity: TARGET_INTEGRITY,
   }
 }
 
@@ -113,6 +129,14 @@ export class Target {
    */
   readonly angleOfAttack: number
 
+  /**
+   * 残りの耐久。20mm 弾 1 発で 1 減る。
+   *
+   * ダメージの表現（煙を引く、操縦が鈍る）は Phase 6 の担当。ここは
+   * 落ちるか落ちないかだけを持つ。
+   */
+  integrity = TARGET_INTEGRITY
+
   /** 積算した機首方位 rad。右旋回で増える */
   private heading = 0
 
@@ -140,6 +164,23 @@ export class Target {
     return this.position.y
   }
 
+  /** 生きているか */
+  get alive(): boolean {
+    return this.integrity > 0
+  }
+
+  /**
+   * ダメージを与える。落ちた瞬間だけ true を返す。
+   *
+   * 返り値で「いま落ちた」を見分けられるようにしてある。落ちたあとの弾で
+   * 撃墜数を二重に数えないため。
+   */
+  damage(amount: number): boolean {
+    if (this.integrity <= 0) return false
+    this.integrity -= amount
+    return this.integrity <= 0
+  }
+
   /**
    * 1 ステップ進める。
    *
@@ -163,6 +204,9 @@ export class Target {
   step(dt: number): void {
     this.prevPosition.copy(this.position)
     this.prevOrientation.copy(this.orientation)
+    // 落ちたら動かさない。**そのまま出すと残骸が空中で固まって見えるので、
+    // 描画側は alive を見て隠す。**落下と爆発は爆発の段で入れる
+    if (!this.alive) return
 
     const half = this.turnRate * dt * 0.5
     const mid = this.heading + half
@@ -185,6 +229,8 @@ export class Target {
     out.speed = this.speed
     out.altitude = out.position.y
     out.bank = this.bank
+    out.alive = this.alive
+    out.integrity = this.integrity
     return out
   }
 

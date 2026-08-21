@@ -45,8 +45,16 @@ interface TestHook {
   hudAltitudeFt: number
   hudHeadingDeg: number
   hudFlightPathOnScreen: boolean
+  hudGunReticleOnScreen: boolean
   targetCount: number
   targetInstances: number
+  targetsAlive: number
+  bulletsInFlight: number
+  tracersDrawn: number
+  roundsFired: number
+  hits: number
+  kills: number
+  rounds: number
   preset: string
   hour: number
   speed: number
@@ -84,6 +92,8 @@ interface CaptureQuery {
   targets?: boolean
   /** HUD を出すか。キャプチャの既定はオフ */
   hud?: boolean
+  /** 曳光弾を描くか。切ると差分で寄与を測れる */
+  tracers?: boolean
 }
 
 async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
@@ -95,6 +105,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   if (query.coverage !== undefined) params.set('coverage', String(query.coverage))
   if (query.targets === false) params.set('targets', '0')
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
+  if (query.tracers === false) params.set('tracers', '0')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')
@@ -595,6 +606,76 @@ test.describe('標的機', () => {
   })
 })
 
+test.describe('機銃', () => {
+  test('gun-pass で撃って当てて落とす', async ({ page }) => {
+    const hook = await capture(page, { script: 'gun-pass', frame: 120 })
+    // 1 秒で 100 発。発射速度 6,000 発/分 が 120Hz で 120 発に化けていないこと
+    expect(hook.roundsFired).toBe(100)
+    expect(hook.hits).toBeGreaterThan(15)
+    expect(hook.kills).toBe(1)
+    expect(hook.targetsAlive).toBe(0)
+  })
+
+  test('撃たなければ 1 発も出ない', async ({ page }) => {
+    const hook = await capture(page, { script: 'target-ahead', frame: 240 })
+    expect(hook.roundsFired).toBe(0)
+    expect(hook.bulletsInFlight).toBe(0)
+    expect(hook.tracersDrawn).toBe(0)
+    expect(hook.targetsAlive).toBe(1)
+  })
+
+  test('残弾が減る', async ({ page }) => {
+    const hook = await capture(page, { script: 'gun-pass', frame: 120 })
+    expect(hook.rounds).toBe(578 - 100)
+  })
+
+  test('曳光弾は 5 発に 1 発', async ({ page }) => {
+    const hook = await capture(page, { script: 'gun-pass', frame: 120 })
+    expect(hook.bulletsInFlight).toBeGreaterThan(50)
+    // 5 発に 1 発。画面外へ出たぶんは描かないので上限側だけ厳しく見る
+    expect(hook.tracersDrawn).toBeLessThanOrEqual(Math.ceil(hook.bulletsInFlight / 5))
+    expect(hook.tracersDrawn).toBeGreaterThan(5)
+  })
+
+  test('曳光弾を切ると描画が減る', async ({ page }) => {
+    const on = await capture(page, { script: 'gun-pass', frame: 60 })
+    const off = await capture(page, { script: 'gun-pass', frame: 60, tracers: false })
+    expect(on.drawCalls).toBeGreaterThan(off.drawCalls)
+    expect(on.drawnTriangles).toBeGreaterThan(off.drawnTriangles)
+  })
+
+  test('落ちた標的は描かない', async ({ page }) => {
+    const before = await capture(page, { script: 'gun-pass', frame: 60 })
+    const after = await capture(page, { script: 'gun-pass', frame: 120 })
+    expect(before.targetsAlive).toBe(1)
+    expect(before.targetInstances).toBe(1)
+    expect(after.targetsAlive).toBe(0)
+    // sim 側は止まったまま残るので、描画で隠していることを見る
+    expect(after.targetCount).toBe(1)
+    expect(after.targetInstances).toBe(0)
+  })
+
+  test('ガンレティクルが画面に入る', async ({ page }) => {
+    const hook = await capture(page, { script: 'gun-pass', frame: 60, hud: true })
+    expect(hook.hudGunReticleOnScreen).toBe(true)
+  })
+
+  test('弾は寿命で消える。上限で止まる', async ({ page }) => {
+    const hook = await capture(page, { script: 'gun-pass', frame: 600 })
+    // 寿命 2.5 秒 × 100 発/秒 = 250 発が定常
+    expect(hook.bulletsInFlight).toBeLessThanOrEqual(253)
+  })
+
+  test('同じフレームを 2 回撮ると戦績が一致する', async ({ page }) => {
+    const a = await capture(page, { script: 'gun-pass', frame: 90 })
+    const b = await capture(page, { script: 'gun-pass', frame: 90 })
+    expect(a.hits).toBe(b.hits)
+    expect(a.kills).toBe(b.kills)
+    expect(a.bulletsInFlight).toBe(b.bulletsInFlight)
+    expect(a.tracersDrawn).toBe(b.tracersDrawn)
+  })
+})
+
 test.describe('デバッグ表示', () => {
   test('?debug=1 で計器が出て数値が更新される', async ({ page }) => {
     await openLive(page, '?debug=1')
@@ -685,6 +766,8 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'hud-bank', script: 'bank-left', frame: 420, hour: 16, coverage: 0, hud: true },
     // 仰角 35 度。フライトパスマーカーと機首の十字が迎角ぶん離れる
     { name: 'hud-climb', script: 'pull-up', frame: 430, hour: 16, coverage: 0, hud: true },
+    // 機銃。曳光弾の帯とガンレティクルと残弾。実測で 304 画素・最大 165 階調
+    { name: 'gun-firing', script: 'gun-pass', frame: 60, hour: 16, coverage: 0, hud: true },
   ] as const
 
   for (const scene of scenes) {

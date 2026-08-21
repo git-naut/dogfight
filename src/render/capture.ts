@@ -62,6 +62,8 @@ export interface CaptureConfig {
    * 引くのが正しい。翼端渦で同じ作法を採った
    */
   showTargets: boolean
+  /** 曳光弾を描くか。`?tracers=0` で切る。差分で見え方を測るのに使う */
+  showTracers: boolean
   /**
    * HUD を出すか。
    *
@@ -131,6 +133,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showEnvironment: params.get('env') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',
+    showTracers: params.get('tracers') !== '0',
     showHud: params.has('hud')
       ? params.get('hud') === '1'
       : params.get('capture') !== '1',
@@ -226,10 +229,26 @@ export interface TestHook {
   hudHeadingDeg: number
   /** フライトパスマーカーが画面に入っているか */
   hudFlightPathOnScreen: boolean
+  /** ガンレティクルが画面に入っているか */
+  hudGunReticleOnScreen: boolean
   /** sim にいる標的機の数。台本の配置で決まる */
   targetCount: number
   /** 描画が作った標的機の複製の数。sim の数と一致するはず */
   targetInstances: number
+  /** 生きている標的の数 */
+  targetsAlive: number
+  /** 飛行中の弾の数 */
+  bulletsInFlight: number
+  /** 描いた曳光弾の線分の数。5 発に 1 発なので飛行中の 1/5 前後 */
+  tracersDrawn: number
+  /** 撃った弾の総数 */
+  roundsFired: number
+  /** 命中した弾の数 */
+  hits: number
+  /** 撃墜した数 */
+  kills: number
+  /** 残弾 */
+  rounds: number
   preset: PresetName
   hour: number
   // 飛行状態

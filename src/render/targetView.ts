@@ -71,9 +71,13 @@ export function createTargetViews(
 
     update(samples) {
       const used = Math.min(samples.length, capacity)
+      let shown = 0
       for (let i = 0; i < used; i++) {
         const sample = samples[i]!
-        const node = instance(i)
+        // 落ちた標的は描かない。sim 側は止まったままなので、そのまま出すと
+        // 残骸が空中で固まって見える。落下と爆発は爆発の段で入れる
+        if (!sample.alive) continue
+        const node = instance(shown)
         node.position.set(sample.position.x, sample.position.y, sample.position.z)
         node.quaternion.set(
           sample.orientation.x,
@@ -82,8 +86,9 @@ export function createTargetViews(
           sample.orientation.w,
         )
         node.visible = true
+        shown++
       }
-      for (let i = used; i < instances.length; i++) instances[i]!.visible = false
+      for (let i = shown; i < instances.length; i++) instances[i]!.visible = false
     },
 
     dispose() {

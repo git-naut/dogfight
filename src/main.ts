@@ -83,8 +83,16 @@ const hook = installTestHook({
   hudAltitudeFt: 0,
   hudHeadingDeg: 0,
   hudFlightPathOnScreen: false,
+  hudGunReticleOnScreen: false,
   targetCount: 0,
   targetInstances: 0,
+  targetsAlive: 0,
+  bulletsInFlight: 0,
+  tracersDrawn: 0,
+  roundsFired: 0,
+  hits: 0,
+  kills: 0,
+  rounds: 0,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -144,6 +152,7 @@ async function main(): Promise<void> {
     showEnvironment: capture.showEnvironment,
     showAircraftShadow: capture.showAircraftShadow,
     showTargets: capture.showTargets,
+    showTracers: capture.showTracers,
   })
 
   setBoot('描画の準備中')
@@ -186,17 +195,31 @@ async function main(): Promise<void> {
   applySize()
   window.addEventListener('resize', applySize)
 
+  /** HUD へ渡す武装の状態。使い回す */
+  const armament = { rounds: 0 }
+
   /** HUD を 1 枚描き直して、読み取れる値をフックへ載せる */
-  const drawHud = () => {
+  const drawHud = (currentWorld: World) => {
     if (hud === null) return
-    hud.update(sample, view.viewProjection)
+    armament.rounds = currentWorld.combat.rounds
+    hud.update(sample, armament, view.viewProjection)
     hook.hudSpeedKt = hud.readout.speedKt
     hook.hudAltitudeFt = hud.readout.altitudeFt
     hook.hudHeadingDeg = hud.readout.headingDeg
     hook.hudFlightPathOnScreen = hud.flightPathOnScreen
+    hook.hudGunReticleOnScreen = hud.gunReticleOnScreen
   }
 
-  const publish = (frame: number) => {
+  /**
+   * フックへ現在の状態を載せる。
+   *
+   * **ワールドは引数で受け取る。**外側の `let world` を閉じ込めると、
+   * キャプチャ経路がその宣言より前に return するので TDZ に落ちる
+   * （キャプチャ側はローカルの `world` で影を作っている）。実際に
+   * `Cannot access 'm' before initialization` で起動ごと落ちた。
+   * **単体テストは main.ts を通らないので気づけない。**
+   */
+  const publish = (currentWorld: World, frame: number) => {
     hook.frame = frame
     hook.speed = sample.speed
     hook.altitude = sample.altitude
@@ -210,6 +233,13 @@ async function main(): Promise<void> {
     hook.aircraftTriangles = view.aircraftTriangles
     hook.targetCount = targetSamples.length
     hook.targetInstances = view.targetInstances
+    hook.targetsAlive = currentWorld.combat.targetsAlive
+    hook.bulletsInFlight = currentWorld.combat.bulletsInFlight
+    hook.tracersDrawn = view.tracersDrawn
+    hook.roundsFired = currentWorld.combat.roundsFired
+    hook.hits = currentWorld.combat.hits
+    hook.kills = currentWorld.combat.kills
+    hook.rounds = currentWorld.combat.rounds
   hook.aircraftSurfaces = view.aircraftSurfaces
   hook.environmentReady = view.environmentReady
   hook.aircraftShadowReady = view.aircraftShadowReady
@@ -241,10 +271,11 @@ async function main(): Promise<void> {
     fitTargetSamples(world.targets.length)
     world.sampleTargets(1, targetSamples)
     view.setTrailSource(world.player)
+    view.setBulletSource(world.combat.bullets)
     view.sync(sample, targetSamples, world.frame, 0, { yaw: 0, pitch: 0 }, true)
     // HUD は sync のあと。行列がそろってから 1 枚描く。雲の収束で render を
     // 何度も回すが、HUD は別の canvas なので描き直す必要はない
-    drawHud()
+    drawHud(world)
 
     // 雲は時間方向に足し込むので、1 枚だけ描いても収束しない。
     // カメラを止めたまま必要な本数を描く。実時間は使わないので決定論は保たれる
@@ -279,7 +310,7 @@ async function main(): Promise<void> {
       hook.benchMs = (performance.now() - started) / capture.bench
     }
 
-    publish(world.frame)
+    publish(world, world.frame)
     hook.captureReady = true
     finishBoot()
     document.body.dataset['captureReady'] = '1'
@@ -300,6 +331,7 @@ async function main(): Promise<void> {
   let preset: PresetName = capture.preset
   let world = spawnWorld()
   view.setTrailSource(world.player)
+  view.setBulletSource(world.combat.bullets)
   let lastTime = performance.now()
   let smoothedFps = 60
   // 1 フレームだけ見ると外れ値に振られるので平滑化して読む
@@ -334,6 +366,7 @@ async function main(): Promise<void> {
     if (keyboard.consumeReset()) {
       world = spawnWorld()
       view.setTrailSource(world.player)
+      view.setBulletSource(world.combat.bullets)
       driver.reset()
       mouse.reset()
       governor.reset()
@@ -351,7 +384,7 @@ async function main(): Promise<void> {
     const t2 = performance.now()
     view.render()
     const t3 = performance.now()
-    drawHud()
+    drawHud(world)
     const t4 = performance.now()
 
     cpuSimMs += (t1 - t0 - cpuSimMs) * 0.1
@@ -373,7 +406,7 @@ async function main(): Promise<void> {
       hook.preset = preset
     }
 
-    publish(world.frame)
+    publish(world, world.frame)
     hook.droppedSteps = driver.droppedSteps
     debug?.update(sample, world.frame, smoothedFps, {
       sunElevation: view.sunElevation,
@@ -404,7 +437,7 @@ async function main(): Promise<void> {
   world.sampleTargets(1, targetSamples)
   view.sync(sample, targetSamples, world.frame, FIXED_DT, mouse.offset, true)
   view.render()
-  drawHud()
+  drawHud(world)
   finishBoot()
   requestAnimationFrame(frame)
 }

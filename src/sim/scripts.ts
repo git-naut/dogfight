@@ -153,6 +153,25 @@ export const SCRIPTS = {
     targets: [{ offset: new Vec3(0, 25, -220), speed: 240, turnRate: 0.06 }],
     keyframes: [],
   },
+
+  /**
+   * 標的の後方から機銃を撃つ。
+   *
+   * 高さは実測で決めた。自機の機首はトリム迎角ぶん上を向くので、銃も同じ角度
+   * だけ上を向く。速度 250 m/s・高度 3,000 m のトリム迎角は 2.22 度なので、
+   * 300 m 先で機軸は 11.61 m 上。弾の落ちが 0.32 秒で 0.5 m あるので
+   * 11.1 m の位置に標的を置く。
+   *
+   * **狙いを合わせないと当たらない。**最初に 10 m に置いたら 5 秒撃って
+   * 命中 20 発（発射 500 発）しかなかった。
+   */
+  'gun-pass': {
+    name: 'gun-pass',
+    seed: 20260816,
+    spawn: { altitude: 3000, speed: 250 },
+    targets: [{ offset: new Vec3(0, 11.1, -300), speed: 245 }],
+    keyframes: [{ frame: 0, input: { fireGun: true } }],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

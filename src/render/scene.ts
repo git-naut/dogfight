@@ -6,6 +6,8 @@ import { createChaseCamera, type ChaseCamera } from './camera'
 import { createAircraftView, type AircraftView } from './aircraftView'
 import { loadAircraftModel, type AircraftModel } from './aircraft/model'
 import { createTargetViews, type TargetViews } from './targetView'
+import { createTracers, type Tracers } from './weapons/tracers'
+import { BULLET_POOL, type BulletSource } from '../sim/weapons/gun'
 import { createAtmosphere, DEFAULT_HOUR, type AtmosphereHandle } from './atmosphere'
 import { createComposer, type ComposerHandle } from './composer'
 import {
@@ -82,6 +84,8 @@ export interface MeasureConfig {
   trails?: boolean
   /** 標的機 */
   targets?: boolean
+  /** 曳光弾 */
+  tracers?: boolean
   lodDistanceScale?: number
   terrainPatchCells?: number
 }
@@ -131,6 +135,8 @@ export interface SceneHandle {
   readonly aircraftTriangles: number
   /** 作った標的機の複製の数。三角形はこの数だけ増える */
   readonly targetInstances: number
+  /** 描いた曳光弾の線分の数。5 発に 1 発なので飛行中の弾の 1/5 前後 */
+  readonly tracersDrawn: number
   /**
    * ビュー射影行列。列優先 16 要素。
    *
@@ -186,6 +192,13 @@ export interface SceneHandle {
    * `Aircraft` から直接読む。ワールドを作り直したら呼び直す。
    */
   setTrailSource(source: AircraftTrailSource | null): void
+  /**
+   * 弾を読む先を渡す。
+   *
+   * サンプルには載せない。飛行中の弾は 250 発あり、毎フレーム写すのは無駄。
+   * 履歴と同じ作法で `Gun` から直接読む。ワールドを作り直したら呼び直す
+   */
+  setBulletSource(source: BulletSource | null): void
   /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
   setMeasureConfig(config: MeasureConfig): void
   setHour(hour: number): void
@@ -243,6 +256,8 @@ export interface SceneOptions {
   showAircraftShadow?: boolean
   /** 標的機を描くか。差分で標的の画素だけを取り出すのに使う */
   showTargets?: boolean
+  /** 曳光弾を描くか。差分で見え方を測るのに使う */
+  showTracers?: boolean
 }
 
 /**
@@ -336,6 +351,12 @@ export async function createScene(
   targetViews.object.visible = options.showTargets ?? true
   scene.add(targetViews.object)
 
+  // 曳光弾。5 発に 1 発なので線分は 55 本ぶん確保すれば足りるが、
+  // プールと同じ大きさにしておけば割合を変えても壊れない
+  const tracers: Tracers = createTracers(BULLET_POOL)
+  tracers.object.visible = options.showTracers ?? true
+  scene.add(tracers.object)
+
   // 機体の影。影マップ 1 枚で自己遮蔽と対地影の両方をまかなう
   // コントレイルと翼端渦。履歴は sim が持つので、ここは読んで張るだけ
   const trails: AircraftTrails = createAircraftTrails(quality)
@@ -394,6 +415,8 @@ export async function createScene(
   const shadowAllowed = options.showAircraftShadow ?? true
   /** 軌跡の履歴を読む先。main が World を作ったあとに渡す */
   let trailSource: AircraftTrailSource | null = null
+  /** 弾を読む先。main が World を作ったあとに渡す */
+  let bulletSource: BulletSource | null = null
   // 軌跡の先頭。使い回す
   const trailHead = {
     position: new THREE.Vector3(),
@@ -501,6 +524,10 @@ export async function createScene(
 
     get targetInstances() {
       return targetViews.instanceCount
+    },
+
+    get tracersDrawn() {
+      return tracers.drawn
     },
 
     get viewProjection() {
@@ -630,6 +657,17 @@ export async function createScene(
         camera.getWorldDirection(cameraForward)
         trails.update(trailSource, cameraWorld, cameraForward, trailHead)
       }
+      // 曳光弾。near 面の手前で終端するので視線方向が要る。
+      // 軌跡と同じ理由でカメラの向きを渡す
+      if (bulletSource !== null) {
+        camera.getWorldDirection(cameraForward)
+        // 画面 1 画素が張る角度。曳光弾の幅を画面基準にするのに渡す。
+        // CSS 画素で測る（HUD と同じ基準）。画角は速度で変わるので毎フレーム
+        const radiansPerPixel =
+          (2 * Math.tan(((camera.fov * Math.PI) / 180) * 0.5)) / cssHeight
+        tracers.update(bulletSource, cameraWorld, cameraForward, radiansPerPixel)
+      }
+
       terrainMesh.update(cameraWorld.x, cameraWorld.z)
       water.follow(cameraWorld.x, cameraWorld.z)
       // 波の位相もフレーム番号から導く。実時間を使うと絵が固定されない
@@ -675,6 +713,10 @@ export async function createScene(
       trailSource = source
     },
 
+    setBulletSource(source) {
+      bulletSource = source
+    },
+
     setMeasureConfig(config) {
       if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
       if (config.water !== undefined) water.mesh.visible = config.water
@@ -686,6 +728,7 @@ export async function createScene(
       if (config.aircraftShadow !== undefined) measureShadow = config.aircraftShadow
       if (config.trails !== undefined) trails.object.visible = config.trails
       if (config.targets !== undefined) targetViews.object.visible = config.targets
+      if (config.tracers !== undefined) tracers.object.visible = config.tracers
       if (config.detailNormals !== undefined) {
         terrainMesh.setDetailNormals(config.detailNormals)
       }
@@ -741,6 +784,7 @@ export async function createScene(
 
     dispose() {
       gpuTimer.dispose()
+      tracers.dispose()
       targetViews.dispose()
       aircraft.dispose()
       // ジオメトリとマテリアルの実体はモデルが持つ。自機と標的で共有して

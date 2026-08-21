@@ -5,6 +5,7 @@ import { Vec3 } from './vec3'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
 import { ReplayPlayer, spawnFromSpec, type ReplayScript } from './replay'
 import { Target, type TargetSample, type TargetSpec } from './target'
+import { Combat } from './combat'
 import type { InputState } from './input'
 import { defaultTerrain, type Terrain } from './terrain'
 
@@ -57,6 +58,8 @@ export class World {
   readonly player: Aircraft
   /** 標的機。台本に配置が書かれていなければ空 */
   readonly targets: readonly Target[]
+  /** 交戦の処理。発射管制と当たり判定はここが持つ */
+  readonly combat: Combat
   /** 地形。描画側も同じものを読んで、当たる山と見える山を一致させる */
   readonly terrain: Terrain
 
@@ -82,6 +85,14 @@ export class World {
     this.targets = (options.targets ?? []).map(
       (spec) => new Target(spec, this.player.position),
     )
+
+    this.combat = new Combat({
+      rng: this.rng,
+      targets: this.targets,
+      terrain: this.terrain,
+      // 地形の最高点より上では、弾が地面を引く必要がない
+      groundLimit: this.terrain.stats.max,
+    })
   }
 
   get frame(): number {
@@ -103,6 +114,7 @@ export class World {
   step(input: InputState): void {
     this.player.step(input, FIXED_DT, this.stepOptions)
     for (const target of this.targets) target.step(FIXED_DT)
+    this.combat.step(input, this.player, FIXED_DT)
     this._frame++
   }
 

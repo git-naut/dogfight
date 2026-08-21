@@ -78,6 +78,8 @@ export interface CaptureConfig {
   showMissiles: boolean
   /** ミサイルの煙を描くか。`?smoke=0` で切る。差分で断面を測るのに使う */
   showSmoke: boolean
+  /** 爆発を描くか。`?explosions=0` で切る */
+  showExplosions: boolean
   /**
    * HUD を出すか。
    *
@@ -152,6 +154,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showTrails: params.get('trails') !== '0',
     showMissiles: params.get('missiles') !== '0',
     showSmoke: params.get('smoke') !== '0',
+    showExplosions: params.get('explosions') !== '0',
     showHud: params.has('hud')
       ? params.get('hud') === '1'
       : params.get('capture') !== '1',
@@ -287,6 +290,12 @@ export interface TestHook {
   missilesFired: number
   /** 残ミサイル */
   missilesLeft: number
+  /** 生きている爆発の数 */
+  explosionsAlive: number
+  /** 描いた爆発の数。sim の数と一致するはず */
+  explosionsDrawn: number
+  /** 起こした爆発の総数 */
+  explosionCount: number
   preset: PresetName
   hour: number
   // 飛行状態

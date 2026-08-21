@@ -176,6 +176,7 @@ describe('品質プリセットの表', () => {
       'environmentMapSize',
       'trailSegments',
       'missileTrailSegments',
+      'explosionSprites',
     ])
     for (const name of PRESET_ORDER) {
       const q = QUALITY_PRESETS[name]

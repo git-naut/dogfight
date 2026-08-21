@@ -12,6 +12,7 @@ import {
 } from './weapons/hitbox'
 import { Lock } from './weapons/lock'
 import { Missile, type SmokeSource } from './weapons/missile'
+import { Effects, type ExplosionSource } from './effects'
 
 /**
  * 搭載するミサイルの数。
@@ -31,6 +32,15 @@ export const MISSILE_INTERVAL = 0.8
 
 /** ミサイル 1 発が与えるダメージ。標的の耐久 20 を 1 発で削り切る */
 const MISSILE_DAMAGE = 100
+
+/**
+ * 爆発の強さ 0..1。
+ *
+ * ミサイルの弾頭は 9 kg 前後（AIM-9M の公表値）で、20mm 弾 1 発とは桁が違う。
+ * 撃墜そのものは同じでも、絵の大きさを変える。**どちらも選んだ値。**
+ */
+const KILL_BLAST = 1
+const MISSILE_BLAST = 0.75
 
 /**
  * 交戦の処理。
@@ -71,6 +81,8 @@ export class Combat {
   readonly gun = new Gun()
   /** シーカーの捕捉。ミサイルの発射条件になる */
   readonly lock = new Lock()
+  /** 爆発。sim が「いつ・どこで・どの強さで」を持ち、描画は経過秒で絵を作る */
+  readonly effects = new Effects()
   /** ミサイル。撃った順に使い、飛び終われば器を再利用する */
   readonly missiles: readonly Missile[] = Array.from(
     { length: MISSILE_COUNT },
@@ -90,6 +102,14 @@ export class Combat {
   hits = 0
   /** 撃墜した数 */
   kills = 0
+
+  /**
+   * いまのフレーム。爆発の寿命の判定に使う。
+   *
+   * **経過秒を持ち回らない。**`time += dt` の積算は禁止（`CLAUDE.md`）なので、
+   * 起きたフレームとの差から毎回出す。
+   */
+  private frame = 0
 
   private readonly rng: Rng
   private readonly targets: readonly Target[]
@@ -126,7 +146,8 @@ export class Combat {
    * 順番に意味がある。**先に弾を進めてから当たり判定を取る。**発射と同じ
    * ステップで判定すると、銃口の位置にいる標的にしか当たらない。
    */
-  step(input: InputState, player: Aircraft, dt: number): void {
+  step(input: InputState, player: Aircraft, dt: number, frame: number): void {
+    this.frame = frame
     this.gun.advance(dt, this.groundLimit, this.terrain)
     this.resolveHits()
     this.fireGun(input, player, dt)
@@ -160,7 +181,24 @@ export class Combat {
       if (!missile.step(dt, target) || target === null) continue
 
       this.hits++
-      if (target.damage(MISSILE_DAMAGE)) this.kills++
+      // 弾頭の炸裂。起爆した位置に出す
+      this.effects.spawn(
+        missile.detonation,
+        missile.velocity,
+        MISSILE_BLAST,
+        this.frame,
+        this.rng,
+      )
+      if (target.damage(MISSILE_DAMAGE)) {
+        this.kills++
+        this.effects.spawn(
+          target.position,
+          target.velocity,
+          KILL_BLAST,
+          this.frame,
+          this.rng,
+        )
+      }
     }
   }
 
@@ -201,6 +239,21 @@ export class Combat {
   /** 煙を読む口。描画へ渡す */
   get smokeSources(): readonly SmokeSource[] {
     return this.missiles
+  }
+
+  /** 爆発を読む口。描画へ渡す */
+  get explosions(): ExplosionSource {
+    return this.effects
+  }
+
+  /** 生きている爆発の数。寿命の判定はフレーム番号で行う */
+  explosionsAliveAt(frame: number, fixedDt: number): number {
+    return this.effects.aliveAt(frame, fixedDt)
+  }
+
+  /** 起こした爆発の総数 */
+  get explosionCount(): number {
+    return this.effects.explosionCount
   }
 
   /** ロックしている標的。捉えていなければ null */
@@ -257,7 +310,17 @@ export class Combat {
 
         this.hits++
         // 20mm 弾 1 発で耐久 1
-        if (target.damage(1)) this.kills++
+        if (target.damage(1)) {
+          this.kills++
+          // 撃墜の火球は機体の位置に、機体の速度を引き継いで出す
+          this.effects.spawn(
+            target.position,
+            target.velocity,
+            KILL_BLAST,
+            this.frame,
+            this.rng,
+          )
+        }
         // 当たった弾は消える。貫通させない
         bullet.life = 0
         break
@@ -289,6 +352,7 @@ export class Combat {
     this.gun.reset()
     this.lock.release()
     for (const missile of this.missiles) missile.reset()
+    this.effects.reset()
     this.missilesLeft = MISSILE_COUNT
     this.missilesFired = 0
     this.sinceLaunch = MISSILE_INTERVAL

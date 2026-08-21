@@ -114,7 +114,7 @@ export class World {
   step(input: InputState): void {
     this.player.step(input, FIXED_DT, this.stepOptions)
     for (const target of this.targets) target.step(FIXED_DT)
-    this.combat.step(input, this.player, FIXED_DT)
+    this.combat.step(input, this.player, FIXED_DT, this._frame)
     this._frame++
   }
 

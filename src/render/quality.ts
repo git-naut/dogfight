@@ -108,6 +108,15 @@ export interface QualitySettings {
    * 数キロ伸びて画面に映り続けるので、本数が絵に出る。
    */
   missileTrailSegments: number
+
+  /**
+   * 爆発 1 個あたりの破片の板の数。0 で破片なし（火球と煙は残る）。
+   *
+   * sim は 12 個ぶんの向きと速さを持つ（`SHARD_COUNT`）。ここが少なければ
+   * 先頭から使う。**破片は 1 個 2 三角形なので、費用は板の枚数そのもの。**
+   * high の 12 個 x 同時 8 個で 96 枚が上限。
+   */
+  explosionSprites: number
 }
 
 export const PRESET_ORDER: readonly PresetName[] = ['low', 'medium', 'high', 'ultra']
@@ -134,6 +143,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     environmentMapSize: 0,
     trailSegments: 0,
     missileTrailSegments: 0,
+    explosionSprites: 0,
   },
   medium: {
     renderScale: 0.8,
@@ -154,6 +164,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     environmentMapSize: 64,
     trailSegments: 192,
     missileTrailSegments: 192,
+    explosionSprites: 6,
   },
   high: {
     renderScale: 1,
@@ -180,6 +191,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     environmentMapSize: 128,
     trailSegments: 384,
     missileTrailSegments: 384,
+    explosionSprites: 12,
   },
   ultra: {
     renderScale: 1.25,
@@ -206,6 +218,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     environmentMapSize: 256,
     trailSegments: 768,
     missileTrailSegments: 512,
+    explosionSprites: 12,
   },
 }
 

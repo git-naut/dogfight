@@ -105,6 +105,9 @@ const hook = installTestHook({
   missilesDrawn: 0,
   missilesFired: 0,
   missilesLeft: 0,
+  explosionsAlive: 0,
+  explosionsDrawn: 0,
+  explosionCount: 0,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -208,6 +211,7 @@ async function main(): Promise<void> {
     showTrails: capture.showTrails,
     showMissiles: capture.showMissiles,
     showSmoke: capture.showSmoke,
+    showExplosions: capture.showExplosions,
   })
 
   setBoot('描画の準備中')
@@ -321,6 +325,12 @@ async function main(): Promise<void> {
     hook.missilesDrawn = view.missilesDrawn
     hook.missilesFired = currentWorld.combat.missilesFired
     hook.missilesLeft = currentWorld.combat.missilesLeft
+    hook.explosionsAlive = currentWorld.combat.explosionsAliveAt(
+      currentWorld.frame,
+      FIXED_DT,
+    )
+    hook.explosionsDrawn = view.explosionsDrawn
+    hook.explosionCount = currentWorld.combat.explosionCount
   hook.aircraftSurfaces = view.aircraftSurfaces
   hook.environmentReady = view.environmentReady
   hook.aircraftShadowReady = view.aircraftShadowReady
@@ -354,6 +364,7 @@ async function main(): Promise<void> {
     view.setTrailSource(world.player)
     view.setBulletSource(world.combat.bullets)
     view.setSmokeSources(world.combat.smokeSources)
+    view.setExplosionSource(world.combat.explosions)
     view.sync(
       sample,
       targetSamples,
@@ -423,6 +434,7 @@ async function main(): Promise<void> {
   view.setTrailSource(world.player)
   view.setBulletSource(world.combat.bullets)
   view.setSmokeSources(world.combat.smokeSources)
+  view.setExplosionSource(world.combat.explosions)
   let lastTime = performance.now()
   let smoothedFps = 60
   // 1 フレームだけ見ると外れ値に振られるので平滑化して読む
@@ -459,6 +471,7 @@ async function main(): Promise<void> {
       view.setTrailSource(world.player)
       view.setBulletSource(world.combat.bullets)
       view.setSmokeSources(world.combat.smokeSources)
+      view.setExplosionSource(world.combat.explosions)
       driver.reset()
       mouse.reset()
       governor.reset()

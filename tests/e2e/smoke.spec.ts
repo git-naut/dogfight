@@ -65,6 +65,9 @@ interface TestHook {
   missilesDrawn: number
   missilesFired: number
   missilesLeft: number
+  explosionsAlive: number
+  explosionsDrawn: number
+  explosionCount: number
   preset: string
   hour: number
   speed: number
@@ -106,6 +109,8 @@ interface CaptureQuery {
   tracers?: boolean
   /** ミサイルの煙を描くか。切ると差分で寄与を測れる */
   smoke?: boolean
+  /** 爆発を描くか。切ると差分で寄与を測れる */
+  explosions?: boolean
 }
 
 async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
@@ -119,6 +124,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
   if (query.tracers === false) params.set('tracers', '0')
   if (query.smoke === false) params.set('smoke', '0')
+  if (query.explosions === false) params.set('explosions', '0')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')
@@ -823,6 +829,60 @@ test.describe('ミサイル', () => {
   })
 })
 
+test.describe('爆発', () => {
+  test('機銃の撃墜で 1 個出る', async ({ page }) => {
+    // 実測。300 m から撃つと 0.6 秒で落ちる
+    const before = await capture(page, { script: 'gun-pass', frame: 60 })
+    expect(before.explosionCount).toBe(0)
+
+    const after = await capture(page, { script: 'gun-pass', frame: 90 })
+    expect(after.kills).toBe(1)
+    expect(after.explosionCount).toBe(1)
+    expect(after.explosionsAlive).toBe(1)
+    expect(after.explosionsDrawn).toBe(1)
+  })
+
+  test('ミサイルの命中で 2 個出る。弾頭の炸裂と撃墜', async ({ page }) => {
+    const hook = await capture(page, { script: 'missile-shot', frame: 1140 })
+    expect(hook.kills).toBe(1)
+    expect(hook.explosionCount).toBe(2)
+  })
+
+  test('外れたら 1 個も出ない', async ({ page }) => {
+    const hook = await capture(page, { script: 'missile-miss', frame: 7440 })
+    expect(hook.kills).toBe(0)
+    expect(hook.explosionCount).toBe(0)
+    expect(hook.explosionsDrawn).toBe(0)
+  })
+
+  test('寿命が過ぎると消える', async ({ page }) => {
+    // 撃墜は 0.6 秒、寿命 3.5 秒。5 秒後には消えている
+    const hook = await capture(page, { script: 'gun-pass', frame: 600 })
+    expect(hook.explosionCount).toBe(1)
+    expect(hook.explosionsAlive).toBe(0)
+    expect(hook.explosionsDrawn).toBe(0)
+  })
+
+  test('sim と描画の数が一致する', async ({ page }) => {
+    const hook = await capture(page, { script: 'gun-pass', frame: 100 })
+    expect(hook.explosionsDrawn).toBe(hook.explosionsAlive)
+  })
+
+  test('爆発を切ると描画が減る', async ({ page }) => {
+    const on = await capture(page, { script: 'gun-pass', frame: 90 })
+    const off = await capture(page, { script: 'gun-pass', frame: 90, explosions: false })
+    expect(on.drawCalls).toBeGreaterThan(off.drawCalls)
+  })
+
+  test('同じフレームを 2 回撮ると爆発の数が一致する', async ({ page }) => {
+    const a = await capture(page, { script: 'gun-pass', frame: 100 })
+    const b = await capture(page, { script: 'gun-pass', frame: 100 })
+    expect(a.explosionCount).toBe(b.explosionCount)
+    expect(a.explosionsAlive).toBe(b.explosionsAlive)
+    expect(a.explosionsDrawn).toBe(b.explosionsDrawn)
+  })
+})
+
 test.describe('デバッグ表示', () => {
   test('?debug=1 で計器が出て数値が更新される', async ({ page }) => {
     await openLive(page, '?debug=1')
@@ -923,6 +983,10 @@ test.describe('スクリーンショット回帰', () => {
     // 自機が自分の煙の筋に沿って飛ぶ。**near 面の見張り。**実測で
     // このフレームの煙の中ほどがカメラの 0.1 m を通る（濃さ 1）
     { name: 'missile-smoke-near', script: 'missile-near', frame: 841, hour: 16, coverage: 0 },
+    // 爆発。機銃で落とした 0.15 秒後。火球が膨らみ切る手前
+    { name: 'explosion-gun', script: 'gun-pass', frame: 90, hour: 16, coverage: 0 },
+    // ミサイルの命中。弾頭の炸裂と撃墜の 2 つが重なる
+    { name: 'explosion-missile', script: 'missile-shot', frame: 1100, hour: 16, coverage: 0 },
   ] as const
 
   for (const scene of scenes) {

@@ -63,9 +63,14 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         timeout-minutes: 8
 
-      # 5 分前後で終わる想定。15 分に当たったら固まっている。
+      # **上限はテスト数に合わせて見直す。**Phase 4 の 58 件では 5 分前後
+      # だったので 15 分にしていたが、Phase 5 で 116 件へ倍増して
+      # 15 分 33 秒に当たった（run 32483238054 の shard 1）。テスト自体は
+      # 落ちておらず、上限だけが原因。もう一方は 14 分 31 秒で通っていて
+      # 余裕がなかった。25 分にして 1.7 倍の余裕を取る。
+      # 段全体の上限 30 分がその外側の歯止めになる。
       - run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
-        timeout-minutes: 15
+        timeout-minutes: 25
 
       - uses: actions/upload-artifact@v5
         if: ${{ !cancelled() }}

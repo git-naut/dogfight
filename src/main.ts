@@ -108,6 +108,10 @@ const hook = installTestHook({
   explosionsAlive: 0,
   explosionsDrawn: 0,
   explosionCount: 0,
+  dlzMax: 0,
+  dlzNe: 0,
+  dlzMin: 0,
+  hudDlzBarShown: false,
   preset: capture.preset,
   hour: capture.hour,
   speed: 0,
@@ -267,6 +271,9 @@ async function main(): Promise<void> {
     armament.lock.range = lock.range
     armament.lock.closingSpeed = lock.closingSpeed
     armament.lock.progress = lock.progress
+    armament.lock.dlz.rMax = currentWorld.combat.dlz.rMax
+    armament.lock.dlz.rNe = currentWorld.combat.dlz.rNe
+    armament.lock.dlz.rMin = currentWorld.combat.dlz.rMin
     const locked = currentWorld.combat.lockedTarget
     // ロックボックスは補間した位置に置く。sim の位置をそのまま使うと、
     // 60fps の描画で 1 ステップぶん（最大 1/120 秒）遅れて機体からずれる
@@ -284,6 +291,7 @@ async function main(): Promise<void> {
     hook.hudFlightPathOnScreen = hud.flightPathOnScreen
     hook.hudGunReticleOnScreen = hud.gunReticleOnScreen
     hook.hudLockBoxOnScreen = hud.lockBoxOnScreen
+    hook.hudDlzBarShown = hud.dlzBarShown
   }
 
   /**
@@ -331,6 +339,9 @@ async function main(): Promise<void> {
     )
     hook.explosionsDrawn = view.explosionsDrawn
     hook.explosionCount = currentWorld.combat.explosionCount
+    hook.dlzMax = currentWorld.combat.dlz.rMax
+    hook.dlzNe = currentWorld.combat.dlz.rNe
+    hook.dlzMin = currentWorld.combat.dlz.rMin
   hook.aircraftSurfaces = view.aircraftSurfaces
   hook.environmentReady = view.environmentReady
   hook.aircraftShadowReady = view.aircraftShadowReady

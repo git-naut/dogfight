@@ -241,6 +241,24 @@ export const SCRIPTS = {
       { frame: 1 * SEC + 1, input: { fireMissile: false } },
     ],
   },
+
+  /**
+   * 正面から向かい合う。DLZ の帯が分かれる構図。
+   *
+   * 標的が反転して自機へ向かってくる（`heading` は台本では指定できないので、
+   * 旋回率で半周させる）。**追う構図では rNe と rMax が一致してバーの帯が
+   * 分かれない。**接近速度が上がると rMax だけ伸びるので、そこで初めて
+   * 「届くが逃げられる」帯が見える。
+   *
+   * 旋回率 0.35 rad/s で 9 秒。半周してこちらへ向く。
+   */
+  'head-on': {
+    name: 'head-on',
+    seed: 20260816,
+    spawn: { altitude: 3000, speed: 250 },
+    targets: [{ offset: new Vec3(0, 40, -9000), speed: 240, turnRate: 0.35 }],
+    keyframes: [],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

@@ -296,6 +296,12 @@ export interface TestHook {
   explosionsDrawn: number
   /** 起こした爆発の総数 */
   explosionCount: number
+  /** DLZ の 3 つの半径 m。ロックしていなければすべて 0 */
+  dlzMax: number
+  dlzNe: number
+  dlzMin: number
+  /** DLZ バーを出しているか */
+  hudDlzBarShown: boolean
   preset: PresetName
   hour: number
   // 飛行状態

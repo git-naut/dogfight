@@ -104,6 +104,15 @@ const LOCK_BOX_MIN = 11
 const LOCK_BOX_MAX = 90
 
 /**
+ * DLZ バーの高さ 画面画素。
+ *
+ * ロックボックスの右に縦に置く。目盛りは距離で、下が 0、上が `rMax`。
+ * 現在の距離を横棒で示す。
+ */
+const DLZ_BAR_HEIGHT = 150
+const DLZ_BAR_WIDTH = 7
+
+/**
  * 武装の状態。
  *
  * `AircraftSample` には載せない。飛行の状態ではないし、DLZ と残ミサイルを
@@ -126,6 +135,8 @@ export interface HudLock {
   closingSpeed: number
   /** 捕捉の進み 0..1 */
   progress: number
+  /** DLZ。3 つの半径 m。ロックしていなければすべて 0 */
+  dlz: { rMax: number; rNe: number; rMin: number }
 }
 
 export function createHudLock(): HudLock {
@@ -135,6 +146,7 @@ export function createHudLock(): HudLock {
     range: 0,
     closingSpeed: 0,
     progress: 0,
+    dlz: { rMax: 0, rNe: 0, rMin: 0 },
   }
 }
 
@@ -147,6 +159,8 @@ export interface Hud {
   readonly gunReticleOnScreen: boolean
   /** ロックボックスが画面に入っているか */
   readonly lockBoxOnScreen: boolean
+  /** DLZ バーを出しているか */
+  readonly dlzBarShown: boolean
   resize(width: number, height: number, devicePixelRatio: number): void
   /**
    * 1 枚描き直す。
@@ -173,6 +187,7 @@ export function createHud(host: HTMLElement): Hud {
   let onScreen = false
   let reticleOnScreen = false
   let lockOnScreen = false
+  let dlzShown = false
 
   // ロックボックスの計算に使う。使い回す
   const lockEdge = new Vec3()
@@ -597,6 +612,76 @@ export function createHud(host: HTMLElement): Hud {
     )
   }
 
+  /**
+   * DLZ バー。いま撃ったら当たるかを縦の目盛りで示す。
+   *
+   * 下が 0、上が `rMax`。現在の距離を横棒で置くので、**棒が目盛りの中に
+   * 入っていれば撃てる。**`rNe`（反転して逃げても届く）までを濃く塗り、
+   * そこから `rMax` までを薄くする。`rMin` より下は近すぎて撃てない。
+   *
+   * 実機の DLZ 表示と同じ考え方。数字を読ませるのではなく、棒の位置で
+   * 判断させる。
+   */
+  function drawDlzBar(lock: HudLock): void {
+    dlzShown = false
+    if (lock.state === 'none' || lock.dlz.rMax <= 0) return
+    dlzShown = true
+
+    const x = width * 0.66
+    const bottom = height * 0.5 + DLZ_BAR_HEIGHT / 2
+    const scale = DLZ_BAR_HEIGHT / lock.dlz.rMax
+    const yOf = (range: number): number =>
+      bottom - Math.min(DLZ_BAR_HEIGHT, Math.max(0, range * scale))
+
+    // 枠
+    ctx!.strokeStyle = DIM
+    ctx!.lineWidth = 1
+    ctx!.strokeRect(x, bottom - DLZ_BAR_HEIGHT, DLZ_BAR_WIDTH, DLZ_BAR_HEIGHT)
+
+    // rMin から rNe まで。ここが確実に当たる帯
+    const neTop = yOf(lock.dlz.rNe)
+    const minTop = yOf(lock.dlz.rMin)
+    ctx!.fillStyle = 'rgba(126, 255, 170, 0.34)'
+    ctx!.fillRect(x + 1, neTop, DLZ_BAR_WIDTH - 2, minTop - neTop)
+
+    // rNe から rMax まで。届くが逃げられる帯
+    ctx!.fillStyle = 'rgba(126, 255, 170, 0.12)'
+    ctx!.fillRect(x + 1, yOf(lock.dlz.rMax), DLZ_BAR_WIDTH - 2, neTop - yOf(lock.dlz.rMax))
+
+    // 境目の線
+    ctx!.strokeStyle = PRIMARY
+    ctx!.lineWidth = 1
+    for (const value of [lock.dlz.rNe, lock.dlz.rMin]) {
+      const y = yOf(value)
+      ctx!.beginPath()
+      ctx!.moveTo(x, y)
+      ctx!.lineTo(x + DLZ_BAR_WIDTH, y)
+      ctx!.stroke()
+    }
+
+    // 現在の距離。目盛りの外にいるときは端に張り付く
+    const inside = lock.range >= lock.dlz.rMin && lock.range <= lock.dlz.rMax
+    const y = yOf(lock.range)
+    ctx!.strokeStyle = inside ? PRIMARY : WARN
+    ctx!.lineWidth = LINE_WIDTH * 1.4
+    ctx!.beginPath()
+    ctx!.moveTo(x - 5, y)
+    ctx!.lineTo(x + DLZ_BAR_WIDTH + 5, y)
+    ctx!.stroke()
+
+    ctx!.font = SMALL_FONT
+    ctx!.fillStyle = DIM
+    ctx!.textAlign = 'left'
+    ctx!.textBaseline = 'middle'
+    ctx!.fillText('DLZ', x + DLZ_BAR_WIDTH + 8, bottom - DLZ_BAR_HEIGHT - 2)
+    // 上端の距離。km で出す
+    ctx!.fillText(
+      `${(lock.dlz.rMax / 1000).toFixed(1)}K`,
+      x + DLZ_BAR_WIDTH + 8,
+      bottom - DLZ_BAR_HEIGHT + 11,
+    )
+  }
+
   /** 残弾。機銃の帯として下部に置く */
   function drawArmament(armament: HudArmament): void {
     ctx!.font = SMALL_FONT
@@ -664,6 +749,10 @@ export function createHud(host: HTMLElement): Hud {
       return lockOnScreen
     },
 
+    get dlzBarShown() {
+      return dlzShown
+    },
+
     resize(w, h, ratio) {
       width = w
       height = h
@@ -685,6 +774,7 @@ export function createHud(host: HTMLElement): Hud {
       drawBoresight(viewProjection)
       drawGunReticle(viewProjection, sample)
       drawLockBox(viewProjection, armament.lock)
+      drawDlzBar(armament.lock)
       drawFlightPath(viewProjection)
 
       drawVerticalTape(

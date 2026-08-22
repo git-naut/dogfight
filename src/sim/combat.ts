@@ -13,6 +13,7 @@ import {
 import { Lock } from './weapons/lock'
 import { Missile, type SmokeSource } from './weapons/missile'
 import { Effects, type ExplosionSource } from './effects'
+import { createDlz, solveDlz, type Dlz } from './weapons/dlz'
 
 /**
  * 搭載するミサイルの数。
@@ -41,6 +42,15 @@ const MISSILE_DAMAGE = 100
  */
 const KILL_BLAST = 1
 const MISSILE_BLAST = 0.75
+
+/**
+ * DLZ を解き直す間隔 秒。
+ *
+ * 前方積分は 60 秒ぶんを 0.1 秒刻みで回すので 600 歩 × 2 通り。毎ステップ
+ * （120Hz）だと無駄が大きい。0.1 秒ごとで十分で、その間に距離は 50 m しか
+ * 変わらない（接近速度 490 m/s でも）。
+ */
+const DLZ_INTERVAL = 0.1
 
 /**
  * 交戦の処理。
@@ -81,6 +91,14 @@ export class Combat {
   readonly gun = new Gun()
   /** シーカーの捕捉。ミサイルの発射条件になる */
   readonly lock = new Lock()
+  /**
+   * DLZ。いま撃ったら当たるかを距離で示す。
+   *
+   * ロックしていないときは 0 のまま。HUD はロックの状態を見てから読む。
+   */
+  readonly dlz: Dlz = createDlz()
+  /** 前回 DLZ を解いてからの経過 秒 */
+  private sinceDlz = DLZ_INTERVAL
   /** 爆発。sim が「いつ・どこで・どの強さで」を持ち、描画は経過秒で絵を作る */
   readonly effects = new Effects()
   /** ミサイル。撃った順に使い、飛び終われば器を再利用する */
@@ -166,6 +184,37 @@ export class Combat {
 
     this.advanceMissiles(dt)
     this.fireMissile(input, player, dt)
+    this.updateDlz(player, dt)
+  }
+
+  /**
+   * DLZ を解き直す。
+   *
+   * ロックしているときだけ。**渡すのはミサイルから見た目標の速さを組める
+   * 材料で、自機との接近速度と目標の速度の両方が要る。**片方だけだと
+   * 二重に数える（`dlz.ts` の説明）。
+   */
+  private updateDlz(player: Aircraft, dt: number): void {
+    this.sinceDlz += dt
+    const target = this.lockedTarget
+    if (this.lock.state === 'none' || target === null) {
+      this.dlz.rMax = 0
+      this.dlz.rNe = 0
+      this.dlz.rMin = 0
+      return
+    }
+    if (this.sinceDlz < DLZ_INTERVAL) return
+    this.sinceDlz = 0
+
+    solveDlz(
+      {
+        launchSpeed: player.speed,
+        altitude: player.altitude,
+        targetSpeed: target.speed,
+        closingSpeed: this.lock.closingSpeed,
+      },
+      this.dlz,
+    )
   }
 
   /**
@@ -353,6 +402,10 @@ export class Combat {
     this.lock.release()
     for (const missile of this.missiles) missile.reset()
     this.effects.reset()
+    this.dlz.rMax = 0
+    this.dlz.rNe = 0
+    this.dlz.rMin = 0
+    this.sinceDlz = DLZ_INTERVAL
     this.missilesLeft = MISSILE_COUNT
     this.missilesFired = 0
     this.sinceLaunch = MISSILE_INTERVAL

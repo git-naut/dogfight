@@ -68,6 +68,10 @@ interface TestHook {
   explosionsAlive: number
   explosionsDrawn: number
   explosionCount: number
+  dlzMax: number
+  dlzNe: number
+  dlzMin: number
+  hudDlzBarShown: boolean
   preset: string
   hour: number
   speed: number
@@ -883,6 +887,70 @@ test.describe('爆発', () => {
   })
 })
 
+test.describe('DLZ', () => {
+  test('ロックすると 3 つの半径が出る', async ({ page }) => {
+    const hook = await capture(page, { script: 'missile-shot', frame: 110 })
+    expect(hook.lockState).toBe('locked')
+    // 実測。追う構図（接近 10 m/s）で 12,070 m
+    expect(hook.dlzMax).toBeGreaterThan(11_000)
+    expect(hook.dlzMax).toBeLessThan(13_000)
+    expect(hook.dlzMin).toBeGreaterThan(0)
+  })
+
+  test('rMin < rNe <= rMax の順序が保たれる', async ({ page }) => {
+    for (const [script, frame] of [
+      ['missile-shot', 110],
+      ['head-on', 600],
+      ['head-on', 1080],
+      ['target-turn', 300],
+    ] as const) {
+      const hook = await capture(page, { script, frame })
+      const label = `${script} f${frame}`
+      expect(hook.dlzMin, label).toBeLessThanOrEqual(hook.dlzNe)
+      expect(hook.dlzNe, label).toBeLessThanOrEqual(hook.dlzMax)
+    }
+  })
+
+  test('接近速度が上がると rMax が伸びる', async ({ page }) => {
+    // head-on は標的が半周してこちらへ向く。9 秒で接近 481 m/s
+    const early = await capture(page, { script: 'head-on', frame: 240 })
+    const late = await capture(page, { script: 'head-on', frame: 1080 })
+    expect(late.closingSpeed).toBeGreaterThan(early.closingSpeed)
+    expect(late.dlzMax).toBeGreaterThan(early.dlzMax)
+  })
+
+  test('rNe は接近速度で変わらない。逃げる相手が基準だから', async ({ page }) => {
+    const early = await capture(page, { script: 'head-on', frame: 240 })
+    const late = await capture(page, { script: 'head-on', frame: 1080 })
+    expect(Math.abs(late.dlzNe - early.dlzNe)).toBeLessThan(50)
+  })
+
+  test('ロックしていなければ 0', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240 })
+    expect(hook.lockState).toBe('none')
+    expect(hook.dlzMax).toBe(0)
+    expect(hook.dlzNe).toBe(0)
+    expect(hook.dlzMin).toBe(0)
+  })
+
+  test('HUD にバーが出る', async ({ page }) => {
+    const on = await capture(page, { script: 'missile-shot', frame: 110, hud: true })
+    expect(on.hudDlzBarShown).toBe(true)
+
+    // ロックしていなければ出さない
+    const off = await capture(page, { script: 'level', frame: 240, hud: true })
+    expect(off.hudDlzBarShown).toBe(false)
+  })
+
+  test('同じフレームを 2 回撮ると DLZ が一致する', async ({ page }) => {
+    const a = await capture(page, { script: 'head-on', frame: 900 })
+    const b = await capture(page, { script: 'head-on', frame: 900 })
+    expect(a.dlzMax).toBe(b.dlzMax)
+    expect(a.dlzNe).toBe(b.dlzNe)
+    expect(a.dlzMin).toBe(b.dlzMin)
+  })
+})
+
 test.describe('デバッグ表示', () => {
   test('?debug=1 で計器が出て数値が更新される', async ({ page }) => {
     await openLive(page, '?debug=1')
@@ -987,6 +1055,9 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'explosion-gun', script: 'gun-pass', frame: 90, hour: 16, coverage: 0 },
     // ミサイルの命中。弾頭の炸裂と撃墜の 2 つが重なる
     { name: 'explosion-missile', script: 'missile-shot', frame: 1100, hour: 16, coverage: 0 },
+    // DLZ バー。正面から向かい合う構図で、rNe と rMax の帯が分かれる。
+    // 実測で接近 481 m/s・rMax 40,304 m・rNe 12,070 m
+    { name: 'hud-dlz', script: 'head-on', frame: 1080, hour: 16, coverage: 0, hud: true },
   ] as const
 
   for (const scene of scenes) {

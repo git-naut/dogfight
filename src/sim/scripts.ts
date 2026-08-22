@@ -259,6 +259,35 @@ export const SCRIPTS = {
     targets: [{ offset: new Vec3(0, 40, -9000), speed: 240, turnRate: 0.35 }],
     keyframes: [],
   },
+
+  /**
+   * 武装がすべて同時に出ている構図。**計測専用。**
+   *
+   * `?sweep=1` で武装の GPU 時間の内訳を測るのに使う。標的 2 機・機銃を
+   * 撃ちっぱなし・ミサイル発射済み（煙が伸びている）・爆発が起きている、
+   * を 1 フレームに揃える。
+   *
+   * **どれか 1 つでも出ていないと、その列の差が 0 になる。**0 が出たときに
+   * 「費用が無視できる」なのか「そもそも描かれていない」なのか区別が付かなく
+   * なる。Phase 3.5 で遮蔽物を切ると裏のものが描かれる罠を踏んだのと同じで、
+   * 引き算で測るときは何が出ているかを先に固定する。
+   *
+   * 1 秒でロックして撃ち、そのまま機銃を撃ち続ける。手前の標的は機銃で
+   * 落ちて爆発し、奥の標的へミサイルが飛ぶ。
+   */
+  'weapons-load': {
+    name: 'weapons-load',
+    seed: 20260816,
+    spawn: { altitude: 3000, speed: 250 },
+    targets: [
+      { offset: new Vec3(0, 11.1, -300), speed: 245 },
+      { offset: new Vec3(400, 60, -2600), speed: 245 },
+    ],
+    keyframes: [
+      { frame: 1 * SEC, input: { fireGun: true, fireMissile: true } },
+      { frame: 1 * SEC + 1, input: { fireGun: true, fireMissile: false } },
+    ],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

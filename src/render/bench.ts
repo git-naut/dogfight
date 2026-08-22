@@ -102,6 +102,11 @@ export async function runBenchSweep(
     environment: true,
     aircraftShadow: true,
     trails: true,
+    targets: true,
+    tracers: true,
+    missiles: true,
+    smoke: true,
+    explosions: true,
     lodDistanceScale: view.quality.lodDistanceScale,
     terrainPatchCells: view.quality.terrainPatchCells,
   }
@@ -121,6 +126,24 @@ export async function runBenchSweep(
     { label: '影なし', config: { ...base, aircraftShadow: false } },
     { label: '環境反射なし', config: { ...base, environment: false } },
     { label: '軌跡なし', config: { ...base, trails: false } },
+    // Phase 5 の武装。台本に何も出ていなければ差は 0 になる。
+    // **0 が出ること自体が「その台本では測れていない」という手がかり。**
+    { label: '標的なし', config: { ...base, targets: false } },
+    { label: '曳光弾なし', config: { ...base, tracers: false } },
+    { label: 'ミサイルなし', config: { ...base, missiles: false } },
+    { label: '煙なし', config: { ...base, smoke: false } },
+    { label: '爆発なし', config: { ...base, explosions: false } },
+    {
+      label: '武装ぜんぶなし',
+      config: {
+        ...base,
+        targets: false,
+        tracers: false,
+        missiles: false,
+        smoke: false,
+        explosions: false,
+      },
+    },
     { label: 'lod 0.65', config: { ...base, lodDistanceScale: 0.65 } },
     { label: 'cells 24', config: { ...base, terrainPatchCells: 24 } },
   ]

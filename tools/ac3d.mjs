@@ -90,6 +90,17 @@ function parseObject(lines, start) {
     name: '',
     texture: null,
     loc: [0, 0, 0],
+    /**
+     * 陰影をなめらかにする上限の角度 度。
+     *
+     * AC3D は面の法線どうしがこの角度より開いていたら、そこを稜線として
+     * 扱い、法線を平均しない。**書かれていなければ null。**F/A-18C には
+     * 1 行も無いので、無い場合は「全部平均する」という以前の振る舞いを
+     * そのまま残す（出力を 1 バイトも変えないため）。
+     */
+    crease: null,
+    /** テクスチャの繰り返し。UV に掛ける */
+    texrep: [1, 1],
     vertices: [],
     surfaces: [],
     kids: [],
@@ -129,6 +140,24 @@ function parseObject(lines, start) {
         const surf = parseSurface(lines, index)
         node.surfaces.push(surf.surface)
         index = surf.next
+      }
+    } else if (key === 'crease') {
+      node.crease = Number(line.split(/\s+/)[1])
+      index++
+    } else if (key === 'texrep') {
+      node.texrep = line.split(/\s+/).slice(1, 3).map(Number)
+      index++
+    } else if (key === 'data') {
+      // AC3D の data は「バイト数 + 次の行から続く生データ」。Blender の
+      // エクスポータがメッシュ名を書いている。中身は使わないが、**行数を
+      // 決め打ちで飛ばしてはいけない。**改行を含むデータがあると、そこから
+      // 先の解釈が全部ずれる。長さを見て飛ばす
+      const bytes = Number(line.split(/\s+/)[1])
+      index++
+      let consumed = 0
+      while (consumed < bytes && index < lines.length) {
+        consumed += lines[index].length + 1
+        index++
       }
     } else if (key === 'kids') {
       kids = Number(line.split(/\s+/)[1])
@@ -206,6 +235,8 @@ export function flatten(root) {
       out.push({
         name: node.name,
         texture: node.texture,
+        crease: node.crease,
+        texrep: node.texrep,
         // .ac のままの世界座標。変換はここではしない
         vertices: node.vertices.map((v) => [
           v[0] + origin[0],

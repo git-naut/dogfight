@@ -45,6 +45,8 @@ const ROOT = join(here, '..')
  */
 const OUT_DIR = join(ROOT, 'public/aircraft')
 
+const DEG = Math.PI / 180
+
 function subtract(a, b) {
   return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
@@ -61,7 +63,23 @@ function normalize(v) {
  * 残りは本体。
  */
 function classify(parts, asset) {
-  const hingeNames = new Set(asset.hinges.map((h) => h.node))
+  /**
+   * .ac のオブジェクト名から、まとめる先のノード名へ。
+   *
+   * **1 枚の舵面が複数のオブジェクトに割れている機体がある。**F-16 は上面と
+   * 下面が別で、ラダーは 7 分割。だから名前の一致では足りない。
+   */
+  const hingeOf = new Map()
+  for (const hinge of asset.hinges) {
+    for (const object of hinge.objects) {
+      const previous = hingeOf.get(object)
+      if (previous !== undefined) {
+        throw new Error(`${object} が ${previous} と ${hinge.node} の両方に入っている`)
+      }
+      hingeOf.set(object, hinge.node)
+    }
+  }
+
   const extra = asset.extraNodes ?? []
   const gearPattern = asset.gearPattern ?? DEFAULT_GEAR_PATTERN
   const groups = new Map()
@@ -72,21 +90,68 @@ function classify(parts, asset) {
   }
 
   for (const part of parts) {
-    if (hingeNames.has(part.name)) put(part.name, part)
+    const hinge = hingeOf.get(part.name)
+    if (hinge !== undefined) put(hinge, part)
     else if (extra.includes(part.name)) put(part.name, part)
     else if (gearPattern.test(part.name)) put('gear', part)
     else if (part.texture === asset.cockpitTexture) put('cockpit', part)
     else put('body', part)
   }
+
+  // **名前を打ち間違えると黙って body へ落ちる。**束ねる相手を 1 つずつ見る。
+  // ノード単位で見るだけでは足りない。F-16 のラダーは 6 つのオブジェクトに
+  // 割れていて、そのうち 1 つの名前が原本に無かった（XML には書いてある）。
+  // 5 つ当たれば通ってしまう
+  const present = new Set(parts.map((p) => p.name))
+  for (const hinge of asset.hinges) {
+    for (const object of hinge.objects) {
+      if (!present.has(object)) {
+        throw new Error(`舵面 ${hinge.node} の ${object} が原本に無い`)
+      }
+    }
+  }
   return groups
+}
+
+/**
+ * 稜線を残して法線を平均する。
+ *
+ * 面 `flatNormal` の頂点 `vi` について、隣接する面のうち法線の向きが
+ * `cosCrease` より近いものだけを足して正規化する。近くない面は稜線の
+ * 向こう側なので混ぜない。
+ *
+ * `cosCrease` が −Infinity なら全部混ざる。crease 行を持たない機体
+ * （F/A-18C）はこちらを通り、以前と同じ値になる。
+ */
+function creasedNormal(adjacent, vi, flatNormal, cosCrease) {
+  let x = 0
+  let y = 0
+  let z = 0
+  for (const n of adjacent[vi]) {
+    if (n[0] * flatNormal[0] + n[1] * flatNormal[1] + n[2] * flatNormal[2] < cosCrease) {
+      continue
+    }
+    x += n[0]
+    y += n[1]
+    z += n[2]
+  }
+  const l = Math.hypot(x, y, z)
+  // 隣が 1 枚も残らないことは起きない（自分自身が入る）。念のため面法線へ落とす
+  return l === 0 ? flatNormal : [x / l, y / l, z / l]
 }
 
 /**
  * 三角形を積む。
  *
- * SURF のビット 0x10 が滑らかな陰影。立っているなら部品内で法線を平均し、
+ * SURF のビット 0x10 が滑らかな陰影。立っているなら隣の面と法線を平均し、
  * 立っていないなら面ごとの法線を使う。混ぜて 1 つのプリミティブに入れると
  * どちらか一方の陰影が崩れるので、両面フラグと合わせてプリミティブを分ける。
+ *
+ * **平均する範囲は `crease` が決める。**AC3D は面の法線どうしがこの角度より
+ * 開いていたら、そこを稜線として扱って平均しない。F-16 の原本は部品ごとに
+ * 45 度から 179 度まで持っている（大半は 80 度）。無視すると 90 度の角が
+ * 丸まる。F/A-18C の原本には crease 行が 1 つも無いので、その場合は全部
+ * 平均する以前の振る舞いをそのまま残す。
  */
 function buildPrimitives(parts, origin) {
   /** key = `${texture}|${mat}|${twoSided}` */
@@ -95,19 +160,20 @@ function buildPrimitives(parts, origin) {
   for (const part of parts) {
     const worldVerts = part.vertices.map(toWorld)
     const originWorld = origin
+    if (part.texrep[0] !== 1 || part.texrep[1] !== 1) {
+      throw new Error(
+        `${part.name} の texrep が ${part.texrep.join(' ')}。UV の繰り返しは未対応`,
+      )
+    }
+    const cosCrease = part.crease === null ? -Infinity : Math.cos(part.crease * DEG)
 
-    // 滑らかな面の法線を頂点へ足し込む
-    const smooth = worldVerts.map(() => [0, 0, 0])
+    // 滑らかな面の法線を頂点ごとにためる。平均は面を出すときに取る
+    const adjacent = worldVerts.map(() => [])
     for (const surf of part.surfaces) {
       if ((surf.flags & SURF_SMOOTH) === 0) continue
       const n = faceNormal(worldVerts, surf.refs)
-      for (const ref of surf.refs) {
-        smooth[ref[0]][0] += n[0]
-        smooth[ref[0]][1] += n[1]
-        smooth[ref[0]][2] += n[2]
-      }
+      for (const ref of surf.refs) adjacent[ref[0]].push(n)
     }
-    for (let i = 0; i < smooth.length; i++) smooth[i] = normalize(smooth[i])
 
     for (const surf of part.surfaces) {
       if (surf.refs.length < 3) continue
@@ -135,7 +201,9 @@ function buildPrimitives(parts, origin) {
       for (let i = 1; i + 1 < surf.refs.length; i++) {
         for (const ref of [surf.refs[0], surf.refs[i], surf.refs[i + 1]]) {
           const v = worldVerts[ref[0]]
-          const n = useSmooth ? smooth[ref[0]] : flatNormal
+          const n = useSmooth
+            ? creasedNormal(adjacent, ref[0], flatNormal, cosCrease)
+            : flatNormal
           pushVertex(
             bucket,
             [v[0] - originWorld[0], v[1] - originWorld[1], v[2] - originWorld[2]],
@@ -397,10 +465,22 @@ function convert(asset) {
 
     // ヒンジの位置へノードの原点を移す。頂点はそのぶん引く
     const from = asset.xmlToWorld(hinge.from)
-    const axis = normalize(subtract(asset.xmlToWorld(hinge.to), from))
+    // 原典が 2 点で書いているものは to、中心と方向で書いているものは axis
+    const axis = normalize(
+      hinge.to !== undefined
+        ? subtract(asset.xmlToWorld(hinge.to), from)
+        : asset.xmlToWorld(hinge.axis),
+    )
     const index = addMeshNode(key, groupParts, from)
     if (index !== null) rootChildren.push(index)
-    hingeInfo.push({ node: key, origin: from, axis, maxDeg: hinge.maxDeg })
+    hingeInfo.push({
+      node: key,
+      origin: from,
+      axis,
+      maxDeg: hinge.maxDeg,
+      channel: hinge.channel,
+      sign: hinge.sign,
+    })
   }
 
   gltf.nodes.push({ name: asset.id, children: rootChildren })

@@ -13,12 +13,26 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
  * 原点がヒンジの位置に移してあるので、回転を代入するだけで舵が切れる。
  */
 
+/** 舵面が読む指令の種類 */
+export type SurfaceChannel = 'elevator' | 'aileron' | 'rudder'
+
 /** 舵面のヒンジ。変換ツールが glTF の extras に載せた値をそのまま読む */
 export interface AircraftHinge {
   node: string
   origin: [number, number, number]
   axis: [number, number, number]
   maxDeg: number
+  /** どの指令で動くか */
+  channel: SurfaceChannel
+  /**
+   * 舵の向き。指令に掛ける符号。
+   *
+   * **機体ごとに違う。**ヒンジの軸がどちらを向いているかで決まるので、
+   * 描画側に表を持てない。F/A-18C はエレベータの軸が左右で同じ向きなので
+   * 同じ符号、F-16 は逆向きなので左右で符号が違う。値は機体の定義
+   * （`tools/f16-hinges.mjs` など）が持ち、glb の extras 経由で届く。
+   */
+  sign: number
 }
 
 export interface AircraftModel {

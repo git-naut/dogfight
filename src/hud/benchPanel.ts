@@ -35,8 +35,13 @@ export function showBenchPanel(root: HTMLElement, rows: readonly BenchRow[]): vo
     'GPU 中央',
     'CPU 最小',
     'CPU 最大',
-    '三角形',
+    // **地形だけでなく実際に投入した総数。**以前は terrainTriangles を
+    // 記録していて、機体や武装を切っても値が動かなかった。実機の計測で
+    // 全条件が同じ数のまま並び、「切れているのか」を確かめられなかった
+    '三角形（総数）',
     '基準との差',
+    // 差がばらつきの内側かどうか。**+0.01 ms を差として読まないため**
+    '判定',
   ]
   const head = document.createElement('tr')
   for (const [i, text] of headers.entries()) {
@@ -50,6 +55,31 @@ export function showBenchPanel(root: HTMLElement, rows: readonly BenchRow[]): vo
   const base = rows[0]
   // GPU クエリが使えるならそちらで差を出す。無ければ CPU 側で
   const key = (row: BenchRow): number => row.gpuMinMs ?? row.cpuMinMs
+
+  /**
+   * ばらつきの目安 ms。
+   *
+   * 最小値と中央値の差を全条件で見て、その中央を取る。最小値を代表値に
+   * するのは割り込みが時間を増やす方向にしか効かないからだが、**それでも
+   * 最小値そのものが振れる。**この幅より小さい差は読まない。
+   *
+   * 前回の実機の計測で、武装を切った差が +0.01〜+0.13 ms で並んだ。
+   * **すべて正の値**（切ったほうが遅い）だったので、差ではなくばらつき
+   * だったと分かる。それを表の上で見分けられるようにする。
+   */
+  const spreads = rows
+    .map((r) => (r.gpuMinMs !== null && r.gpuMedianMs !== null ? r.gpuMedianMs - r.gpuMinMs : null))
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => a - b)
+  const noise = spreads.length > 0 ? spreads[spreads.length >> 1]! : 0
+
+  /** 差がばらつきの内側か、符号が逆（切ったのに遅い）かを判定する */
+  const verdict = (delta: number, isBase: boolean): string => {
+    if (isBase) return '—'
+    if (delta > 0) return `逆（+${delta.toFixed(2)}）`
+    if (Math.abs(delta) < noise) return '誤差以下'
+    return '有意'
+  }
   for (const row of rows) {
     const delta = base ? key(row) - key(base) : 0
     const cells = [
@@ -60,6 +90,7 @@ export function showBenchPanel(root: HTMLElement, rows: readonly BenchRow[]): vo
       `${row.cpuMaxMs.toFixed(2)} ms`,
       `${(row.triangles / 1000).toFixed(0)}k`,
       `${delta >= 0 ? '+' : ''}${delta.toFixed(2)} ms`,
+      verdict(delta, row === base),
     ]
     const tr = document.createElement('tr')
     for (const [i, text] of cells.entries()) {
@@ -73,7 +104,9 @@ export function showBenchPanel(root: HTMLElement, rows: readonly BenchRow[]): vo
 
   const note = document.createElement('p')
   note.textContent =
-    '最小値で読む。割り込みは時間を増やす方向にしか効かないので、最小値だけが環境の騒がしさを拾わない。GPU 側と CPU 側が食い違うときは、どちらも疑う'
+    `最小値で読む。割り込みは時間を増やす方向にしか効かないので、最小値だけが環境の騒がしさを拾わない。` +
+    `ばらつきの目安は ${noise.toFixed(2)} ms（最小と中央の差の中央値）。これより小さい差は読まない。` +
+    `「逆」は切ったのに遅くなった行で、差ではなくばらつき。三角形が動いていない行は、そもそも切れていない`
   note.style.cssText = 'margin:10px 0 0;color:#89a;font-size:12px'
 
   panel.appendChild(table)

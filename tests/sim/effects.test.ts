@@ -192,7 +192,12 @@ describe('火球の形', () => {
 
 describe('台本越し', () => {
   it('機銃の撃墜で 1 個出る', () => {
-    const w = runScript(SCRIPTS['gun-pass'], SEC * 0.7)
+    // 実測 0.95 秒。耐久 60 へ上げたぶん遅くなった（20 のころは 0.50 秒）
+    const before = runScript(SCRIPTS['gun-pass'], SEC * 0.7)
+    expect(before.combat.kills).toBe(0)
+    expect(before.combat.explosionCount).toBe(0)
+
+    const w = runScript(SCRIPTS['gun-pass'], SEC * 1)
     expect(w.combat.kills).toBe(1)
     expect(w.combat.explosionCount).toBe(1)
     expect(w.combat.explosionsAliveAt(w.frame, FIXED_DT)).toBe(1)

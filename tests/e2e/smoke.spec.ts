@@ -634,7 +634,8 @@ test.describe('機銃', () => {
     const hook = await capture(page, { script: 'gun-pass', frame: 120 })
     // 1 秒で 100 発。発射速度 6,000 発/分 が 120Hz で 120 発に化けていないこと
     expect(hook.roundsFired).toBe(100)
-    expect(hook.hits).toBeGreaterThan(15)
+    // 耐久 60 なので、落とすまでに 60 発当てる
+    expect(hook.hits).toBe(60)
     expect(hook.kills).toBe(1)
     expect(hook.targetsAlive).toBe(0)
   })
@@ -653,11 +654,15 @@ test.describe('機銃', () => {
   })
 
   test('曳光弾は 5 発に 1 発', async ({ page }) => {
-    const hook = await capture(page, { script: 'gun-pass', frame: 120 })
-    expect(hook.bulletsInFlight).toBeGreaterThan(50)
+    // f120 では撃墜して撃ち止むので、まだ撃っている f90 で見る。
+    // **飛行中の弾は 34 発しかない。**300 m の的に当て続けているので、
+    // 撃った 90 発のうち 42 発が命中して消えている（当たった弾は貫通しない）
+    const hook = await capture(page, { script: 'gun-pass', frame: 90 })
+    expect(hook.bulletsInFlight).toBeGreaterThan(25)
+    expect(hook.hits).toBeGreaterThan(30)
     // 5 発に 1 発。画面外へ出たぶんは描かないので上限側だけ厳しく見る
     expect(hook.tracersDrawn).toBeLessThanOrEqual(Math.ceil(hook.bulletsInFlight / 5))
-    expect(hook.tracersDrawn).toBeGreaterThan(5)
+    expect(hook.tracersDrawn).toBeGreaterThan(3)
   })
 
   test('曳光弾を切ると描画が減る', async ({ page }) => {
@@ -736,12 +741,20 @@ test.describe('ロックオン', () => {
     expect(lost.lockState).toBe('none')
   })
 
-  test('機銃はシーカーより速い。ロックが立つ前に落とす', async ({ page }) => {
-    const half = await capture(page, { script: 'gun-pass', frame: 60 })
-    expect(half.lockState).toBe('acquiring')
-    const after = await capture(page, { script: 'gun-pass', frame: 120 })
-    expect(after.kills).toBe(1)
-    expect(after.lockState).toBe('none')
+  test('ロックが立ってから落ちる。耐久 60 で順序が入れ替わった', async ({ page }) => {
+    // **耐久 20 のころは機銃のほうが速く、ロックが立つ前に落ちていた。**
+    // 60 へ上げて撃墜が 0.50 → 0.95 秒になり、捕捉 0.70 秒を追い越した
+    const acquiring = await capture(page, { script: 'gun-pass', frame: 60 })
+    expect(acquiring.lockState).toBe('acquiring')
+    expect(acquiring.kills).toBe(0)
+
+    const locked = await capture(page, { script: 'gun-pass', frame: 90 })
+    expect(locked.lockState).toBe('locked')
+    expect(locked.kills).toBe(0)
+
+    const killed = await capture(page, { script: 'gun-pass', frame: 120 })
+    expect(killed.kills).toBe(1)
+    expect(killed.lockState).toBe('none')
   })
 
   test('ロックボックスが画面に入る', async ({ page }) => {
@@ -835,11 +848,12 @@ test.describe('ミサイル', () => {
 
 test.describe('爆発', () => {
   test('機銃の撃墜で 1 個出る', async ({ page }) => {
-    // 実測。300 m から撃つと 0.6 秒で落ちる
-    const before = await capture(page, { script: 'gun-pass', frame: 60 })
+    // 実測 0.95 秒 = f114。耐久を 20 から 60 へ上げたぶん遅くなった
+    const before = await capture(page, { script: 'gun-pass', frame: 90 })
+    expect(before.kills).toBe(0)
     expect(before.explosionCount).toBe(0)
 
-    const after = await capture(page, { script: 'gun-pass', frame: 90 })
+    const after = await capture(page, { script: 'gun-pass', frame: 120 })
     expect(after.kills).toBe(1)
     expect(after.explosionCount).toBe(1)
     expect(after.explosionsAlive).toBe(1)
@@ -868,19 +882,19 @@ test.describe('爆発', () => {
   })
 
   test('sim と描画の数が一致する', async ({ page }) => {
-    const hook = await capture(page, { script: 'gun-pass', frame: 100 })
+    const hook = await capture(page, { script: 'gun-pass', frame: 130 })
     expect(hook.explosionsDrawn).toBe(hook.explosionsAlive)
   })
 
   test('爆発を切ると描画が減る', async ({ page }) => {
-    const on = await capture(page, { script: 'gun-pass', frame: 90 })
-    const off = await capture(page, { script: 'gun-pass', frame: 90, explosions: false })
+    const on = await capture(page, { script: 'gun-pass', frame: 120 })
+    const off = await capture(page, { script: 'gun-pass', frame: 120, explosions: false })
     expect(on.drawCalls).toBeGreaterThan(off.drawCalls)
   })
 
   test('同じフレームを 2 回撮ると爆発の数が一致する', async ({ page }) => {
-    const a = await capture(page, { script: 'gun-pass', frame: 100 })
-    const b = await capture(page, { script: 'gun-pass', frame: 100 })
+    const a = await capture(page, { script: 'gun-pass', frame: 130 })
+    const b = await capture(page, { script: 'gun-pass', frame: 130 })
     expect(a.explosionCount).toBe(b.explosionCount)
     expect(a.explosionsAlive).toBe(b.explosionsAlive)
     expect(a.explosionsDrawn).toBe(b.explosionsDrawn)
@@ -1051,10 +1065,12 @@ test.describe('スクリーンショット回帰', () => {
     // 自機が自分の煙の筋に沿って飛ぶ。**near 面の見張り。**実測で
     // このフレームの煙の中ほどがカメラの 0.1 m を通る（濃さ 1）
     { name: 'missile-smoke-near', script: 'missile-near', frame: 841, hour: 16, coverage: 0 },
-    // 爆発。機銃で落とした 0.15 秒後。火球が膨らみ切る手前
-    { name: 'explosion-gun', script: 'gun-pass', frame: 90, hour: 16, coverage: 0 },
-    // ミサイルの命中。弾頭の炸裂と撃墜の 2 つが重なる
-    { name: 'explosion-missile', script: 'missile-shot', frame: 1100, hour: 16, coverage: 0 },
+    // 爆発。機銃で落とした 0.13 秒後。火球が膨らみ切る手前。
+    // **耐久を 60 へ上げて撃墜が 0.95 秒になったので f90 から f130 へ移した**
+    { name: 'explosion-gun', script: 'gun-pass', frame: 130, hour: 16, coverage: 0 },
+    // ミサイルの命中。弾頭の炸裂と撃墜の 2 つが重なる。
+    // **台本を 1,200 m へ寄せたので命中が 5.56 秒 = f667 になった**
+    { name: 'explosion-missile', script: 'missile-shot', frame: 700, hour: 16, coverage: 0 },
     // DLZ バー。正面から向かい合う構図で、rNe と rMax の帯が分かれる。
     // 実測で接近 481 m/s・rMax 40,304 m・rNe 12,070 m
     { name: 'hud-dlz', script: 'head-on', frame: 1080, hour: 16, coverage: 0, hud: true },

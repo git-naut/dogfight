@@ -199,18 +199,24 @@ describe('台本越し', () => {
     expect(w.combat.lock.range).toBeLessThan(250)
   })
 
-  it('gun-pass は機銃がシーカーより速い。ロックが立つ前に落とす', () => {
-    // 実測。捕捉にかかるのは 0.7 秒だが、300 m から撃つと 0.6 秒で落ちる
-    const half = runScript(SCRIPTS['gun-pass'], SEC * 0.5)
-    expect(half.combat.lock.state).toBe('acquiring')
-    expect(half.combat.lock.progress).toBeCloseTo(0.71, 2)
-    expect(half.targets[0]!.integrity).toBe(1)
+  it('gun-pass はロックが立ってから落ちる。耐久 60 で順序が入れ替わった', () => {
+    // **耐久 20 のころは機銃のほうが速く、ロックが立つ前に落ちていた。**
+    // 60 へ上げて撃墜が 0.50 → 0.95 秒になり、捕捉 0.70 秒を追い越した。
+    // ロックボックスが出てから落ちるまでの間ができる
+    const acquiring = runScript(SCRIPTS['gun-pass'], SEC * 0.5)
+    expect(acquiring.combat.lock.state).toBe('acquiring')
+    expect(acquiring.combat.lock.progress).toBeCloseTo(0.71, 2)
+    expect(acquiring.targets[0]!.integrity).toBe(41)
 
-    const after = runScript(SCRIPTS['gun-pass'], SEC * 0.6)
-    expect(after.combat.kills).toBe(1)
-    // 落ちた相手は掴めないので、捕捉の途中で解除される
-    expect(after.combat.lock.state).toBe('none')
-    expect(after.combat.lock.progress).toBe(0)
+    const locked = runScript(SCRIPTS['gun-pass'], SEC * 0.7)
+    expect(locked.combat.lock.state).toBe('locked')
+    expect(locked.combat.kills).toBe(0)
+
+    const killed = runScript(SCRIPTS['gun-pass'], SEC * 1)
+    expect(killed.combat.kills).toBe(1)
+    // 落ちた相手は掴めないので解除される
+    expect(killed.combat.lock.state).toBe('none')
+    expect(killed.combat.lock.progress).toBe(0)
   })
 
   it('target-turn は標的が抜けていくとロックが落ちる', () => {

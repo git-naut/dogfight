@@ -88,6 +88,56 @@ export const AIRCRAFT_ASSETS = [
      */
     cockpitTexture: undefined,
     extraNodes: ['ExternalFlame', 'InternalFlame'],
+    /**
+     * 降着装置。**既定の Door を外す。**
+     *
+     * F-16 は脚が上がっているときに閉じる外扉を別オブジェクトで持っている
+     * （`ExternalLeftMainDoor` など）。既定の名前で拾うとこれも隠れて、腹に
+     * 脚庫の穴が開く。`gearwellMat` の 169 三角形がそのまま見えていた。
+     */
+    gearPattern: /Gear|Wheel|Tire|Strut|Hook/i,
+    /** 名前に Gear が入るが、閉じた外扉なので機体の外板として残す */
+    notGear: ['ExternalFrontGearDoor'],
+    /**
+     * FlightGear が既定の状態で見せない部品。
+     *
+     * 原典の `select` アニメーションの条件から拾った。**推測ではない。**
+     * 全部出すと塗装の変種が二重に重なり、空のパイロンが翼下に垂れ、
+     * 同じ位置にある 2 枚の円盤が Z ファイティングする。
+     */
+    hidden: [
+      // RNLAF 塗装の変種。bool[36] が偽のとき FlightGear は USAF_Tailroot の
+      // ほうを出す。**両方出ていて、尾部に橙色の矩形（chuteMat の 6 三角形、
+      // 基本色 0.63/0.05/0.00）が乗っていた**
+      'RNLAF_Tailroot',
+      'Chute',
+      // 条件が <property>false</property>。出ることのない予備の灯火。
+      // select に入っていない GreenPosLight2 と RedPosLight2 のほうが本物
+      'GreenPosLight1',
+      'RedPosLight1',
+      'WingRedPosLight',
+      'WingGreenPosLight',
+      // マルチプレイの灯火フラグ。既定では出ない
+      'LowFormationLlight',
+      'FwdFormationLight',
+      'AftPosLight1',
+      'AftPosLight2',
+      // 停止中のファン。飛行中は FanSpinning のほう。**両方 .ac の X が
+      // 0.58..0.60 で重なっているので、出すと Z ファイティングする**
+      'Fan',
+      // 条件が <property>nop</property>。未定義のプロパティなので出ない
+      'Turbine',
+      // 空のパイロン。搭載物を積んだときだけ出る
+      'LWStation1',
+      'LWStation2',
+      'LWStation3',
+      'RWStation1',
+      'RWStation2',
+      'RWStation3',
+      // 装備と型式の変種。既定では出ない
+      'Link16Antennas',
+      'Tail-antenna',
+    ],
     copyright:
       'F-16 model from FlightGear FGAddon, GPLv2+. See assets/CREDITS.md',
   },

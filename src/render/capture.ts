@@ -62,6 +62,14 @@ export interface CaptureConfig {
    * 引くのが正しい。翼端渦で同じ作法を採った
    */
   showTargets: boolean
+  /**
+   * 敵機を描くか。`?enemies=0` で切る。
+   *
+   * ダメージの煙の断面を測るのに要る。自機が敵の後ろにつくと煙の中を通るが、
+   * 敵の機体が煙を隠す境界も差分では輪郭として立つ。`?aircraft=0` と
+   * 同じ理由で分けられるようにしておく
+   */
+  showEnemies: boolean
   /** 曳光弾を描くか。`?tracers=0` で切る。差分で見え方を測るのに使う */
   showTracers: boolean
   /**
@@ -149,6 +157,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showEnvironment: params.get('env') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',
+    showEnemies: params.get('enemies') !== '0',
     showTracers: params.get('tracers') !== '0',
     showAircraft: params.get('aircraft') !== '0',
     showTrails: params.get('trails') !== '0',
@@ -258,6 +267,16 @@ export interface TestHook {
   targetInstances: number
   /** 生きている標的の数 */
   targetsAlive: number
+  /** sim にいる敵機の数。台本の配置で決まる */
+  enemyCount: number
+  /** 描画が作った敵機の複製の数。生きている敵の数と一致するはず */
+  enemyInstances: number
+  /** 生きている敵機の数 */
+  enemiesAlive: number
+  /** 敵機 1 機の三角形数。読み込めていなければ 0 */
+  enemyTriangles: number
+  /** 敵機 1 機の動かせた舵面の枚数。5 枚あるはず */
+  enemySurfaces: number
   /** 飛行中の弾の数 */
   bulletsInFlight: number
   /** 描いた曳光弾の線分の数。5 発に 1 発なので飛行中の 1/5 前後 */

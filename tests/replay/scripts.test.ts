@@ -68,7 +68,7 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('15 本すべて引ける', () => {
+  it('19 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
@@ -85,10 +85,24 @@ describe('スクリプトの登録', () => {
       'missile-near',
       'head-on',
       'weapons-load',
+      'enemy-ahead',
+      'enemy-formation',
+      'enemy-head-on',
+      'enemy-eight',
     ])
     for (const name of SCRIPT_NAMES) {
       expect(getScript(name).name).toBe(name)
     }
+  })
+
+  it('敵つきの台本だけが敵を持つ', () => {
+    const withEnemies = SCRIPT_NAMES.filter((n) => getScript(n).enemies !== undefined)
+    expect(withEnemies).toEqual([
+      'enemy-ahead',
+      'enemy-formation',
+      'enemy-head-on',
+      'enemy-eight',
+    ])
   })
 
   it('標的つきの台本だけが標的を持つ', () => {

@@ -296,6 +296,81 @@ export const SCRIPTS = {
       { frame: 1 * SEC + 1, input: { fireGun: true, fireMissile: false } },
     ],
   },
+  /**
+   * 敵機を正面に置く。F-16 が見えることの確認に使う。
+   *
+   * 間合いは 190 m。**標的機で実測した距離をそのまま使う。**追従カメラの
+   * 垂直画角は速度 250 m/s で 66.4 度あり、900 m では機体が 10 × 7 画素に
+   * しかならなかった。190 m で 28 × 10 画素。
+   *
+   * 敵は水平定常飛行のトリムで直進する。この段では AI を載せていないので、
+   * 舵面は中立から動かない。速度を自機より遅くして詰まっていく構図にする。
+   */
+  'enemy-ahead': {
+    name: 'enemy-ahead',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(35, 12, -190), speed: 240 }],
+    keyframes: [],
+  },
+
+  /**
+   * 敵機を右前方 45 m に並走させる。**機体の形と塗装を目で確かめる構図。**
+   *
+   * 190 m だと実測で 20 画素しかなく、単垂直尾翼が 1 本あることくらいしか
+   * 分からない。45 m まで寄せると 100 画素を超える。速度をそろえて相対位置を
+   * 保つので、フレームを変えても同じ大きさで写る。
+   */
+  'enemy-formation': {
+    name: 'enemy-formation',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(38, 4, -25), speed: 250 }],
+    keyframes: [],
+  },
+
+  /**
+   * 敵機が正面から来る。舵面と塗装を近くで見るのに使う。
+   *
+   * 方位 π で自機と向き合う。接近速度は 250 + 240 = 490 m/s なので、
+   * 3,000 m からだと 6.1 秒ですれ違う。**フレーム 600（5 秒）で残り
+   * 550 m。**すれ違う直前を撮れる
+   */
+  'enemy-head-on': {
+    name: 'enemy-head-on',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(0, 0, -3000), speed: 240, heading: Math.PI }],
+    keyframes: [],
+  },
+  /**
+   * 敵機 8 機。**性能の計測に使う。**
+   *
+   * Phase 7 のミッション 01 が敵 8 機撃墜なので、器の上限（`MAX_TARGETS`）と
+   * そろえた数を並べる。全機を画面に入れるため、前方 400〜1,100 m に横へ
+   * 広げて置く。速度は自機とそろえて相対位置を保つ。
+   *
+   * F-16 は空中で 15,554 三角形・40 プリミティブを描く（実測）。8 機で
+   * 124,432 三角形と 320 ドローコール。**地形の 45 万に対して三角形は軽いが、
+   * ドローコールは基準の 85 に対して 4 倍近く増える。**どちらが効くかを
+   * 実機で測る。
+   */
+  'enemy-eight': {
+    name: 'enemy-eight',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [
+      { offset: new Vec3(-300, 20, -400), speed: 250 },
+      { offset: new Vec3(-180, -30, -600), speed: 250 },
+      { offset: new Vec3(-60, 40, -800), speed: 250 },
+      { offset: new Vec3(60, -20, -500), speed: 250 },
+      { offset: new Vec3(180, 30, -700), speed: 250 },
+      { offset: new Vec3(300, -40, -900), speed: 250 },
+      { offset: new Vec3(-420, 10, -1000), speed: 250 },
+      { offset: new Vec3(420, 0, -1100), speed: 250 },
+    ],
+    keyframes: [],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

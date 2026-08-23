@@ -82,6 +82,8 @@ function classify(parts, asset) {
 
   const extra = asset.extraNodes ?? []
   const gearPattern = asset.gearPattern ?? DEFAULT_GEAR_PATTERN
+  const hidden = new Set(asset.hidden ?? [])
+  const notGear = new Set(asset.notGear ?? [])
   const groups = new Map()
   const put = (key, part) => {
     const list = groups.get(key)
@@ -93,7 +95,10 @@ function classify(parts, asset) {
     const hinge = hingeOf.get(part.name)
     if (hinge !== undefined) put(hinge, part)
     else if (extra.includes(part.name)) put(part.name, part)
-    else if (gearPattern.test(part.name)) put('gear', part)
+    // 隠す指定は降着装置より先に見る。どちらでも結果は同じだが、意図が
+    // 名前で書いてある側を優先するほうが読める
+    else if (hidden.has(part.name)) put('stowed', part)
+    else if (gearPattern.test(part.name) && !notGear.has(part.name)) put('gear', part)
     else if (part.texture === asset.cockpitTexture) put('cockpit', part)
     else put('body', part)
   }
@@ -108,6 +113,15 @@ function classify(parts, asset) {
       if (!present.has(object)) {
         throw new Error(`舵面 ${hinge.node} の ${object} が原本に無い`)
       }
+    }
+  }
+  // 隠す指定も同じ。名前を打ち間違えると黙って body へ落ちて、そのまま見える
+  for (const [label, names] of [
+    ['hidden', asset.hidden ?? []],
+    ['notGear', asset.notGear ?? []],
+  ]) {
+    for (const name of names) {
+      if (!present.has(name)) throw new Error(`${label} の ${name} が原本に無い`)
     }
   }
   return groups

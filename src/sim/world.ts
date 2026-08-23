@@ -5,6 +5,8 @@ import { Vec3 } from './vec3'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
 import { ReplayPlayer, spawnFromSpec, type ReplayScript } from './replay'
 import { Target, type TargetSample, type TargetSpec } from './target'
+import { Enemy, type EnemySpec } from './enemy'
+import type { Combatant } from './combatant'
 import { Combat } from './combat'
 import type { InputState } from './input'
 import { defaultTerrain, type Terrain } from './terrain'
@@ -26,10 +28,16 @@ export interface WorldOptions {
   /**
    * 標的機の配置。自機のスポーン地点からの相対。
    *
-   * Phase 5 の的。飛行モデルは載せず、決められた軌跡を飛ぶ剛体として扱う。
-   * 敵 AI とダメージは Phase 6。
+   * 飛行モデルは載せず、決められた軌跡を飛ぶ剛体として扱う。弾道や DLZ や
+   * 視線回転率を測る台本はこちらを使う。相手が勝手に機動しないほうが読める。
    */
   targets?: TargetSpec[]
+  /**
+   * 敵機の配置。自機のスポーン地点からの相対。
+   *
+   * こちらは `Aircraft` を持つので失速も墜落もする。空戦の台本はこちら。
+   */
+  enemies?: EnemySpec[]
   /**
    * 地形。省略すると共有の既定地形を使う。
    *
@@ -58,6 +66,15 @@ export class World {
   readonly player: Aircraft
   /** 標的機。台本に配置が書かれていなければ空 */
   readonly targets: readonly Target[]
+  /** 敵機。台本に配置が書かれていなければ空 */
+  readonly enemies: readonly Enemy[]
+  /**
+   * 撃たれる側の全部。標的機と敵機を 1 本の列に並べたもの。
+   *
+   * **`Combat` はこれを見る。**弾もロックもミサイルも、相手が剛体か
+   * 飛行モデル付きかを区別しない。添字はこの列の順で、標的機が先に来る。
+   */
+  readonly combatants: readonly Combatant[]
   /** 交戦の処理。発射管制と当たり判定はここが持つ */
   readonly combat: Combat
   /** 地形。描画側も同じものを読んで、当たる山と見える山を一致させる */
@@ -81,14 +98,18 @@ export class World {
       ...(spawn.throttle !== undefined ? { throttle: spawn.throttle } : {}),
     })
 
-    // 標的の位置は自機のスポーン地点からの相対。自機を作ったあとに読む
+    // 標的と敵の位置は自機のスポーン地点からの相対。自機を作ったあとに読む
     this.targets = (options.targets ?? []).map(
       (spec) => new Target(spec, this.player.position),
     )
+    this.enemies = (options.enemies ?? []).map(
+      (spec) => new Enemy(spec, this.player.position, this.stepOptions),
+    )
+    this.combatants = [...this.targets, ...this.enemies]
 
     this.combat = new Combat({
       rng: this.rng,
-      targets: this.targets,
+      targets: this.combatants,
       terrain: this.terrain,
       // 地形の最高点より上では、弾が地面を引く必要がない
       groundLimit: this.terrain.stats.max,
@@ -114,6 +135,7 @@ export class World {
   step(input: InputState): void {
     this.player.step(input, FIXED_DT, this.stepOptions)
     for (const target of this.targets) target.step(FIXED_DT)
+    for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player)
     this.combat.step(input, this.player, FIXED_DT, this._frame)
     this._frame++
   }
@@ -133,6 +155,25 @@ export class World {
       this.targets[i]!.sample(alpha, out[i]!)
     }
   }
+
+  /**
+   * 描画用に補間した敵機の状態を書き込む。
+   *
+   * 敵は `Aircraft` を持つので器も `AircraftSample`。自機と同じ形なので、
+   * 舵面も軌跡も同じ経路で描ける。
+   */
+  sampleEnemies(alpha: number, out: AircraftSample[]): void {
+    for (let i = 0; i < this.enemies.length && i < out.length; i++) {
+      this.enemies[i]!.sample(alpha, out[i]!)
+    }
+  }
+
+  /** 生きている敵機の数 */
+  get enemiesAlive(): number {
+    let alive = 0
+    for (const enemy of this.enemies) if (enemy.alive) alive++
+    return alive
+  }
 }
 
 /** 入力スクリプトの初期条件から World を作り、再生器と組にして返す。 */
@@ -150,6 +191,7 @@ export function createWorldFromScript(script: ReplayScript): {
       throttle: spawn.throttle,
     },
     ...(script.targets ? { targets: script.targets } : {}),
+    ...(script.enemies ? { enemies: script.enemies } : {}),
   })
   return { world, player: new ReplayPlayer(script) }
 }

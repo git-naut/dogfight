@@ -1,6 +1,6 @@
 import { FixedStepDriver, FIXED_DT } from './sim/loop'
 import { World, createWorldFromScript } from './sim/world'
-import { createAircraftSample } from './sim/aircraft'
+import { createAircraftSample, type AircraftSample } from './sim/aircraft'
 import { createTargetSample, type TargetSample } from './sim/target'
 import { Vec3 } from './sim/vec3'
 import { Quat } from './sim/quat'
@@ -55,6 +55,7 @@ const capture = readCaptureConfig(window.location.search)
 const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
 // 機体は tools/ac3d-to-glb.mjs が public/aircraft/ へ置く
 const AIRCRAFT_URL = `${import.meta.env.BASE_URL}aircraft/f18.glb`
+const ENEMY_URL = `${import.meta.env.BASE_URL}aircraft/f16.glb`
 
 const hook = installTestHook({
   frame: 0,
@@ -89,6 +90,11 @@ const hook = installTestHook({
   targetCount: 0,
   targetInstances: 0,
   targetsAlive: 0,
+  enemyCount: 0,
+  enemyInstances: 0,
+  enemiesAlive: 0,
+  enemyTriangles: 0,
+  enemySurfaces: 0,
   bulletsInFlight: 0,
   tracersDrawn: 0,
   roundsFired: 0,
@@ -148,6 +154,19 @@ function fitTargetSamples(count: number): void {
 }
 
 /**
+ * 敵機の状態。器は使い回す。
+ *
+ * 敵は `Aircraft` を持つので器も自機と同じ `AircraftSample`。舵面も軌跡も
+ * 同じ経路で描ける。
+ */
+let enemySamples: AircraftSample[] = []
+
+function fitEnemySamples(count: number): void {
+  while (enemySamples.length < count) enemySamples.push(createAircraftSample())
+  if (enemySamples.length > count) enemySamples.length = count
+}
+
+/**
  * 飛んでいるミサイルの姿勢。器は使い回す。
  *
  * サンプルには載せない。飛んでいるのは多くて 6 発だが、位置と姿勢を毎フレーム
@@ -193,6 +212,7 @@ async function main(): Promise<void> {
     hour: capture.hour,
     texturesUrl: TEXTURES_URL,
     aircraftUrl: AIRCRAFT_URL,
+    enemyUrl: ENEMY_URL,
     coverage: capture.coverage,
     qualityOverride: {
       ...(capture.cloudScale !== null ? { resolutionScale: capture.cloudScale } : {}),
@@ -210,6 +230,7 @@ async function main(): Promise<void> {
     showEnvironment: capture.showEnvironment,
     showAircraftShadow: capture.showAircraftShadow,
     showTargets: capture.showTargets,
+    showEnemies: capture.showEnemies,
     showTracers: capture.showTracers,
     showAircraft: capture.showAircraft,
     showTrails: capture.showTrails,
@@ -276,10 +297,17 @@ async function main(): Promise<void> {
     armament.lock.dlz.rMin = currentWorld.combat.dlz.rMin
     const locked = currentWorld.combat.lockedTarget
     // ロックボックスは補間した位置に置く。sim の位置をそのまま使うと、
-    // 60fps の描画で 1 ステップぶん（最大 1/120 秒）遅れて機体からずれる
+    // 60fps の描画で 1 ステップぶん（最大 1/120 秒）遅れて機体からずれる。
+    //
+    // **添字は `combatants` のもの。**標的機が先、敵機があとで 1 本に
+    // 並んでいるので、標的の数を引いて敵側の器を引く。標的の器だけを見て
+    // いたころは、敵をロックすると補間が効かず sim の位置に落ちていた
     if (locked !== null) {
       const index = lock.index
-      const interpolated = targetSamples[index]
+      const interpolated =
+        index < targetSamples.length
+          ? targetSamples[index]
+          : enemySamples[index - currentWorld.targets.length]
       if (interpolated !== undefined) armament.lock.position.copy(interpolated.position)
       else armament.lock.position.copy(locked.position)
     }
@@ -318,6 +346,11 @@ async function main(): Promise<void> {
     hook.targetCount = targetSamples.length
     hook.targetInstances = view.targetInstances
     hook.targetsAlive = currentWorld.combat.targetsAlive
+    hook.enemyCount = currentWorld.enemies.length
+    hook.enemyInstances = view.enemyInstances
+    hook.enemiesAlive = currentWorld.enemiesAlive
+    hook.enemyTriangles = view.enemyTriangles
+    hook.enemySurfaces = view.enemySurfaces
     hook.bulletsInFlight = currentWorld.combat.bulletsInFlight
     hook.tracersDrawn = view.tracersDrawn
     hook.roundsFired = currentWorld.combat.roundsFired
@@ -372,6 +405,8 @@ async function main(): Promise<void> {
     world.samplePlayer(1, sample)
     fitTargetSamples(world.targets.length)
     world.sampleTargets(1, targetSamples)
+    fitEnemySamples(world.enemies.length)
+    world.sampleEnemies(1, enemySamples)
     view.setTrailSource(world.player)
     view.setBulletSource(world.combat.bullets)
     view.setSmokeSources(world.combat.smokeSources)
@@ -379,6 +414,7 @@ async function main(): Promise<void> {
     view.sync(
       sample,
       targetSamples,
+      enemySamples,
       collectMissilePoses(world, 1),
       world.frame,
       0,
@@ -468,8 +504,10 @@ async function main(): Promise<void> {
         throttle: spawn.throttle,
       },
       ...(script.targets ? { targets: script.targets } : {}),
+      ...(script.enemies ? { enemies: script.enemies } : {}),
     })
     fitTargetSamples(world.targets.length)
+    fitEnemySamples(world.enemies.length)
     return world
   }
 
@@ -495,9 +533,11 @@ async function main(): Promise<void> {
     const t1 = performance.now()
     world.samplePlayer(alpha, sample)
     world.sampleTargets(alpha, targetSamples)
+    world.sampleEnemies(alpha, enemySamples)
     view.sync(
       sample,
       targetSamples,
+      enemySamples,
       collectMissilePoses(world, alpha),
       world.frame,
       delta,
@@ -558,9 +598,12 @@ async function main(): Promise<void> {
   world.samplePlayer(1, sample)
   fitTargetSamples(world.targets.length)
   world.sampleTargets(1, targetSamples)
+  fitEnemySamples(world.enemies.length)
+  world.sampleEnemies(1, enemySamples)
   view.sync(
     sample,
     targetSamples,
+    enemySamples,
     collectMissilePoses(world, 1),
     world.frame,
     FIXED_DT,

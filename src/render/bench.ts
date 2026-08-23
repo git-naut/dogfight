@@ -131,6 +131,7 @@ export async function runBenchSweep(
     // Phase 5 の武装。台本に何も出ていなければ差は 0 になる。
     // **0 が出ること自体が「その台本では測れていない」という手がかり。**
     { label: '標的なし', config: { ...base, targets: false } },
+    { label: '敵機なし', config: { ...base, enemies: false } },
     { label: '曳光弾なし', config: { ...base, tracers: false } },
     { label: 'ミサイルなし', config: { ...base, missiles: false } },
     { label: '煙なし', config: { ...base, smoke: false } },

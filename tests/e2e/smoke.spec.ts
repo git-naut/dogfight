@@ -49,6 +49,11 @@ interface TestHook {
   targetCount: number
   targetInstances: number
   targetsAlive: number
+  enemyCount: number
+  enemyInstances: number
+  enemiesAlive: number
+  enemyTriangles: number
+  enemySurfaces: number
   bulletsInFlight: number
   tracersDrawn: number
   roundsFired: number
@@ -107,6 +112,8 @@ interface CaptureQuery {
   coverage?: number
   /** 標的機を描くか。切ると差分で標的の寄与を測れる */
   targets?: boolean
+  /** 敵機を描くか。切ると差分で敵の寄与を測れる */
+  enemies?: boolean
   /** HUD を出すか。キャプチャの既定はオフ */
   hud?: boolean
   /** 曳光弾を描くか。切ると差分で寄与を測れる */
@@ -125,6 +132,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   if (query.preset !== undefined) params.set('preset', query.preset)
   if (query.coverage !== undefined) params.set('coverage', String(query.coverage))
   if (query.targets === false) params.set('targets', '0')
+  if (query.enemies === false) params.set('enemies', '0')
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
   if (query.tracers === false) params.set('tracers', '0')
   if (query.smoke === false) params.set('smoke', '0')
@@ -629,6 +637,79 @@ test.describe('標的機', () => {
   })
 })
 
+test.describe('敵機', () => {
+  test('台本に書いた数だけ出て、複製が作られる', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-ahead', frame: 240 })
+    expect(hook.enemyCount).toBe(1)
+    expect(hook.enemyInstances).toBe(1)
+    expect(hook.enemiesAlive).toBe(1)
+  })
+
+  test('台本に敵がなければ 1 機も出ない', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240 })
+    expect(hook.enemyCount).toBe(0)
+    expect(hook.enemyInstances).toBe(0)
+  })
+
+  test('F-16 の舵面 5 枚を拾える', async ({ page }) => {
+    // ラダーが 1 枚しかない機体なので 6 ではなく 5。**枚数が変わったら、
+    // 舵面のノードを 1 つ取りこぼしている**
+    const hook = await capture(page, { script: 'enemy-ahead', frame: 240 })
+    expect(hook.enemySurfaces).toBe(5)
+  })
+
+  test('原本の三角形数がそのまま乗っている', async ({ page }) => {
+    // 18,042。降着装置と stowed を隠しても、モデルが持つ総数は変わらない
+    const hook = await capture(page, { script: 'enemy-ahead', frame: 240 })
+    expect(hook.enemyTriangles).toBe(18_042)
+  })
+
+  test('敵を切ると三角形が減る', async ({ page }) => {
+    const on = await capture(page, { script: 'enemy-formation', frame: 240 })
+    const off = await capture(page, {
+      script: 'enemy-formation',
+      frame: 240,
+      enemies: false,
+    })
+
+    expect(off.drawCalls, 'ドローコールが減っていない').toBeLessThan(on.drawCalls)
+    // 空中で描くのは 15,554（総数 18,042 から降着 2,093 と stowed 395 を引く）
+    expect(
+      on.drawnTriangles - off.drawnTriangles,
+      '敵 1 機ぶんの三角形が乗っていない',
+    ).toBeGreaterThan(15_000)
+  })
+
+  test('敵は自機の glb を読み直さない', async ({ page }) => {
+    // 自機のモデルと敵のモデルは別ファイル。混ざっていれば
+    // aircraftTriangles が敵の数に引きずられる
+    const withEnemy = await capture(page, { script: 'enemy-ahead', frame: 240 })
+    const alone = await capture(page, { script: 'level', frame: 240 })
+    expect(withEnemy.aircraftTriangles).toBe(alone.aircraftTriangles)
+    expect(withEnemy.enemyTriangles).not.toBe(withEnemy.aircraftTriangles)
+  })
+
+  test('敵を足しても三角形がシーン予算 1.5M の内側', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-formation', frame: 240 })
+    expect(hook.drawnTriangles).toBeLessThan(1_500_000)
+  })
+
+  test('敵はシーカーに捉えられる', async ({ page }) => {
+    // Combatant を切った甲斐がここに出る。Target ではないものを
+    // ロックの列に並べられている
+    const hook = await capture(page, { script: 'enemy-ahead', frame: 240 })
+    expect(hook.lockState).toBe('locked')
+    expect(hook.lockRange).toBeGreaterThan(100)
+    expect(hook.lockRange).toBeLessThan(250)
+  })
+
+  test('AI を載せる前の敵は直進して落ちない', async ({ page }) => {
+    // 30 秒。トリムで置いたので高度も速度も保つはず
+    const hook = await capture(page, { script: 'enemy-ahead', frame: 3600 })
+    expect(hook.enemiesAlive).toBe(1)
+  })
+})
+
 test.describe('機銃', () => {
   test('gun-pass で撃って当てて落とす', async ({ page }) => {
     const hook = await capture(page, { script: 'gun-pass', frame: 120 })
@@ -1074,6 +1155,11 @@ test.describe('スクリーンショット回帰', () => {
     // DLZ バー。正面から向かい合う構図で、rNe と rMax の帯が分かれる。
     // 実測で接近 481 m/s・rMax 40,304 m・rNe 12,070 m
     { name: 'hud-dlz', script: 'head-on', frame: 1080, hour: 16, coverage: 0, hud: true },
+    // 敵機。**並走させて形が読める大きさで撮る。**190 m だと実測 20 画素で、
+    // 単垂直尾翼が 1 本あることくらいしか分からない。45 m で 149 x 53 画素
+    { name: 'enemy-formation', script: 'enemy-formation', frame: 240, hour: 16, coverage: 0 },
+    // 交戦距離の敵機。ロックボックス込みで、実際に戦う大きさを見張る
+    { name: 'enemy-ahead', script: 'enemy-ahead', frame: 240, hour: 16, coverage: 0, hud: true },
   ] as const
 
   for (const scene of scenes) {

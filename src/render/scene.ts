@@ -6,6 +6,7 @@ import { createChaseCamera, type ChaseCamera } from './camera'
 import { createAircraftView, type AircraftView } from './aircraftView'
 import { loadAircraftModel, type AircraftModel } from './aircraft/model'
 import { createTargetViews, type TargetViews } from './targetView'
+import { createEnemyViews, type EnemyViews } from './enemyView'
 import { createTracers, type Tracers } from './weapons/tracers'
 import { createMissileViews, type MissileViews } from './weapons/missileView'
 import { createMissileSmoke, type MissileSmoke } from './weapons/missileSmoke'
@@ -101,6 +102,8 @@ export interface MeasureConfig {
   trails?: boolean
   /** 標的機 */
   targets?: boolean
+  /** 敵機 */
+  enemies?: boolean
   /** 曳光弾 */
   tracers?: boolean
   /** ミサイルの本体 */
@@ -158,6 +161,12 @@ export interface SceneHandle {
   readonly aircraftTriangles: number
   /** 作った標的機の複製の数。三角形はこの数だけ増える */
   readonly targetInstances: number
+  /** 作った敵機の複製の数。三角形はこの数だけ増える */
+  readonly enemyInstances: number
+  /** 敵機 1 機の三角形数。読み込めていなければ 0 */
+  readonly enemyTriangles: number
+  /** 敵機 1 機の動かせた舵面の枚数 */
+  readonly enemySurfaces: number
   /** 描いた曳光弾の線分の数。5 発に 1 発なので飛行中の弾の 1/5 前後 */
   readonly tracersDrawn: number
   /** 描いたミサイルの数 */
@@ -195,6 +204,7 @@ export interface SceneHandle {
   sync(
     sample: AircraftSample,
     targets: readonly TargetSample[],
+    enemies: readonly AircraftSample[],
     missiles: readonly MissilePose[],
     frame: number,
     dt: number,
@@ -270,6 +280,8 @@ export interface SceneOptions {
   texturesUrl: string
   /** 機体モデルの glb の URL */
   aircraftUrl: string
+  /** 敵機モデルの glb の URL */
+  enemyUrl: string
   /** プリセットの上書き。実機でつまみを振るときに使う */
   qualityOverride?: QualityOverride
   /** 雲バッファの持ち方の比較用。決着したら消す */
@@ -288,6 +300,8 @@ export interface SceneOptions {
   showAircraftShadow?: boolean
   /** 標的機を描くか。差分で標的の画素だけを取り出すのに使う */
   showTargets?: boolean
+  /** 敵機を描くか。差分で敵の画素だけを取り出すのに使う */
+  showEnemies?: boolean
   /** 曳光弾を描くか。差分で見え方を測るのに使う */
   showTracers?: boolean
   /** 自機を描くか。煙や曳光弾の断面を測るのに使う */
@@ -393,6 +407,13 @@ export async function createScene(
   const targetViews: TargetViews = createTargetViews(aircraftModel, MAX_TARGETS)
   targetViews.object.visible = options.showTargets ?? true
   scene.add(targetViews.object)
+
+  // 敵機。自機とは別の機体（F-16）なので glb も別。**敵味方が別の形になる
+  // ので、ロックボックスが出ていなくても見分けられる**
+  const enemyModel: AircraftModel = await loadAircraftModel(options.enemyUrl)
+  const enemyViews: EnemyViews = createEnemyViews(enemyModel, MAX_TARGETS)
+  enemyViews.object.visible = options.showEnemies ?? true
+  scene.add(enemyViews.object)
 
   // 曳光弾。5 発に 1 発なので線分は 55 本ぶん確保すれば足りるが、
   // プールと同じ大きさにしておけば割合を変えても壊れない
@@ -587,6 +608,18 @@ export async function createScene(
       return targetViews.instanceCount
     },
 
+    get enemyInstances() {
+      return enemyViews.instanceCount
+    },
+
+    get enemyTriangles() {
+      return enemyViews.trianglesPerAircraft
+    },
+
+    get enemySurfaces() {
+      return enemyViews.surfaceCount
+    },
+
     get tracersDrawn() {
       return tracers.drawn
     },
@@ -635,8 +668,9 @@ export async function createScene(
       return quality
     },
 
-    sync(sample, targets, missiles, frame, dt, look, snap = false) {
+    sync(sample, targets, enemies, missiles, frame, dt, look, snap = false) {
       targetViews.update(targets)
+      enemyViews.update(enemies)
       missileViews.update(missiles)
 
       aircraft.object.position.set(
@@ -817,6 +851,7 @@ export async function createScene(
       if (config.aircraftShadow !== undefined) measureShadow = config.aircraftShadow
       if (config.trails !== undefined) trails.object.visible = config.trails
       if (config.targets !== undefined) targetViews.object.visible = config.targets
+      if (config.enemies !== undefined) enemyViews.object.visible = config.enemies
       if (config.tracers !== undefined) tracers.object.visible = config.tracers
       if (config.missiles !== undefined) missileViews.object.visible = config.missiles
       if (config.smoke !== undefined) missileSmoke.object.visible = config.smoke
@@ -885,10 +920,12 @@ export async function createScene(
       missileViews.dispose()
       tracers.dispose()
       targetViews.dispose()
+      enemyViews.dispose()
       aircraft.dispose()
       // ジオメトリとマテリアルの実体はモデルが持つ。自機と標的で共有して
       // いるので、破棄はここで 1 回だけ
       aircraftModel.dispose()
+      enemyModel.dispose()
       cloudsPass.dispose()
       noise.dispose()
       atmosphere.dispose()

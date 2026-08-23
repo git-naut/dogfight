@@ -46,8 +46,17 @@ export interface AircraftModel {
   dispose(): void
 }
 
-/** 降着装置は空中では見せない。地上の場面を作るときに戻す */
-const HIDDEN_NODES = ['gear']
+/**
+ * 空中では見せないノード。
+ *
+ * `gear` は降着装置。地上の場面を作るときに戻す。
+ *
+ * `stowed` は原本の側で条件付きだった部品を集めたもの（変換ツールが分ける）。
+ * 塗装の変種、空のパイロン、既定で消えている灯火、重なっている円盤。**全部
+ * 出すと塗装が二重になり、翼下に空のパイロンが垂れる。**F-16 で実際にそう
+ * なっていた。どの部品をここへ入れるかは機体の定義が持つ。
+ */
+const HIDDEN_NODES = ['gear', 'stowed']
 
 export async function loadAircraftModel(url: string): Promise<AircraftModel> {
   const loader = new GLTFLoader()

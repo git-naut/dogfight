@@ -4,6 +4,7 @@ import { airDensity } from './isa'
 import { trimCondition } from './flightModel'
 import { type InputState, neutralInput } from './input'
 import type { TargetSpec } from './target'
+import type { EnemySpec } from './enemy'
 
 /**
  * 入力スクリプトの再生。
@@ -45,6 +46,13 @@ export interface ReplayScript {
    * 同じ配置が再現される。
    */
   targets?: TargetSpec[]
+  /**
+   * 敵機の配置。省略すると敵なし。
+   *
+   * `targets` と併存させる。標的機は決められた軌跡を飛ぶ剛体で、弾道や DLZ を
+   * 測る台本が使い続ける。敵機は `Aircraft` を持ち、失速も墜落もする。
+   */
+  enemies?: EnemySpec[]
   keyframes: ReplayKeyframe[]
 }
 

@@ -22,8 +22,13 @@ import type { Quat } from './quat'
  *
  * 姿勢が要るのは当たり判定のため。カプセルは機体座標で置いてあるので、
  * 弾の線分を機体座標へ回すのに `orientation` の逆回転を使う。
+ *
+ * **「撃てる相手」と「見える相手」を分ける。**敵 AI が追う相手は位置と速度と
+ * 姿勢が読めればよく、殴れる必要はない。自機はいま追尾される側だがダメージを
+ * 受けないので、`damage()` を持たない `Tracked` にしか当てはまらない。自機が
+ * 撃たれるようになったら `Combatant` へ広げる。
  */
-export interface Combatant {
+export interface Tracked {
   /** 位置 m（ワールド） */
   readonly position: Vec3
   /** 速度 m/s（ワールド） */
@@ -34,6 +39,9 @@ export interface Combatant {
   readonly speed: number
   /** 生きているか。落ちたらロックも当たり判定も外す */
   readonly alive: boolean
+}
+
+export interface Combatant extends Tracked {
   /**
    * ダメージを与える。**落ちた瞬間だけ true を返す。**
    *

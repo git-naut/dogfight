@@ -186,6 +186,15 @@ export class Aircraft {
 
   crashed = false
 
+  /**
+   * 飛んでいるか。`Tracked` の口。
+   *
+   * 敵 AI が追う相手として自機を渡すのに要る。墜落した相手は追わない。
+   */
+  get alive(): boolean {
+    return !this.crashed
+  }
+
   // 派生値。ステップの末尾で更新し、次のステップの制御と表示に使う
   speed = 0
   altitude = 0

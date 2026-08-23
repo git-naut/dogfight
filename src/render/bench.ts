@@ -47,6 +47,8 @@ export interface BenchRow {
 export interface BenchTarget {
   readonly renderer: WebGLRenderer
   readonly terrainTriangles: number
+  /** 直前のフレームで実際に投入した三角形。切り替えが効いたかの確認に使う */
+  readonly drawnTriangles: number
   readonly quality: { lodDistanceScale: number; terrainPatchCells: number }
   setMeasureConfig(config: MeasureConfig): void
   renderPlain(): void
@@ -206,7 +208,10 @@ export async function runBenchSweep(
       cpuSamples[c]!.push(performance.now() - started)
       if (query !== null) inflight.push({ query, caseIndex: c })
 
-      triangles[c] = view.terrainTriangles
+      // **地形だけでなく実際に描いた総数を記録する。**`terrainTriangles` は
+      // 地形の集計なので、機体や武装を切っても動かない。実機の計測で全条件が
+      // 438k のまま並び、「切れているのか」を確かめられなかった
+      triangles[c] = view.drawnTriangles
     }
   }
 

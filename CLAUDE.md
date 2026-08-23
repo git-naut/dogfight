@@ -50,6 +50,25 @@ Low / Medium / High / Ultra の4段。レンダースケール、雲の方式、
 git config user.email   # naut8008@gmail.com が返ること
 ```
 
+push の認証もこのリポジトリだけで固定してある。**`gh` のアクティブアカウントに
+左右させない。**資格情報ヘルパが未設定だと `gh` の現在のアカウントで push しようと
+するので、他プロジェクトで `gh auth switch` した瞬間にここが 403 になる。実際に
+2 度踏んだ（`Permission to git-naut/dogfight.git denied to git-hub-nakano`）。
+
+```bash
+git config --get-all credential.helper
+# store --file=/mnt/c/Users/naut8/dev/dogfight/.git/credentials-git-naut
+git config --get credential.https://github.com.username   # git-naut
+```
+
+資格情報は `.git/` の中なのでコミットされない。トークンが失効したら次で作り直す。
+
+```bash
+gh auth token --user git-naut > /dev/null && \
+  printf 'https://git-naut:%s@github.com\n' "$(gh auth token --user git-naut)" \
+  > .git/credentials-git-naut && chmod 600 .git/credentials-git-naut
+```
+
 ## アセットのライセンス
 
 使うのは CC0、パブリックドメイン、OFL、MIT、GPLv2+ のみ。取得したものは URL、作者、ライセンス、取得日を `assets/CREDITS.md` に記録する。記録のないアセットはコミットしない。

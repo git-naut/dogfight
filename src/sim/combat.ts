@@ -72,6 +72,19 @@ export interface CombatOptions {
    * Phase 6 の敵機（`Aircraft` を保有する）が同じ列に並ぶ。
    */
   targets: readonly Combatant[]
+  /**
+   * 撃たれる側としての自機。
+   *
+   * **敵が機銃を撃つようになったので、被弾の判定がここに要る。**弾の物理を
+   * 2 か所に置きたくないので、敵の機銃も `Combat` が進める。
+   */
+  player: Combatant
+  /**
+   * 敵の機銃。`Enemy` が持っているものを借りる。
+   *
+   * 進めるのと当たり判定は `Combat` の仕事。撃つかどうかは AI が決める。
+   */
+  incoming: readonly Gun[]
   /** 地形。渡さなければ海面（高度 0）で弾が消える */
   terrain?: TerrainSampler
   /**
@@ -136,6 +149,8 @@ export class Combat {
 
   private readonly rng: Rng
   private readonly targets: readonly Combatant[]
+  private readonly player: Combatant
+  private readonly incoming: readonly Gun[]
   private readonly terrain: TerrainSampler | undefined
   private readonly groundLimit: number
   /**
@@ -149,9 +164,16 @@ export class Combat {
    */
   private readonly hitBound = boundingRadius()
 
+  /** 自機が受けた弾の数 */
+  taken = 0
+  /** 自機が撃墜された回数。1 になったらそこで終わり */
+  losses = 0
+
   constructor(options: CombatOptions) {
     this.rng = options.rng
     this.targets = options.targets
+    this.player = options.player
+    this.incoming = options.incoming
     this.terrain = options.terrain
     this.groundLimit = options.groundLimit
   }
@@ -172,7 +194,9 @@ export class Combat {
   step(input: InputState, player: Aircraft, dt: number, frame: number): void {
     this.frame = frame
     this.gun.advance(dt, this.groundLimit, this.terrain)
+    for (const gun of this.incoming) gun.advance(dt, this.groundLimit, this.terrain)
     this.resolveHits()
+    this.resolveIncoming()
     this.fireGun(input, player, dt)
 
     // ロックは当たり判定のあと。落とした相手を掴み続けない
@@ -382,9 +406,65 @@ export class Combat {
     }
   }
 
-  /** 弾を読む口。描画へ渡す */
+  /** 弾を読む口。描画へ渡す。自機と敵機のぶん */
+  get bulletSources(): readonly BulletSource[] {
+    return [this.gun, ...this.incoming]
+  }
+
+  /** 自機の弾を読む口。テストが使う */
   get bullets(): BulletSource {
     return this.gun
+  }
+
+  /**
+   * 敵弾と自機の当たり判定。
+   *
+   * `resolveHits` と同じ作法。総当たりの前に球で弾き、当たった弾は消す。
+   * **落ちたあとの弾では撃墜を二重に数えない。**`damage` の返り値で見る。
+   */
+  private resolveIncoming(): void {
+    if (!this.player.alive) return
+    for (const gun of this.incoming) {
+      for (let i = 0; i < gun.bulletCapacity; i++) {
+        const bullet = gun.bulletAt(i)
+        if (bullet.life <= 0) continue
+
+        midpoint.copy(bullet.previous).lerp(bullet.position, 0.5)
+        const half = bullet.previous.distanceTo(bullet.position) * 0.5
+        const reach = this.hitBound + half
+        if (
+          toTarget.subVectors(this.player.position, midpoint).lengthSq() >
+          reach * reach
+        ) {
+          continue
+        }
+
+        sweptHitsAircraft(
+          bullet.previous,
+          bullet.position,
+          this.player.position,
+          this.player.orientation,
+          0,
+          undefined,
+          hit,
+        )
+        if (!hit.hit) continue
+
+        this.taken++
+        if (this.player.damage(1)) {
+          this.losses++
+          this.effects.spawn(
+            this.player.position,
+            this.player.velocity,
+            KILL_BLAST,
+            this.frame,
+            this.rng,
+          )
+        }
+        bullet.life = 0
+        if (!this.player.alive) return
+      }
+    }
   }
 
   /** 生きている弾の数 */
@@ -417,6 +497,8 @@ export class Combat {
     this.missileHeld = false
     this.hits = 0
     this.kills = 0
+    this.taken = 0
+    this.losses = 0
   }
 }
 

@@ -6,6 +6,7 @@ import { Target } from '@sim/target'
 import { World } from '@sim/world'
 import { neutralInput } from '@sim/input'
 import { defaultTerrain } from '@sim/terrain'
+import { Rng } from '@sim/rng'
 import {
   HARD_FLOOR,
   PULLOUT_MARGIN,
@@ -31,6 +32,8 @@ import { climbAngleOf, pitchCap, pulloutAltitude } from '@sim/ai/steering'
 
 const ORIGIN = new Vec3(0, 3000, 0)
 const terrain = defaultTerrain()
+/** 散布と回避の向きに使う。決定論のため固定シード */
+const rng = new Rng(20260823)
 
 interface Sample {
   range: number
@@ -85,7 +88,7 @@ function engage(options: {
   const steps = Math.round(options.seconds / FIXED_DT)
   for (let i = 0; i < steps; i++) {
     target.step(FIXED_DT)
-    enemy.step(FIXED_DT, target)
+    enemy.step(FIXED_DT, target, rng)
 
     los.subVectors(target.position, enemy.position)
     const range = los.length()
@@ -227,7 +230,6 @@ describe('追尾', () => {
   })
 
   it('旋回する相手にも追随して詰める', () => {
-    // 実測で 3,000 m から 36.9 秒で 0 m まで詰まる
     const { history } = engage({
       offset: new Vec3(0, 0, 3000),
       turnRate: 0.06,
@@ -235,9 +237,11 @@ describe('追尾', () => {
     })
     expect(history[0]!.range).toBeCloseTo(3000, 0)
     expect(history[history.length - 1]!.range).toBeLessThan(200)
-    // 定常旋回に入って 50 度以上バンクしている
-    const late = history[history.length - 1]!
-    expect(Math.abs(late.bank)).toBeGreaterThan(0.8)
+    // 追随のあいだ 50 度以上バンクする。相手の旋回率 0.06 rad/s に付いていく
+    // には自分も回らないといけない
+    let peak = 0
+    for (const row of history) peak = Math.max(peak, Math.abs(row.bank))
+    expect(peak).toBeGreaterThan(0.8)
   })
 
   /**
@@ -378,7 +382,7 @@ describe('状態の遷移', () => {
       { terrain },
     )
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
-    enemy.step(FIXED_DT, target)
+    enemy.step(FIXED_DT, target, rng)
     expect(enemy.aiState).toBe('recover')
   })
 
@@ -391,7 +395,7 @@ describe('状態の遷移', () => {
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
     let left = -1
     for (let i = 0; i < 60 * 120; i++) {
-      enemy.step(FIXED_DT, target)
+      enemy.step(FIXED_DT, target, rng)
       if (enemy.aiState !== 'recover') {
         left = i
         break
@@ -410,7 +414,7 @@ describe('状態の遷移', () => {
       { terrain },
     )
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
-    for (let i = 0; i < 3 * 120; i++) low.step(FIXED_DT, target)
+    for (let i = 0; i < 3 * 120; i++) low.step(FIXED_DT, target, rng)
     expect(low.aiState).toBe('recover')
     expect(climbAngleOf(low.velocity)).toBeGreaterThan(0)
 
@@ -420,19 +424,26 @@ describe('状態の遷移', () => {
       ORIGIN,
       { terrain },
     )
-    for (let i = 0; i < 3 * 120; i++) high.step(FIXED_DT, target)
+    for (let i = 0; i < 3 * 120; i++) high.step(FIXED_DT, target, rng)
     expect(high.aiState).toBe('recover')
     expect(climbAngleOf(high.velocity)).toBeLessThan(0)
   })
 
-  it('この段では攻撃も回避も出てこない', () => {
+  it('遠ければ追尾、機銃の射程まで詰めたら射撃', () => {
     const { history } = engage({
       offset: new Vec3(0, 0, 3000),
       turnRate: 0.06,
-      seconds: 30,
+      seconds: 36,
     })
+    // 3,000 m では追尾
+    expect(history[0]!.state).toBe('pursue')
+    // 1,200 m を切ったところから射撃
+    const entered = history.findIndex((r) => r.state === 'attack')
+    expect(entered).toBeGreaterThan(0)
+    expect(history[entered]!.range).toBeLessThan(1200)
+    // この構図では回避も立て直しも出てこない
     const seen = new Set(history.map((r) => r.state))
-    expect([...seen].sort()).toEqual(['pursue'])
+    expect([...seen].sort()).toEqual(['attack', 'pursue'])
   })
 })
 

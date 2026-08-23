@@ -286,6 +286,14 @@ export interface TestHook {
   enemyAiStates: string
   /** 敵機 1 機目の前方の地形との余裕 m。敵がいなければ 0 */
   enemyClearance: number
+  /** 敵機が撃った弾の総数（全機の合計） */
+  enemyRoundsFired: number
+  /** 自機が受けた弾の数 */
+  playerTaken: number
+  /** 自機の残り耐久 */
+  playerIntegrity: number
+  /** 自機が撃墜された回数。1 になったらそこで終わり */
+  playerLosses: number
   /** 飛行中の弾の数 */
   bulletsInFlight: number
   /** 描いた曳光弾の線分の数。5 発に 1 発なので飛行中の 1/5 前後 */

@@ -67,12 +67,16 @@ export interface Tracers {
   /**
    * 弾から筋を張り直す。毎フレーム呼ぶ。
    *
+   * **弾源は複数ある。**自機と敵機がそれぞれ自分の機銃を持つので、1 本の帯へ
+   * まとめて書き込む。プールが足りなければ手前で打ち切る。
+   *
+   * @param sources 弾を読む先。自機と生きている敵機のぶん
    * @param cameraPosition カメラの位置
    * @param cameraForward 視線方向の単位ベクトル。near 面の手前で終端するのに使う
    * @param radiansPerPixel 画面 1 画素が張る角度 rad。幅を画面基準にするのに使う
    */
   update(
-    source: BulletSource,
+    sources: readonly BulletSource[],
     cameraPosition: THREE.Vector3,
     cameraForward: THREE.Vector3,
     radiansPerPixel: number,
@@ -186,54 +190,60 @@ export function createTracers(capacity: number): Tracers {
       return drawn
     },
 
-    update(source, cameraPosition, cameraForward, radiansPerPixel) {
+    update(sources, cameraPosition, cameraForward, radiansPerPixel) {
       let count = 0
-      for (let i = 0; i < source.bulletCapacity && count < capacity; i++) {
-        const bullet = source.bulletAt(i)
-        if (bullet.life <= 0 || !bullet.tracer) continue
+      for (const source of sources) {
+        if (count >= capacity) break
+        for (let i = 0; i < source.bulletCapacity && count < capacity; i++) {
+          const bullet = source.bulletAt(i)
+          if (bullet.life <= 0 || !bullet.tracer) continue
 
-        head.set(bullet.position.x, bullet.position.y, bullet.position.z)
-        const speed = bullet.velocity.length()
-        if (speed < 1e-6) continue
-        tail
-          .set(bullet.velocity.x, bullet.velocity.y, bullet.velocity.z)
-          .multiplyScalar(-TRACER_LENGTH / speed)
-          .add(head)
+          head.set(bullet.position.x, bullet.position.y, bullet.position.z)
+          const speed = bullet.velocity.length()
+          if (speed < 1e-6) continue
+          tail
+            .set(bullet.velocity.x, bullet.velocity.y, bullet.velocity.z)
+            .multiplyScalar(-TRACER_LENGTH / speed)
+            .add(head)
 
-        const depthHead = depthOf(head, cameraPosition, cameraForward)
-        // 先端がカメラの至近まで来たら描かない。帯で滅衰させてあるので、
-        // ここに達した時点でほぼ透明になっている
-        if (depthHead < RIBBON_NEAR_CLIP_DEPTH) continue
+          const depthHead = depthOf(head, cameraPosition, cameraForward)
+          // 先端がカメラの至近まで来たら描かない。帯で滅衰させてあるので、
+          // ここに達した時点でほぼ透明になっている
+          if (depthHead < RIBBON_NEAR_CLIP_DEPTH) continue
 
-        const depthTail = depthOf(tail, cameraPosition, cameraForward)
-        if (depthTail < RIBBON_NEAR_CLIP_DEPTH) {
-          // 尾側だけが手前。深度が閾値になる位置まで先端側へ寄せる。
-          // 尾側の不透明度はもともと 0 なので、切り口は生まれない
-          const t = (depthHead - RIBBON_NEAR_CLIP_DEPTH) / (depthHead - depthTail)
-          tail.lerpVectors(head, tail, Math.min(1, Math.max(0, t)))
+          const depthTail = depthOf(tail, cameraPosition, cameraForward)
+          if (depthTail < RIBBON_NEAR_CLIP_DEPTH) {
+            // 尾側だけが手前。深度が閾値になる位置まで先端側へ寄せる。
+            // 尾側の不透明度はもともと 0 なので、切り口は生まれない
+            const t = (depthHead - RIBBON_NEAR_CLIP_DEPTH) / (depthHead - depthTail)
+            tail.lerpVectors(head, tail, Math.min(1, Math.max(0, t)))
+          }
+
+          // 幅を向ける先。進行方向と視線の両方に直交させる
+          along.subVectors(head, tail)
+          if (along.lengthSq() < 1e-8) continue
+          toCamera.subVectors(cameraPosition, head)
+          side.crossVectors(along, toCamera)
+          if (side.lengthSq() < 1e-8) side.set(1, 0, 0)
+          side.normalize()
+
+          // 先端の明るさは深度の帯で滅衰させる。閾値をまたぐ瞬間の飛び出しを消す
+          const fade = Math.min(1, (depthHead - RIBBON_NEAR_CLIP_DEPTH) / FADE_BAND)
+          // 幅は画面基準。深度に比例させれば、遠くても近くても同じ太さに出る
+          const halfHead = depthHead * radiansPerPixel * HALF_WIDTH_PX
+          const halfTail =
+            Math.max(
+              RIBBON_NEAR_CLIP_DEPTH,
+              depthOf(tail, cameraPosition, cameraForward),
+            ) *
+            radiansPerPixel *
+            HALF_WIDTH_PX
+
+          const base = count * VERTS_PER_TRACER
+          writePoint(base, tail, halfTail, 0)
+          writePoint(base + 3, head, halfHead, fade)
+          count++
         }
-
-        // 幅を向ける先。進行方向と視線の両方に直交させる
-        along.subVectors(head, tail)
-        if (along.lengthSq() < 1e-8) continue
-        toCamera.subVectors(cameraPosition, head)
-        side.crossVectors(along, toCamera)
-        if (side.lengthSq() < 1e-8) side.set(1, 0, 0)
-        side.normalize()
-
-        // 先端の明るさは深度の帯で滅衰させる。閾値をまたぐ瞬間の飛び出しを消す
-        const fade = Math.min(1, (depthHead - RIBBON_NEAR_CLIP_DEPTH) / FADE_BAND)
-        // 幅は画面基準。深度に比例させれば、遠くても近くても同じ太さに出る
-        const halfHead = depthHead * radiansPerPixel * HALF_WIDTH_PX
-        const halfTail =
-          Math.max(RIBBON_NEAR_CLIP_DEPTH, depthOf(tail, cameraPosition, cameraForward)) *
-          radiansPerPixel *
-          HALF_WIDTH_PX
-
-        const base = count * VERTS_PER_TRACER
-        writePoint(base, tail, halfTail, 0)
-        writePoint(base + 3, head, halfHead, fade)
-        count++
       }
 
       drawn = count

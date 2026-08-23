@@ -97,6 +97,10 @@ const hook = installTestHook({
   enemySurfaces: 0,
   enemyAiStates: '',
   enemyClearance: 0,
+  enemyRoundsFired: 0,
+  playerTaken: 0,
+  playerIntegrity: 0,
+  playerLosses: 0,
   bulletsInFlight: 0,
   tracersDrawn: 0,
   roundsFired: 0,
@@ -358,6 +362,13 @@ async function main(): Promise<void> {
       .map((enemy) => enemy.aiState)
       .join(',')
     hook.enemyClearance = currentWorld.enemies[0]?.ai.clearance ?? 0
+    hook.enemyRoundsFired = currentWorld.enemies.reduce(
+      (sum, enemy) => sum + enemy.roundsFired,
+      0,
+    )
+    hook.playerTaken = currentWorld.combat.taken
+    hook.playerIntegrity = currentWorld.player.integrity
+    hook.playerLosses = currentWorld.combat.losses
     hook.bulletsInFlight = currentWorld.combat.bulletsInFlight
     hook.tracersDrawn = view.tracersDrawn
     hook.roundsFired = currentWorld.combat.roundsFired
@@ -415,7 +426,7 @@ async function main(): Promise<void> {
     fitEnemySamples(world.enemies.length)
     world.sampleEnemies(1, enemySamples)
     view.setTrailSource(world.player)
-    view.setBulletSource(world.combat.bullets)
+    view.setBulletSources(world.combat.bulletSources)
     view.setSmokeSources(world.combat.smokeSources)
     view.setExplosionSource(world.combat.explosions)
     view.sync(
@@ -486,7 +497,7 @@ async function main(): Promise<void> {
   let preset: PresetName = capture.preset
   let world = spawnWorld()
   view.setTrailSource(world.player)
-  view.setBulletSource(world.combat.bullets)
+  view.setBulletSources(world.combat.bulletSources)
   view.setSmokeSources(world.combat.smokeSources)
   view.setExplosionSource(world.combat.explosions)
   let lastTime = performance.now()
@@ -525,7 +536,7 @@ async function main(): Promise<void> {
     if (keyboard.consumeReset()) {
       world = spawnWorld()
       view.setTrailSource(world.player)
-      view.setBulletSource(world.combat.bullets)
+      view.setBulletSources(world.combat.bulletSources)
       view.setSmokeSources(world.combat.smokeSources)
       view.setExplosionSource(world.combat.explosions)
       driver.reset()

@@ -78,6 +78,15 @@ export const BULLET_LIFETIME = 2.5
 /** 弾のプールの大きさ。寿命 2.5 秒 × 100 発/秒 に余裕を足す */
 export const BULLET_POOL = 272
 
+/**
+ * 敵機の弾のプールの大きさ。
+ *
+ * 敵は連射しない。1 回のバーストが `BURST_ROUNDS` 発で、前のバーストが
+ * まだ飛んでいるうちに次を撃つことがあるので 2 回ぶん見込む。**足りないと
+ * 古い弾を上書きして、曳光弾が途中で消える。**
+ */
+export const ENEMY_BULLET_POOL = 160
+
 /** 何発に 1 発を曳光弾にするか */
 export const TRACER_INTERVAL = 5
 
@@ -136,7 +145,9 @@ const tmpRight = new Vec3()
 const tmpUp = new Vec3()
 
 export class Gun {
-  private readonly pool: Bullet[] = Array.from({ length: BULLET_POOL }, createBullet)
+  private readonly pool: Bullet[]
+  /** プールの大きさ。自機は 272、敵は 160 */
+  private readonly capacity: number
   /** 次に使う枠。埋まっていたら古いものを上書きする */
   private next = 0
   /** 発射の端数。1 ステップ 0.833 発なので持ち越す */
@@ -145,7 +156,20 @@ export class Gun {
   private fired = 0
 
   /** 残弾 */
-  rounds = MAGAZINE
+  rounds: number
+
+  /**
+   * @param capacity 弾のプールの大きさ
+   * @param magazine 携行弾数
+   */
+  constructor(capacity = BULLET_POOL, magazine = MAGAZINE) {
+    this.capacity = capacity
+    this.magazine = magazine
+    this.rounds = magazine
+    this.pool = Array.from({ length: capacity }, createBullet)
+  }
+
+  private readonly magazine: number
   /**
    * 生きている弾の数。
    *
@@ -156,7 +180,7 @@ export class Gun {
   private live = 0
 
   get bulletCapacity(): number {
-    return BULLET_POOL
+    return this.capacity
   }
 
   get bulletsInFlight(): number {
@@ -164,7 +188,7 @@ export class Gun {
   }
 
   bulletAt(index: number): Bullet {
-    return this.pool[index % BULLET_POOL]!
+    return this.pool[index % this.capacity]!
   }
 
   /** 撃った弾の総数。命中率を出すのに使う */
@@ -266,7 +290,7 @@ export class Gun {
     rng: Rng,
   ): void {
     const bullet = this.pool[this.next]!
-    this.next = (this.next + 1) % BULLET_POOL
+    this.next = (this.next + 1) % this.capacity
 
     // 散布。機軸のまわりに一様な向きへ、半径は正規分布に近い形で振る。
     // 2 つの一様乱数から Box-Muller を使わず、和で近似する（分布の裾より
@@ -293,7 +317,7 @@ export class Gun {
   /** 弾を全部消して残弾を戻す。ワールドを作り直すときに呼ぶ */
   reset(): void {
     for (const bullet of this.pool) bullet.life = 0
-    this.rounds = MAGAZINE
+    this.rounds = this.magazine
     this.pending = 0
     this.fired = 0
     this.live = 0

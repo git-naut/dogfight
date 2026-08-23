@@ -234,9 +234,11 @@ export interface SceneHandle {
    * 弾を読む先を渡す。
    *
    * サンプルには載せない。飛行中の弾は 250 発あり、毎フレーム写すのは無駄。
-   * 履歴と同じ作法で `Gun` から直接読む。ワールドを作り直したら呼び直す
+   * 履歴と同じ作法で `Gun` から直接読む。ワールドを作り直したら呼び直す。
+   *
+   * **複数ある。**自機と生きている敵機がそれぞれ自分の機銃を持つ
    */
-  setBulletSource(source: BulletSource | null): void
+  setBulletSources(sources: readonly BulletSource[]): void
   /** 煙の履歴を読む先を渡す。ワールドを作り直したら呼び直す */
   setSmokeSources(sources: readonly SmokeSource[]): void
   /** 爆発を読む先を渡す。ワールドを作り直したら呼び直す */
@@ -494,7 +496,7 @@ export async function createScene(
   /** 軌跡の履歴を読む先。main が World を作ったあとに渡す */
   let trailSource: AircraftTrailSource | null = null
   /** 弾を読む先。main が World を作ったあとに渡す */
-  let bulletSource: BulletSource | null = null
+  let bulletSources: readonly BulletSource[] = []
   /** 煙の履歴を読む先 */
   let smokeSources: readonly SmokeSource[] = []
   /** 爆発を読む先 */
@@ -763,13 +765,13 @@ export async function createScene(
       }
       // 曳光弾。near 面の手前で終端するので視線方向が要る。
       // 軌跡と同じ理由でカメラの向きを渡す
-      if (bulletSource !== null) {
+      if (bulletSources.length > 0) {
         camera.getWorldDirection(cameraForward)
         // 画面 1 画素が張る角度。曳光弾の幅を画面基準にするのに渡す。
         // CSS 画素で測る（HUD と同じ基準）。画角は速度で変わるので毎フレーム
         const radiansPerPixel =
           (2 * Math.tan(((camera.fov * Math.PI) / 180) * 0.5)) / cssHeight
-        tracers.update(bulletSource, cameraWorld, cameraForward, radiansPerPixel)
+        tracers.update(bulletSources, cameraWorld, cameraForward, radiansPerPixel)
       }
 
       // 煙。**発射した位置から前方へ伸びるので、カメラがその中を通る。**
@@ -828,8 +830,8 @@ export async function createScene(
       trailSource = source
     },
 
-    setBulletSource(source) {
-      bulletSource = source
+    setBulletSources(sources) {
+      bulletSources = sources
     },
 
     setSmokeSources(sources) {

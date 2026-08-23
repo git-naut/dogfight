@@ -110,6 +110,9 @@ export class World {
     this.combat = new Combat({
       rng: this.rng,
       targets: this.combatants,
+      player: this.player,
+      // 敵の機銃。進めるのと当たり判定は Combat の仕事
+      incoming: this.enemies.map((enemy) => enemy.gun),
       terrain: this.terrain,
       // 地形の最高点より上では、弾が地面を引く必要がない
       groundLimit: this.terrain.stats.max,
@@ -135,7 +138,7 @@ export class World {
   step(input: InputState): void {
     this.player.step(input, FIXED_DT, this.stepOptions)
     for (const target of this.targets) target.step(FIXED_DT)
-    for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player)
+    for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)
     this.combat.step(input, this.player, FIXED_DT, this._frame)
     this._frame++
   }

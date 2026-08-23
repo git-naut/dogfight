@@ -6,6 +6,7 @@ import { createAircraftSample } from '@sim/aircraft'
 import { World } from '@sim/world'
 import { neutralInput } from '@sim/input'
 import type { Combatant } from '@sim/combatant'
+import { Rng } from '@sim/rng'
 
 /**
  * 敵機。
@@ -16,6 +17,8 @@ import type { Combatant } from '@sim/combatant'
  */
 
 const ORIGIN = new Vec3(0, 3000, 0)
+/** 散布に使う。決定論のため固定シード */
+const rng = new Rng(1)
 
 function enemy(offset = new Vec3(0, 0, -300), speed = 250): Enemy {
   return new Enemy({ offset, speed }, ORIGIN)
@@ -30,7 +33,7 @@ function enemy(offset = new Vec3(0, 0, -300), speed = 250): Enemy {
  */
 function run(e: Enemy, seconds: number): void {
   const steps = Math.round(seconds / FIXED_DT)
-  for (let i = 0; i < steps; i++) e.step(FIXED_DT, e)
+  for (let i = 0; i < steps; i++) e.step(FIXED_DT, e, rng)
 }
 
 describe('Enemy', () => {

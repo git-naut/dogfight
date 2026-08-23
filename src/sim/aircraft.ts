@@ -31,6 +31,14 @@ import { TrailRing, type TrailSource } from './trail'
  * クォータニオンが伸び縮みしない。
  */
 
+/**
+ * 機体の耐久。20mm 弾 1 発を 1 とする。
+ *
+ * 敵機と同じ値。**実弾で何発当てれば落ちるかの公表値はない。**戦闘機に対する
+ * 20mm HEI の必要弾数は資料でも幅がある。ここは手触りの値。
+ */
+export const AIRCRAFT_INTEGRITY = 60
+
 export interface AircraftInit {
   position?: Vec3
   velocity?: Vec3
@@ -147,6 +155,8 @@ export interface AircraftSample {
   throttle: number
   stalled: boolean
   crashed: boolean
+  /** 残りの耐久 0..AIRCRAFT_INTEGRITY。HUD が出す */
+  integrity: number
   /** 真下の地形の高さ m。海上なら 0 */
   groundHeight: number
   /**
@@ -187,12 +197,38 @@ export class Aircraft {
   crashed = false
 
   /**
-   * 飛んでいるか。`Tracked` の口。
+   * 残りの耐久。20mm 弾 1 発で 1 減る。
    *
-   * 敵 AI が追う相手として自機を渡すのに要る。墜落した相手は追わない。
+   * **自機も撃たれる。**敵が機銃を撃つようになったので、`Combatant` として
+   * 扱えないといけなくなった。値は敵機（`ENEMY_INTEGRITY`）と同じ 60 に
+   * そろえてある。手ごたえの調整は決着時間を測ってから。
+   */
+  integrity = AIRCRAFT_INTEGRITY
+
+  /**
+   * 飛んでいるか。`Combatant` の口。
+   *
+   * 敵 AI が追う相手として自機を渡すのにも要る。墜落した相手は追わない。
    */
   get alive(): boolean {
-    return !this.crashed
+    return this.integrity > 0 && !this.crashed
+  }
+
+  /**
+   * ダメージを与える。落ちた瞬間だけ true を返す。
+   *
+   * 落ちたあとの弾で撃墜数を二重に数えないため、返り値で遷移を見分ける。
+   * **耐久が尽きたら墜落と同じ扱いにする。**`crashed` を立てると `step` が
+   * 何もしなくなり、機体はその場で止まる。爆発は `Combat` が出す。
+   */
+  damage(amount: number): boolean {
+    if (!this.alive) return false
+    this.integrity -= amount
+    if (this.integrity <= 0) {
+      this.crashed = true
+      return true
+    }
+    return false
   }
 
   // 派生値。ステップの末尾で更新し、次のステップの制御と表示に使う
@@ -427,6 +463,7 @@ export class Aircraft {
     out.throttle = this.throttle
     out.stalled = this.stalled
     out.crashed = this.crashed
+    out.integrity = this.integrity
     out.groundHeight = this.groundHeight
     out.agl = this.agl
     out.elevator = this.elevator
@@ -480,6 +517,7 @@ export function createAircraftSample(): AircraftSample {
     throttle: 0,
     stalled: false,
     crashed: false,
+    integrity: AIRCRAFT_INTEGRITY,
     groundHeight: 0,
     agl: 0,
     elevator: 0,

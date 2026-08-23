@@ -5,6 +5,8 @@ import { trimCondition } from './flightModel'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
 import type { Combatant, Tracked } from './combatant'
 import { FighterAi, type AiState } from './ai/fighter'
+import { Gun, ENEMY_BULLET_POOL, MUZZLE_OFFSET } from './weapons/gun'
+import type { Rng } from './rng'
 
 /**
  * 敵機。
@@ -46,6 +48,12 @@ export interface EnemySpec {
 
 /** 世界の上方向。方位はこの軸まわり */
 const WORLD_UP = new Vec3(0, 1, 0)
+
+// 発射のたびに使う一時変数。使い回してゴミを出さない
+const muzzle = new Vec3()
+const nose = new Vec3()
+const right = new Vec3()
+const up = new Vec3()
 /** 機体座標の右方向。迎角はこの軸まわり */
 const BODY_RIGHT = new Vec3(1, 0, 0)
 
@@ -54,6 +62,12 @@ export class Enemy implements Combatant {
   integrity = ENEMY_INTEGRITY
 
   readonly ai = new FighterAi()
+  /**
+   * 機銃。**弾を進めるのと当たり判定は `Combat` の仕事。**ここは撃つだけ。
+   *
+   * プールは自機の 272 より小さい 160。敵は連射しないので足りる。
+   */
+  readonly gun = new Gun(ENEMY_BULLET_POOL)
 
   /** トリムのスロットル。AI が全開にしないときの下地 */
   private readonly trimThrottle: number
@@ -130,16 +144,42 @@ export class Enemy implements Combatant {
   /**
    * 1 ステップ進める。
    *
+   * 順番に意味がある。**AI が決めてから撃ち、そのあと機体を動かす。**機体を
+   * 先に動かすと、AI が見た姿勢と弾が出る姿勢が 1 ステップずれる。
+   *
    * @param player 追う相手。AI が位置と速度と姿勢を読む
+   * @param rng 散布に使う。同じシードからは同じ弾道になる
    */
-  step(dt: number, player: Tracked): void {
+  step(dt: number, player: Tracked, rng: Rng): void {
     const input = this.ai.decide(
       this.aircraft,
       player,
       this.trimThrottle,
       this.stepOptions.terrain,
+      rng,
     )
+    this.fire(dt, input.fireGun, rng)
     this.aircraft.step(input, dt, this.stepOptions)
+  }
+
+  /** 機銃を撃つ。機体の姿勢から銃口の位置と向きを出す */
+  private fire(dt: number, firing: boolean, rng: Rng): void {
+    const craft = this.aircraft
+    if (!this.alive) {
+      this.gun.fire(dt, false, muzzle, nose, right, up, craft.velocity, rng)
+      return
+    }
+    craft.orientation.forward(nose)
+    craft.orientation.right(right)
+    craft.orientation.up(up)
+    craft.orientation.rotate(MUZZLE_OFFSET, muzzle)
+    muzzle.add(craft.position)
+    this.gun.fire(dt, firing, muzzle, nose, right, up, craft.velocity, rng)
+  }
+
+  /** 撃った弾の総数。命中率を出すのに使う */
+  get roundsFired(): number {
+    return this.gun.roundsFired
   }
 
   /** 描画用に前ステップと現ステップを補間した状態を書き込む */

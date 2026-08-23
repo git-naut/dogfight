@@ -372,6 +372,55 @@ export const SCRIPTS = {
   },
 
   /**
+   * 敵機が後方 1,500 m から撃ってくる。**撃たれるところを見る。**
+   *
+   * 自機は直進。実測で 12 秒あたりから撃ち始め、40 秒で 456 発のうち 60 発が
+   * 当たって撃墜される。曳光弾が後方から来る絵は、追従カメラの視野
+   * （水平 98.6 度）に入る。
+   */
+  'enemy-attack': {
+    name: 'enemy-attack',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(0, 0, 1500), speed: 250 }],
+    keyframes: [],
+  },
+
+  /**
+   * 自機が敵の後ろにつく。**回避に入るところを見る。**
+   *
+   * 敵は前方 220 m のやや右上。敵から見て自機は真後ろなので、回避の条件
+   * （後方 60 度の円錐かつ 900 m 以内）を満たす。1 ステップで `evade` に
+   * 入り、最短 5 秒続く。
+   *
+   * **間合いを 600 m から 220 m へ詰めた。**600 m では敵が 7 画素にしか
+   * ならず、深いバンクが絵で読めない。220 m なら 17 画素。
+   */
+  'enemy-evade': {
+    name: 'enemy-evade',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(30, 8, -220), speed: 250 }],
+    keyframes: [],
+  },
+
+  /**
+   * 1 対 1。**対等な初期条件で撃ち合う。**
+   *
+   * 正面 2,500 m から向かい合う。接近速度は 500 m/s なので 5 秒ですれ違い、
+   * そこから旋回戦になる。自機は機銃を撃ち続ける。
+   *
+   * 長く回して墜落しないことを見るのにも使う。
+   */
+  'dogfight-1v1': {
+    name: 'dogfight-1v1',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(0, 0, -2500), speed: 250, heading: Math.PI }],
+    keyframes: [{ frame: 2 * SEC, input: { fireGun: true } }],
+  },
+
+  /**
    * 敵機 8 機。**性能の計測に使う。**
    *
    * Phase 7 のミッション 01 が敵 8 機撃墜なので、器の上限（`MAX_TARGETS`）と

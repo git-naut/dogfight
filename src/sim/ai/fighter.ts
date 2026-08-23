@@ -1,8 +1,11 @@
 import { Vec3 } from '../vec3'
 import { clamp } from '../flightModel'
+import { FIXED_DT } from '../loop'
 import { proportionalNavigation } from '../weapons/missile'
 import type { Aircraft } from '../aircraft'
 import type { Tracked } from '../combatant'
+import type { Rng } from '../rng'
+import { bulletTimeToRange } from '../weapons/gun'
 import { neutralInput, type InputState } from '../input'
 import {
   climbAngleOf,
@@ -167,6 +170,76 @@ export const MAX_CHASE_SPEED = 420
  */
 export const THROTTLE_GAIN = 0.02
 
+/**
+ * 機銃で撃ちに入る距離 m。
+ *
+ * 弾の寿命は 2.5 秒で、そのあいだに 1,589 m 飛ぶ（`gun.ts` の実測）。それより
+ * 遠くから撃っても当たらない。**1,200 m まで詰めてから撃ち始める。**
+ */
+export const GUN_ENGAGE_RANGE = 1200
+/**
+ * 射撃中に機軸の誤差を詰める時定数 s。
+ *
+ * 追尾の `ALIGN_TAU`（0.7 s）より短く取る。**追尾と同じ緩さでは当たらない。**
+ * 機銃の散布は 3 mrad（0.17 度）なので、機軸が 0.5 度ずれていれば 500 m で
+ * 4.4 m 外れる。機体の幅は 11.6 m しかない。
+ *
+ * 振って決めた。相手は自機で、直進と緩い右旋回（roll 0.2 / pitch 0.12）の
+ * 2 通り。40 秒で撃った弾と当たった弾を数えた。
+ *
+ * | τ | 直進する自機 | 緩く旋回する自機 | 発射時の誤差の中央値 |
+ * | 0.15 s | 3.3% | 3.4% | 1.27° / 0.73° |
+ * | 0.25 s | 5.6% | 2.7% | 1.23° / 0.76° |
+ * | 0.30 s | 8.3% | 0.8% | 0.85° / 1.20° |
+ * | 0.35 s | 6.6% | 0.5% | 0.39° / 1.25° |
+ * | **0.40 s** | **13.2%** | **1.9%** | **0.37° / 1.11°** |
+ * | 0.45 s | 11.5% | 0.0% | 0.31° / 0.96° |
+ * | 0.50 s | 8.3% | 1.9% | 0.43° / 0.81° |
+ * | 0.70 s | 1.4% | 0.0% | 0.59° / 1.31° |
+ *
+ * 0.4 秒が頂点。**短くしすぎると悪くなる。**0.25 秒以下では発射時の誤差の
+ * 中央値が 1.2 度台まで戻る。利得が大きすぎて追尾の輪が振れるため。
+ *
+ * この値で、直進していると 60 発当たって自機が落ちる。緩く旋回していれば
+ * 8 発しか当たらない。**まっすぐ飛べば落ちる、機動すれば生き残る。**
+ */
+export const ATTACK_TAU = 0.4
+/** 機銃を撃つのをやめる距離 m。至近では衝突を避けて離れる */
+export const GUN_BREAK_RANGE = 120
+/**
+ * 引き金を引く機軸の誤差 rad。2 度。
+ *
+ * 機銃の散布は 3 mrad（0.17 度）なので、2 度ずれていれば 300 m で 10 m
+ * 外れる。**それでも撃つ。**当たらない弾も曳光弾として見えるほうが、撃たれて
+ * いることが伝わる。命中率の調整は手ごたえの段で決着時間を測ってから。
+ */
+export const FIRE_CONE = (2 * Math.PI) / 180
+/**
+ * 1 回のバーストの長さ 秒と、次のバーストまでの間隔 秒。
+ *
+ * 押しっぱなしにすると弾がすぐ尽きる（携行 578 発 = 5.78 秒）。実機も
+ * 短い連射で撃つ。
+ */
+export const BURST_SECONDS = 0.6
+export const BURST_GAP_SECONDS = 1.2
+
+/**
+ * 回避に入る距離 m。
+ *
+ * 相手が後方この距離まで詰めてきたら振り切りにかかる。機銃の射程
+ * （1,589 m）より内側で、こちらが撃たれ始める間合い。
+ */
+export const EVADE_RANGE = 900
+/** 回避に入る、相手の方位の後方からの角度 rad。60 度 */
+export const EVADE_CONE = (60 * Math.PI) / 180
+/**
+ * 回避を続ける最短の時間 秒。
+ *
+ * **短いと出入りを繰り返す。**ブレイクターンは 1 周するのに 7.5 G・250 m/s で
+ * 21.5 秒かかるので、少なくとも 4 分の 1 周ぶんは続ける。
+ */
+export const EVADE_MIN_SECONDS = 5
+
 /** 上昇角の誤差を詰める時定数 s */
 export const GAMMA_TAU = 1.5
 
@@ -201,6 +274,28 @@ export function throttleFor(speed: number, want: number): number {
   return clamp(0.5 + (want - speed) * THROTTLE_GAIN, 0, 1)
 }
 
+/**
+ * 機銃の先行点を出す。
+ *
+ * 弾は機体の速度を引き継ぐので、地面から見た初速は `機体速度 + 初速`。
+ * 相手までの飛行時間 t のあいだに相手は `相対速度 × t` だけ動く。
+ *
+ *   t = 距離 / (初速 + 接近速度)
+ *   先行点 = 相手の位置 + (相手の速度 − 自機の速度) × t
+ *
+ * 抗力を入れた飛行時間は `bulletTimeToRange` が閉形式で持っている。1 回だけ
+ * 反復する。300 m での飛行時間は 0.30 秒で、そのあいだに 250 m/s の相手は
+ * 75 m 動く。**先行を入れないと当たらない。**
+ */
+export function gunLeadPoint(self: Aircraft, target: Tracked, out: Vec3): Vec3 {
+  const range = out.subVectors(target.position, self.position).length()
+  const flight = bulletTimeToRange(Math.max(range, 1))
+  out.copy(target.position)
+  out.addScaledVector(target.velocity, flight)
+  out.addScaledVector(self.velocity, -flight)
+  return out
+}
+
 /** 世界の上方向。水平の旋回面を作るのに使う */
 const WORLD_UP = new Vec3(0, 1, 0)
 
@@ -210,6 +305,9 @@ const los = new Vec3()
 const forward = new Vec3()
 const perp = new Vec3()
 const horizontal = new Vec3()
+const lead = new Vec3()
+const nose = new Vec3()
+const toLead = new Vec3()
 
 /**
  * 追尾の指令加速度を組む。
@@ -271,11 +369,132 @@ export function pursueCommand(self: Aircraft, target: Tracked, out: Vec3): Vec3 
   return out.addScaledVector(perp, (angleOff / ALIGN_TAU) * speed)
 }
 
+/**
+ * 射撃の指令加速度を組む。
+ *
+ * **機首を先行点へ向ける。**追尾（`pursueCommand`）は速度の向きを相手へ
+ * 寄せる指令だったが、機銃は機首から出る。機首は迎角のぶん速度より上を
+ * 向いているので、速度を合わせただけでは弾が下を通る。
+ *
+ * 誤差は機首から先行点までの角度で測り、向きは速度に垂直な成分から取る。
+ * 加速度で変えられるのは速度の向きだけなので、そこは追尾と同じ。
+ *
+ * @param out 書き込み先。ワールド座標の加速度 m/s²
+ */
+export function attackCommand(self: Aircraft, target: Tracked, out: Vec3): Vec3 {
+  gunLeadPoint(self, target, lead)
+  toLead.subVectors(lead, self.position)
+  const range = toLead.length()
+  if (range < 1e-6 || self.speed < 1) return out.set(0, 0, 0)
+  toLead.multiplyScalar(1 / range)
+
+  // 誤差は機首から測る
+  self.orientation.forward(nose)
+  const noseError = Math.acos(clamp(toLead.dot(nose), -1, 1))
+
+  // 向きは速度に垂直な成分
+  forward.copy(self.velocity).multiplyScalar(1 / self.speed)
+  const cos = clamp(toLead.dot(forward), -1, 1)
+  perp.copy(toLead).addScaledVector(forward, -cos)
+  const len = perp.length()
+  if (len < 1e-6) return out.set(0, 0, 0)
+  perp.multiplyScalar(1 / len)
+
+  return out.copy(perp).multiplyScalar((noseError / ATTACK_TAU) * self.speed)
+}
+
+/**
+ * 機首から先行点までの角度 rad。射撃の判定に使う。
+ *
+ * `attackCommand` の中でも同じものを出しているが、判定側からも読めるように
+ * 分けてある。テストが撃つ条件を検査できる。
+ */
+export function gunTrackError(self: Aircraft, target: Tracked): number {
+  gunLeadPoint(self, target, lead)
+  toLead.subVectors(lead, self.position)
+  const range = toLead.length()
+  if (range < 1e-6) return 0
+  toLead.multiplyScalar(1 / range)
+  self.orientation.forward(nose)
+  return Math.acos(clamp(toLead.dot(nose), -1, 1))
+}
+
+/**
+ * 相手が自分の後方にいるか。回避の判定に使う。
+ *
+ * 自分の速度の向きから見て、相手が真後ろから `EVADE_CONE` の内側にいるか。
+ * 距離も見る。
+ */
+export function threatFromBehind(self: Aircraft, target: Tracked): boolean {
+  if (self.speed < 1) return false
+  los.subVectors(target.position, self.position)
+  const range = los.length()
+  if (range > EVADE_RANGE || range < 1e-6) return false
+  forward.copy(self.velocity).multiplyScalar(1 / self.speed)
+  // 真後ろは cos = −1。EVADE_CONE の内側は cos < −cos(EVADE_CONE)
+  return los.dot(forward) / range < -Math.cos(EVADE_CONE)
+}
+
+/**
+ * ブレイクターンの指令加速度を組む。
+ *
+ * **水平面で全力で回る。**追われている側が取るのは、相手の照準を外し続ける
+ * 機動。視線に垂直な向きへ最大の加速度を出せば相手から見た角速度が最大に
+ * なるが、垂直に垂直な向きは複数あって、そのどれを選ぶかでエネルギーの
+ * 使い方が変わる。
+ *
+ * **`視線 × 速度` をそのまま使ってはいけない。**相手が真後ろにいると視線と
+ * 速度がほぼ平行になり、外積の向きがわずかな横ずれで決まる。実測で、
+ * 前方 220 m の相手に対して垂直の上昇になり、2.5 秒で画面の外（画面上端から
+ * 80 画素）まで昇った。追尾で踏んだのと同じ罠。
+ *
+ * 水平面内で速度に垂直な向きを取れば、旋回率を落とさずに速度を保てる。
+ * 7.5 G・250 m/s の水平旋回は 857 m の半径で、相手から見た角速度は
+ * 250 / 857 = 0.29 rad/s。
+ *
+ * 回る向きは入る瞬間に 1 回だけ決める。**途中で変えると照準を外し続けられ
+ * ない。**乱数は `World.rng` から引くので、同じシードからは同じ向きになる。
+ *
+ * @param sign 回る向き。+1 で右、−1 で左
+ */
+export function evadeCommand(self: Aircraft, sign: number, out: Vec3): Vec3 {
+  if (self.speed < 1) return out.set(0, 0, 0)
+  forward.copy(self.velocity).multiplyScalar(1 / self.speed)
+
+  horizontal.crossVectors(forward, WORLD_UP)
+  if (horizontal.lengthSq() < 1e-12) {
+    // 真上か真下へ飛んでいる。水平面が定まらないので機体の右を使う
+    self.orientation.right(horizontal)
+  }
+  horizontal.multiplyScalar(1 / horizontal.length())
+
+  // 全力。機体側の G 制限と迎角制限が絞る
+  return out.copy(horizontal).multiplyScalar(sign * MAX_TURN_ACCEL)
+}
+
+/**
+ * 全力の旋回として指令する加速度 m/s²。
+ *
+ * 構造の G 制限（7.5）を超える値を渡して、機体側の制限器に絞らせる。
+ * **AI が制限を持たない**という約束をここでも通す。
+ */
+export const MAX_TURN_ACCEL = 200
+
 export class FighterAi {
   state: AiState = 'pursue'
 
   private readonly input: InputState = neutralInput()
   private readonly steering: Steering = { pitch: 0, roll: 0 }
+
+  /**
+   * ブレイクターンの向き。+1 か −1。
+   *
+   * 回避に入る瞬間に 1 回だけ決める。**途中で変えると照準を外し続けられない。**
+   */
+  private breakSign = 1
+
+  /** バーストの位相 秒。押しっぱなしを避けるのに使う */
+  private burst = 0
 
   /**
    * 直近に測った前方の地形との余裕 m。
@@ -302,6 +521,7 @@ export class FighterAi {
     target: Tracked,
     throttle: number,
     terrain?: TerrainSampler,
+    rng?: Rng,
   ): InputState {
     this.clearance =
       terrain === undefined
@@ -317,10 +537,14 @@ export class FighterAi {
             ),
           )
 
-    const next = this.nextState(self)
+    const next = this.nextState(self, target)
     if (next !== this.state) {
       this.state = next
       this.frames = 0
+      // 回る向きは入る瞬間に 1 回だけ決める。乱数は World.rng から引く
+      if (next === 'evade') {
+        this.breakSign = rng !== undefined && rng.next() < 0.5 ? -1 : 1
+      }
     } else {
       this.frames++
     }
@@ -331,6 +555,8 @@ export class FighterAi {
     this.input.throttle = throttle
 
     if (this.state === 'recover') this.recover(self)
+    else if (this.state === 'evade') this.evade(self)
+    else if (this.state === 'attack') this.attack(self, target)
     else this.pursue(self, target)
 
     return this.input
@@ -360,7 +586,8 @@ export class FighterAi {
    * **どの状態からも `recover` へ抜けられる。**行き止まりを作らない。
    * 戻る条件はヒステリシスを持たせて、境界で往復させない。
    */
-  private nextState(self: Aircraft): AiState {
+  private nextState(self: Aircraft, target: Tracked): AiState {
+    // 立て直しがいちばん強い。飛べなくなったら戦えない
     if (this.state === 'recover') {
       const safe =
         this.clearance > RESUME_AGL && self.speed > RESUME_SPEED && !self.stalled
@@ -370,7 +597,50 @@ export class FighterAi {
     if (this.clearance < recoverFloor(self.speed, climbAngleOf(self.velocity), self.bank)) {
       return 'recover'
     }
+
+    // 相手が落ちていれば追わない
+    if (!target.alive) return 'pursue'
+
+    // 回避は始めたら最短の時間だけ続ける。出入りを繰り返させない
+    if (this.state === 'evade' && this.frames * FIXED_DT < EVADE_MIN_SECONDS) {
+      return 'evade'
+    }
+    if (threatFromBehind(self, target)) return 'evade'
+
+    const range = self.position.distanceTo(target.position)
+    if (range < GUN_ENGAGE_RANGE && range > GUN_BREAK_RANGE) return 'attack'
     return 'pursue'
+  }
+
+  /**
+   * 射撃。機首を先行点へ向け、乗ったら短く撃つ。
+   *
+   * **押しっぱなしにしない。**携行 578 発は 5.78 秒ぶんしかない。0.6 秒
+   * 撃って 1.2 秒休む。
+   */
+  private attack(self: Aircraft, target: Tracked): void {
+    attackCommand(self, target, command)
+    steerToward(command, self, this.steering)
+    this.input.pitch = this.steering.pitch
+    this.input.roll = this.steering.roll
+    const range = self.position.distanceTo(target.position)
+    this.input.throttle = throttleFor(self.speed, chaseSpeed(range))
+
+    // バーストの位相。撃っているあいだ進み、休みが終わったら戻る
+    const cycle = BURST_SECONDS + BURST_GAP_SECONDS
+    this.burst = (this.burst + FIXED_DT) % cycle
+    this.input.fireGun =
+      this.burst < BURST_SECONDS && gunTrackError(self, target) < FIRE_CONE
+  }
+
+  /** 回避。相手の視線に垂直な面で全力で回る */
+  private evade(self: Aircraft): void {
+    evadeCommand(self, this.breakSign, command)
+    steerToward(command, self, this.steering)
+    this.input.pitch = this.steering.pitch
+    this.input.roll = this.steering.roll
+    // 全開。エネルギーを使い切っても振り切るほうを取る
+    this.input.throttle = 1
   }
 
   private pursue(self: Aircraft, target: Tracked): void {

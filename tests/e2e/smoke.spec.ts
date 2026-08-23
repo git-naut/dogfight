@@ -56,6 +56,10 @@ interface TestHook {
   enemySurfaces: number
   enemyAiStates: string
   enemyClearance: number
+  enemyRoundsFired: number
+  playerTaken: number
+  playerIntegrity: number
+  playerLosses: number
   bulletsInFlight: number
   tracersDrawn: number
   roundsFired: number
@@ -745,6 +749,64 @@ test.describe('敵 AI', () => {
     expect(hook.enemyClearance).toBeGreaterThan(1200)
   })
 
+  test('機銃の射程まで詰めたら撃ってくる', async ({ page }) => {
+    // 20 秒。実測で 12 秒あたりから撃ち始める
+    const hook = await capture(page, { script: 'enemy-attack', frame: 2400 })
+    expect(hook.enemyAiStates).toBe('attack')
+    expect(hook.enemyRoundsFired).toBeGreaterThan(0)
+    expect(hook.tracersDrawn).toBeGreaterThan(0)
+  })
+
+  test('撃たれると耐久が減る', async ({ page }) => {
+    const early = await capture(page, { script: 'enemy-attack', frame: 1200 })
+    const late = await capture(page, { script: 'enemy-attack', frame: 2700 })
+    expect(early.playerTaken).toBe(0)
+    expect(late.playerTaken).toBeGreaterThan(0)
+    expect(late.playerIntegrity).toBeLessThan(early.playerIntegrity)
+  })
+
+  test('直進していると撃墜される', async ({ page }) => {
+    // 40 秒。実測で 33.9 秒に耐久 60 を削り切られる
+    const hook = await capture(page, { script: 'enemy-attack', frame: 4800 })
+    expect(hook.playerLosses).toBe(1)
+    expect(hook.playerIntegrity).toBeLessThanOrEqual(0)
+    // 撃墜の火球が出る
+    expect(hook.explosionCount).toBeGreaterThan(0)
+  })
+
+  test('射程の外では撃ってこない', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-pursue', frame: 600 })
+    expect(hook.enemyRoundsFired).toBe(0)
+    expect(hook.playerTaken).toBe(0)
+  })
+
+  test('後ろを取ると回避に入る', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-evade', frame: 60 })
+    expect(hook.enemyAiStates).toBe('evade')
+  })
+
+  /**
+   * 回避でロックが外れる。
+   *
+   * シーカーの追従限界は機軸から 40 度（`lock.ts`）。ブレイクターンで
+   * 視野の外へ出れば掴めなくなる。**振り切れたことがこの数字で分かる。**
+   * 距離では見ない。回避のあいだ距離はいったん詰まる（相手が横へ抜ける）
+   */
+  test('回避でロックが外れる', async ({ page }) => {
+    const early = await capture(page, { script: 'enemy-evade', frame: 60 })
+    const late = await capture(page, { script: 'enemy-evade', frame: 1200 })
+    expect(early.lockState).not.toBe('none')
+    expect(early.lockRange).toBeGreaterThan(0)
+    expect(late.lockState).toBe('none')
+    expect(late.lockRange).toBe(0)
+  })
+
+  test('1 対 1 を 60 秒回しても敵が自滅しない', async ({ page }) => {
+    const hook = await capture(page, { script: 'dogfight-1v1', frame: 7200 })
+    // 敵が墜落していない（撃墜されていれば kills が立つ）
+    expect(hook.enemiesAlive + hook.kills).toBe(1)
+  })
+
   test('敵 8 機でも 30 秒落ちない', async ({ page }) => {
     const hook = await capture(page, { script: 'enemy-eight', frame: 3600 })
     expect(hook.enemyCount).toBe(8)
@@ -1201,11 +1263,16 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'hud-dlz', script: 'head-on', frame: 1080, hour: 16, coverage: 0, hud: true },
     // 敵機。**近くで形が読める大きさで撮る。**190 m だと実測 20 画素で、
     // 単垂直尾翼が 1 本あることくらいしか分からない。台本は右前方 45 m に
-    // 置くが、AI が付いたので自機（後方）へ向き直る。左へ深くバンクした
-    // 平面形が写るので、かえって形が読める
+    // 置くが、自機が後方にいるので敵は回避（水平のブレイクターン）に入る。
+    // 深くバンクした平面形が 2,600 画素で写るので、かえって形が読める。
+    // **回避の機動の見張りもこの 1 枚が兼ねる。**220 m の `enemy-evade` は
+    // 実測 97 画素しかなく、見張りにならなかった
     { name: 'enemy-formation', script: 'enemy-formation', frame: 240, hour: 16, coverage: 0 },
     // 交戦距離の敵機。ロックボックス込みで、実際に戦う大きさを見張る
     { name: 'enemy-ahead', script: 'enemy-ahead', frame: 240, hour: 16, coverage: 0, hud: true },
+    // 撃たれている。後方から曳光弾が来る。**この 1 枚が「撃たれる」の見張り。**
+    // 実測で曳光弾は 1,001 画素・最大 60 階調、画面の下から中央へ 358 画素伸びる
+    { name: 'enemy-firing', script: 'enemy-attack', frame: 2400, hour: 16, coverage: 0, hud: true },
   ] as const
 
   for (const scene of scenes) {

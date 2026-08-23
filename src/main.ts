@@ -95,6 +95,8 @@ const hook = installTestHook({
   enemiesAlive: 0,
   enemyTriangles: 0,
   enemySurfaces: 0,
+  enemyAiStates: '',
+  enemyClearance: 0,
   bulletsInFlight: 0,
   tracersDrawn: 0,
   roundsFired: 0,
@@ -351,6 +353,11 @@ async function main(): Promise<void> {
     hook.enemiesAlive = currentWorld.enemiesAlive
     hook.enemyTriangles = view.enemyTriangles
     hook.enemySurfaces = view.enemySurfaces
+    hook.enemyAiStates = currentWorld.enemies
+      .filter((enemy) => enemy.alive)
+      .map((enemy) => enemy.aiState)
+      .join(',')
+    hook.enemyClearance = currentWorld.enemies[0]?.ai.clearance ?? 0
     hook.bulletsInFlight = currentWorld.combat.bulletsInFlight
     hook.tracersDrawn = view.tracersDrawn
     hook.roundsFired = currentWorld.combat.roundsFired

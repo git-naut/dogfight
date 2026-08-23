@@ -3,8 +3,8 @@ import { Quat } from './quat'
 import { airDensity } from './isa'
 import { trimCondition } from './flightModel'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
-import { neutralInput, type InputState } from './input'
 import type { Combatant, Tracked } from './combatant'
+import { FighterAi, type AiState } from './ai/fighter'
 
 /**
  * 敵機。
@@ -18,8 +18,8 @@ import type { Combatant, Tracked } from './combatant'
  * 速度が落ちる」という空戦の核が敵の挙動に出るのはこれのおかげで、代わりに
  * 「AI が自滅しない」ことを検証しないといけなくなる。
  *
- * この段では AI を載せない。水平定常飛行のトリムで直進するだけ。追尾と回避は
- * 後の段で `decide()` を差し替える形で入れる。
+ * 操縦は `FighterAi` が決める。`decide()` が返す `InputState` を毎ステップ
+ * `Aircraft.step` へ渡す。**接続点は自機と同じ。**
  */
 
 /**
@@ -53,7 +53,10 @@ export class Enemy implements Combatant {
   readonly aircraft: Aircraft
   integrity = ENEMY_INTEGRITY
 
-  private readonly input: InputState = neutralInput()
+  readonly ai = new FighterAi()
+
+  /** トリムのスロットル。AI が全開にしないときの下地 */
+  private readonly trimThrottle: number
   private readonly stepOptions: StepOptions
 
   constructor(spec: EnemySpec, origin: Vec3, options: StepOptions = {}) {
@@ -73,7 +76,7 @@ export class Enemy implements Combatant {
     orientation.multiply(new Quat().setFromAxisAngle(BODY_RIGHT, alpha))
 
     this.aircraft = new Aircraft({ position, velocity, orientation, throttle })
-    this.input.throttle = throttle
+    this.trimThrottle = throttle
   }
 
   get position(): Vec3 {
@@ -119,22 +122,24 @@ export class Enemy implements Combatant {
     return this.integrity <= 0
   }
 
-  /**
-   * 1 ステップ進める。
-   *
-   * @param _player 自機。AI が読む。この段では使わない
-   */
-  step(dt: number, _player: Tracked): void {
-    this.aircraft.step(this.decide(), dt, this.stepOptions)
+  /** AI の状態。描画とテストが読む */
+  get aiState(): AiState {
+    return this.ai.state
   }
 
   /**
-   * 操縦入力を決める。
+   * 1 ステップ進める。
    *
-   * この段では中立のまま。トリムのスロットルだけ入れて直進する。
+   * @param player 追う相手。AI が位置と速度と姿勢を読む
    */
-  private decide(): InputState {
-    return this.input
+  step(dt: number, player: Tracked): void {
+    const input = this.ai.decide(
+      this.aircraft,
+      player,
+      this.trimThrottle,
+      this.stepOptions.terrain,
+    )
+    this.aircraft.step(input, dt, this.stepOptions)
   }
 
   /** 描画用に前ステップと現ステップを補間した状態を書き込む */

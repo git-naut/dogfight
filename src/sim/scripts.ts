@@ -344,6 +344,34 @@ export const SCRIPTS = {
     keyframes: [],
   },
   /**
+   * 敵機が後方 3,000 m から追ってくる。**AI の追尾を見る。**
+   *
+   * 自機は直進。実測で 42.1 秒（フレーム 5,052）で距離 0 まで詰まる。
+   * 途中の絵を撮るならフレーム 2,400（20 秒、距離 1,917 m）あたり。
+   */
+  'enemy-pursue': {
+    name: 'enemy-pursue',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 240 },
+    enemies: [{ offset: new Vec3(0, 0, 3000), speed: 250 }],
+    keyframes: [],
+  },
+
+  /**
+   * 敵機を低空・低速に置く。**立て直しが働くかを見る。**
+   *
+   * 対地 300 m を 140 m/s。立て直しの下限（水平飛行で 400 m）と速度の下限
+   * （150 m/s）の両方を割っている。機首を上げて速度を回復するはず。
+   */
+  'enemy-recover': {
+    name: 'enemy-recover',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(200, -2700, -600), speed: 140 }],
+    keyframes: [],
+  },
+
+  /**
    * 敵機 8 機。**性能の計測に使う。**
    *
    * Phase 7 のミッション 01 が敵 8 機撃墜なので、器の上限（`MAX_TARGETS`）と

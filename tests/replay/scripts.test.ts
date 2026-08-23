@@ -68,7 +68,7 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('19 本すべて引ける', () => {
+  it('21 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
@@ -88,6 +88,8 @@ describe('スクリプトの登録', () => {
       'enemy-ahead',
       'enemy-formation',
       'enemy-head-on',
+      'enemy-pursue',
+      'enemy-recover',
       'enemy-eight',
     ])
     for (const name of SCRIPT_NAMES) {
@@ -101,6 +103,8 @@ describe('スクリプトの登録', () => {
       'enemy-ahead',
       'enemy-formation',
       'enemy-head-on',
+      'enemy-pursue',
+      'enemy-recover',
       'enemy-eight',
     ])
   })

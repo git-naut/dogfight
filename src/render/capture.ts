@@ -277,6 +277,15 @@ export interface TestHook {
   enemyTriangles: number
   /** 敵機 1 機の動かせた舵面の枚数。5 枚あるはず */
   enemySurfaces: number
+  /**
+   * 敵機の AI の状態。生きている機だけを並べた文字列。
+   *
+   * `pursue,recover` のようにカンマで繋ぐ。数値にすると読めないので文字列で
+   * 出す。E2E が状態の遷移を検査する
+   */
+  enemyAiStates: string
+  /** 敵機 1 機目の前方の地形との余裕 m。敵がいなければ 0 */
+  enemyClearance: number
   /** 飛行中の弾の数 */
   bulletsInFlight: number
   /** 描いた曳光弾の線分の数。5 発に 1 発なので飛行中の 1/5 前後 */

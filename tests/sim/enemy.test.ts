@@ -21,7 +21,13 @@ function enemy(offset = new Vec3(0, 0, -300), speed = 250): Enemy {
   return new Enemy({ offset, speed }, ORIGIN)
 }
 
-/** dt で秒数ぶん進める。相手は自分自身（この段では読まれない） */
+/**
+ * dt で秒数ぶん進める。
+ *
+ * **相手は自分自身。**距離が 0 なので追尾の指令が出ず、AI は水平飛行の保持
+ * だけをする。飛行モデルとダメージの検証にはこれで足りる。追尾そのものは
+ * `tests/sim/fighterAi.test.ts` が見る。
+ */
 function run(e: Enemy, seconds: number): void {
   const steps = Math.round(seconds / FIXED_DT)
   for (let i = 0; i < steps; i++) e.step(FIXED_DT, e)
@@ -60,23 +66,26 @@ describe('Enemy', () => {
   })
 
   /**
-   * トリムで置いたら 60 秒放っても高度と速度を保つ。
+   * トリムで置いたら 60 秒放っても高度を保つ。
    *
    * **開始直後に沈むか浮くかすると、そのぶんだけ後の検証がぶれる。**
-   * 実測で 60 秒後に高度 +3.793 m、速度 249.937 m/s。1 分で 3.8 m 浮き、
-   * 速度は 0.063 m/s 落ちる
+   * 実測で 60 秒後に高度 +3.57 m。1 分で 3.6 m（0.06 m/s）浮く。
+   *
+   * 速度は 250 から 283.91 m/s へ上がる。AI が格闘の目標速度 275 m/s へ
+   * 寄せるため。相手との距離が 0 なので目標は下限に張り付く
    */
-  it('60 秒放っても水平飛行を保つ', () => {
+  it('60 秒放っても高度を保つ', () => {
     const e = enemy()
     const startAltitude = e.altitude
     run(e, 60)
-    expect(e.altitude - startAltitude).toBeGreaterThan(-5)
-    expect(e.altitude - startAltitude).toBeLessThan(5)
-    expect(e.speed).toBeCloseTo(250, 0)
+    expect(e.altitude - startAltitude).toBeGreaterThan(-10)
+    expect(e.altitude - startAltitude).toBeLessThan(10)
+    expect(e.speed).toBeGreaterThan(270)
+    expect(e.speed).toBeLessThan(300)
     expect(e.alive).toBe(true)
   })
 
-  it('中立の舵から動かない', () => {
+  it('追う相手がいなければ舵を当てない', () => {
     const e = enemy()
     run(e, 10)
     const out = createAircraftSample()

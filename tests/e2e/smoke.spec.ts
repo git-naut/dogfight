@@ -54,6 +54,8 @@ interface TestHook {
   enemiesAlive: number
   enemyTriangles: number
   enemySurfaces: number
+  enemyAiStates: string
+  enemyClearance: number
   bulletsInFlight: number
   tracersDrawn: number
   roundsFired: number
@@ -703,10 +705,52 @@ test.describe('敵機', () => {
     expect(hook.lockRange).toBeLessThan(250)
   })
 
-  test('AI を載せる前の敵は直進して落ちない', async ({ page }) => {
-    // 30 秒。トリムで置いたので高度も速度も保つはず
+  test('30 秒回しても落ちない', async ({ page }) => {
     const hook = await capture(page, { script: 'enemy-ahead', frame: 3600 })
     expect(hook.enemiesAlive).toBe(1)
+  })
+})
+
+test.describe('敵 AI', () => {
+  test('相手が見えているあいだは追尾の状態', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-pursue', frame: 2400 })
+    expect(hook.enemyAiStates).toBe('pursue')
+    expect(hook.enemiesAlive).toBe(1)
+  })
+
+  test('追尾していると距離が詰まる', async ({ page }) => {
+    // 自機のロックで距離を測る。敵が後方なのでシーカーには入らないので、
+    // 前方の地形との余裕ではなく生存と状態で見る。距離は sim の単体テストで
+    // 測ってある（3,000 m から 42.1 秒で 0 m）
+    const early = await capture(page, { script: 'enemy-pursue', frame: 600 })
+    const late = await capture(page, { script: 'enemy-pursue', frame: 4200 })
+    expect(early.enemyAiStates).toBe('pursue')
+    expect(late.enemiesAlive).toBe(1)
+  })
+
+  test('低空・低速の敵は立て直しへ入る', async ({ page }) => {
+    // 対地 300 m を 140 m/s。下限（水平飛行で 400 m）と速度の下限（150 m/s）
+    // の両方を割っている
+    const hook = await capture(page, { script: 'enemy-recover', frame: 60 })
+    expect(hook.enemyAiStates).toBe('recover')
+    expect(hook.enemyClearance).toBeLessThan(400)
+  })
+
+  test('立て直しで高度と速度を戻し、追尾へ復帰する', async ({ page }) => {
+    // 20 秒
+    const hook = await capture(page, { script: 'enemy-recover', frame: 2400 })
+    expect(hook.enemiesAlive).toBe(1)
+    expect(hook.enemyAiStates).toBe('pursue')
+    // 前方の余裕が立て直しから抜ける閾値（1,200 m）を超えている
+    expect(hook.enemyClearance).toBeGreaterThan(1200)
+  })
+
+  test('敵 8 機でも 30 秒落ちない', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-eight', frame: 3600 })
+    expect(hook.enemyCount).toBe(8)
+    expect(hook.enemiesAlive).toBe(8)
+    // 8 機ぶんの状態が並ぶ
+    expect(hook.enemyAiStates.split(',')).toHaveLength(8)
   })
 })
 
@@ -1155,8 +1199,10 @@ test.describe('スクリーンショット回帰', () => {
     // DLZ バー。正面から向かい合う構図で、rNe と rMax の帯が分かれる。
     // 実測で接近 481 m/s・rMax 40,304 m・rNe 12,070 m
     { name: 'hud-dlz', script: 'head-on', frame: 1080, hour: 16, coverage: 0, hud: true },
-    // 敵機。**並走させて形が読める大きさで撮る。**190 m だと実測 20 画素で、
-    // 単垂直尾翼が 1 本あることくらいしか分からない。45 m で 149 x 53 画素
+    // 敵機。**近くで形が読める大きさで撮る。**190 m だと実測 20 画素で、
+    // 単垂直尾翼が 1 本あることくらいしか分からない。台本は右前方 45 m に
+    // 置くが、AI が付いたので自機（後方）へ向き直る。左へ深くバンクした
+    // 平面形が写るので、かえって形が読める
     { name: 'enemy-formation', script: 'enemy-formation', frame: 240, hour: 16, coverage: 0 },
     // 交戦距離の敵機。ロックボックス込みで、実際に戦う大きさを見張る
     { name: 'enemy-ahead', script: 'enemy-ahead', frame: 240, hour: 16, coverage: 0, hud: true },

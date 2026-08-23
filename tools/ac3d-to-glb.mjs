@@ -1,14 +1,18 @@
 /**
  * AC3D（.ac）から glb を作る。
  *
- * FlightGear の F/A-18C を当プロジェクトの座標系へ移し、three の GLTFLoader で
+ * FlightGear の機体を当プロジェクトの座標系へ移し、three の GLTFLoader で
  * 読める形にする。自前のローダは書かない。
  *
  * 舵面は別ノードに切り出し、ヒンジの位置へノードの原点を移す。そうしないと
  * 描画側でヒンジまわりの回転を表せない。ヒンジの数値は FlightGear の
- * Models/f18.xml に入っているものをそのまま使う。
+ * アニメーション XML に入っているものをそのまま使う。
  *
- * 実行は `node tools/ac3d-to-glb.mjs`。`npm run assets` から呼ばれる。
+ * **機体ごとに違うところは `aircraft-assets.mjs` が持つ。**このファイルは
+ * 手順だけを持ち、どの機体でも同じ処理を通す。
+ *
+ * 実行は `node tools/ac3d-to-glb.mjs [id ...]`。id を省略すると定義にある
+ * 全機体を変換する。`npm run assets` から呼ばれる。
  */
 
 import {
@@ -29,47 +33,17 @@ import {
   SURF_SMOOTH,
   SURF_TWO_SIDED,
 } from './ac3d.mjs'
-import { F18_HINGES, xmlToWorld } from './f18-hinges.mjs'
+import { AIRCRAFT_ASSETS, DEFAULT_GEAR_PATTERN, assetById } from './aircraft-assets.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(here, '..')
-const SOURCE = join(ROOT, 'assets/upstream/f18/f18.ac')
+/**
+ * glb とテクスチャの出力先。
+ *
+ * glb が同じディレクトリの相対名でテクスチャを参照するので、複製先を
+ * そろえる必要がある。
+ */
 const OUT_DIR = join(ROOT, 'public/aircraft')
-const OUT_GLB = join(OUT_DIR, 'f18.glb')
-
-/**
- * 変換済みテクスチャの置き場。
- *
- * SGI から WebP への変換は Pillow が要るので、ビルドの経路に入れられない
- * （GitHub のランナーに入っておらず CI が落ちた）。変換結果をコミットして、
- * ここでは複製するだけにする。glb が同じディレクトリの相対名でテクスチャを
- * 参照するので、出力先へ並べる必要がある。
- */
-const TEXTURE_DIR = join(ROOT, 'assets/generated/f18')
-
-/** .ac のテクスチャ名から、変換後の WebP へ張り替える */
-const TEXTURE_MAP = {
-  'f18top.rgb': 'f18top.webp',
-  'f18tail.rgb': 'f18tail.webp',
-  'f18cockpit.rgb': 'f18cockpit.webp',
-}
-
-
-/** 降着装置。地上でしか使わないので別ノードにして隠せるようにする */
-const GEAR_PATTERN = /Door|Gear|Wheel|Tire|Strut|Hook/i
-
-/**
- * 描画側で個別に出し入れする部品。
- *
- * 原本にはアフターバーナーの炎が入っている。FlightGear は
- * engines/engine[0]/augmentation で ExternalFlame を出し入れし、InternalFlame は
- * 常に見せている（f18.xml の select アニメーション）。同じ扱いにするので
- * 別ノードへ切り出す。
- */
-const EXTRA_NODES = ['ExternalFlame', 'InternalFlame']
-
-/** 操縦席の内装。外から見えないので別ノードにする */
-const COCKPIT_TEXTURE = 'f18cockpit.rgb'
 
 function subtract(a, b) {
   return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -86,8 +60,10 @@ function normalize(v) {
  * 舵面は 1 つずつ独立したノードにする。降着装置と操縦席はまとめて 1 ノード。
  * 残りは本体。
  */
-function classify(parts) {
-  const hingeNames = new Set(F18_HINGES.map((h) => h.node))
+function classify(parts, asset) {
+  const hingeNames = new Set(asset.hinges.map((h) => h.node))
+  const extra = asset.extraNodes ?? []
+  const gearPattern = asset.gearPattern ?? DEFAULT_GEAR_PATTERN
   const groups = new Map()
   const put = (key, part) => {
     const list = groups.get(key)
@@ -97,9 +73,9 @@ function classify(parts) {
 
   for (const part of parts) {
     if (hingeNames.has(part.name)) put(part.name, part)
-    else if (EXTRA_NODES.includes(part.name)) put(part.name, part)
-    else if (GEAR_PATTERN.test(part.name)) put('gear', part)
-    else if (part.texture === COCKPIT_TEXTURE) put('cockpit', part)
+    else if (extra.includes(part.name)) put(part.name, part)
+    else if (gearPattern.test(part.name)) put('gear', part)
+    else if (part.texture === asset.cockpitTexture) put('cockpit', part)
     else put('body', part)
   }
   return groups
@@ -267,22 +243,27 @@ function materialFor(bucket, materials) {
   return material
 }
 
-function main() {
-  const text = readFileSync(SOURCE, 'utf8')
+/**
+ * 機体 1 機を変換して glb を書く。
+ *
+ * @param asset `aircraft-assets.mjs` の定義
+ */
+function convert(asset) {
+  const source = join(ROOT, asset.source)
+  const text = readFileSync(source, 'utf8')
   const { materials, root } = parseAc3d(text)
   const parts = flatten(root)
   const st = stats(root)
   const b = bounds(parts)
 
-  const groups = classify(parts)
+  const groups = classify(parts, asset)
 
   // glTF の組み立て
   const gltf = {
     asset: {
       version: '2.0',
       generator: 'dogfight tools/ac3d-to-glb.mjs',
-      copyright:
-        'F/A-18C model by Fabrice Kauffmann, FlightGear FGAddon, GPLv2+. See assets/CREDITS.md',
+      copyright: asset.copyright,
     },
     scene: 0,
     scenes: [{ nodes: [] }],
@@ -331,7 +312,7 @@ function main() {
   const materialIndexFor = (bucket) => {
     const material = materialFor(bucket, materials)
     if (bucket.texture !== null) {
-      const file = TEXTURE_MAP[bucket.texture]
+      const file = asset.textures[bucket.texture]
       if (file === undefined) throw new Error(`未知のテクスチャ ${bucket.texture}`)
       let imageIndex = images.get(file)
       if (imageIndex === undefined) {
@@ -407,7 +388,7 @@ function main() {
   const hingeInfo = []
 
   for (const [key, groupParts] of groups) {
-    const hinge = F18_HINGES.find((h) => h.node === key)
+    const hinge = asset.hinges.find((h) => h.node === key)
     if (hinge === undefined) {
       const index = addMeshNode(key, groupParts, [0, 0, 0])
       if (index !== null) rootChildren.push(index)
@@ -415,14 +396,14 @@ function main() {
     }
 
     // ヒンジの位置へノードの原点を移す。頂点はそのぶん引く
-    const from = xmlToWorld(hinge.from)
-    const axis = normalize(subtract(xmlToWorld(hinge.to), from))
+    const from = asset.xmlToWorld(hinge.from)
+    const axis = normalize(subtract(asset.xmlToWorld(hinge.to), from))
     const index = addMeshNode(key, groupParts, from)
     if (index !== null) rootChildren.push(index)
     hingeInfo.push({ node: key, origin: from, axis, maxDeg: hinge.maxDeg })
   }
 
-  gltf.nodes.push({ name: 'f18', children: rootChildren })
+  gltf.nodes.push({ name: asset.id, children: rootChildren })
   gltf.scenes[0].nodes = [gltf.nodes.length - 1]
 
   if (images.size > 0) {
@@ -441,14 +422,14 @@ function main() {
   const glb = packGlb(gltf, binary)
 
   mkdirSync(OUT_DIR, { recursive: true })
-  writeFileSync(OUT_GLB, glb)
+  const outGlb = join(OUT_DIR, `${asset.id}.glb`)
+  writeFileSync(outGlb, glb)
 
-  for (const file of Object.values(TEXTURE_MAP)) {
-    const from = join(TEXTURE_DIR, file)
+  const textureDir = join(ROOT, asset.textureDir)
+  for (const file of Object.values(asset.textures)) {
+    const from = join(textureDir, file)
     if (!existsSync(from)) {
-      throw new Error(
-        `${file} が無い。python3 tools/sgi-to-webp.py を走らせてコミットすること`,
-      )
+      throw new Error(`${file} が無い。${asset.textureHint}`)
     }
     copyFileSync(from, join(OUT_DIR, file))
   }
@@ -463,7 +444,7 @@ function main() {
     0,
   )
 
-  console.log(`f18.glb を書いた: ${(glb.byteLength / 1024).toFixed(0)} KB`)
+  console.log(`${asset.id}.glb を書いた: ${(glb.byteLength / 1024).toFixed(0)} KB`)
   console.log(
     `  原本 ${st.objects} オブジェクト / ${st.triangles} 三角形 / ${st.vertices} 頂点`,
   )
@@ -472,6 +453,19 @@ function main() {
     `  境界（.ac 座標） X ${b.size[0].toFixed(3)} / Y ${b.size[1].toFixed(3)} / Z ${b.size[2].toFixed(3)}`,
   )
   console.log(`  ノード: ${gltf.nodes.map((n) => n.name).join(', ')}`)
+}
+
+/**
+ * 引数の id を変換する。省略すれば定義にある全機体。
+ *
+ * **id を並べられるようにしてあるのは、片方だけを作り直したいときのため。**
+ * F-16 を足す作業で F/A-18C を毎回作り直すと、出力が変わっていないことの
+ * 確認に時間がかかる。
+ */
+function main() {
+  const ids = process.argv.slice(2)
+  const assets = ids.length > 0 ? ids.map(assetById) : AIRCRAFT_ASSETS
+  for (const asset of assets) convert(asset)
 }
 
 function concat(chunks, total) {

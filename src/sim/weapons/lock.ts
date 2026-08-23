@@ -1,6 +1,6 @@
 import { Vec3 } from '../vec3'
 import type { Quat } from '../quat'
-import type { Target } from '../target'
+import type { Combatant } from '../combatant'
 
 /**
  * ロックオン。赤外線シーカーの捕捉。
@@ -80,7 +80,7 @@ export class Lock implements LockView {
     position: Vec3,
     velocity: Vec3,
     orientation: Quat,
-    targets: readonly Target[],
+    targets: readonly Combatant[],
     dt: number,
   ): void {
     orientation.forward(nose)
@@ -113,7 +113,7 @@ export class Lock implements LockView {
   private holds(
     position: Vec3,
     velocity: Vec3,
-    targets: readonly Target[],
+    targets: readonly Combatant[],
   ): boolean {
     const held = targets[this.index]
     if (held === undefined || !held.alive) return false
@@ -129,7 +129,7 @@ export class Lock implements LockView {
    * 距離ではなく角度で選ぶ。遠くても正面にいる相手のほうが「狙っている」
    * 相手である。
    */
-  private pick(position: Vec3, targets: readonly Target[]): number {
+  private pick(position: Vec3, targets: readonly Combatant[]): number {
     let best = -1
     let bestAngle = SEEKER_ACQUIRE_ANGLE
     for (let i = 0; i < targets.length; i++) {
@@ -148,7 +148,7 @@ export class Lock implements LockView {
   }
 
   /** 距離と接近速度と機軸からの角度を測る */
-  private measure(position: Vec3, velocity: Vec3, target: Target): void {
+  private measure(position: Vec3, velocity: Vec3, target: Combatant): void {
     toTarget.subVectors(target.position, position)
     this.range = toTarget.length()
     if (this.range < 1e-6) {

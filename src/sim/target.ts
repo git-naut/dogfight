@@ -2,14 +2,18 @@ import { Vec3 } from './vec3'
 import { Quat } from './quat'
 import { GRAVITY, airDensity } from './isa'
 import { trimCondition } from './flightModel'
+import type { Combatant } from './combatant'
 
 /**
  * 標的機。
  *
  * **飛行モデルは載せない。**`Aircraft` を流用すると空力と操縦の全部が乗るし、
  * 操縦する主体が要る。Phase 5 で必要なのは「決められた軌跡を飛ぶ剛体」だけで、
- * ロックオンと比例航法と当たり判定を成立させるにはそれで足りる。敵 AI と
- * ダメージは Phase 6 の担当なので、そこで `Aircraft` に差し替える。
+ * ロックオンと比例航法と当たり判定を成立させるにはそれで足りる。
+ *
+ * Phase 6 の敵機はこれを置き換えない。**撃たれる側の口は `Combatant` に
+ * 切り出したので、両方が同じ列に並ぶ。**計測用の台本（弾道・DLZ・視線回転率）
+ * は決められた軌跡を飛ぶ相手のほうが読みやすいので、こちらを使い続ける。
  *
  * 力学はないが運動学は正しく組む。定常旋回のバンク角は速度と旋回率から
  * 導く（下の `steadyTurnBank`）。旋回する的がないと視線の回転率がほぼ 0 に
@@ -123,7 +127,7 @@ function sinc(x: number): number {
 const tmpQuat = new Quat()
 const tmpForward = new Vec3()
 
-export class Target {
+export class Target implements Combatant {
   readonly position = new Vec3()
   readonly velocity = new Vec3()
   readonly orientation = new Quat()

@@ -2,7 +2,7 @@ import { Vec3 } from '../vec3'
 import { Quat } from '../quat'
 import { GRAVITY, airDensity, speedOfSound } from '../isa'
 import { TrailRing } from '../trail'
-import type { Target } from '../target'
+import type { Combatant } from '../combatant'
 import { sweptHitsAircraft, createHitResult, type HitResult } from './hitbox'
 
 /**
@@ -239,7 +239,7 @@ export class Missile implements SmokeSource {
    *
    * @param target 狙っている標的。null なら自律飛行（誘導しない）
    */
-  step(dt: number, target: Target | null): boolean {
+  step(dt: number, target: Combatant | null): boolean {
     if (this.state !== 'flying') return false
 
     this.prevPosition.copy(this.position)
@@ -294,7 +294,7 @@ export class Missile implements SmokeSource {
    *
    * 誘導できないときは false を返す（自律飛行になる）。
    */
-  private guide(target: Target | null, dt: number): boolean {
+  private guide(target: Combatant | null, dt: number): boolean {
     void dt
     if (target === null || !target.alive) {
       this.guiding = false
@@ -360,7 +360,7 @@ export class Missile implements SmokeSource {
    * 正面から向かい合うと接近速度が 1,000 m/s を超え、1/120 秒で 8.6 m 進む。
    * 殺傷半径 8 m と同じ大きさなので、跨いで通過する。弾と同じ掃引の判定を使う。
    */
-  private checkFuze(target: Target): void {
+  private checkFuze(target: Combatant): void {
     if (this.age < ARM_TIME || !target.alive) return
 
     sweptHitsAircraft(

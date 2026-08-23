@@ -1,7 +1,7 @@
 import { Vec3 } from './vec3'
 import type { Rng } from './rng'
 import type { Aircraft, TerrainSampler } from './aircraft'
-import type { Target } from './target'
+import type { Combatant } from './combatant'
 import type { InputState } from './input'
 import { Gun, MUZZLE_OFFSET, type Bullet, type BulletSource } from './weapons/gun'
 import {
@@ -65,8 +65,13 @@ const DLZ_INTERVAL = 0.1
 export interface CombatOptions {
   /** 散布に使う。同じシードからは同じ弾道になる */
   rng: Rng
-  /** 標的。World が作ったものを借りる */
-  targets: readonly Target[]
+  /**
+   * 撃たれる側。World が作ったものを借りる。
+   *
+   * 型は `Combatant` なので、計測用の `Target`（決められた軌跡を飛ぶ剛体）と
+   * Phase 6 の敵機（`Aircraft` を保有する）が同じ列に並ぶ。
+   */
+  targets: readonly Combatant[]
   /** 地形。渡さなければ海面（高度 0）で弾が消える */
   terrain?: TerrainSampler
   /**
@@ -130,7 +135,7 @@ export class Combat {
   private frame = 0
 
   private readonly rng: Rng
-  private readonly targets: readonly Target[]
+  private readonly targets: readonly Combatant[]
   private readonly terrain: TerrainSampler | undefined
   private readonly groundLimit: number
   /**
@@ -306,7 +311,7 @@ export class Combat {
   }
 
   /** ロックしている標的。捉えていなければ null */
-  get lockedTarget(): Target | null {
+  get lockedTarget(): Combatant | null {
     if (this.lock.index < 0) return null
     return this.targets[this.lock.index] ?? null
   }

@@ -267,10 +267,10 @@ describe('追尾', () => {
     expect(history[0]!.angleOff).toBeGreaterThan(0.15)
     // 1 秒で機首に乗る
     expect(history[120]!.angleOff).toBeLessThan(0.06)
-    // 距離が詰まるほど幾何が厳しくなるが、10 度以内に収まる（実測 8.9 度）
+    // 距離が詰まるほど幾何が厳しくなるが、11 度以内に収まる（実測 10.2 度）
     let peak = 0
     for (const row of history.slice(120)) peak = Math.max(peak, row.angleOff)
-    expect(peak).toBeLessThan((10 * Math.PI) / 180)
+    expect(peak).toBeLessThan((11 * Math.PI) / 180)
   })
 
   it('同速で真横にいる相手にも向き直る', () => {

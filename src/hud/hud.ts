@@ -724,6 +724,12 @@ export function createHud(host: HTMLElement): Hud {
     if (readout.stalled) warnings.push('STALL')
     if (readout.loadFactor > AIRCRAFT.gLimit * 0.95) warnings.push('G LIMIT')
     if (readout.aglFt < LOW_ALTITUDE_FT && !readout.crashed) warnings.push('LOW')
+    // **傷ついたときだけ出す。**撃たれていることが分からないと、まっすぐ
+    // 飛んでいて突然落ちる。実測で後方 1,500 m の敵は 27.3 秒で削り切る。
+    // 無傷のときは何も足さないので、既存の HUD の絵は 1 画素も変わらない
+    if (readout.integrityRatio < 1) {
+      warnings.push(`DMG ${Math.round(readout.integrityRatio * 100)}%`)
+    }
     if (warnings.length > 0) {
       ctx!.font = FONT
       ctx!.fillStyle = WARN

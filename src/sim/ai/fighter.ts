@@ -204,6 +204,37 @@ export const GUN_ENGAGE_RANGE = 1200
  * 8 発しか当たらない。**まっすぐ飛べば落ちる、機動すれば生き残る。**
  */
 export const ATTACK_TAU = 0.4
+
+/**
+ * 射撃中の比例航法の航法定数。
+ *
+ * 追尾（`NAV_CONSTANT` = 3.5）とは役割が違う。**追尾では会合コースを作るのに
+ * 使い、射撃では旋回率の先行に使う。**相手が一定の旋回率で回っているとき、
+ * 比例だけの制御は旋回率に比例した定常偏差を残す。比例航法は必要な旋回率
+ * そのものを出すので、その偏差を先に埋める。
+ *
+ * **これがないと「何か操作すれば無敵」の崖になる。**0 のときの実測で、直進
+ * する自機には命中率 18.5% で撃墜できるのに、いちばん緩い旋回（roll 0.1 /
+ * pitch 0.06）にすると 0.2% まで落ちた。
+ *
+ * 大きすぎても悪くなる。追尾と同じ 3.5 では直進する自機にも当たらない
+ * （0%）。会合コースへ寄せる成分が機首を相手から外すため。
+ *
+ * 4 つの初期配置（後方 1,500 / 900 / 右 1,200 / 左 1,800 m）× 6 通りの機動を
+ * 60 秒回して、被弾の平均で比べた。
+ *
+ * | 自機の機動 | N = 0 | N = 0.5 |
+ * | 直進 | 46.0 | 59.0 |
+ * | ごく緩い旋回 | 2.5 | 11.8 |
+ * | 緩い旋回 | 1.5 | 4.5 |
+ * | 中くらいの旋回 | 1.8 | 3.8 |
+ * | 強い旋回 | 9.3 | 2.8 |
+ * | 強い旋回 + 全開 | 0.0 | 0.0 |
+ *
+ * **0.5 だけが単調に減る。**強く機動するほど安全になるという形になる。
+ * 0 のときは 中 1.8 → 強い 9.3 と逆転していて、操作と結果の対応が読めない。
+ */
+export const ATTACK_NAV_CONSTANT = 0.5
 /** 機銃を撃つのをやめる距離 m。至近では衝突を避けて離れる */
 export const GUN_BREAK_RANGE = 120
 /**
@@ -383,9 +414,22 @@ export function pursueCommand(self: Aircraft, target: Tracked, out: Vec3): Vec3 
  */
 export function attackCommand(self: Aircraft, target: Tracked, out: Vec3): Vec3 {
   gunLeadPoint(self, target, lead)
+
+  // 先行点の視線回転率を打ち消す成分。**比例だけでは旋回する相手に追いつけない。**
+  // 一定の旋回率を要求される相手には、比例制御は旋回率に比例した定常偏差を残す。
+  // 比例航法は必要な旋回率そのものを出すので、その偏差を先に埋める
+  proportionalNavigation(
+    self.position,
+    self.velocity,
+    lead,
+    target.velocity,
+    ATTACK_NAV_CONSTANT,
+    out,
+  )
+
   toLead.subVectors(lead, self.position)
   const range = toLead.length()
-  if (range < 1e-6 || self.speed < 1) return out.set(0, 0, 0)
+  if (range < 1e-6 || self.speed < 1) return out
   toLead.multiplyScalar(1 / range)
 
   // 誤差は機首から測る
@@ -397,10 +441,10 @@ export function attackCommand(self: Aircraft, target: Tracked, out: Vec3): Vec3 
   const cos = clamp(toLead.dot(forward), -1, 1)
   perp.copy(toLead).addScaledVector(forward, -cos)
   const len = perp.length()
-  if (len < 1e-6) return out.set(0, 0, 0)
+  if (len < 1e-6) return out
   perp.multiplyScalar(1 / len)
 
-  return out.copy(perp).multiplyScalar((noseError / ATTACK_TAU) * self.speed)
+  return out.addScaledVector(perp, (noseError / ATTACK_TAU) * self.speed)
 }
 
 /**

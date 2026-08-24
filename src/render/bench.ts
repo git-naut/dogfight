@@ -1,5 +1,5 @@
 import type { WebGLRenderer } from 'three'
-import type { MeasureConfig } from './scene'
+import type { MeasureConfig, MeasureToggles } from './scene'
 
 /**
  * 同じ 1 枚を設定を変えながら繰り返し描いて、GPU 時間の内訳を測る。
@@ -94,7 +94,8 @@ export async function runBenchSweep(
     gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
   }
 
-  const base: MeasureConfig = {
+  // **型で埋め忘れを止める。**`MeasureToggles` はすべての切り替えを必須にする
+  const base: MeasureToggles & MeasureConfig = {
     terrain: true,
     water: true,
     clouds: true,
@@ -105,6 +106,8 @@ export async function runBenchSweep(
     aircraftShadow: true,
     trails: true,
     targets: true,
+    enemies: true,
+    damageSmoke: true,
     tracers: true,
     missiles: true,
     smoke: true,
@@ -132,6 +135,7 @@ export async function runBenchSweep(
     // **0 が出ること自体が「その台本では測れていない」という手がかり。**
     { label: '標的なし', config: { ...base, targets: false } },
     { label: '敵機なし', config: { ...base, enemies: false } },
+    { label: 'ダメージの煙なし', config: { ...base, damageSmoke: false } },
     { label: '曳光弾なし', config: { ...base, tracers: false } },
     { label: 'ミサイルなし', config: { ...base, missiles: false } },
     { label: '煙なし', config: { ...base, smoke: false } },

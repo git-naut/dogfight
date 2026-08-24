@@ -12,7 +12,38 @@ import type { BenchRow } from '../render/bench'
  *
  * キャプチャモードでしか呼ばないので、スクリーンショット回帰には影響しない。
  */
-export function showBenchPanel(root: HTMLElement, rows: readonly BenchRow[]): void {
+/**
+ * 何を測ったか。
+ *
+ * **これがないと表の読み方を間違える。**実機の計測で 3 度、`script` を
+ * 渡し忘れて既定の `level` を測っていた（既定値は `capture.ts` の
+ * `params.get('script') ?? 'level'`）。表には三角形の総数が出るので
+ * 「敵機なし」の行が基準と同じ数のままなのを見れば分かるが、絵の中に
+ * 台本の名前が無いと、あとから画像だけを見て確かめられない。
+ *
+ * 画面の大きさも入れる。GPU 時間は画素数にほぼ比例するので、**窓の
+ * 大きさが違う 2 回の計測は比べられない。**
+ */
+export interface BenchContext {
+  script: string
+  frame: number
+  hour: number
+  coverage: number
+  preset: string
+  noDegrade: boolean
+  /** 実際に描いた画素数。レンダースケール込み */
+  drawingBufferWidth: number
+  drawingBufferHeight: number
+  /** 台本が出した敵機と標的機の数。0 なら構図に入っていない */
+  enemyCount: number
+  targetCount: number
+}
+
+export function showBenchPanel(
+  root: HTMLElement,
+  rows: readonly BenchRow[],
+  context: BenchContext,
+): void {
   const panel = document.createElement('div')
   panel.className = 'bench-panel'
   panel.style.cssText = [
@@ -25,6 +56,16 @@ export function showBenchPanel(root: HTMLElement, rows: readonly BenchRow[]): vo
     'font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace',
     'border-radius:6px',
   ].join(';')
+
+  const caption = document.createElement('p')
+  caption.textContent =
+    `台本 ${context.script} / f${context.frame} / ${context.hour.toFixed(1)} 時 / ` +
+    `雲量 ${context.coverage.toFixed(2)} / preset ${context.preset}` +
+    `${context.noDegrade ? ' / 劣化なし' : ''} / ` +
+    `${context.drawingBufferWidth} x ${context.drawingBufferHeight} 画素 / ` +
+    `敵機 ${context.enemyCount} 機 / 標的 ${context.targetCount} 機`
+  caption.style.cssText = 'margin:0 0 10px;color:#6fa;font-size:13px'
+  panel.appendChild(caption)
 
   const table = document.createElement('table')
   table.style.cssText = 'border-collapse:collapse'

@@ -86,6 +86,22 @@ const ATMOSPHERE_GROUND_ALBEDO = new THREE.Color(0x0a1c26)
  * 地形の費用は雲と違って実行量を数えられない。頂点とラスタライズが主なので、
  * 切って差分で測るしかない。省略した項目は現状のまま。
  */
+/**
+ * 切り替えの項目をすべて必須にした型。
+ *
+ * **`runBenchSweep` の `base` はこれを満たさないと型検査で落ちる。**
+ * `setMeasureConfig` は `undefined` の項目を触らないので、`base` に無い
+ * 項目は一度切ると二度と戻らない。実際に `enemies` で踏んだ。順番を
+ * 1 周ごとにずらすので、最初の周で「敵機なし」を通った時点から全条件が
+ * 敵機なしで測られ、三角形の総数が全行で同じ数のまま並んだ。
+ *
+ * 数値の項目（`lodDistanceScale` など）は除く。切り替えではないので
+ * 戻し漏れが起きない。
+ */
+export type MeasureToggles = {
+  [K in keyof MeasureConfig as boolean extends MeasureConfig[K] ? K : never]-?: boolean
+}
+
 export interface MeasureConfig {
   terrain?: boolean
   water?: boolean

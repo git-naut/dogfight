@@ -462,7 +462,22 @@ async function main(): Promise<void> {
     if (capture.sweep) {
       const rows = await runBenchSweep(view, capture.bench > 0 ? capture.bench : 40)
       hook.benchSweep = rows
-      if (hudRoot) showBenchPanel(hudRoot, rows)
+      // **何を測ったかを絵の中に残す。**実機の計測で 3 度、script を
+      // 渡し忘れて既定の level を測っていた
+      const gl = view.renderer.getContext()
+      if (hudRoot)
+        showBenchPanel(hudRoot, rows, {
+          script: capture.script,
+          frame: capture.frame,
+          hour: capture.hour,
+          coverage: capture.coverage,
+          preset: capture.preset,
+          noDegrade: capture.noDegrade,
+          drawingBufferWidth: gl.drawingBufferWidth,
+          drawingBufferHeight: gl.drawingBufferHeight,
+          enemyCount: world.enemies.length,
+          targetCount: world.targets.length,
+        })
     } else if (capture.bench > 0) {
       const gl = view.renderer.getContext()
       const pixel = new Uint8Array(4)

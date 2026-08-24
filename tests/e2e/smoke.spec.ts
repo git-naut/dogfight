@@ -58,6 +58,7 @@ interface TestHook {
   enemyClearance: number
   enemyIntegrityRatio: number
   enemySmoke: number
+  enemyDamaged: number
   enemyRoundsFired: number
   playerTaken: number
   playerIntegrity: number
@@ -831,6 +832,47 @@ test.describe('敵 AI', () => {
     expect(off.drawCalls).toBeLessThan(on.drawCalls)
   })
 
+  test('傷ついている敵の数を数える', async ({ page }) => {
+    const damaged = await capture(page, { script: 'damage-smoke', frame: 240 })
+    expect(damaged.enemyDamaged).toBe(1)
+    const healthy = await capture(page, { script: 'enemy-eight', frame: 240 })
+    expect(healthy.enemyCount).toBe(8)
+    expect(healthy.enemyDamaged).toBe(0)
+  })
+
+  test('1 対 1 を 90 秒回しても敵が地面に落ちない', async ({ page }) => {
+    // 撃墜は起きうる。墜落していないことを見る
+    const hook = await capture(page, { script: 'dogfight-1v1', frame: 10800 })
+    expect(hook.enemiesAlive + hook.kills).toBe(1)
+  })
+
+  /**
+   * すれ違ったあとの煙が描かれる。
+   *
+   * **リボンは新しい端がカメラの後ろにあると全部消えていた。**翼端渦と
+   * ミサイルの煙は自機から出るので、この経路を踏まない。敵が置いていった煙は
+   * すれ違ったあとカメラの後ろから前へ伸びるので踏む。
+   *
+   * 絵の見張りは基準画像 `damage-smoke-near`。ここではドローコールで見る。
+   * 実測で煙のリボンが 16 本増える（129 → 145）
+   */
+  test('すれ違ったあとも煙のリボンが投入される', async ({ page }) => {
+    const on = await capture(page, {
+      script: 'damage-smoke-near',
+      frame: 720,
+      coverage: 0,
+    })
+    expect(on.enemyIntegrityRatio).toBeCloseTo(0.2, 6)
+    expect(on.enemySmoke).toBeGreaterThan(0)
+    const off = await capture(page, {
+      script: 'damage-smoke-near',
+      frame: 720,
+      coverage: 0,
+      damageSmoke: false,
+    })
+    expect(on.drawCalls - off.drawCalls).toBe(16)
+  })
+
   test('敵 8 機でも 30 秒落ちない', async ({ page }) => {
     const hook = await capture(page, { script: 'enemy-eight', frame: 3600 })
     expect(hook.enemyCount).toBe(8)
@@ -1300,6 +1342,12 @@ test.describe('スクリーンショット回帰', () => {
     // 撃たれている。後方から曳光弾が来る。**この 1 枚が「撃たれる」の見張り。**
     // 実測で曳光弾は 1,001 画素・最大 60 階調、画面の下から中央へ 358 画素伸びる
     { name: 'enemy-firing', script: 'enemy-attack', frame: 2400, hour: 16, coverage: 0, hud: true },
+    // 敵とすれ違ったあと、置いていかれた煙の中をカメラが通る。
+    // **この 1 枚が near 面の見張り。**リボンは新しい端がカメラの後ろにあると
+    // 全部消える欠陥があった（翼端渦とミサイルの煙では踏まれない経路）。
+    // 実測で煙の寄与は 104,942 画素・12 階調以上 37,397 画素・最大 110 階調。
+    // 欠陥があるとこれが 0 になる
+    { name: 'damage-smoke-near', script: 'damage-smoke-near', frame: 720, hour: 16, coverage: 0 },
   ] as const
 
   for (const scene of scenes) {

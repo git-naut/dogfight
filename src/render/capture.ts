@@ -293,6 +293,8 @@ export interface TestHook {
   enemyIntegrityRatio: number
   /** 敵機 1 機目の煙の濃さ 0..1 */
   enemySmoke: number
+  /** 傷ついている敵機の数。煙が出ている数と同じ */
+  enemyDamaged: number
   /** 敵機が撃った弾の総数（全機の合計） */
   enemyRoundsFired: number
   /** 自機が受けた弾の数 */

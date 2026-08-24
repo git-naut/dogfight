@@ -99,6 +99,7 @@ const hook = installTestHook({
   enemyClearance: 0,
   enemyIntegrityRatio: 0,
   enemySmoke: 0,
+  enemyDamaged: 0,
   enemyRoundsFired: 0,
   playerTaken: 0,
   playerIntegrity: 0,
@@ -367,6 +368,9 @@ async function main(): Promise<void> {
     hook.enemyClearance = currentWorld.enemies[0]?.ai.clearance ?? 0
     hook.enemyIntegrityRatio = currentWorld.enemies[0]?.integrityRatio ?? 0
     hook.enemySmoke = currentWorld.enemies[0]?.smokeStrength ?? 0
+    hook.enemyDamaged = currentWorld.enemies.filter(
+      (enemy) => enemy.alive && enemy.smokeStrength > 0,
+    ).length
     hook.enemyRoundsFired = currentWorld.enemies.reduce(
       (sum, enemy) => sum + enemy.roundsFired,
       0,

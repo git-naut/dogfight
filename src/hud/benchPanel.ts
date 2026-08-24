@@ -1,4 +1,10 @@
-import type { BenchRow } from '../render/bench'
+import {
+  benchBestGain,
+  benchKey,
+  benchNoiseFloor,
+  benchUnreadable,
+  type BenchRow,
+} from '../render/bench'
 
 /**
  * 計測結果を画面へ出す。
@@ -37,6 +43,10 @@ export interface BenchContext {
   /** 台本が出した敵機と標的機の数。0 なら構図に入っていない */
   enemyCount: number
   targetCount: number
+  /** 1 条件あたりの試料の数。`?bench=N` で増やせる */
+  samplesPerCase: number
+  /** 実際に測った条件の数。絞り込みが効いているかが分かる */
+  caseCount: number
 }
 
 export function showBenchPanel(
@@ -63,7 +73,8 @@ export function showBenchPanel(
     `雲量 ${context.coverage.toFixed(2)} / preset ${context.preset}` +
     `${context.noDegrade ? ' / 劣化なし' : ''} / ` +
     `${context.drawingBufferWidth} x ${context.drawingBufferHeight} 画素 / ` +
-    `敵機 ${context.enemyCount} 機 / 標的 ${context.targetCount} 機`
+    `敵機 ${context.enemyCount} 機 / 標的 ${context.targetCount} 機 / ` +
+    `${context.caseCount} 条件 x 試料 ${context.samplesPerCase} 回`
   caption.style.cssText = 'margin:0 0 10px;color:#6fa;font-size:13px'
   panel.appendChild(caption)
 
@@ -94,25 +105,8 @@ export function showBenchPanel(
   table.appendChild(head)
 
   const base = rows[0]
-  // GPU クエリが使えるならそちらで差を出す。無ければ CPU 側で
-  const key = (row: BenchRow): number => row.gpuMinMs ?? row.cpuMinMs
-
-  /**
-   * ばらつきの目安 ms。
-   *
-   * 最小値と中央値の差を全条件で見て、その中央を取る。最小値を代表値に
-   * するのは割り込みが時間を増やす方向にしか効かないからだが、**それでも
-   * 最小値そのものが振れる。**この幅より小さい差は読まない。
-   *
-   * 前回の実機の計測で、武装を切った差が +0.01〜+0.13 ms で並んだ。
-   * **すべて正の値**（切ったほうが遅い）だったので、差ではなくばらつき
-   * だったと分かる。それを表の上で見分けられるようにする。
-   */
-  const spreads = rows
-    .map((r) => (r.gpuMinMs !== null && r.gpuMedianMs !== null ? r.gpuMedianMs - r.gpuMinMs : null))
-    .filter((v): v is number => v !== null)
-    .sort((a, b) => a - b)
-  const noise = spreads.length > 0 ? spreads[spreads.length >> 1]! : 0
+  const key = benchKey
+  const noise = benchNoiseFloor(rows)
 
   /** 差がばらつきの内側か、符号が逆（切ったのに遅い）かを判定する */
   const verdict = (delta: number, isBase: boolean): string => {
@@ -150,7 +144,23 @@ export function showBenchPanel(
     `「逆」は切ったのに遅くなった行で、差ではなくばらつき。三角形が動いていない行は、そもそも切れていない`
   note.style.cssText = 'margin:10px 0 0;color:#89a;font-size:12px'
 
+  // 判定は bench.ts の純関数。表と警告で同じ値を使う
+  const best = benchBestGain(rows)
+  const unreadable = benchUnreadable(rows)
+
   panel.appendChild(table)
+  if (unreadable) {
+    const alarm = document.createElement('p')
+    alarm.textContent =
+      `この計測は読めない。ばらつき ${noise.toFixed(2)} ms が最大の差 ` +
+      `${Math.abs(best).toFixed(2)} ms より大きいので、「有意」の行が 1 つも無い。` +
+      `費用が無いのではなく測れていない。ほかの負荷を止め、電源につないで、` +
+      `?bench=120 のように試料を増やして測り直す`
+    alarm.style.cssText =
+      'margin:10px 0 0;padding:6px 10px;color:#ffd479;' +
+      'background:rgba(90,50,10,0.5);border-radius:4px;font-size:12px'
+    panel.appendChild(alarm)
+  }
   panel.appendChild(note)
   root.appendChild(panel)
 }

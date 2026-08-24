@@ -460,7 +460,8 @@ async function main(): Promise<void> {
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
 
     if (capture.sweep) {
-      const rows = await runBenchSweep(view, capture.bench > 0 ? capture.bench : 40)
+      const samplesPerCase = capture.bench > 0 ? capture.bench : 40
+      const rows = await runBenchSweep(view, samplesPerCase, capture.sweepOnly)
       hook.benchSweep = rows
       // **何を測ったかを絵の中に残す。**実機の計測で 3 度、script を
       // 渡し忘れて既定の level を測っていた
@@ -477,6 +478,8 @@ async function main(): Promise<void> {
           drawingBufferHeight: gl.drawingBufferHeight,
           enemyCount: world.enemies.length,
           targetCount: world.targets.length,
+          samplesPerCase,
+          caseCount: rows.length,
         })
     } else if (capture.bench > 0) {
       const gl = view.renderer.getContext()

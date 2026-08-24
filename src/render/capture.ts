@@ -114,6 +114,13 @@ export interface CaptureConfig {
    * 描画を減らしたはずの設定のほうが遅いという矛盾した並びが出た。
    */
   sweep: boolean
+  /**
+   * 測る条件を絞る。`?only=base,enemies` のような ascii 名の並び。
+   *
+   * **21 条件を全部回すと機械が熱で遅くなる。**知りたい条件だけを回す。
+   * 空なら全条件。名前は `bench.ts` の `all` を見る
+   */
+  sweepOnly: string
 }
 
 export const DEFAULT_SEED = 20260816
@@ -172,6 +179,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       : params.get('capture') !== '1',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
+    sweepOnly: params.get('only') ?? '',
   }
 }
 

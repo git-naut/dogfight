@@ -76,9 +76,98 @@ function nextFrame(): Promise<void> {
   })
 }
 
+/**
+ * 代表値。GPU クエリが使えるならそちら、無ければ CPU 側で。
+ *
+ * 表と警告で同じ値を使う。別々に書くと判定が食い違う。
+ */
+/** 条件 1 つ。`key` は `?only=` で選ぶための ascii 名 */
+export interface BenchCase {
+  key: string
+  label: string
+  config: MeasureConfig
+}
+
+export function benchKey(row: BenchRow): number {
+  return row.gpuMinMs ?? row.cpuMinMs
+}
+
+/**
+ * ばらつきの目安 ms。
+ *
+ * 最小値と中央値の差を全条件で見て、その中央を取る。最小値を代表値に
+ * するのは割り込みが時間を増やす方向にしか効かないからだが、**それでも
+ * 最小値そのものが振れる。**この幅より小さい差は読まない。
+ *
+ * 実機の計測で、武装を切った差が +0.01〜+0.13 ms で並んだ。**すべて正の値**
+ * （切ったほうが遅い）だったので、差ではなくばらつきだったと分かる。
+ */
+export function benchNoiseFloor(rows: readonly BenchRow[]): number {
+  const spreads = rows
+    .map((r) =>
+      r.gpuMinMs !== null && r.gpuMedianMs !== null ? r.gpuMedianMs - r.gpuMinMs : null,
+    )
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => a - b)
+  return spreads.length > 0 ? spreads[spreads.length >> 1]! : 0
+}
+
+/**
+ * いちばん大きい短縮 ms。負の値。切っても縮まなければ 0。
+ *
+ * 基準は先頭の行。
+ */
+export function benchBestGain(rows: readonly BenchRow[]): number {
+  const base = rows[0]
+  if (base === undefined) return 0
+  let best = 0
+  for (const row of rows) {
+    if (row === base) continue
+    best = Math.min(best, benchKey(row) - benchKey(base))
+  }
+  return best
+}
+
+/**
+ * この計測が読めないか。
+ *
+ * **「有意」が 1 つも無い表は、費用が無いのではなく測れていない。**
+ * 実機の計測で 1 度、ばらつき 3.84 ms に対していちばん大きい差が 2.24 ms で
+ * 全行が「誤差以下」か「逆」になった。後処理の連鎖は別の回に 2.75〜3.39 ms
+ * と出ているので、費用が無いわけではない。
+ *
+ * 全行を突き合わせないと気づけないので、表に判定させる。
+ */
+export function benchUnreadable(rows: readonly BenchRow[]): boolean {
+  if (rows.length < 2) return false
+  return Math.abs(benchBestGain(rows)) < benchNoiseFloor(rows)
+}
+
+/**
+ * 条件を絞る。
+ *
+ * `?only=base,enemies` のように渡す。**基準は必ず先頭に入る。**差の基準に
+ * なるので、外すと比べる相手がいない。知らない名前は黙って捨てず、そのまま
+ * 落とす（絞り込みが効いていないのに全条件が回るのを避ける）。
+ *
+ * @param keys 選ぶ ascii 名。空なら全条件
+ */
+export function selectBenchCases(all: readonly BenchCase[], keys: string): BenchCase[] {
+  const wanted = keys
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+  if (wanted.length === 0) return [...all]
+  const set = new Set(wanted)
+  const picked = all.filter((c) => c.key === 'base' || set.has(c.key))
+  // 基準しか残らなかったら絞り込みが噛んでいない。全条件へ戻す
+  return picked.length > 1 ? picked : [...all]
+}
+
 export async function runBenchSweep(
   view: BenchTarget,
   samplesPerCase: number,
+  only = '',
 ): Promise<BenchRow[]> {
   const gl = view.renderer.getContext() as WebGL2RenderingContext
   const ext = gl.getExtension(
@@ -116,32 +205,40 @@ export async function runBenchSweep(
     terrainPatchCells: view.quality.terrainPatchCells,
   }
 
-  const cases: { label: string; config: MeasureConfig }[] = [
-    { label: '基準', config: base },
-    { label: '空なし', config: { ...base, sky: false } },
-    { label: '地形なし', config: { ...base, terrain: false } },
-    { label: '海面なし', config: { ...base, water: false } },
-    { label: '雲なし', config: { ...base, clouds: false } },
+  /**
+   * 条件の一覧。`key` は URL で絞り込むための ascii 名。
+   *
+   * **21 条件を全部回すと機械が熱で遅くなる。**実機で 4 回測って、試料を
+   * 増やすほど基準そのものが遅くなり、ばらつきも増えた（基準 6.14 →
+   * 16.22 ms、ばらつき 0.35 → 6.01 ms）。知りたい条件だけを回せば、
+   * 総量が減って熱が乗らない。
+   */
+  const all: BenchCase[] = [
+    { key: 'base', label: '基準', config: base },
+    { key: 'sky', label: '空なし', config: { ...base, sky: false } },
+    { key: 'terrain', label: '地形なし', config: { ...base, terrain: false } },
+    { key: 'water', label: '海面なし', config: { ...base, water: false } },
+    { key: 'clouds', label: '雲なし', config: { ...base, clouds: false } },
     {
-      label: '後処理だけ',
+      key: 'post', label: '後処理だけ',
       config: { ...base, sky: false, terrain: false, water: false, clouds: false },
     },
-    { label: '法線摂動なし', config: { ...base, detailNormals: false } },
-    { label: '機体なし', config: { ...base, aircraft: false } },
-    { label: '影なし', config: { ...base, aircraftShadow: false } },
-    { label: '環境反射なし', config: { ...base, environment: false } },
-    { label: '軌跡なし', config: { ...base, trails: false } },
+    { key: 'normals', label: '法線摂動なし', config: { ...base, detailNormals: false } },
+    { key: 'aircraft', label: '機体なし', config: { ...base, aircraft: false } },
+    { key: 'shadow', label: '影なし', config: { ...base, aircraftShadow: false } },
+    { key: 'env', label: '環境反射なし', config: { ...base, environment: false } },
+    { key: 'trails', label: '軌跡なし', config: { ...base, trails: false } },
     // Phase 5 の武装。台本に何も出ていなければ差は 0 になる。
     // **0 が出ること自体が「その台本では測れていない」という手がかり。**
-    { label: '標的なし', config: { ...base, targets: false } },
-    { label: '敵機なし', config: { ...base, enemies: false } },
-    { label: 'ダメージの煙なし', config: { ...base, damageSmoke: false } },
-    { label: '曳光弾なし', config: { ...base, tracers: false } },
-    { label: 'ミサイルなし', config: { ...base, missiles: false } },
-    { label: '煙なし', config: { ...base, smoke: false } },
-    { label: '爆発なし', config: { ...base, explosions: false } },
+    { key: 'targets', label: '標的なし', config: { ...base, targets: false } },
+    { key: 'enemies', label: '敵機なし', config: { ...base, enemies: false } },
+    { key: 'dmgsmoke', label: 'ダメージの煙なし', config: { ...base, damageSmoke: false } },
+    { key: 'tracers', label: '曳光弾なし', config: { ...base, tracers: false } },
+    { key: 'missiles', label: 'ミサイルなし', config: { ...base, missiles: false } },
+    { key: 'smoke', label: '煙なし', config: { ...base, smoke: false } },
+    { key: 'explosions', label: '爆発なし', config: { ...base, explosions: false } },
     {
-      label: '武装ぜんぶなし',
+      key: 'weapons', label: '武装ぜんぶなし',
       config: {
         ...base,
         targets: false,
@@ -151,9 +248,11 @@ export async function runBenchSweep(
         explosions: false,
       },
     },
-    { label: 'lod 0.65', config: { ...base, lodDistanceScale: 0.65 } },
-    { label: 'cells 24', config: { ...base, terrainPatchCells: 24 } },
+    { key: 'lod', label: 'lod 0.65', config: { ...base, lodDistanceScale: 0.65 } },
+    { key: 'cells', label: 'cells 24', config: { ...base, terrainPatchCells: 24 } },
   ]
+
+  const cases = selectBenchCases(all, only)
 
   const cpuSamples: number[][] = cases.map(() => [])
   const gpuSamples: number[][] = cases.map(() => [])

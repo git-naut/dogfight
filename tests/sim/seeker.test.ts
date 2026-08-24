@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MISSILE_SEEKER_ANGLE, Missile } from '@sim/weapons/missile'
+import { AIRCRAFT_INTENSITY } from '@sim/combatant'
 import type { HeatSource, Combatant } from '@sim/combatant'
 import { Quat } from '@sim/quat'
 import { Vec3 } from '@sim/vec3'
@@ -23,6 +24,8 @@ class Ember implements HeatSource {
   readonly position = new Vec3()
   readonly velocity = new Vec3()
   alive = true
+  /** 熱の強さ。既定は機体と同じ。幾何だけの挙動を見るため */
+  intensity = AIRCRAFT_INTENSITY
 
   constructor(position: Vec3, velocity = new Vec3()) {
     this.position.copy(position)
@@ -39,6 +42,7 @@ class Plane implements Combatant {
   readonly position = new Vec3()
   readonly velocity = new Vec3()
   readonly orientation = new Quat()
+  readonly intensity = AIRCRAFT_INTENSITY
   integrity = 60
 
   constructor(position: Vec3, velocity = new Vec3()) {
@@ -144,28 +148,55 @@ describe('視線角の小さい方を選ぶ', () => {
   })
 
   /**
-   * **距離では選ばない。**近くても軸から外れていれば掴まない。
+   * **距離でも選ぶ。**放射の強さは距離の二乗で薄まる。
    *
-   * 実機の赤外線シーカーは強さ（距離の逆二乗）でも選ぶが、ここは幾何だけ。
-   * 距離を混ぜると「囮を出した瞬間は必ず効く」ことになり、正面から撃たれた
-   * ときも効いてしまう。
+   * 当初は幾何だけで書いたが、実測で 2 つの理由から距離を入れた。
+   * ひとつは「正面から来るミサイルに対し、機体の向こう側へ落ちたフレアが
+   * 勝ってしまう」こと。もうひとつは物理としてそれが正しいこと。
+   *
+   * ここでは軸から 30 度も外れた囮が、20 倍近くまで寄っているので勝つ。
+   * 角度で 26 分の 1 に割り引かれても、距離で 400 倍の差が付く。
    */
-  it('近くても軸から遠ければ選ばない', () => {
+  it('十分に近ければ軸から外れていても選ぶ', () => {
     // 標的は 3 度で 2,000 m 先、囮は 30 度で 100 m 先
     const plane = new Plane(new Vec3(105, 3000, -1997))
     const ember = new Ember(new Vec3(50, 3000, -87))
+    expect(trackedAfterOneStep(origin, velocity, plane, [ember])).toBe(ember)
+  })
+
+  /**
+   * 距離が同じなら角度で決まる。
+   *
+   * 逆二乗を入れても、等距離では幾何がそのまま効く。
+   */
+  it('距離が同じなら軸に近いほうを選ぶ', () => {
+    // どちらも 1,000 m。標的は 20 度、囮は 5 度
+    const plane = new Plane(new Vec3(342, 3000, -940))
+    const ember = new Ember(new Vec3(87, 3000, -996))
+    expect(trackedAfterOneStep(origin, velocity, plane, [ember])).toBe(ember)
+  })
+
+  /**
+   * **完全に同じ位置なら標的が残る。**`score > bestScore` の狭義比較なので、
+   * 先に評価した標的が勝つ。角度も距離も同じときに限る。
+   */
+  it('角度も距離も同じなら標的を掴んだまま', () => {
+    const plane = new Plane(new Vec3(0, 3000, -1200))
+    const ember = new Ember(new Vec3(0, 3000, -1200))
     expect(trackedAfterOneStep(origin, velocity, plane, [ember])).toBe(plane)
   })
 
   /**
-   * **同点なら標的が残る。**`cos > bestCos` の狭義比較なので、先に評価した
-   * 標的が勝つ。囮を機体と完全に同じ軸線上に置いても効かないということで、
-   * これは意図した挙動。囮は軸から外れた位置へ落ちて初めて効く。
+   * 軸線上でも手前にあれば囮が勝つ。
+   *
+   * **距離を入れた副作用。**軸線上に落としても、機体より手前にあれば
+   * 逆二乗で勝つ。幾何だけのときは「軸線上の囮は効かない」だったので、
+   * ここは挙動が変わった箇所。
    */
-  it('視線角が同じなら標的を掴んだまま', () => {
+  it('軸線上でも機体より手前なら囮を掴む', () => {
     const plane = new Plane(new Vec3(0, 3000, -1200))
     const ember = new Ember(new Vec3(0, 3000, -1100))
-    expect(trackedAfterOneStep(origin, velocity, plane, [ember])).toBe(plane)
+    expect(trackedAfterOneStep(origin, velocity, plane, [ember])).toBe(ember)
   })
 
   it('囮が複数あればいちばん軸に近いものを掴む', () => {

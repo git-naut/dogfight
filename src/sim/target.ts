@@ -2,6 +2,7 @@ import { Vec3 } from './vec3'
 import { Quat } from './quat'
 import { GRAVITY, airDensity } from './isa'
 import { trimCondition } from './flightModel'
+import { AIRCRAFT_INTENSITY } from './combatant'
 import type { Combatant } from './combatant'
 
 /**
@@ -128,6 +129,9 @@ const tmpQuat = new Quat()
 const tmpForward = new Vec3()
 
 export class Target implements Combatant {
+  /** 熱の強さ。機体の排気を 1 とする */
+  readonly intensity = AIRCRAFT_INTENSITY
+
   readonly position = new Vec3()
   readonly velocity = new Vec3()
   readonly orientation = new Quat()

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AIRCRAFT_INTENSITY } from '@sim/combatant'
 import { Vec3 } from '@sim/vec3'
 import { Quat } from '@sim/quat'
 import { FIXED_DT } from '@sim/loop'
@@ -29,6 +30,7 @@ class Drone implements Combatant {
   readonly position = new Vec3()
   readonly velocity = new Vec3()
   readonly orientation = new Quat()
+  readonly intensity = AIRCRAFT_INTENSITY
   integrity: number
   /** `damage()` が呼ばれた回数。二重に数えていないかを見る */
   damageCalls = 0

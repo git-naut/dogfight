@@ -1,4 +1,5 @@
 import { Vec3 } from './vec3'
+import { AIRCRAFT_INTENSITY } from './combatant'
 import { Quat } from './quat'
 import { GRAVITY, airDensity, dynamicPressure, speedOfSound } from './isa'
 import {
@@ -218,6 +219,9 @@ export class Aircraft {
    *
    * 敵 AI が追う相手として自機を渡すのにも要る。墜落した相手は追わない。
    */
+  /** 熱の強さ。機体の排気を 1 とする。シーカーが読む */
+  readonly intensity = AIRCRAFT_INTENSITY
+
   get alive(): boolean {
     return this.integrity > 0 && !this.crashed
   }

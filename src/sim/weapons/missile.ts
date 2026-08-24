@@ -93,6 +93,17 @@ export const MAX_LATERAL_G = 30
 export const NAV_CONSTANT = 3.5
 /** シーカーの視野。ミサイル速度からの半角 rad */
 export const MISSILE_SEEKER_ANGLE = (60 * Math.PI) / 180
+
+/**
+ * シーカーの角度分解 rad。
+ *
+ * **軸から外れた熱源をどれだけ割り引くか。**この角度だけ外れると重みが
+ * 半分になる。小さくすると囮が効きにくく、大きくすると軸から遠い囮まで
+ * 掴んでしまう。値は実測で決める。
+ *
+ * `pickHeatSource` のスコアは 強さ / (1 + (角度 / この値)²)。
+ */
+export const SEEKER_DISCRIMINATION = (6 * Math.PI) / 180
 /** 殺傷半径 m。近接信管の作動範囲 */
 export const FUZE_RADIUS = 8
 /** 安全解除までの秒数 */
@@ -323,8 +334,9 @@ export class Missile implements SmokeSource {
     const speed = this.velocity.length()
     if (speed < 1e-6) return target
 
+    const fieldCos = Math.cos(MISSILE_SEEKER_ANGLE)
     let best: HeatSource | null = null
-    let bestCos = Math.cos(MISSILE_SEEKER_ANGLE)
+    let bestScore = 0
 
     const consider = (source: HeatSource | null): void => {
       if (source === null || !source.alive) return
@@ -332,9 +344,20 @@ export class Missile implements SmokeSource {
       const range = los.length()
       if (range < 1e-6) return
       const cos = los.dot(this.velocity) / (range * speed)
-      // cos が大きいほど視線角が小さい
-      if (cos > bestCos) {
-        bestCos = cos
+      // 視野の外は見えない
+      if (cos <= fieldCos) return
+
+      const angle = Math.acos(Math.min(1, Math.max(-1, cos)))
+      const offAxis = angle / SEEKER_DISCRIMINATION
+      // **距離の逆二乗が要る。**放射の強さは距離の二乗で薄まる。これを
+      // 落とすと、正面から来るミサイルに対して機体の向こう側へ落ちた
+      // フレアが勝ってしまう（実測で確かめた）。近いほうが強く見えるのが
+      // 物理として正しく、「後方から撃たれたときだけ効く」もここから出る
+      const score = source.intensity / (range * range) / (1 + offAxis * offAxis)
+      // 同点なら先に評価したほうが残る。標的を先に見るので、軸線上に
+      // 重なった囮は効かない
+      if (score > bestScore) {
+        bestScore = score
         best = source
       }
     }

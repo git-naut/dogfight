@@ -117,6 +117,19 @@ export interface QualitySettings {
    * high の 12 個 x 同時 8 個で 96 枚が上限。
    */
   explosionSprites: number
+
+  /**
+   * ダメージの煙のリボンの分割数。0 で煙なし。
+   *
+   * `missileTrailSegments` と同じ考え方。sim が持つ履歴（384 本 = 12.8 秒）の
+   * うち、新しいほうから何本を描くかを決める。
+   *
+   * **ミサイルの煙より短くて薄い。**幅の半分（0.55 m）、濃さも 0.13 対 0.16。
+   * 敵 8 機ぶん同時に出る可能性があるので、本数はミサイルより控える。
+   * **切り替え距離ではなく本数で落とす。**濃さは経過秒で決まるので、段を
+   * 落としても見えている部分の絵は変わらず、後ろが短くなるだけ。
+   */
+  damageSmokeSegments: number
 }
 
 export const PRESET_ORDER: readonly PresetName[] = ['low', 'medium', 'high', 'ultra']
@@ -144,6 +157,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 0,
     missileTrailSegments: 0,
     explosionSprites: 0,
+    damageSmokeSegments: 0,
   },
   medium: {
     renderScale: 0.8,
@@ -165,6 +179,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 192,
     missileTrailSegments: 192,
     explosionSprites: 6,
+    damageSmokeSegments: 128,
   },
   high: {
     renderScale: 1,
@@ -192,6 +207,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 384,
     missileTrailSegments: 384,
     explosionSprites: 12,
+    damageSmokeSegments: 256,
   },
   ultra: {
     renderScale: 1.25,
@@ -219,6 +235,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 768,
     missileTrailSegments: 512,
     explosionSprites: 12,
+    damageSmokeSegments: 384,
   },
 }
 

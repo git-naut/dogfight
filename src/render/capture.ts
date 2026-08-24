@@ -70,6 +70,8 @@ export interface CaptureConfig {
    * 同じ理由で分けられるようにしておく
    */
   showEnemies: boolean
+  /** ダメージの煙を描くか。`?dmgsmoke=0` で切る。差分で断面を測るのに使う */
+  showDamageSmoke: boolean
   /** 曳光弾を描くか。`?tracers=0` で切る。差分で見え方を測るのに使う */
   showTracers: boolean
   /**
@@ -158,6 +160,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',
     showEnemies: params.get('enemies') !== '0',
+    showDamageSmoke: params.get('dmgsmoke') !== '0',
     showTracers: params.get('tracers') !== '0',
     showAircraft: params.get('aircraft') !== '0',
     showTrails: params.get('trails') !== '0',
@@ -286,6 +289,10 @@ export interface TestHook {
   enemyAiStates: string
   /** 敵機 1 機目の前方の地形との余裕 m。敵がいなければ 0 */
   enemyClearance: number
+  /** 敵機 1 機目の残り耐久の割合 0..1。敵がいなければ 0 */
+  enemyIntegrityRatio: number
+  /** 敵機 1 機目の煙の濃さ 0..1 */
+  enemySmoke: number
   /** 敵機が撃った弾の総数（全機の合計） */
   enemyRoundsFired: number
   /** 自機が受けた弾の数 */

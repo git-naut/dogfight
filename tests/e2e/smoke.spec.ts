@@ -56,6 +56,8 @@ interface TestHook {
   enemySurfaces: number
   enemyAiStates: string
   enemyClearance: number
+  enemyIntegrityRatio: number
+  enemySmoke: number
   enemyRoundsFired: number
   playerTaken: number
   playerIntegrity: number
@@ -120,6 +122,8 @@ interface CaptureQuery {
   targets?: boolean
   /** 敵機を描くか。切ると差分で敵の寄与を測れる */
   enemies?: boolean
+  /** ダメージの煙を描くか。切ると差分で寄与を測れる */
+  damageSmoke?: boolean
   /** HUD を出すか。キャプチャの既定はオフ */
   hud?: boolean
   /** 曳光弾を描くか。切ると差分で寄与を測れる */
@@ -139,6 +143,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   if (query.coverage !== undefined) params.set('coverage', String(query.coverage))
   if (query.targets === false) params.set('targets', '0')
   if (query.enemies === false) params.set('enemies', '0')
+  if (query.damageSmoke === false) params.set('dmgsmoke', '0')
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
   if (query.tracers === false) params.set('tracers', '0')
   if (query.smoke === false) params.set('smoke', '0')
@@ -807,6 +812,25 @@ test.describe('敵 AI', () => {
     expect(hook.enemiesAlive + hook.kills).toBe(1)
   })
 
+  test('傷つくと煙を引く', async ({ page }) => {
+    const hook = await capture(page, { script: 'damage-smoke', frame: 240 })
+    // 耐久 12 / 60 = 2 割。煙の濃さは (0.6 − 0.2) / 0.6 = 0.667
+    expect(hook.enemyIntegrityRatio).toBeCloseTo(0.2, 6)
+    expect(hook.enemySmoke).toBeCloseTo(0.667, 2)
+  })
+
+  test('無傷なら煙が出ない', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-ahead', frame: 240 })
+    expect(hook.enemyIntegrityRatio).toBe(1)
+    expect(hook.enemySmoke).toBe(0)
+  })
+
+  test('煙を切るとドローコールが減る', async ({ page }) => {
+    const on = await capture(page, { script: 'damage-smoke', frame: 240 })
+    const off = await capture(page, { script: 'damage-smoke', frame: 240, damageSmoke: false })
+    expect(off.drawCalls).toBeLessThan(on.drawCalls)
+  })
+
   test('敵 8 機でも 30 秒落ちない', async ({ page }) => {
     const hook = await capture(page, { script: 'enemy-eight', frame: 3600 })
     expect(hook.enemyCount).toBe(8)
@@ -1270,6 +1294,9 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'enemy-formation', script: 'enemy-formation', frame: 240, hour: 16, coverage: 0 },
     // 交戦距離の敵機。ロックボックス込みで、実際に戦う大きさを見張る
     { name: 'enemy-ahead', script: 'enemy-ahead', frame: 240, hour: 16, coverage: 0, hud: true },
+    // 傷ついた敵が煙を引く。**この 1 枚が煙の見張り。**耐久 2 割で濃さ 0.67。
+    // 実測で 4,358 画素・12 階調以上 68 画素・最大 27 階調
+    { name: 'enemy-smoking', script: 'damage-smoke', frame: 240, hour: 16, coverage: 0 },
     // 撃たれている。後方から曳光弾が来る。**この 1 枚が「撃たれる」の見張り。**
     // 実測で曳光弾は 1,001 画素・最大 60 階調、画面の下から中央へ 358 画素伸びる
     { name: 'enemy-firing', script: 'enemy-attack', frame: 2400, hour: 16, coverage: 0, hud: true },

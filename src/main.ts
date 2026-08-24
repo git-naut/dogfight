@@ -97,6 +97,8 @@ const hook = installTestHook({
   enemySurfaces: 0,
   enemyAiStates: '',
   enemyClearance: 0,
+  enemyIntegrityRatio: 0,
+  enemySmoke: 0,
   enemyRoundsFired: 0,
   playerTaken: 0,
   playerIntegrity: 0,
@@ -237,6 +239,7 @@ async function main(): Promise<void> {
     showAircraftShadow: capture.showAircraftShadow,
     showTargets: capture.showTargets,
     showEnemies: capture.showEnemies,
+    showDamageSmoke: capture.showDamageSmoke,
     showTracers: capture.showTracers,
     showAircraft: capture.showAircraft,
     showTrails: capture.showTrails,
@@ -362,6 +365,8 @@ async function main(): Promise<void> {
       .map((enemy) => enemy.aiState)
       .join(',')
     hook.enemyClearance = currentWorld.enemies[0]?.ai.clearance ?? 0
+    hook.enemyIntegrityRatio = currentWorld.enemies[0]?.integrityRatio ?? 0
+    hook.enemySmoke = currentWorld.enemies[0]?.smokeStrength ?? 0
     hook.enemyRoundsFired = currentWorld.enemies.reduce(
       (sum, enemy) => sum + enemy.roundsFired,
       0,
@@ -428,6 +433,7 @@ async function main(): Promise<void> {
     view.setTrailSource(world.player)
     view.setBulletSources(world.combat.bulletSources)
     view.setSmokeSources(world.combat.smokeSources)
+    view.setDamageSmokeSources(world.damageSmokeSources)
     view.setExplosionSource(world.combat.explosions)
     view.sync(
       sample,
@@ -499,6 +505,7 @@ async function main(): Promise<void> {
   view.setTrailSource(world.player)
   view.setBulletSources(world.combat.bulletSources)
   view.setSmokeSources(world.combat.smokeSources)
+  view.setDamageSmokeSources(world.damageSmokeSources)
   view.setExplosionSource(world.combat.explosions)
   let lastTime = performance.now()
   let smoothedFps = 60
@@ -538,6 +545,7 @@ async function main(): Promise<void> {
       view.setTrailSource(world.player)
       view.setBulletSources(world.combat.bulletSources)
       view.setSmokeSources(world.combat.smokeSources)
+      view.setDamageSmokeSources(world.damageSmokeSources)
       view.setExplosionSource(world.combat.explosions)
       driver.reset()
       mouse.reset()

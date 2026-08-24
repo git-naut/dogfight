@@ -7,6 +7,7 @@ import type { Combatant, Tracked } from './combatant'
 import { FighterAi, type AiState } from './ai/fighter'
 import { Gun, ENEMY_BULLET_POOL, MUZZLE_OFFSET } from './weapons/gun'
 import type { Rng } from './rng'
+import { DamageSmoke, damageControl, damageSmoke } from './damage'
 
 /**
  * 敵機。
@@ -44,6 +45,15 @@ export interface EnemySpec {
    * 真後ろから追わせるなら 0、正面から来させるなら π。
    */
   heading?: number
+  /**
+   * 初期の耐久。省略すると満タン（`ENEMY_INTEGRITY`）。
+   *
+   * **傷ついた状態から始めたい台本のために持つ。**煙や舵の効きの低下を絵で
+   * 見るのに、毎回うまく当てるのを待つのは当てにならない。実測で、後方
+   * 260 m から 0.35 秒撃っても 1 発も当たらなかった（機首が迎角ぶん上を
+   * 向くので弾が 7 m 上を通る）。
+   */
+  integrity?: number
 }
 
 /** 世界の上方向。方位はこの軸まわり */
@@ -59,7 +69,7 @@ const BODY_RIGHT = new Vec3(1, 0, 0)
 
 export class Enemy implements Combatant {
   readonly aircraft: Aircraft
-  integrity = ENEMY_INTEGRITY
+  integrity: number
 
   readonly ai = new FighterAi()
   /**
@@ -68,13 +78,21 @@ export class Enemy implements Combatant {
    * プールは自機の 272 より小さい 160。敵は連射しないので足りる。
    */
   readonly gun = new Gun(ENEMY_BULLET_POOL)
+  /**
+   * ダメージの煙の履歴。
+   *
+   * 描画が読む。**傷ついていないあいだも記録する。**濃さ 0 の点が並ぶので、
+   * 描画側はそこを先細りの起点にできる。止めると、傷ついた瞬間に古い位置から
+   * 現在まで 1 本の直線が張られる。
+   */
+  readonly smoke = new DamageSmoke()
 
   /** トリムのスロットル。AI が全開にしないときの下地 */
   private readonly trimThrottle: number
-  private readonly stepOptions: StepOptions
+  private readonly stepOptions: StepOptions & { controlFactor?: number }
 
   constructor(spec: EnemySpec, origin: Vec3, options: StepOptions = {}) {
-    this.stepOptions = options
+    this.stepOptions = { ...options }
 
     const position = new Vec3().copy(origin).add(spec.offset)
     const heading = spec.heading ?? 0
@@ -91,6 +109,7 @@ export class Enemy implements Combatant {
 
     this.aircraft = new Aircraft({ position, velocity, orientation, throttle })
     this.trimThrottle = throttle
+    this.integrity = spec.integrity ?? ENEMY_INTEGRITY
   }
 
   get position(): Vec3 {
@@ -112,6 +131,16 @@ export class Enemy implements Combatant {
   /** 高度 m（海抜） */
   get altitude(): number {
     return this.aircraft.altitude
+  }
+
+  /** 残りの耐久の割合 0..1 */
+  get integrityRatio(): number {
+    return Math.max(0, this.integrity) / ENEMY_INTEGRITY
+  }
+
+  /** 煙の濃さ 0..1。耐久の割合から決まる */
+  get smokeStrength(): number {
+    return this.alive ? damageSmoke(this.integrityRatio) : 0
   }
 
   /**
@@ -159,7 +188,11 @@ export class Enemy implements Combatant {
       rng,
     )
     this.fire(dt, input.fireGun, rng)
+    // ダメージで舵が鈍る。効きの係数は毎ステップ作り直す
+    this.stepOptions.controlFactor = damageControl(this.integrityRatio)
     this.aircraft.step(input, dt, this.stepOptions)
+    // 煙は機体を動かしたあとに記録する。排気口の位置は姿勢から出る
+    this.smoke.record(this.position, this.orientation, this.smokeStrength)
   }
 
   /** 機銃を撃つ。機体の姿勢から銃口の位置と向きを出す */

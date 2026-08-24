@@ -7,6 +7,7 @@ import { ReplayPlayer, spawnFromSpec, type ReplayScript } from './replay'
 import { Target, type TargetSample, type TargetSpec } from './target'
 import { Enemy, type EnemySpec } from './enemy'
 import type { Combatant } from './combatant'
+import type { DamageSmokeSource } from './damage'
 import { Combat } from './combat'
 import type { InputState } from './input'
 import { defaultTerrain, type Terrain } from './terrain'
@@ -169,6 +170,15 @@ export class World {
     for (let i = 0; i < this.enemies.length && i < out.length; i++) {
       this.enemies[i]!.sample(alpha, out[i]!)
     }
+  }
+
+  /**
+   * ダメージの煙を読む口。描画へ渡す。
+   *
+   * 生きている敵だけではなく全機ぶん返す。落ちた機の煙もしばらく残る。
+   */
+  get damageSmokeSources(): readonly DamageSmokeSource[] {
+    return this.enemies.map((enemy) => enemy.smoke)
   }
 
   /** 生きている敵機の数 */

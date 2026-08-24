@@ -7,6 +7,8 @@ import { createAircraftView, type AircraftView } from './aircraftView'
 import { loadAircraftModel, type AircraftModel } from './aircraft/model'
 import { createTargetViews, type TargetViews } from './targetView'
 import { createEnemyViews, type EnemyViews } from './enemyView'
+import { createDamageSmoke, type DamageSmokeView } from './damageSmoke'
+import type { DamageSmokeSource } from '../sim/damage'
 import { createTracers, type Tracers } from './weapons/tracers'
 import { createMissileViews, type MissileViews } from './weapons/missileView'
 import { createMissileSmoke, type MissileSmoke } from './weapons/missileSmoke'
@@ -104,6 +106,8 @@ export interface MeasureConfig {
   targets?: boolean
   /** 敵機 */
   enemies?: boolean
+  /** ダメージの煙 */
+  damageSmoke?: boolean
   /** 曳光弾 */
   tracers?: boolean
   /** ミサイルの本体 */
@@ -241,6 +245,8 @@ export interface SceneHandle {
   setBulletSources(sources: readonly BulletSource[]): void
   /** 煙の履歴を読む先を渡す。ワールドを作り直したら呼び直す */
   setSmokeSources(sources: readonly SmokeSource[]): void
+  /** ダメージの煙の履歴を読む先を渡す。ワールドを作り直したら呼び直す */
+  setDamageSmokeSources(sources: readonly DamageSmokeSource[]): void
   /** 爆発を読む先を渡す。ワールドを作り直したら呼び直す */
   setExplosionSource(source: ExplosionSource | null): void
   /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
@@ -304,6 +310,8 @@ export interface SceneOptions {
   showTargets?: boolean
   /** 敵機を描くか。差分で敵の画素だけを取り出すのに使う */
   showEnemies?: boolean
+  /** ダメージの煙を描くか。差分で断面を測るのに使う */
+  showDamageSmoke?: boolean
   /** 曳光弾を描くか。差分で見え方を測るのに使う */
   showTracers?: boolean
   /** 自機を描くか。煙や曳光弾の断面を測るのに使う */
@@ -431,6 +439,11 @@ export async function createScene(
   missileSmoke.object.visible = options.showSmoke ?? true
   scene.add(missileSmoke.object)
 
+  // ダメージの煙。敵機ごとに 1 本
+  const damageSmoke: DamageSmokeView = createDamageSmoke(MAX_TARGETS, quality)
+  damageSmoke.object.visible = options.showDamageSmoke ?? true
+  scene.add(damageSmoke.object)
+
   // 爆発。同時に生きるのは撃墜が重なったときくらいなので 8 個
   const explosions: Explosions = createExplosions(EXPLOSION_POOL, quality)
   explosions.object.visible = options.showExplosions ?? true
@@ -499,6 +512,7 @@ export async function createScene(
   let bulletSources: readonly BulletSource[] = []
   /** 煙の履歴を読む先 */
   let smokeSources: readonly SmokeSource[] = []
+  let damageSmokeSources: readonly DamageSmokeSource[] = []
   /** 爆発を読む先 */
   let explosionSource: ExplosionSource | null = null
   // 軌跡の先頭。使い回す
@@ -778,6 +792,7 @@ export async function createScene(
       // near 面の終端は Ribbon が必ず通すので、視線方向を渡すだけでよい
       camera.getWorldDirection(cameraForward)
       missileSmoke.update(smokeSources, cameraWorld, cameraForward)
+      damageSmoke.update(damageSmokeSources, cameraWorld, cameraForward)
 
       // 爆発。**経過秒はフレーム番号から出す。**実時間を渡すと
       // キャプチャモードで絵が固定されない
@@ -838,6 +853,10 @@ export async function createScene(
       smokeSources = sources
     },
 
+    setDamageSmokeSources(sources) {
+      damageSmokeSources = sources
+    },
+
     setExplosionSource(source) {
       explosionSource = source
     },
@@ -854,6 +873,9 @@ export async function createScene(
       if (config.trails !== undefined) trails.object.visible = config.trails
       if (config.targets !== undefined) targetViews.object.visible = config.targets
       if (config.enemies !== undefined) enemyViews.object.visible = config.enemies
+      if (config.damageSmoke !== undefined) {
+        damageSmoke.object.visible = config.damageSmoke
+      }
       if (config.tracers !== undefined) tracers.object.visible = config.tracers
       if (config.missiles !== undefined) missileViews.object.visible = config.missiles
       if (config.smoke !== undefined) missileSmoke.object.visible = config.smoke
@@ -895,6 +917,7 @@ export async function createScene(
       water.setQuality(quality)
       trails.setQuality(quality)
       missileSmoke.setQuality(quality)
+      damageSmoke.setQuality(quality)
       explosions.setQuality(quality)
       environment.setQuality(quality)
       scene.environment = environment.texture
@@ -919,6 +942,7 @@ export async function createScene(
       gpuTimer.dispose()
       explosions.dispose()
       missileSmoke.dispose()
+      damageSmoke.dispose()
       missileViews.dispose()
       tracers.dispose()
       targetViews.dispose()

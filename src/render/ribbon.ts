@@ -167,10 +167,10 @@ export class Ribbon {
     if (available < 2) return this.clear()
 
     // near 面の手前で終端させる。またぐとクリップされて断面が出る
-    const { count, cut } = this.writePositions(source, camera, available)
+    const { count, cut, offset, entry } = this.writePositions(source, camera, available)
     if (count < 2) return this.clear()
 
-    this.writeVertices(source, camera, params, count, cut)
+    this.writeVertices(source, camera, params, count, cut, offset, entry)
   }
 
   dispose(): void {
@@ -178,42 +178,83 @@ export class Ribbon {
   }
 
   /**
-   * 位置を作りながら、near 面の手前で終端させる。
+   * 位置を作りながら、near 面の前後で終端させる。
    *
-   * 視線方向の深度が `RIBBON_NEAR_CLIP_DEPTH` を割る点が出たら、直前の点との
-   * 間を深度がちょうど閾値になるところで割って、そこを最後の点にする。返り値の
-   * `cut` がその添字で、頂点を書くときに幅と濃さを 0 にする。
+   * 視線方向の深度が `RIBBON_NEAR_CLIP_DEPTH` を割る点が出たら、隣の点との間を
+   * 深度がちょうど閾値になるところで割って、そこを端にする。返り値の `cut` と
+   * `entry` がその添字で、頂点を書くときに幅と濃さを 0 にする。
+   *
+   * **新しい端がカメラの後ろにあることがある。**煙を引く相手がすれ違って
+   * 後方へ抜けると、履歴の添字 0（相手の位置）はカメラの後ろで、その先の
+   * 古い点は前方に伸びている。以前はこの場合にリボンを丸ごと捨てていて、
+   * **すれ違ったあとに煙の筋が消えていた。**実測で、正面 2,000 m から
+   * 向かってくる敵とすれ違ったあと、差分の画素が 0 になった（ドローコールは
+   * 出ているのに絵に何も出ない）。
+   *
+   * 手前側の点を読み飛ばして、閾値に入るところから始める。返り値の `offset` を
+   * 足すと元の履歴の添字に戻るので、経過秒と濃さはそちらで引く。
    */
   private writePositions(
     source: RibbonSource,
     camera: RibbonCamera,
     available: number,
-  ): { count: number; cut: number } {
+  ): { count: number; cut: number; offset: number; entry: number } {
     const positions = this.positions
-    for (let i = 0; i < available; i++) {
+    const depthOf = (v: THREE.Vector3): number =>
+      scratch.subVectors(v, camera.position).dot(camera.forward)
+
+    // 前方の閾値へ入る最初の点を探す
+    let start = 0
+    while (start < available) {
+      source.positionAt(start, point)
+      if (depthOf(point) >= RIBBON_NEAR_CLIP_DEPTH) break
+      start++
+    }
+    if (start >= available) return { count: 0, cut: -1, offset: 0, entry: -1 }
+
+    let write = 0
+    let entry = -1
+    let offset = 0
+    if (start > 0) {
+      // 手前側の隣の点と割って、深度が閾値になる位置を入口にする
+      source.positionAt(start - 1, previous)
+      source.positionAt(start, point)
+      const near = depthOf(previous)
+      const far = depthOf(point)
+      const t = (RIBBON_NEAR_CLIP_DEPTH - near) / (far - near)
+      previous.lerp(point, Math.min(1, Math.max(0, t)))
+      positions[0] = previous.x
+      positions[1] = previous.y
+      positions[2] = previous.z
+      write = 1
+      entry = 0
+      offset = start - 1
+    }
+
+    for (let i = start; i < available; i++) {
       source.positionAt(i, point)
-      const depth = scratch.subVectors(point, camera.position).dot(camera.forward)
+      const depth = depthOf(point)
       if (depth < RIBBON_NEAR_CLIP_DEPTH) {
-        if (i === 0) return { count: 0, cut: -1 }
-        // 直前の点は閾値より奥にある。深度が閾値になる位置まで戻す
+        // 直前に書いた点は閾値より奥にある。深度が閾値になる位置まで戻す
         previous.set(
-          positions[(i - 1) * 3]!,
-          positions[(i - 1) * 3 + 1]!,
-          positions[(i - 1) * 3 + 2]!,
+          positions[(write - 1) * 3]!,
+          positions[(write - 1) * 3 + 1]!,
+          positions[(write - 1) * 3 + 2]!,
         )
-        const before = scratch.subVectors(previous, camera.position).dot(camera.forward)
+        const before = depthOf(previous)
         const t = (before - RIBBON_NEAR_CLIP_DEPTH) / (before - depth)
         point.lerpVectors(previous, point, Math.min(1, Math.max(0, t)))
-        positions[i * 3] = point.x
-        positions[i * 3 + 1] = point.y
-        positions[i * 3 + 2] = point.z
-        return { count: i + 1, cut: i }
+        positions[write * 3] = point.x
+        positions[write * 3 + 1] = point.y
+        positions[write * 3 + 2] = point.z
+        return { count: write + 1, cut: write, offset, entry }
       }
-      positions[i * 3] = point.x
-      positions[i * 3 + 1] = point.y
-      positions[i * 3 + 2] = point.z
+      positions[write * 3] = point.x
+      positions[write * 3 + 1] = point.y
+      positions[write * 3 + 2] = point.z
+      write++
     }
-    return { count: available, cut: -1 }
+    return { count: write, cut: -1, offset, entry }
   }
 
   private writeVertices(
@@ -222,10 +263,14 @@ export class Ribbon {
     params: RibbonParams,
     count: number,
     cut: number,
+    offset: number,
+    entry: number,
   ): void {
     const { positions, strengths, tapers } = this
 
-    for (let i = 0; i < count; i++) strengths[i] = source.strengthAt(i)
+    // 濃さと経過秒は元の履歴の添字で引く。手前を読み飛ばしていても、
+    // 何秒前の煙かは変わらない
+    for (let i = 0; i < count; i++) strengths[i] = source.strengthAt(i + offset)
     fillTapers(strengths, count, params.taperPoints, tapers)
 
     for (let i = 0; i < count; i++) {
@@ -241,10 +286,11 @@ export class Ribbon {
       if (side.lengthSq() < 1e-8) side.set(1, 0, 0)
       side.normalize()
 
-      const age = i * params.secondsPerPoint
+      const age = (i + offset) * params.secondsPerPoint
       const taper = tapers[i]!
-      // near 面の手前へ寄せた終端は、幅も濃さも 0 にして細く消す
-      const terminal = i === cut ? 0 : 1
+      // near 面の手前へ寄せた端は、幅も濃さも 0 にして細く消す。
+      // 奥の終端（cut）と手前の入口（entry）の両方
+      const terminal = i === cut || i === entry ? 0 : 1
       const width =
         params.halfWidth *
         Math.min(params.spreadLimit, 1 + age * params.spreadPerSecond) *

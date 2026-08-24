@@ -61,6 +61,14 @@ export interface StepOptions {
    * ここは sim 側の Terrain を正本にする。
    */
   terrain?: TerrainSampler
+  /**
+   * 舵の効きに掛ける係数 0..1。既定は 1。
+   *
+   * ダメージで操縦が鈍るのを表す。`controlAuthority` の結果へそのまま掛ける。
+   * **飛行モデルの側に「ダメージ」という概念は持たせない。**効きが落ちる
+   * 理由は呼び出し側が決める。
+   */
+  controlFactor?: number
 }
 
 /**
@@ -312,8 +320,9 @@ export class Aircraft {
     const density = airDensity(this.altitude)
     const q = dynamicPressure(density, this.speed)
 
-    // 1. 指令角速度。舵の効き、G 制限、迎角制限をここで掛ける
-    const authority = controlAuthority(q)
+    // 1. 指令角速度。舵の効き、G 制限、迎角制限をここで掛ける。
+    //    ダメージで鈍るぶんは呼び出し側が係数で渡す
+    const authority = controlAuthority(q) * (options.controlFactor ?? 1)
 
     let pitchCommand = clamp(input.pitch, -1, 1)
     if (useLimiter) pitchCommand = applyAoaLimiter(pitchCommand, this.angleOfAttack)

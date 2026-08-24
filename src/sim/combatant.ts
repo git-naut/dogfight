@@ -27,18 +27,25 @@ import type { Quat } from './quat'
  * 姿勢が読めればよく、殴れる必要はない。自機はいま追尾される側だがダメージを
  * 受けないので、`damage()` を持たない `Tracked` にしか当てはまらない。自機が
  * 撃たれるようになったら `Combatant` へ広げる。
+ *
+ * **さらに下に「掴める相手」がある。**赤外線のシーカーが見るのは熱源で、
+ * 機体である必要がない。フレアには姿勢も対気速度もないが、シーカーからは
+ * 機体と区別が付かない。それが囮として成立する理由なので、型でもそう表す。
  */
-export interface Tracked {
+export interface HeatSource {
   /** 位置 m（ワールド） */
   readonly position: Vec3
-  /** 速度 m/s（ワールド） */
+  /** 速度 m/s（ワールド）。比例航法が相対速度に使う */
   readonly velocity: Vec3
+  /** 生きているか。フレアなら燃え尽きていないか */
+  readonly alive: boolean
+}
+
+export interface Tracked extends HeatSource {
   /** 姿勢。当たり判定のカプセルを機体座標へ戻すのに使う */
   readonly orientation: Quat
   /** 対気速度 m/s。DLZ が目標の速さとして読む */
   readonly speed: number
-  /** 生きているか。落ちたらロックも当たり判定も外す */
-  readonly alive: boolean
 }
 
 export interface Combatant extends Tracked {

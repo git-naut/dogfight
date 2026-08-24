@@ -2,7 +2,8 @@ import { Vec3 } from '../vec3'
 import { Quat } from '../quat'
 import { GRAVITY, airDensity, speedOfSound } from '../isa'
 import { TrailRing } from '../trail'
-import type { Combatant } from '../combatant'
+import { clamp } from '../flightModel'
+import type { Combatant, HeatSource, Tracked } from '../combatant'
 import { sweptHitsAircraft, createHitResult, type HitResult } from './hitbox'
 
 /**
@@ -173,6 +174,14 @@ export class Missile implements SmokeSource {
   targetIndex = -1
   /** シーカーが相手を見えているか。見失うと自律飛行になる */
   guiding = false
+  /**
+   * いまシーカーが掴んでいる熱源。囮を掴んでいれば囮が入る。
+   *
+   * **誘導と信管の両方がこれを見る。**掴んでいる先で爆発するので、囮に
+   * 引っかかったミサイルは本来の標的を傷つけない。`null` は視野の中に
+   * 何も無い状態で、自律飛行になる。
+   */
+  tracked: HeatSource | null = null
   /** 直前の視線距離 m。近接信管の判定に使う */
   private previousRange = Infinity
   /** 起爆した位置。爆発を置くのに使う */
@@ -238,8 +247,9 @@ export class Missile implements SmokeSource {
    * 返り値にすれば呼び側も素直になる。
    *
    * @param target 狙っている標的。null なら自律飛行（誘導しない）
+   * @param decoys 囮の熱源。シーカーがこちらを掴めば標的を外す
    */
-  step(dt: number, target: Combatant | null): boolean {
+  step(dt: number, target: Combatant | null, decoys: readonly HeatSource[] = []): boolean {
     if (this.state !== 'flying') return false
 
     this.prevPosition.copy(this.position)
@@ -252,7 +262,10 @@ export class Missile implements SmokeSource {
       return false
     }
 
-    const guided = this.guide(target, dt)
+    // **シーカーが掴む先と、殴る先を分ける。**囮を追っているなら囮の近くで
+    // 爆発する。混ぜると、フレアに当たったのに自機が落ちる
+    this.tracked = this.pickHeatSource(target, decoys)
+    const guided = this.guide(this.tracked, dt)
 
     // 推力。燃焼中だけ。速度の向きへ押す
     const speed = this.velocity.length()
@@ -285,8 +298,50 @@ export class Missile implements SmokeSource {
     this.recordSmoke()
 
     if (target === null) return false
-    this.checkFuze(target)
+    // 信管は掴んでいる先で判定する。囮を掴んでいれば囮の近くで爆発し、
+    // 本来の標的は無傷。掴んでいなければ本来の標的で判定する（失探しても
+    // 近接信管は働く）
+    this.checkFuze(this.tracked ?? target)
     return this.hitTarget
+  }
+
+  /**
+   * シーカーが掴む熱源を選ぶ。
+   *
+   * **視野の内側にあるもののうち、視線角がいちばん小さいものを追う。**
+   * 実機の赤外線シーカーは熱の強さでも選ぶが、ここは幾何だけで決める。
+   * そのほうが「どの位置関係なら囮が効くか」を位置から説明でき、決定論の
+   * テストで角度の境界を実測できる。
+   *
+   * 標的と囮を同じ規則で比べる。囮を特別扱いすると、囮が視野の外にあっても
+   * 掴んでしまう。
+   */
+  private pickHeatSource(
+    target: Combatant | null,
+    decoys: readonly HeatSource[],
+  ): HeatSource | null {
+    const speed = this.velocity.length()
+    if (speed < 1e-6) return target
+
+    let best: HeatSource | null = null
+    let bestCos = Math.cos(MISSILE_SEEKER_ANGLE)
+
+    const consider = (source: HeatSource | null): void => {
+      if (source === null || !source.alive) return
+      los.subVectors(source.position, this.position)
+      const range = los.length()
+      if (range < 1e-6) return
+      const cos = los.dot(this.velocity) / (range * speed)
+      // cos が大きいほど視線角が小さい
+      if (cos > bestCos) {
+        bestCos = cos
+        best = source
+      }
+    }
+
+    consider(target)
+    for (const decoy of decoys) consider(decoy)
+    return best
   }
 
   /**
@@ -294,7 +349,7 @@ export class Missile implements SmokeSource {
    *
    * 誘導できないときは false を返す（自律飛行になる）。
    */
-  private guide(target: Combatant | null, dt: number): boolean {
+  private guide(target: HeatSource | null, dt: number): boolean {
     void dt
     if (target === null || !target.alive) {
       this.guiding = false
@@ -314,7 +369,10 @@ export class Missile implements SmokeSource {
       return false
     }
 
-    // シーカーの視野。ミサイルの進行方向から測る
+    // シーカーの視野。ミサイルの進行方向から測る。
+    // **`pickHeatSource` が同じ判定を済ませている。**残してあるのは、この
+    // 関数が「視野の外は誘導しない」を自分で保証するため。呼び側の選び方を
+    // 変えても誘導の前提が崩れない
     const cos = los.dot(this.velocity) / (range * speed)
     if (Math.acos(Math.min(1, Math.max(-1, cos))) > MISSILE_SEEKER_ANGLE) {
       this.guiding = false
@@ -359,15 +417,25 @@ export class Missile implements SmokeSource {
    * **距離が閾値を割った瞬間で判定してはいけない。**マッハ 2.5 のミサイルと
    * 正面から向かい合うと接近速度が 1,000 m/s を超え、1/120 秒で 8.6 m 進む。
    * 殺傷半径 8 m と同じ大きさなので、跨いで通過する。弾と同じ掃引の判定を使う。
+   *
+   * **姿勢を持たない熱源は点として扱う。**カプセルは機体座標に置いてあるので
+   * 姿勢が要るが、フレアには向きがない。無回転の姿勢を渡すと機体の形の
+   * カプセルで判定してしまうので、殺傷半径だけの球で見る。
    */
-  private checkFuze(target: Combatant): void {
+  private checkFuze(target: HeatSource): void {
     if (this.age < ARM_TIME || !target.alive) return
+
+    const oriented = 'orientation' in target ? (target as Tracked) : null
+    if (oriented === null) {
+      this.checkPointFuze(target)
+      return
+    }
 
     sweptHitsAircraft(
       this.prevPosition,
       this.position,
-      target.position,
-      target.orientation,
+      oriented.position,
+      oriented.orientation,
       FUZE_RADIUS,
       undefined,
       hit,
@@ -388,6 +456,32 @@ export class Missile implements SmokeSource {
       return
     }
     this.previousRange = range
+  }
+
+  /**
+   * 姿勢を持たない熱源への近接信管。
+   *
+   * **点と線分の最短距離で見る。**機体のカプセルと同じ理由で、1 ステップの
+   * 移動が殺傷半径より長いと跨いで通過する。マッハ 2.5 なら 1/120 秒で 7 m
+   * 進むので、8 m の半径では実際に跨ぐ。
+   */
+  private checkPointFuze(target: HeatSource): void {
+    // 線分 prevPosition → position 上で target に最も近い点を求める
+    scratch.subVectors(this.position, this.prevPosition)
+    const lengthSq = scratch.lengthSq()
+    los.subVectors(target.position, this.prevPosition)
+    const t = lengthSq < 1e-12 ? 0 : clamp(los.dot(scratch) / lengthSq, 0, 1)
+    const closest = los.subVectors(target.position, this.prevPosition).addScaledVector(scratch, -t)
+    const distance = closest.length()
+
+    if (distance <= FUZE_RADIUS) {
+      // 起爆は最接近の位置。囮のすぐ横で爆発する
+      this.detonation.copy(this.prevPosition).addScaledVector(scratch, t)
+      this.hitTarget = true
+      this.state = 'detonated'
+      return
+    }
+    this.previousRange = scratch.subVectors(target.position, this.position).length()
   }
 
   /** 機首を速度の向きへ合わせる。空力で安定した弾体の近似 */

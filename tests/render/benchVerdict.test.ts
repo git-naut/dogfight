@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   benchBestGain,
+  benchKey,
   benchNoiseFloor,
   benchUnreadable,
   selectBenchCases,
@@ -247,5 +248,44 @@ describe('条件の絞り込み', () => {
       'base',
       'enemies',
     ])
+  })
+})
+
+/**
+ * 雲を切った上で敵機を切る対。
+ *
+ * **雲は GPU 時間の最大項でばらつきの主因。**実機で 4 回測って、敵機の差は
+ * どの回もばらつきの内側だった（−1.09 / −2.05 ms 対 ばらつき 3.84 / 6.01 ms）。
+ * 雲を切った 2 行を並べれば、静かな場面で敵機だけを比べられる。
+ */
+describe('雲なしと敵機なしの対', () => {
+  const all = [
+    { key: 'base', label: '基準', config: {} },
+    { key: 'clouds', label: '雲なし', config: {} },
+    { key: 'enemies', label: '敵機なし', config: {} },
+    { key: 'cloudsenemies', label: '雲なし＋敵機なし', config: {} },
+  ]
+
+  it('2 つ選べば基準と合わせて 3 条件になる', () => {
+    expect(selectBenchCases(all, 'clouds,cloudsenemies').map((c) => c.key)).toEqual([
+      'base',
+      'clouds',
+      'cloudsenemies',
+    ])
+  })
+
+  /**
+   * 差の列は基準との差なので、敵機の費用は手で引く。
+   * 実機の 4 回目を雲なしの水準へ置き換えた形で確かめる。
+   */
+  it('雲なしを基準にした引き算で敵機の費用が出る', () => {
+    const rows = [
+      row('基準', 16.22, 22.76),
+      row('雲なし', 8.92, 14.31),
+      row('雲なし＋敵機なし', 6.87, 8.5),
+    ]
+    const clouds = benchKey(rows[1]!)
+    const both = benchKey(rows[2]!)
+    expect(clouds - both).toBeCloseTo(2.05, 2)
   })
 })

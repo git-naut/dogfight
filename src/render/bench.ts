@@ -232,6 +232,15 @@ export async function runBenchSweep(
     // **0 が出ること自体が「その台本では測れていない」という手がかり。**
     { key: 'targets', label: '標的なし', config: { ...base, targets: false } },
     { key: 'enemies', label: '敵機なし', config: { ...base, enemies: false } },
+    // **雲を切った上で敵機を切る。**雲は GPU 時間の最大項（実機で 5.97〜
+    // 9.00 ms）で、ばらつきの主因でもある。`only=clouds,cloudsenemies` で
+    // この 2 行を並べれば、敵機の費用を静かな場面で読める。差は「雲なし」
+    // との引き算で取る（表の差の列は基準との差なので手で引く）
+    {
+      key: 'cloudsenemies',
+      label: '雲なし＋敵機なし',
+      config: { ...base, clouds: false, enemies: false },
+    },
     { key: 'dmgsmoke', label: 'ダメージの煙なし', config: { ...base, damageSmoke: false } },
     { key: 'tracers', label: '曳光弾なし', config: { ...base, tracers: false } },
     { key: 'missiles', label: 'ミサイルなし', config: { ...base, missiles: false } },

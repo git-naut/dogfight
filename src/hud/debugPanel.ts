@@ -48,8 +48,20 @@ export interface RenderInfo {
   /** 描いている地形パッチの枚数と三角形数。予算の確認に使う */
   terrainPatches: number
   terrainTriangles: number
-  /** 機体の三角形数 */
+  /** 機体の三角形数。**自機だけ。**敵機は含まない */
   aircraftTriangles: number
+  /**
+   * 実際に投入したドローコールと三角形の総数。
+   *
+   * **「機体」の行は自機だけなので、敵機が出ているかが分からない。**
+   * 実機の計測で 1 度これに引っかかった。台本が敵機を出しているかを
+   * 絵の中で確かめられるようにする。
+   */
+  drawCalls: number
+  drawnTriangles: number
+  /** 生きている敵機の数と台本が出した数 */
+  enemiesAlive: number
+  enemyCount: number
   /** 実際に描いている画素数。DPR とレンダースケールの積で決まる */
   drawingBufferWidth: number
   drawingBufferHeight: number
@@ -90,6 +102,8 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['cpu', 'CPU 時間'],
     ['terrain', '地形'],
     ['aircraft', '機体'],
+    ['enemies', '敵機'],
+    ['draws', '投入'],
     ['resolution', '解像度'],
   ] as const
 
@@ -177,7 +191,12 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       )
       set(
         'aircraft',
-        `${(render.aircraftTriangles / 1000).toFixed(1)}k 三角形`,
+        `${(render.aircraftTriangles / 1000).toFixed(1)}k 三角形（自機のみ）`,
+      )
+      set('enemies', `${render.enemiesAlive} / ${render.enemyCount} 機`)
+      set(
+        'draws',
+        `${render.drawCalls} コール / ${(render.drawnTriangles / 1000).toFixed(0)}k 三角形`,
       )
       set(
         'resolution',

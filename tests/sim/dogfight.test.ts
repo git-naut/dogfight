@@ -57,7 +57,8 @@ function dogfight(
       velocity: new Vec3(0, 0, -250),
       throttle: trim.throttle,
     },
-    enemies: [{ offset, speed: 250, ...(heading !== 0 ? { heading } : {}) }],
+    // **ミサイルは積まない。**このファイルは機動と機銃の駆け引きを見る
+    enemies: [{ offset, speed: 250, missiles: 0, ...(heading !== 0 ? { heading } : {}) }],
   })
   const enemy = world.enemies[0]!
   const states = new Set<string>()

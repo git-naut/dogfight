@@ -62,6 +62,7 @@ export class KeyboardInput {
 
     this.input.fireGun = this.pressed.has('Space')
     this.input.fireMissile = this.pressed.has('KeyF')
+    this.input.deployFlare = this.pressed.has('KeyC')
 
     return this.input
   }

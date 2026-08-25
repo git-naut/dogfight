@@ -372,17 +372,37 @@ export const SCRIPTS = {
   },
 
   /**
-   * 敵機が後方 1,500 m から撃ってくる。**撃たれるところを見る。**
+   * 敵機が後方 1,500 m から機銃で撃ってくる。**撃たれるところを見る。**
    *
    * 自機は直進。実測で 12 秒あたりから撃ち始め、40 秒で 456 発のうち 60 発が
    * 当たって撃墜される。曳光弾が後方から来る絵は、追従カメラの視野
    * （水平 98.6 度）に入る。
+   *
+   * **ミサイルは積まない。**Phase 6.5 で敵がミサイルを撃つようになったが、
+   * 1 発で自機が落ちるので機銃の見張りにならない。実測で 5.2 秒で撃墜され、
+   * 曳光弾が 1 発も出ないまま絵が変わった。ミサイルは `enemy-missile` で見る。
    */
   'enemy-attack': {
     name: 'enemy-attack',
     seed: 20260823,
     spawn: { altitude: 3000, speed: 250 },
-    enemies: [{ offset: new Vec3(0, 0, 1500), speed: 250 }],
+    enemies: [{ offset: new Vec3(0, 0, 1500), speed: 250, missiles: 0 }],
+    keyframes: [],
+  },
+
+  /**
+   * 敵機が後方 2,500 m からミサイルを撃つ。**撃たれる側を見る。**
+   *
+   * 自機は直進。実測で発射は 0.0 秒、着弾は 7.1 秒。ミサイルは 1 発で
+   * 自機を落とす（ダメージ 100 に対し耐久 60）。
+   *
+   * **フレアを出さなければ必ず落ちる。**それが警告を出す理由になる。
+   */
+  'enemy-missile': {
+    name: 'enemy-missile',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(0, 0, 2500), speed: 250 }],
     keyframes: [],
   },
 
@@ -455,7 +475,10 @@ export const SCRIPTS = {
     name: 'damage-smoke-near',
     seed: 20260823,
     spawn: { altitude: 3000, speed: 250 },
-    enemies: [{ offset: new Vec3(0, 0, -2000), speed: 250, heading: Math.PI, integrity: 12 }],
+    // **ミサイルは積まない。**煙の絵を見る台本なので、撃ち合いが混ざると読めない
+    enemies: [
+      { offset: new Vec3(0, 0, -2000), speed: 250, heading: Math.PI, integrity: 12, missiles: 0 },
+    ],
     keyframes: [],
   },
 

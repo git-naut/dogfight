@@ -177,6 +177,29 @@ export const THROTTLE_GAIN = 0.02
  * 遠くから撃っても当たらない。**1,200 m まで詰めてから撃ち始める。**
  */
 export const GUN_ENGAGE_RANGE = 1200
+
+/**
+ * ミサイルを撃つ間合い m。
+ *
+ * **機銃の間合いより外。**近すぎると安全解除（0.5 秒）の前に相手を追い越す。
+ * 遠すぎると燃焼が終わってから届くので当たらない。値は実測で決める。
+ */
+export const MISSILE_MIN_RANGE = 1500
+export const MISSILE_MAX_RANGE = 6000
+
+/**
+ * ミサイルを撃つときの機軸の許容角 rad。
+ *
+ * 機銃の 2 度よりずっと広い。ミサイルは撃ったあと自分で曲がるので、機首が
+ * 正確に乗っている必要がない。シーカーの捕捉角（自機側は 20 度）に合わせる。
+ */
+export const MISSILE_CONE = (20 * Math.PI) / 180
+
+/** 発射の間隔 秒。撃ち切らないよう間を空ける */
+export const MISSILE_INTERVAL_SECONDS = 6
+
+/** 1 機が積んでいる数 */
+export const ENEMY_MISSILE_COUNT = 2
 /**
  * 射撃中に機軸の誤差を詰める時定数 s。
  *
@@ -464,6 +487,35 @@ export function gunTrackError(self: Aircraft, target: Tracked): number {
 }
 
 /**
+ * 相手そのものへの機軸誤差 rad。
+ *
+ * **機銃の `gunTrackError` とは違って先行点を見ない。**ミサイルは撃ったあと
+ * 自分で曲がるので、弾道の先回りを機首に乗せる必要がない。シーカーが捕捉
+ * できる向きに入っていればよい。
+ */
+export function boresightError(self: Aircraft, target: Tracked): number {
+  toLead.subVectors(target.position, self.position)
+  const range = toLead.length()
+  if (range < 1e-6) return 0
+  toLead.multiplyScalar(1 / range)
+  self.orientation.forward(nose)
+  return Math.acos(clamp(toLead.dot(nose), -1, 1))
+}
+
+/**
+ * ミサイルを撃つ条件を満たしているか。
+ *
+ * **距離と機軸だけを見る。**間隔と残弾は `Enemy` が持つので、ここには
+ * 入れない。純関数にしておくとテストで表を作れる。
+ */
+export function missileShotReady(self: Aircraft, target: Tracked): boolean {
+  if (!target.alive) return false
+  const range = self.position.distanceTo(target.position)
+  if (range < MISSILE_MIN_RANGE || range > MISSILE_MAX_RANGE) return false
+  return boresightError(self, target) < MISSILE_CONE
+}
+
+/**
  * 相手が自分の後方にいるか。回避の判定に使う。
  *
  * 自分の速度の向きから見て、相手が真後ろから `EVADE_CONE` の内側にいるか。
@@ -602,6 +654,12 @@ export class FighterAi {
     else if (this.state === 'evade') this.evade(self)
     else if (this.state === 'attack') this.attack(self, target)
     else this.pursue(self, target)
+
+    // **ミサイルは状態を増やさずに撃つ。**追尾でも射撃でも、間合いと機軸が
+    // 揃えば出す。立て直しと回避のあいだは撃たない（飛ぶことが先）
+    if (this.state === 'pursue' || this.state === 'attack') {
+      this.input.fireMissile = missileShotReady(self, target)
+    }
 
     return this.input
   }

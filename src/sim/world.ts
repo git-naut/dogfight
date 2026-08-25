@@ -5,6 +5,7 @@ import { Vec3 } from './vec3'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
 import { ReplayPlayer, spawnFromSpec, type ReplayScript } from './replay'
 import { Target, type TargetSample, type TargetSpec } from './target'
+import { Countermeasures } from './weapons/flare'
 import { Enemy, type EnemySpec } from './enemy'
 import type { Combatant } from './combatant'
 import type { DamageSmokeSource } from './damage'
@@ -78,6 +79,13 @@ export class World {
   readonly combatants: readonly Combatant[]
   /** 交戦の処理。発射管制と当たり判定はここが持つ */
   readonly combat: Combat
+  /**
+   * 自機の囮。フレアを持つ。
+   *
+   * **敵は持たない**（Phase 6.5 の範囲）。敵の投下判断は AI の状態を
+   * もう 1 つ増やすことになる。
+   */
+  readonly countermeasures = new Countermeasures()
   /** 地形。描画側も同じものを読んで、当たる山と見える山を一致させる */
   readonly terrain: Terrain
 
@@ -114,6 +122,10 @@ export class World {
       player: this.player,
       // 敵の機銃。進めるのと当たり判定は Combat の仕事
       incoming: this.enemies.map((enemy) => enemy.gun),
+      // 敵のミサイルも同じ。撃つかどうかだけ AI が決める
+      incomingMissiles: this.enemies.flatMap((enemy) => enemy.missiles),
+      // 自機の囮。敵のミサイルのシーカーが見る
+      decoys: this.countermeasures.burning,
       terrain: this.terrain,
       // 地形の最高点より上では、弾が地面を引く必要がない
       groundLimit: this.terrain.stats.max,
@@ -137,6 +149,15 @@ export class World {
 
   /** 1ステップ進める。呼び出しは必ず FixedStepDriver 経由にする。 */
   step(input: InputState): void {
+    // **フレアは機体を動かす前に進める。**投下の位置は前のステップの姿勢で
+    // 決まる。動かしたあとだと、押した瞬間に見えていた位置とずれる
+    this.countermeasures.step(
+      FIXED_DT,
+      input.deployFlare,
+      this.player.position,
+      this.player.velocity,
+      this.player.orientation,
+    )
     this.player.step(input, FIXED_DT, this.stepOptions)
     for (const target of this.targets) target.step(FIXED_DT)
     for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)

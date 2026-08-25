@@ -1,7 +1,7 @@
 import { Vec3 } from './vec3'
 import type { Rng } from './rng'
 import type { Aircraft, TerrainSampler } from './aircraft'
-import type { Combatant } from './combatant'
+import type { Combatant, HeatSource } from './combatant'
 import type { InputState } from './input'
 import { Gun, MUZZLE_OFFSET, type Bullet, type BulletSource } from './weapons/gun'
 import {
@@ -85,6 +85,20 @@ export interface CombatOptions {
    * 進めるのと当たり判定は `Combat` の仕事。撃つかどうかは AI が決める。
    */
   incoming: readonly Gun[]
+  /**
+   * 敵のミサイル。`Enemy` が持っているものを借りる。
+   *
+   * 機銃と同じ。**進めるのと当たり判定は `Combat` の仕事。**撃つかどうかは
+   * AI が決める。弾の物理を 2 か所に書かない。
+   */
+  incomingMissiles: readonly Missile[]
+  /**
+   * 自機の囮。敵のミサイルのシーカーへ渡す。
+   *
+   * **自機のミサイルには渡さない。**敵はフレアを持たないので、渡す先が
+   * ない（Phase 6.5 の範囲）。
+   */
+  decoys: readonly HeatSource[]
   /** 地形。渡さなければ海面（高度 0）で弾が消える */
   terrain?: TerrainSampler
   /**
@@ -151,6 +165,8 @@ export class Combat {
   private readonly targets: readonly Combatant[]
   private readonly player: Combatant
   private readonly incoming: readonly Gun[]
+  private readonly incomingMissiles: readonly Missile[]
+  private readonly decoys: readonly HeatSource[]
   private readonly terrain: TerrainSampler | undefined
   private readonly groundLimit: number
   /**
@@ -174,6 +190,8 @@ export class Combat {
     this.targets = options.targets
     this.player = options.player
     this.incoming = options.incoming
+    this.incomingMissiles = options.incomingMissiles
+    this.decoys = options.decoys
     this.terrain = options.terrain
     this.groundLimit = options.groundLimit
   }
@@ -212,6 +230,7 @@ export class Combat {
     }
 
     this.advanceMissiles(dt)
+    this.advanceIncomingMissiles(dt)
     this.fireMissile(input, player, dt)
     this.updateDlz(player, dt)
   }
@@ -316,7 +335,13 @@ export class Combat {
 
   /** 煙を読む口。描画へ渡す */
   get smokeSources(): readonly SmokeSource[] {
-    return this.missiles
+    // 敵のミサイルも煙を引く。描画の容量はここの長さで決まる
+    return [...this.missiles, ...this.incomingMissiles]
+  }
+
+  /** 描画へ渡すミサイル。自機のぶんと敵のぶんを並べる */
+  get missileViews(): readonly Missile[] {
+    return [...this.missiles, ...this.incomingMissiles]
   }
 
   /** 爆発を読む口。描画へ渡す */
@@ -465,6 +490,58 @@ export class Combat {
         if (!this.player.alive) return
       }
     }
+  }
+
+  /**
+   * 敵のミサイルを進めて、自機への当たり判定を取る。
+   *
+   * **囮を渡すのはここだけ。**自機のミサイルには渡さない（敵はフレアを
+   * 持たない）。シーカーが囮を掴んでいれば囮の近くで爆発するので、自機は
+   * 無傷になる。その判定は `Missile.tracked` を見て決める。
+   */
+  private advanceIncomingMissiles(dt: number): void {
+    for (const missile of this.incomingMissiles) {
+      if (missile.state !== 'flying') continue
+      // **返り値で見る。**`state` を読むと、TypeScript が `step()` の副作用を
+      // 知らないぶん「'flying' と 'detonated' は重ならない」と誤検出する
+      // （`Missile.step` の注記と同じ理由）
+      const hit = missile.step(dt, this.player, this.decoys)
+
+      // 起爆したなら、掴んでいた先で爆発を出す。囮なら囮の位置
+      if (hit || missile.hitTarget) {
+        this.effects.spawn(
+          missile.detonation,
+          missile.velocity,
+          MISSILE_BLAST,
+          this.frame,
+          this.rng,
+        )
+      }
+      if (!hit) continue
+      // **囮を掴んでいたら自機は無傷。**掴む先と殴る先を分けた効果がここ
+      if (missile.tracked !== this.player) continue
+
+      this.taken++
+      if (this.player.damage(MISSILE_DAMAGE)) {
+        this.losses++
+        this.effects.spawn(
+          this.player.position,
+          this.player.velocity,
+          KILL_BLAST,
+          this.frame,
+          this.rng,
+        )
+      }
+    }
+  }
+
+  /** 飛んでいる敵のミサイルの数 */
+  get incomingMissilesInFlight(): number {
+    let count = 0
+    for (const missile of this.incomingMissiles) {
+      if (missile.state === 'flying') count++
+    }
+    return count
   }
 
   /** 生きている弾の数 */

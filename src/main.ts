@@ -186,7 +186,8 @@ const missilePoses: MissilePose[] = []
 /** 飛んでいるミサイルの補間した姿勢を集める。返すのは有効な本数 */
 function collectMissilePoses(world: World, alpha: number): MissilePose[] {
   let count = 0
-  for (const missile of world.combat.missiles) {
+  // 敵のミサイルも描く。自機のぶんと同じ列に並べる
+  for (const missile of world.combat.missileViews) {
     if (missile.state !== 'flying') continue
     while (missilePoses.length <= count) missilePoses.push(createMissilePose())
     const pose = missilePoses[count]!

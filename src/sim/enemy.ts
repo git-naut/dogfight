@@ -7,6 +7,8 @@ import { AIRCRAFT_INTENSITY } from './combatant'
 import type { Combatant, Tracked } from './combatant'
 import { FighterAi, type AiState } from './ai/fighter'
 import { Gun, ENEMY_BULLET_POOL, MUZZLE_OFFSET } from './weapons/gun'
+import { Missile } from './weapons/missile'
+import { ENEMY_MISSILE_COUNT, MISSILE_INTERVAL_SECONDS } from './ai/fighter'
 import type { Rng } from './rng'
 import { DamageSmoke, damageControl, damageSmoke } from './damage'
 
@@ -55,6 +57,14 @@ export interface EnemySpec {
    * 向くので弾が 7 m 上を通る）。
    */
   integrity?: number
+  /**
+   * 積むミサイルの数。省略すると `ENEMY_MISSILE_COUNT`。
+   *
+   * **0 を渡せば機銃だけの敵になる。**機銃の挙動を測る台本とテストは、
+   * ミサイルが混ざると読めない。実測で、1,500 m から始めると敵は開始
+   * 直後に撃ち、6 秒で自機が落ちた。機銃は 1 発も出ていない。
+   */
+  missiles?: number
 }
 
 /** 世界の上方向。方位はこの軸まわり */
@@ -90,6 +100,19 @@ export class Enemy implements Combatant {
    * 現在まで 1 本の直線が張られる。
    */
   readonly smoke = new DamageSmoke()
+  /**
+   * ミサイル。**進めるのと当たり判定は `Combat` の仕事。**ここは撃つだけ。
+   *
+   * 機銃と同じ作法。弾の物理を 2 か所に書くと、抗力や地形の扱いが片方
+   * だけ直る（`docs/decisions/0007-enemy.md`）。
+   */
+  readonly missiles: readonly Missile[]
+  /** 残りのミサイル */
+  missilesLeft: number
+  /** 撃った総数。テストと計器が読む */
+  missilesFired = 0
+  /** 前回の発射からの経過 秒 */
+  private sinceLaunch = MISSILE_INTERVAL_SECONDS
 
   /** トリムのスロットル。AI が全開にしないときの下地 */
   private readonly trimThrottle: number
@@ -114,6 +137,10 @@ export class Enemy implements Combatant {
     this.aircraft = new Aircraft({ position, velocity, orientation, throttle })
     this.trimThrottle = throttle
     this.integrity = spec.integrity ?? ENEMY_INTEGRITY
+
+    const missileCount = spec.missiles ?? ENEMY_MISSILE_COUNT
+    this.missiles = Array.from({ length: missileCount }, () => new Missile())
+    this.missilesLeft = missileCount
   }
 
   get position(): Vec3 {
@@ -192,11 +219,35 @@ export class Enemy implements Combatant {
       rng,
     )
     this.fire(dt, input.fireGun, rng)
+    this.launchMissile(dt, input.fireMissile)
     // ダメージで舵が鈍る。効きの係数は毎ステップ作り直す
     this.stepOptions.controlFactor = damageControl(this.integrityRatio)
     this.aircraft.step(input, dt, this.stepOptions)
     // 煙は機体を動かしたあとに記録する。排気口の位置は姿勢から出る
     this.smoke.record(this.position, this.orientation, this.smokeStrength)
+  }
+
+  /**
+   * ミサイルを撃つ。
+   *
+   * **撃つ判断は AI、進めるのは `Combat`。**ここは器を選んで初期条件を
+   * 与えるだけ。`targetIndex` は使わない（相手は常に自機なので、`Combat`
+   * 側が固定で渡す）。
+   */
+  private launchMissile(dt: number, firing: boolean): void {
+    this.sinceLaunch += dt
+    if (!firing || !this.alive) return
+    if (this.missilesLeft <= 0) return
+    if (this.sinceLaunch < MISSILE_INTERVAL_SECONDS) return
+
+    const missile = this.missiles.find((m) => m.state !== 'flying')
+    if (missile === undefined) return
+
+    const craft = this.aircraft
+    missile.launch(craft.position, craft.velocity, craft.orientation, 0)
+    this.missilesLeft--
+    this.missilesFired++
+    this.sinceLaunch = 0
   }
 
   /** 機銃を撃つ。機体の姿勢から銃口の位置と向きを出す */

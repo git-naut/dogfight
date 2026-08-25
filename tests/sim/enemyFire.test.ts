@@ -38,7 +38,13 @@ const trim = trimCondition(250, airDensity(ALT))
 const ORIGIN = new Vec3(0, ALT, 0)
 const rng = new Rng(1)
 
-/** 自機を高度 3,000 m のトリムに置いて、敵 1 機と回す */
+/**
+ * 自機を高度 3,000 m のトリムに置いて、敵 1 機と回す。
+ *
+ * **敵にミサイルを積まない。**このファイルは機銃の挙動を測る。ミサイルが
+ * 混ざると読めない。実測で、1,500 m から始めると敵は開始直後にミサイルを
+ * 撃ち、6 秒で自機が落ちた。機銃は 1 発も出ていない。
+ */
 function engagement(offset: Vec3, heading?: number): World {
   return new World({
     seed: 20260823,
@@ -47,7 +53,9 @@ function engagement(offset: Vec3, heading?: number): World {
       velocity: new Vec3(0, 0, -250),
       throttle: trim.throttle,
     },
-    enemies: [{ offset, speed: 250, ...(heading !== undefined ? { heading } : {}) }],
+    enemies: [
+      { offset, speed: 250, missiles: 0, ...(heading !== undefined ? { heading } : {}) },
+    ],
   })
 }
 
@@ -409,8 +417,8 @@ describe('決定論', () => {
         throttle: trim.throttle,
       },
       enemies: [
-        { offset: new Vec3(-400, 0, 1500), speed: 250 },
-        { offset: new Vec3(400, 0, 1500), speed: 250 },
+        { offset: new Vec3(-400, 0, 1500), speed: 250, missiles: 0 },
+        { offset: new Vec3(400, 0, 1500), speed: 250, missiles: 0 },
       ],
     })
     fly(w, 10)

@@ -16,6 +16,8 @@ export interface InputState {
   throttle: number
   fireGun: boolean
   fireMissile: boolean
+  /** フレアの投下。押しっぱなしでは 1 回しか撒かない */
+  deployFlare: boolean
 }
 
 export function neutralInput(): InputState {
@@ -26,6 +28,7 @@ export function neutralInput(): InputState {
     throttle: 0.5,
     fireGun: false,
     fireMissile: false,
+    deployFlare: false,
   }
 }
 

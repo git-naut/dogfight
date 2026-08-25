@@ -17,6 +17,7 @@ import type { ExplosionSource } from '../sim/effects'
 import { BULLET_POOL, type BulletSource } from '../sim/weapons/gun'
 import type { SmokeSource } from '../sim/weapons/missile'
 import { MISSILE_COUNT } from '../sim/combat'
+import { ENEMY_MISSILE_COUNT } from '../sim/ai/fighter'
 import { EXPLOSION_POOL } from '../sim/effects'
 
 /** 描画へ渡すミサイルの姿勢。補間済みの値を main が詰める */
@@ -293,6 +294,9 @@ export const DEFAULT_COVERAGE = 0.3
  */
 export const MAX_TARGETS = 8
 
+/** 同時に描けるミサイルの数。自機ぶん + 敵 8 機ぶん */
+const MISSILE_CAPACITY = MISSILE_COUNT + MAX_TARGETS * ENEMY_MISSILE_COUNT
+
 export interface SceneOptions {
   preset: PresetName
   hour?: number
@@ -448,10 +452,11 @@ export async function createScene(
   scene.add(tracers.object)
 
   // ミサイルの本体と煙
-  const missileViews: MissileViews = createMissileViews(MISSILE_COUNT)
+  // **敵のミサイルぶんも要る。**容量が足りないと、飛んでいるのに描かれない
+  const missileViews: MissileViews = createMissileViews(MISSILE_CAPACITY)
   missileViews.object.visible = options.showMissiles ?? true
   scene.add(missileViews.object)
-  const missileSmoke: MissileSmoke = createMissileSmoke(MISSILE_COUNT, quality)
+  const missileSmoke: MissileSmoke = createMissileSmoke(MISSILE_CAPACITY, quality)
   missileSmoke.object.visible = options.showSmoke ?? true
   scene.add(missileSmoke.object)
 

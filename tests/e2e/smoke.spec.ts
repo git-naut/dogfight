@@ -132,6 +132,8 @@ interface CaptureQuery {
   enemies?: boolean
   /** ダメージの煙を描くか。切ると差分で寄与を測れる */
   damageSmoke?: boolean
+  /** フレアを描くか。切ると差分で寄与を測れる */
+  flares?: boolean
   /** HUD を出すか。キャプチャの既定はオフ */
   hud?: boolean
   /** 曳光弾を描くか。切ると差分で寄与を測れる */
@@ -152,6 +154,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   if (query.targets === false) params.set('targets', '0')
   if (query.enemies === false) params.set('enemies', '0')
   if (query.damageSmoke === false) params.set('dmgsmoke', '0')
+  if (query.flares === false) params.set('flares', '0')
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
   if (query.tracers === false) params.set('tracers', '0')
   if (query.smoke === false) params.set('smoke', '0')
@@ -1250,6 +1253,85 @@ test.describe('デバッグ表示', () => {
   })
 })
 
+/**
+ * ミサイル警告とフレア。
+ *
+ * **ミサイルは 1 発で自機を落とす**（ダメージ 100 に対し耐久 60）。避ける
+ * 手段がないと「まっすぐ飛んでいて突然落ちる」になるので、警告とフレアは
+ * 一組で意味を持つ。
+ */
+test.describe('ミサイル警告とフレア', () => {
+  test('撃たれると警告が出る', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-missile', frame: 360 })
+    expect(hook.enemyMissilesFired).toBeGreaterThan(0)
+    expect(hook.incomingMissiles).toBeGreaterThan(0)
+    expect(hook.missileWarning).toBe(true)
+  })
+
+  /** 真後ろから来るので方位は ±π に近い */
+  test('警告の方位が真後ろを指す', async ({ page }) => {
+    const hook = await capture(page, { script: 'enemy-missile', frame: 360 })
+    expect(Math.abs(hook.missileBearing)).toBeGreaterThan((150 * Math.PI) / 180)
+    expect(hook.missileTimeToImpact).toBeGreaterThan(0)
+  })
+
+  test('撃たれていなければ警告は出ない', async ({ page }) => {
+    // enemy-attack は機銃だけの敵（missiles: 0）
+    const hook = await capture(page, { script: 'enemy-attack', frame: 1200 })
+    expect(hook.enemyMissilesFired).toBe(0)
+    expect(hook.missileWarning).toBe(false)
+  })
+
+  /**
+   * フレアで逸らすと自機が生き残る。
+   *
+   * 台本 `flare-break` は着弾の 1 秒前（f732）に撒く。実測で 1 発目の
+   * 着弾は 7.1 秒（f852）。**2 発目が 6 秒に出る**ので、f900 の時点では
+   * まだ飛んでいる。
+   */
+  test('フレアで 1 発目を逸らせる', async ({ page }) => {
+    const flared = await capture(page, { script: 'flare-break', frame: 900 })
+    expect(flared.flaresLeft).toBeLessThan(30)
+    expect(flared.playerIntegrity).toBeGreaterThan(0)
+
+    // 撒かなければ落ちている
+    const naked = await capture(page, { script: 'enemy-missile', frame: 900 })
+    expect(naked.playerIntegrity).toBeLessThanOrEqual(0)
+  })
+
+  /**
+   * **横からは効かない。**フレアは機体の後方へ流れるので、横から来る
+   * ミサイルの軸から大きく外れる。角度で割り引かれて強度差 4 倍を
+   * 超えられない（`docs/weapons.md`）。
+   *
+   * 実測で f240 に撒いても f720 で落ちる。
+   */
+  test('横から撃たれたときは効かない', async ({ page }) => {
+    const hook = await capture(page, { script: 'flare-head-on', frame: 780 })
+    expect(hook.flaresLeft).toBeLessThan(30)
+    expect(hook.playerIntegrity).toBeLessThanOrEqual(0)
+  })
+
+  /**
+   * 敵も回避に入ると撒く。
+   *
+   * **自機のフレアは追従カメラに映らない**（後方 23 m から前を向くので、
+   * 撒いた 0.7 秒後にはカメラの後ろ）。前方の敵が撒くぶんが絵になる。
+   */
+  test('敵が回避に入るとフレアを撒く', async ({ page }) => {
+    const on = await capture(page, { script: 'enemy-flare', frame: 180, coverage: 0 })
+    expect(on.flaresBurning).toBeGreaterThan(0)
+    // 描画を切るとドローコールが減る
+    const off = await capture(page, {
+      script: 'enemy-flare',
+      frame: 180,
+      coverage: 0,
+      flares: false,
+    })
+    expect(on.drawCalls).toBeGreaterThan(off.drawCalls)
+  })
+})
+
 test.describe('バンドルの中身', () => {
   test('React と R3F が成果物に混ざっていない', () => {
     // @takram/three-atmosphere は peer に React 一式を並べているが、
@@ -1355,6 +1437,21 @@ test.describe('スクリーンショット回帰', () => {
     // 実測で煙の寄与は 104,942 画素・12 階調以上 37,397 画素・最大 110 階調。
     // 欠陥があるとこれが 0 になる
     { name: 'damage-smoke-near', script: 'damage-smoke-near', frame: 720, hour: 16, coverage: 0 },
+    // 敵が回避に入って撒いたフレア。**この 1 枚がフレアの見張り。**
+    // **自機のフレアは追従カメラに映らない**（後方 23 m から前を向くので、
+    // 撒いた 0.7 秒後にはカメラの後ろ。旋回しても視線角 155〜173 度のまま）。
+    // 実測でフレアの寄与は 1,605 画素・最大 63 階調（`?flares=0` との引き算）
+    { name: 'enemy-flare', script: 'enemy-flare', frame: 180, hour: 16, coverage: 0 },
+    // ミサイル警告。方位の矢印と着弾までの秒。**この 1 枚が警告の見張り。**
+    // 真後ろから来るので矢印は真下を指す
+    {
+      name: 'missile-warning',
+      script: 'enemy-missile',
+      frame: 600,
+      hour: 16,
+      coverage: 0,
+      hud: true,
+    },
   ] as const
 
   for (const scene of scenes) {

@@ -443,16 +443,22 @@ export const SCRIPTS = {
   },
 
   /**
-   * 正面から撃たれてフレアを出す。**効かないことを見る。**
+   * 横 90 度から撃たれてフレアを出す。**効かないことを見る。**
    *
-   * フレアは機体の向こう側へ落ちるので、距離の逆二乗で不利になる。
-   * 早めに出しても効かない（実測。`docs/weapons.md`）。
+   * **フレアは機体の後方へ流れる。**横から来るミサイルの軸からは大きく
+   * 外れるので、角度で割り引かれて強度差 4 倍を超えられない（実測。
+   * `docs/weapons.md`）。
+   *
+   * 正面（`heading: Math.PI`）で試したら、すれ違いが速すぎてフレア以前に
+   * 当たらなかった。実測で敵は 1 発撃ったあと機銃の間合いへ入り、
+   * 自機は無傷のまま。**「効かない」を見る構図として成立しない。**
    */
   'flare-head-on': {
     name: 'flare-head-on',
     seed: 20260823,
     spawn: { altitude: 3000, speed: 250 },
-    enemies: [{ offset: new Vec3(0, 0, -3000), speed: 250, heading: Math.PI }],
+    // 右 90 度、同じ向きに並走。敵から見て自機は真横
+    enemies: [{ offset: new Vec3(3000, 0, 0), speed: 250, heading: -Math.PI / 2 }],
     keyframes: [
       { frame: 240, input: { deployFlare: true } },
       { frame: 242, input: { deployFlare: false } },

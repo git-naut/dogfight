@@ -407,7 +407,14 @@ async function main(): Promise<void> {
     hook.missileBearing = currentWorld.combat.threat.bearing
     hook.missileTimeToImpact = currentWorld.combat.threat.timeToImpact
     hook.flaresLeft = currentWorld.countermeasures.left
-    hook.flaresBurning = currentWorld.countermeasures.aliveCount
+    // **敵のぶんも数える。**自機のフレアは追従カメラに映らないので、
+    // 絵の見張りは前方の敵が撒くぶん。自機だけ数えると 0 になる
+    hook.flaresBurning =
+      currentWorld.countermeasures.aliveCount +
+      currentWorld.enemies.reduce(
+        (sum, enemy) => sum + enemy.countermeasures.aliveCount,
+        0,
+      )
     hook.playerTaken = currentWorld.combat.taken
     hook.playerIntegrity = currentWorld.player.integrity
     hook.playerLosses = currentWorld.combat.losses

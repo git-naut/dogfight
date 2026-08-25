@@ -178,6 +178,7 @@ describe('品質プリセットの表', () => {
       'missileTrailSegments',
       'explosionSprites',
       'damageSmokeSegments',
+      'flareSprites',
     ])
     for (const name of PRESET_ORDER) {
       const q = QUALITY_PRESETS[name]

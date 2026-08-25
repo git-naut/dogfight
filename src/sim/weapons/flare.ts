@@ -169,12 +169,20 @@ export class Flare implements HeatSource {
  * 増やさないので、ゴミが出ない。
  */
 export class Countermeasures {
-  readonly flares: readonly Flare[] = Array.from(
-    { length: FLARE_CAPACITY },
-    () => new Flare(),
-  )
+  readonly flares: readonly Flare[]
   /** 残りの数 */
-  left = FLARE_CAPACITY
+  left: number
+  private readonly capacity: number
+
+  /**
+   * @param capacity 積む数。省略すると `FLARE_CAPACITY`。**0 なら撒かない**
+   *   （煙や曳光弾を見る台本で絵に混ざらないようにするため）
+   */
+  constructor(capacity: number = FLARE_CAPACITY) {
+    this.capacity = capacity
+    this.flares = Array.from({ length: capacity }, () => new Flare())
+    this.left = capacity
+  }
   /** 撒いた総数。テストと計器が読む */
   deployed = 0
   /** 前回の投下からの経過 秒 */
@@ -239,7 +247,7 @@ export class Countermeasures {
   /** ワールドを作り直すときに呼ぶ */
   reset(): void {
     for (const flare of this.flares) flare.reset()
-    this.left = FLARE_CAPACITY
+    this.left = this.capacity
     this.deployed = 0
     this.sinceDeploy = FLARE_INTERVAL
     this.held = false

@@ -8,6 +8,7 @@ import type { Combatant, Tracked } from './combatant'
 import { FighterAi, type AiState } from './ai/fighter'
 import { Gun, ENEMY_BULLET_POOL, MUZZLE_OFFSET } from './weapons/gun'
 import { Missile } from './weapons/missile'
+import { Countermeasures } from './weapons/flare'
 import { ENEMY_MISSILE_COUNT, MISSILE_INTERVAL_SECONDS } from './ai/fighter'
 import type { Rng } from './rng'
 import { DamageSmoke, damageControl, damageSmoke } from './damage'
@@ -65,6 +66,14 @@ export interface EnemySpec {
    * 直後に撃ち、6 秒で自機が落ちた。機銃は 1 発も出ていない。
    */
   missiles?: number
+  /**
+   * 積むフレアの数。省略すると `FLARE_CAPACITY`。
+   *
+   * **0 を渡せば撒かない敵になる。**回避に入るとフレアを撒くので、煙や
+   * 曳光弾を見る台本では絵に混ざる。実測で `damage-smoke` の基準画像が
+   * 1,250 画素動いた。
+   */
+  flares?: number
 }
 
 /** 世界の上方向。方位はこの軸まわり */
@@ -106,6 +115,16 @@ export class Enemy implements Combatant {
    * 機銃と同じ作法。弾の物理を 2 か所に書くと、抗力や地形の扱いが片方
    * だけ直る（`docs/decisions/0007-enemy.md`）。
    */
+  /**
+   * 囮。**自機のミサイルを外すために撒く。**
+   *
+   * 当初は「敵はフレアを持たない」と決めていたが、実測で覆した。自機の
+   * フレアは追従カメラ（後方 23 m から前を向く）では 0.7 秒で視界から
+   * 抜ける。旋回しても視線角 155〜173 度のままで映らない。**絵の見張りを
+   * 作れない。**前方の敵が撒くフレアなら正面に写る。
+   */
+  readonly countermeasures: Countermeasures
+
   readonly missiles: readonly Missile[]
   /** 残りのミサイル */
   missilesLeft: number
@@ -141,6 +160,7 @@ export class Enemy implements Combatant {
     const missileCount = spec.missiles ?? ENEMY_MISSILE_COUNT
     this.missiles = Array.from({ length: missileCount }, () => new Missile())
     this.missilesLeft = missileCount
+    this.countermeasures = new Countermeasures(spec.flares)
   }
 
   get position(): Vec3 {
@@ -220,6 +240,14 @@ export class Enemy implements Combatant {
     )
     this.fire(dt, input.fireGun, rng)
     this.launchMissile(dt, input.fireMissile)
+    // フレアは機体を動かす前に進める。投下の位置は前のステップの姿勢で決まる
+    this.countermeasures.step(
+      dt,
+      input.deployFlare,
+      this.position,
+      this.velocity,
+      this.orientation,
+    )
     // ダメージで舵が鈍る。効きの係数は毎ステップ作り直す
     this.stepOptions.controlFactor = damageControl(this.integrityRatio)
     this.aircraft.step(input, dt, this.stepOptions)

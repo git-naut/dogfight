@@ -5,7 +5,7 @@ import { Vec3 } from './vec3'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
 import { ReplayPlayer, spawnFromSpec, type ReplayScript } from './replay'
 import { Target, type TargetSample, type TargetSpec } from './target'
-import { Countermeasures } from './weapons/flare'
+import { Countermeasures, type Flare } from './weapons/flare'
 import { Enemy, type EnemySpec } from './enemy'
 import type { Combatant } from './combatant'
 import type { DamageSmokeSource } from './damage'
@@ -77,6 +77,20 @@ export class World {
    * 飛行モデル付きかを区別しない。添字はこの列の順で、標的機が先に来る。
    */
   readonly combatants: readonly Combatant[]
+  /**
+   * 描画へ渡すフレア。自機のぶんと敵のぶんを並べる。
+   *
+   * **自機のフレアは追従カメラでは映りにくい。**実測で 0.7 秒で視界から
+   * 抜ける（後方 23 m から前を向くカメラなので）。前方の敵が撒くぶんが
+   * 絵になる。
+   */
+  get flares(): readonly Flare[] {
+    return [
+      ...this.countermeasures.flares,
+      ...this.enemies.flatMap((enemy) => enemy.countermeasures.flares),
+    ]
+  }
+
   /** 交戦の処理。発射管制と当たり判定はここが持つ */
   readonly combat: Combat
   /**

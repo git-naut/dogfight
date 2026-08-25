@@ -72,6 +72,8 @@ export interface CaptureConfig {
   showEnemies: boolean
   /** ダメージの煙を描くか。`?dmgsmoke=0` で切る。差分で断面を測るのに使う */
   showDamageSmoke: boolean
+  /** フレアを描くか。`?flares=0` で切る。差分で大きさを測るのに使う */
+  showFlares: boolean
   /** 曳光弾を描くか。`?tracers=0` で切る。差分で見え方を測るのに使う */
   showTracers: boolean
   /**
@@ -168,6 +170,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showTargets: params.get('targets') !== '0',
     showEnemies: params.get('enemies') !== '0',
     showDamageSmoke: params.get('dmgsmoke') !== '0',
+    showFlares: params.get('flares') !== '0',
     showTracers: params.get('tracers') !== '0',
     showAircraft: params.get('aircraft') !== '0',
     showTrails: params.get('trails') !== '0',

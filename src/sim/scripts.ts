@@ -407,6 +407,59 @@ export const SCRIPTS = {
   },
 
   /**
+   * ミサイルを撃たれてフレアで避ける。**フレアの絵の見張り。**
+   *
+   * 後方 2,500 m から撃たれる。実測で着弾は 7.1 秒（f852）なので、その
+   * 1 秒前（f732）に出す。**フレアは 4 秒燃えるので f732〜f1212 で見える。**
+   */
+  'flare-break': {
+    name: 'flare-break',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(0, 0, 2500), speed: 250 }],
+    keyframes: [
+      { frame: 732, input: { deployFlare: true } },
+      { frame: 734, input: { deployFlare: false } },
+    ],
+  },
+
+  /**
+   * 前方の敵が回避に入ってフレアを撒く。**フレアの絵の見張り。**
+   *
+   * **自機のフレアは追従カメラでは映らない。**実測で、撒いた 0.7 秒後には
+   * 前方深度が −23.7 m（カメラの後ろ）。旋回しても視線角が 155〜173 度の
+   * ままだった。カメラは自機の後方 23 m から前を向くので、後ろへ落ちる
+   * ものは原理的に入らない。
+   *
+   * 前方 220 m の敵なら正面に写る。敵は自機を後方に見て回避に入り、
+   * その瞬間にフレアを撒く。
+   */
+  'enemy-flare': {
+    name: 'enemy-flare',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(30, 8, -220), speed: 250, missiles: 0 }],
+    keyframes: [],
+  },
+
+  /**
+   * 正面から撃たれてフレアを出す。**効かないことを見る。**
+   *
+   * フレアは機体の向こう側へ落ちるので、距離の逆二乗で不利になる。
+   * 早めに出しても効かない（実測。`docs/weapons.md`）。
+   */
+  'flare-head-on': {
+    name: 'flare-head-on',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(0, 0, -3000), speed: 250, heading: Math.PI }],
+    keyframes: [
+      { frame: 240, input: { deployFlare: true } },
+      { frame: 242, input: { deployFlare: false } },
+    ],
+  },
+
+  /**
    * 自機が敵の後ろにつく。**回避に入るところを見る。**
    *
    * 敵は前方 220 m のやや右上。敵から見て自機は真後ろなので、回避の条件
@@ -456,7 +509,12 @@ export const SCRIPTS = {
     name: 'damage-smoke',
     seed: 20260823,
     spawn: { altitude: 3000, speed: 250 },
-    enemies: [{ offset: new Vec3(0, 3, -260), speed: 250, integrity: 12 }],
+    // **ミサイルもフレアも積まない。**煙の絵を見る台本なので、撃ち合いも
+    // 囮も混ざると読めない。実測で、敵が回避に入ってフレアを撒き基準画像が
+    // 1,250 画素動いた
+    enemies: [
+      { offset: new Vec3(0, 3, -260), speed: 250, integrity: 12, missiles: 0, flares: 0 },
+    ],
     keyframes: [],
   },
 

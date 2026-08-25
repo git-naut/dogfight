@@ -119,6 +119,15 @@ export interface QualitySettings {
   explosionSprites: number
 
   /**
+   * フレアの板の数。0 でフレアを描かない。
+   *
+   * 火と煙の 2 枚 x 同時に燃えている数。**ビルボードなので費用は小さいはず
+   * だが、測ってから判断する。**プリセットに載せてから実装する規約
+   * （`CLAUDE.md`）に従い、実測の前に列を作った。
+   */
+  flareSprites: number
+
+  /**
    * ダメージの煙のリボンの分割数。0 で煙なし。
    *
    * `missileTrailSegments` と同じ考え方。sim が持つ履歴（384 本 = 12.8 秒）の
@@ -157,6 +166,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 0,
     missileTrailSegments: 0,
     explosionSprites: 0,
+    flareSprites: 0,
     damageSmokeSegments: 0,
   },
   medium: {
@@ -179,6 +189,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 192,
     missileTrailSegments: 192,
     explosionSprites: 6,
+    flareSprites: 6,
     damageSmokeSegments: 128,
   },
   high: {
@@ -207,6 +218,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 384,
     missileTrailSegments: 384,
     explosionSprites: 12,
+    flareSprites: 12,
     damageSmokeSegments: 256,
   },
   ultra: {
@@ -235,6 +247,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 768,
     missileTrailSegments: 512,
     explosionSprites: 12,
+    flareSprites: 12,
     damageSmokeSegments: 384,
   },
 }

@@ -200,6 +200,15 @@ export const MISSILE_INTERVAL_SECONDS = 6
 
 /** 1 機が積んでいる数 */
 export const ENEMY_MISSILE_COUNT = 2
+
+/**
+ * 回避に入ってからフレアを押すフレーム数。
+ *
+ * 押しっぱなしは `Countermeasures` が弾く（間隔 0.5 秒）ので、ここは
+ * 短く立てるだけでよい。1 フレームだと、状態が変わった瞬間を跨いだ
+ * ときに取りこぼす。
+ */
+export const FLARE_FRAMES = 4
 /**
  * 射撃中に機軸の誤差を詰める時定数 s。
  *
@@ -735,7 +744,14 @@ export class FighterAi {
       this.burst < BURST_SECONDS && gunTrackError(self, target) < FIRE_CONE
   }
 
-  /** 回避。相手の視線に垂直な面で全力で回る */
+  /**
+   * 回避。相手の視線に垂直な面で全力で回る。
+   *
+   * **入った直後にフレアを撒く。**後ろにつかれている状態なので、ミサイルが
+   * 来ていてもおかしくない。ミサイルを見てから判断させると、AI に脅威の
+   * 検出を持たせることになって範囲が広がる。回避に入るのは相手が後方
+   * 900 m 以内の 60 度の円錐にいるときなので、条件としては十分近い。
+   */
   private evade(self: Aircraft): void {
     evadeCommand(self, this.breakSign, command)
     steerToward(command, self, this.steering)
@@ -743,6 +759,9 @@ export class FighterAi {
     this.input.roll = this.steering.roll
     // 全開。エネルギーを使い切っても振り切るほうを取る
     this.input.throttle = 1
+    // 入って最初の数フレームだけ押す。押しっぱなしは Countermeasures 側で
+    // 弾かれるので、ここは短く立てるだけでよい
+    this.input.deployFlare = this.frames < FLARE_FRAMES
   }
 
   private pursue(self: Aircraft, target: Tracked): void {

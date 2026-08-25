@@ -12,6 +12,8 @@ import type { DamageSmokeSource } from '../sim/damage'
 import { createTracers, type Tracers } from './weapons/tracers'
 import { createMissileViews, type MissileViews } from './weapons/missileView'
 import { createMissileSmoke, type MissileSmoke } from './weapons/missileSmoke'
+import { createFlares, type Flares } from './weapons/flares'
+import { FLARE_CAPACITY, type Flare } from '../sim/weapons/flare'
 import { createExplosions, type Explosions } from './weapons/explosions'
 import type { ExplosionSource } from '../sim/effects'
 import { BULLET_POOL, type BulletSource } from '../sim/weapons/gun'
@@ -125,6 +127,8 @@ export interface MeasureConfig {
   enemies?: boolean
   /** ダメージの煙 */
   damageSmoke?: boolean
+  /** フレア */
+  flares?: boolean
   /** 曳光弾 */
   tracers?: boolean
   /** ミサイルの本体 */
@@ -264,6 +268,8 @@ export interface SceneHandle {
   setSmokeSources(sources: readonly SmokeSource[]): void
   /** ダメージの煙の履歴を読む先を渡す。ワールドを作り直したら呼び直す */
   setDamageSmokeSources(sources: readonly DamageSmokeSource[]): void
+  /** フレアの読み口。`World.countermeasures.flares` を渡す */
+  setFlareSources(sources: readonly Flare[]): void
   /** 爆発を読む先を渡す。ワールドを作り直したら呼び直す */
   setExplosionSource(source: ExplosionSource | null): void
   /** 計測用に描画の一部を切り替える。?sweep=1 のときだけ使う */
@@ -332,6 +338,7 @@ export interface SceneOptions {
   showEnemies?: boolean
   /** ダメージの煙を描くか。差分で断面を測るのに使う */
   showDamageSmoke?: boolean
+  showFlares?: boolean
   /** 曳光弾を描くか。差分で見え方を測るのに使う */
   showTracers?: boolean
   /** 自機を描くか。煙や曳光弾の断面を測るのに使う */
@@ -470,6 +477,13 @@ export async function createScene(
   explosions.object.visible = options.showExplosions ?? true
   scene.add(explosions.object)
 
+  // フレア。積んでいる数ぶんの器を作る。同時に燃えるのはもっと少ないが、
+  // 器を増やさないので使い回しで足りる
+  // 自機ぶん + 敵 8 機ぶん。同時に燃えるのはずっと少ないが、器を使い回す
+  const flares: Flares = createFlares(FLARE_CAPACITY * (1 + MAX_TARGETS), quality)
+  flares.object.visible = options.showFlares ?? true
+  scene.add(flares.object)
+
   // 機体の影。影マップ 1 枚で自己遮蔽と対地影の両方をまかなう
   // コントレイルと翼端渦。履歴は sim が持つので、ここは読んで張るだけ
   const trails: AircraftTrails = createAircraftTrails(quality)
@@ -534,6 +548,7 @@ export async function createScene(
   /** 煙の履歴を読む先 */
   let smokeSources: readonly SmokeSource[] = []
   let damageSmokeSources: readonly DamageSmokeSource[] = []
+  let flareSources: readonly Flare[] = []
   /** 爆発を読む先 */
   let explosionSource: ExplosionSource | null = null
   // 軌跡の先頭。使い回す
@@ -814,6 +829,9 @@ export async function createScene(
       camera.getWorldDirection(cameraForward)
       missileSmoke.update(smokeSources, cameraWorld, cameraForward)
       damageSmoke.update(damageSmokeSources, cameraWorld, cameraForward)
+      // フレア。**自機のすぐ後ろに出るのでカメラの至近を通る。**
+      // 板が near 面を跨がないよう clampRadiusToNear で絞る
+      flares.update(flareSources, cameraWorld, cameraForward)
 
       // 爆発。**経過秒はフレーム番号から出す。**実時間を渡すと
       // キャプチャモードで絵が固定されない
@@ -878,6 +896,10 @@ export async function createScene(
       damageSmokeSources = sources
     },
 
+    setFlareSources(sources) {
+      flareSources = sources
+    },
+
     setExplosionSource(source) {
       explosionSource = source
     },
@@ -897,6 +919,7 @@ export async function createScene(
       if (config.damageSmoke !== undefined) {
         damageSmoke.object.visible = config.damageSmoke
       }
+      if (config.flares !== undefined) flares.object.visible = config.flares
       if (config.tracers !== undefined) tracers.object.visible = config.tracers
       if (config.missiles !== undefined) missileViews.object.visible = config.missiles
       if (config.smoke !== undefined) missileSmoke.object.visible = config.smoke

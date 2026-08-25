@@ -250,6 +250,7 @@ async function main(): Promise<void> {
     showTargets: capture.showTargets,
     showEnemies: capture.showEnemies,
     showDamageSmoke: capture.showDamageSmoke,
+    showFlares: capture.showFlares,
     showTracers: capture.showTracers,
     showAircraft: capture.showAircraft,
     showTrails: capture.showTrails,
@@ -470,6 +471,7 @@ async function main(): Promise<void> {
     view.setBulletSources(world.combat.bulletSources)
     view.setSmokeSources(world.combat.smokeSources)
     view.setDamageSmokeSources(world.damageSmokeSources)
+    view.setFlareSources(world.flares)
     view.setExplosionSource(world.combat.explosions)
     view.sync(
       sample,
@@ -600,6 +602,7 @@ async function main(): Promise<void> {
       view.setBulletSources(world.combat.bulletSources)
       view.setSmokeSources(world.combat.smokeSources)
       view.setDamageSmokeSources(world.damageSmokeSources)
+    view.setFlareSources(world.flares)
       view.setExplosionSource(world.combat.explosions)
       driver.reset()
       mouse.reset()

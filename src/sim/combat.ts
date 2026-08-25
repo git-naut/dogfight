@@ -115,6 +115,9 @@ export interface CombatOptions {
   groundLimit: number
 }
 
+/** 囮を持たない相手に渡す空の列。毎回作らない */
+const EMPTY_DECOYS: readonly HeatSource[] = []
+
 // 一時変数。使い回してゴミを出さない
 const muzzle = new Vec3()
 const nose = new Vec3()
@@ -288,7 +291,21 @@ export class Combat {
     for (const missile of this.missiles) {
       if (missile.state !== 'flying') continue
       const target = this.targets[missile.targetIndex] ?? null
-      if (!missile.step(dt, target) || target === null) continue
+      // **相手の囮を渡す。**敵もフレアを撒くようになったので、こちらの
+      // ミサイルも外れうる。渡すのは狙っている相手のぶんだけ
+      const decoys = target === null ? EMPTY_DECOYS : (this.decoysOf(target) ?? EMPTY_DECOYS)
+      if (!missile.step(dt, target, decoys) || target === null) continue
+      // 囮を掴んでいたら相手は無傷
+      if (missile.tracked !== target) {
+        this.effects.spawn(
+          missile.detonation,
+          missile.velocity,
+          MISSILE_BLAST,
+          this.frame,
+          this.rng,
+        )
+        continue
+      }
 
       this.hits++
       // 弾頭の炸裂。起爆した位置に出す
@@ -546,6 +563,17 @@ export class Combat {
         )
       }
     }
+  }
+
+  /**
+   * 相手の囮。持っていなければ null。
+   *
+   * **`Combatant` は囮を持つとは限らない。**計測用の `Target` は剛体なので
+   * 持たない。持っているものだけを型で見分ける。
+   */
+  private decoysOf(target: Combatant): readonly HeatSource[] | null {
+    const holder = target as { countermeasures?: { burning: readonly HeatSource[] } }
+    return holder.countermeasures?.burning ?? null
   }
 
   /**

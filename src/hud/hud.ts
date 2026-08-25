@@ -15,6 +15,7 @@ import {
   type ScreenPoint,
 } from './project'
 import { computeReadout, createHudReadout, type HudReadout } from './readout'
+import type { MissileThreat } from '../sim/weapons/warning'
 
 /**
  * ヘッドアップディスプレイ。
@@ -123,6 +124,15 @@ export interface HudArmament {
   rounds: number
   /** シーカーの捕捉 */
   lock: HudLock
+  /** 残りのフレア */
+  flares: number
+  /**
+   * ミサイル警告。
+   *
+   * **方位を出す。**有無だけでは、どちらへ逃げるか決められない。
+   * `src/sim/weapons/warning.ts` が測った値をそのまま渡す。
+   */
+  threat: MissileThreat
 }
 
 export interface HudLock {
@@ -704,6 +714,63 @@ export function createHud(host: HTMLElement): Hud {
     }
   }
 
+  /**
+   * ミサイル警告。
+   *
+   * **方位を矢印で出す。**文字だけでは、どちらへ逃げるか決められない。
+   * 円の上に三角を置いて、方位ぶん回す。0 が正面（上）、+π/2 が右。
+   *
+   * 位置は画面中央の少し上。ロックボックスとガンレティクルは中央にあるが、
+   * 撃たれているときに前を狙っていることは少ない。既存の警告列
+   * （CRASH / STALL / DMG）は下 0.7 にあるので重ならない。
+   *
+   * **飛んでいなければ何も描かない。**平時の HUD の絵は 1 画素も変わらない。
+   */
+  function drawThreat(threat: MissileThreat): void {
+    if (!threat.active) return
+
+    // **置き場所は絵で決めた。**0.24 は仰角 20 度の刻みと重なり、0.58 は
+    // 自機の機体と重なった。左寄せの 0.30 なら、ピッチラダーの刻み
+    // （中央付近）とも機体（中央下）とも離れる
+    const cx = width * 0.3
+    const cy = height * 0.3
+    const radius = 26
+
+    ctx!.strokeStyle = WARN
+    ctx!.fillStyle = WARN
+    ctx!.lineWidth = 2
+
+    // 方位の輪。矢印を置く土台
+    ctx!.beginPath()
+    ctx!.arc(cx, cy, radius, 0, Math.PI * 2)
+    ctx!.stroke()
+
+    // 矢印。方位 0 が上（機首方向）。時計回りが正
+    const angle = threat.bearing - Math.PI / 2
+    const tipX = cx + Math.cos(angle) * (radius + 10)
+    const tipY = cy + Math.sin(angle) * (radius + 10)
+    const leftX = cx + Math.cos(angle + 0.4) * radius
+    const leftY = cy + Math.sin(angle + 0.4) * radius
+    const rightX = cx + Math.cos(angle - 0.4) * radius
+    const rightY = cy + Math.sin(angle - 0.4) * radius
+    ctx!.beginPath()
+    ctx!.moveTo(tipX, tipY)
+    ctx!.lineTo(leftX, leftY)
+    ctx!.lineTo(rightX, rightY)
+    ctx!.closePath()
+    ctx!.fill()
+
+    ctx!.font = FONT
+    ctx!.textAlign = 'center'
+    ctx!.textBaseline = 'middle'
+    // 数が 2 以上なら添える。1 発なら数字を出さない
+    const label = threat.count > 1 ? `MISSILE x${threat.count}` : 'MISSILE'
+    ctx!.fillText(label, cx, cy - radius - 22)
+    // 着弾までの秒。近いほど切迫が伝わる
+    ctx!.font = SMALL_FONT
+    ctx!.fillText(`${threat.timeToImpact.toFixed(1)}s`, cx, cy)
+  }
+
   function drawReadouts(): void {
     ctx!.font = SMALL_FONT
     ctx!.textAlign = 'left'
@@ -803,6 +870,7 @@ export function createHud(host: HTMLElement): Hud {
       )
       drawHeadingTape(readout.headingDeg)
       drawArmament(armament)
+      drawThreat(armament.threat)
       drawReadouts()
     },
 

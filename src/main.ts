@@ -19,6 +19,7 @@ import { KeyboardInput } from './input/keyboard'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
 import { createHud, createHudLock, type Hud } from './hud/hud'
+import { createMissileThreat } from './sim/weapons/warning'
 import { showBenchPanel } from './hud/benchPanel'
 import { runBenchSweep } from './render/bench'
 
@@ -101,6 +102,13 @@ const hook = installTestHook({
   enemySmoke: 0,
   enemyDamaged: 0,
   enemyRoundsFired: 0,
+  enemyMissilesFired: 0,
+  incomingMissiles: 0,
+  missileWarning: false,
+  missileBearing: 0,
+  missileTimeToImpact: 0,
+  flaresLeft: 0,
+  flaresBurning: 0,
   playerTaken: 0,
   playerIntegrity: 0,
   playerLosses: 0,
@@ -291,12 +299,25 @@ async function main(): Promise<void> {
   window.addEventListener('resize', applySize)
 
   /** HUD へ渡す武装の状態。使い回す */
-  const armament = { rounds: 0, lock: createHudLock() }
+  const armament = {
+    rounds: 0,
+    lock: createHudLock(),
+    flares: 0,
+    threat: createMissileThreat(),
+  }
 
   /** HUD を 1 枚描き直して、読み取れる値をフックへ載せる */
   const drawHud = (currentWorld: World) => {
     if (hud === null) return
     armament.rounds = currentWorld.combat.rounds
+    armament.flares = currentWorld.countermeasures.left
+    // 器は使い回す。sim が測った値をそのまま写す
+    const threat = currentWorld.combat.threat
+    armament.threat.active = threat.active
+    armament.threat.bearing = threat.bearing
+    armament.threat.range = threat.range
+    armament.threat.timeToImpact = threat.timeToImpact
+    armament.threat.count = threat.count
 
     const lock = currentWorld.combat.lock
     armament.lock.state = lock.state
@@ -376,6 +397,16 @@ async function main(): Promise<void> {
       (sum, enemy) => sum + enemy.roundsFired,
       0,
     )
+    hook.enemyMissilesFired = currentWorld.enemies.reduce(
+      (sum, enemy) => sum + enemy.missilesFired,
+      0,
+    )
+    hook.incomingMissiles = currentWorld.combat.incomingMissilesInFlight
+    hook.missileWarning = currentWorld.combat.threat.active
+    hook.missileBearing = currentWorld.combat.threat.bearing
+    hook.missileTimeToImpact = currentWorld.combat.threat.timeToImpact
+    hook.flaresLeft = currentWorld.countermeasures.left
+    hook.flaresBurning = currentWorld.countermeasures.aliveCount
     hook.playerTaken = currentWorld.combat.taken
     hook.playerIntegrity = currentWorld.player.integrity
     hook.playerLosses = currentWorld.combat.losses

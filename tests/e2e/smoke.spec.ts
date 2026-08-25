@@ -60,6 +60,13 @@ interface TestHook {
   enemySmoke: number
   enemyDamaged: number
   enemyRoundsFired: number
+  enemyMissilesFired: number
+  incomingMissiles: number
+  missileWarning: boolean
+  missileBearing: number
+  missileTimeToImpact: number
+  flaresLeft: number
+  flaresBurning: number
   playerTaken: number
   playerIntegrity: number
   playerLosses: number

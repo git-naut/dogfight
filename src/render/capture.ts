@@ -305,6 +305,20 @@ export interface TestHook {
   enemyDamaged: number
   /** 敵機が撃った弾の総数（全機の合計） */
   enemyRoundsFired: number
+  /** 敵機が撃ったミサイルの総数（全機の合計） */
+  enemyMissilesFired: number
+  /** 飛んでいる敵のミサイルの数 */
+  incomingMissiles: number
+  /** ミサイル警告が出ているか */
+  missileWarning: boolean
+  /** 警告の方位 rad。0 が正面、+ が右、±π が真後ろ */
+  missileBearing: number
+  /** 警告の着弾までの秒 */
+  missileTimeToImpact: number
+  /** 残りのフレア */
+  flaresLeft: number
+  /** 燃えているフレアの数 */
+  flaresBurning: number
   /** 自機が受けた弾の数 */
   playerTaken: number
   /** 自機の残り耐久 */

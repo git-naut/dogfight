@@ -7,7 +7,10 @@ import {
   SHARD_COUNT,
   fireballOpacity,
   fireballRadius,
+  coreOpacity,
   smokeOpacity,
+  CORE_HOLD,
+  SMOKE_DELAY,
 } from '@sim/effects'
 import { Rng } from '@sim/rng'
 import { Vec3 } from '@sim/vec3'
@@ -161,9 +164,40 @@ describe('火球の形', () => {
   })
 
   it('火球は速く消え、煙が残る', () => {
-    // 0.5 秒で火球はほぼ消えるが煙は残っている
-    expect(fireballOpacity(0.5)).toBeLessThan(0.25)
-    expect(smokeOpacity(0.5)).toBeGreaterThan(0.5)
+    // 0.8 秒で火球はほぼ消えるが煙は濃い
+    expect(fireballOpacity(0.8)).toBeLessThan(0.1)
+    expect(smokeOpacity(0.8)).toBeGreaterThan(0.5)
+  })
+
+  /**
+   * **煙は火球より遅れて立つ。**実物の爆発は火球が先。
+   *
+   * 遅らせる前は経過 0.14 秒で不透明度 0.74 になり、半径 24 m の灰色の膜が
+   * 空を覆って火球を沈めていた（実測。`?explosions=0` との引き算で
+   * 外接 54x50 画素、火球が見えない）。0.3 秒遅らせたら 38x37 になった。
+   */
+  it('煙は火球より遅れて立つ', () => {
+    // 火球が膨らみ切るころまでは出ない
+    expect(smokeOpacity(0.1)).toBe(0)
+    expect(smokeOpacity(SMOKE_DELAY)).toBe(0)
+    // そのあと濃くなる
+    expect(smokeOpacity(0.5)).toBeGreaterThan(0.2)
+    expect(smokeOpacity(0.8)).toBeGreaterThan(0.6)
+  })
+
+  /**
+   * 芯は火球より長く不透明を保つ。
+   *
+   * **`fireballOpacity` をそのまま使うと芯にならない。**経過 0.14 秒で
+   * 0.61 になり、4 割が背景と混ざって白い靄に見えた（実測）。
+   */
+  it('芯は保持のあいだ不透明のまま', () => {
+    expect(coreOpacity(0.05)).toBeCloseTo(1, 5)
+    expect(coreOpacity(CORE_HOLD)).toBeCloseTo(1, 5)
+    // 保持のあとは急に消える
+    expect(coreOpacity(CORE_HOLD + 0.12)).toBeCloseTo(0, 5)
+    // 同じ時刻で火球より濃い
+    expect(coreOpacity(0.14)).toBeGreaterThan(fireballOpacity(0.14))
   })
 
   it('どちらも寿命で 0 になる', () => {

@@ -191,15 +191,44 @@ export function fireballOpacity(age: number): number {
 }
 
 /**
+ * 芯の不透明度 0..1。
+ *
+ * **火球より長く 1.0 を保つ。**芯は不透明でないと意味がない。実測で、
+ * `fireballOpacity` をそのまま使うと経過 0.14 秒で 0.61 になり、4 割が
+ * 背景と混ざって白い靄に見えた。
+ *
+ * 立ち上がりの 0.03 秒で 1 まで上げ、`CORE_HOLD` 秒はそのまま保ち、
+ * そのあと急に消す。**芯が残り続けると火球より長生きして不自然になる。**
+ */
+export function coreOpacity(age: number): number {
+  if (age < 0 || age >= EXPLOSION_LIFETIME) return 0
+  const rise = Math.min(1, age / 0.03)
+  if (age <= CORE_HOLD) return rise
+  // 保持のあとは 0.12 秒で消す
+  return Math.max(0, 1 - (age - CORE_HOLD) / 0.12)
+}
+
+/** 芯が不透明のまま保たれる秒数。**選んだ値。**絵で決める */
+export const CORE_HOLD = 0.18
+
+/**
  * 煙の不透明度 0..1。
  *
  * 火球より遅れて出て、長く残る。寿命の終わりで 0 になる。
  */
 export function smokeOpacity(age: number): number {
   if (age < 0 || age >= EXPLOSION_LIFETIME) return 0
-  const rise = Math.min(1, age / 0.15)
+  // **火球が消えてから濃くする。**実物の爆発は火球が先で煙は後から立つ。
+  // 立ち上がりを 0.15 秒にしていたら、経過 0.14 秒で不透明度 0.74 の
+  // 灰色の膜（半径 24 m）が空を覆って、火球が靄に沈んでいた（実測）
+  const rise = Math.min(1, Math.max(0, age - SMOKE_DELAY) / SMOKE_RISE)
   const t = age / EXPLOSION_LIFETIME
   // 寿命の終わりへ向けて smoothstep で落とす
   const fade = 1 - t * t * (3 - 2 * t)
   return rise * fade * 0.8
 }
+
+/** 煙が立ち始めるまでの秒数。火球が膨らみ切るころ */
+export const SMOKE_DELAY = 0.3
+/** 煙が濃さの最大へ達するまでの秒数 */
+export const SMOKE_RISE = 0.5

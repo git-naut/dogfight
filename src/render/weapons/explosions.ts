@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { FIXED_DT } from '../../sim/loop'
 import {
   EXPLOSION_LIFETIME,
+  coreOpacity,
   fireballOpacity,
   fireballRadius,
   smokeOpacity,
@@ -62,7 +63,22 @@ const FIREBALL_COLOR = new THREE.Color(0.20, 0.084, 0.02)
 const CORE_COLOR = new THREE.Color(0.42, 0.30, 0.12)
 
 /** 芯の半径は火球の何倍か。内側の締まった部分 */
-const CORE_SCALE = 0.25
+const CORE_SCALE = 0.55
+
+/*
+ * 大きさと濃さは絵で決めた。285 m の爆発を `?explosions=0` との引き算で
+ * 測っている（`gun-pass` f130、経過 0.14 秒、強さ 1）。
+ *
+ * | 段階 | 画素 | 最大階調 | 外接 |
+ * | 芯なし（元の実装） | 3,377 | 47 | 66x66 |
+ * | 芯を足した直後 | 2,132 | 29 | 54x50 |
+ * | 芯に専用の不透明度 | 2,132 | 34 | 54x50 |
+ * | 芯を 0.55 倍へ拡大 | 2,132 | 35 | 54x50 |
+ * | 煙を 0.3 秒遅らせた | 1,041 | 35 | 38x37 |
+ *
+ * **靄の正体は煙だった。**経過 0.14 秒で不透明度 0.74、半径 24 m の灰色の
+ * 膜が空を覆って火球を沈めていた。実物の爆発は火球が先で煙は後から立つ。
+ */
 
 /**
  * 外側の炎に掛ける係数。
@@ -72,9 +88,14 @@ const CORE_SCALE = 0.25
 const FIREBALL_ADDITIVE = 1.0
 
 /** 外側の炎の半径は火球の何倍か */
-const FIREBALL_SCALE = 0.5
-/** 煙の色。暗い灰 */
-const SMOKE_COLOR = new THREE.Color(0.09, 0.085, 0.08)
+const FIREBALL_SCALE = 0.9
+/**
+ * 煙の色。暗い灰。
+ *
+ * **露出 6 倍を織り込む。**0.09 では露出後 0.54 になり、空（1.0 前後）と
+ * 差が付かず 15 階調しか動かなかった。0.030 なら露出後 0.18 で 27 階調。
+ */
+const SMOKE_COLOR = new THREE.Color(0.030, 0.028, 0.026)
 /** 破片の色。火球より明るい芯 */
 const SHARD_COLOR = new THREE.Color(0.30, 0.186, 0.06)
 
@@ -304,7 +325,9 @@ export function createExplosions(
           s.core,
           center,
           radius * CORE_SCALE,
-          fireballOpacity(age) * explosion.strength,
+          // **芯は別の不透明度。**fireballOpacity だと 0.14 秒で 0.61 に
+          // なり、4 割が背景と混ざって白い靄になる（実測）
+          coreOpacity(age) * explosion.strength,
           cameraPosition,
           cameraForward,
         )

@@ -13,6 +13,11 @@ import {
 import { Lock } from './weapons/lock'
 import { Missile, type SmokeSource } from './weapons/missile'
 import { Effects, type ExplosionSource } from './effects'
+import {
+  createMissileThreat,
+  measureThreat,
+  type MissileThreat,
+} from './weapons/warning'
 import { createDlz, solveDlz, type Dlz } from './weapons/dlz'
 
 /**
@@ -231,6 +236,14 @@ export class Combat {
 
     this.advanceMissiles(dt)
     this.advanceIncomingMissiles(dt)
+    // 警告はミサイルを進めたあと。逸れた瞬間に消えてほしい
+    measureThreat(
+      this.incomingMissiles,
+      player.position,
+      player.velocity,
+      player.orientation,
+      this.threat,
+    )
     this.fireMissile(input, player, dt)
     this.updateDlz(player, dt)
   }
@@ -534,6 +547,14 @@ export class Combat {
       }
     }
   }
+
+  /**
+   * ミサイル警告。自機へ向かってくるものを測る。
+   *
+   * **接近しているものだけ。**外れたあとも鳴り続けると意味が薄れる。
+   * フレアで逸らしたミサイルは離れていくので、そこで消える。
+   */
+  readonly threat: MissileThreat = createMissileThreat()
 
   /** 飛んでいる敵のミサイルの数 */
   get incomingMissilesInFlight(): number {

@@ -38,17 +38,50 @@ import type { QualitySettings } from '../quality'
  * 実測した性質があるので、大きさそのものを変える。
  */
 
-/** 火球の色。橙から黄 */
-const FIREBALL_COLOR = new THREE.Color(1.0, 0.42, 0.1)
+/**
+ * 火球の色。橙から黄。
+ *
+ * **加算合成のままでは白く飛ぶ。**露出 6 倍で線形値が R=6.0 に達し、AgX が
+ * 白へ寄せる。AgX は明るい色ほど彩度を落とす設計なので、これは仕様どおりの
+ * 挙動。実測で、指定した橙がほぼ無色の靄になっていた。
+ *
+ * **芯を通常合成の不透明な層にして色を残す。**実物の爆発も芯は不透明で、
+ * 外側の炎と煙が透ける。全部を半透明にしていたのが靄っぽさの原因だった。
+ */
+const FIREBALL_COLOR = new THREE.Color(0.20, 0.084, 0.02)
+
+/**
+ * 芯の色。火球より白熱に寄せる。
+ *
+ * **通常合成でも露出 6 倍は掛かる。**そこを見落として (1.0, 0.72, 0.28) と
+ * 置いたら、線形値が R=6.0 になって加算のときと同じく白へ飛んだ。
+ * 露出後に 1.5 前後へ収まる値まで下げてある（0.25 x 6 = 1.5）。
+ *
+ * 見かけの色は (1.0, 0.72, 0.28) のまま。**明るさだけを落としている。**
+ */
+const CORE_COLOR = new THREE.Color(0.42, 0.30, 0.12)
+
+/** 芯の半径は火球の何倍か。内側の締まった部分 */
+const CORE_SCALE = 0.25
+
+/**
+ * 外側の炎に掛ける係数。
+ *
+ * **加算が強いと芯を覆って白い靄になる。**値は絵で決める。
+ */
+const FIREBALL_ADDITIVE = 1.0
+
+/** 外側の炎の半径は火球の何倍か */
+const FIREBALL_SCALE = 0.5
 /** 煙の色。暗い灰 */
 const SMOKE_COLOR = new THREE.Color(0.09, 0.085, 0.08)
 /** 破片の色。火球より明るい芯 */
-const SHARD_COLOR = new THREE.Color(1.0, 0.62, 0.2)
+const SHARD_COLOR = new THREE.Color(0.30, 0.186, 0.06)
 
 /** 破片の大きさ m */
 const SHARD_SIZE = 1.6
 /** 煙の半径は火球の何倍か */
-const SMOKE_SCALE = 1.5
+const SMOKE_SCALE = 1.2
 
 export interface Explosions {
   readonly object: THREE.Object3D
@@ -154,6 +187,8 @@ export function createExplosions(
     })
 
   interface Slot {
+    /** 不透明な芯。通常合成なので色が残る */
+    core: THREE.Mesh
     fireball: THREE.Mesh
     smoke: THREE.Mesh
     shards: THREE.Mesh[]
@@ -166,12 +201,15 @@ export function createExplosions(
     const existing = slots[index]
     if (existing !== undefined) return existing
 
-    // 火球は芯が明るく縁が締まる。煙はふわりと広がる。破片は点に近い
+    // 火球は芯が明るく縁が締まる。煙はふわりと広がる。破片は点に近い。
+    // **芯だけ通常合成。**加算だと露出 6 倍と AgX で白へ飛ぶ
+    const coreMaterial = radial(CORE_COLOR, 2.2, false)
     const fireballMaterial = radial(FIREBALL_COLOR, 1.6, true)
     const smokeMaterial = radial(SMOKE_COLOR, 0.9, false)
     const shardMaterial = radial(SHARD_COLOR, 2.4, true)
-    materials.push(fireballMaterial, smokeMaterial, shardMaterial)
+    materials.push(coreMaterial, fireballMaterial, smokeMaterial, shardMaterial)
 
+    const core = new THREE.Mesh(quad, coreMaterial)
     const fireball = new THREE.Mesh(quad, fireballMaterial)
     const smoke = new THREE.Mesh(quad, smokeMaterial)
     // 破片は 1 個ずつ位置が違うので個別のメッシュ。数は品質で決まる
@@ -182,15 +220,16 @@ export function createExplosions(
       group.add(mesh)
       return mesh
     })
-    for (const mesh of [fireball, smoke]) {
+    for (const mesh of [core, fireball, smoke]) {
       mesh.frustumCulled = false
       mesh.visible = false
       group.add(mesh)
     }
-    // 煙を火球の後ろに置く。加算の火球が上に乗る
+    // 煙を火球の後ろに置く。加算の火球が上に乗る。芯はいちばん上
     smoke.renderOrder = -1
+    core.renderOrder = 1
 
-    const made: Slot = { fireball, smoke, shards }
+    const made: Slot = { core, fireball, smoke, shards }
     slots[index] = made
     return made
   }
@@ -259,11 +298,22 @@ export function createExplosions(
           )
 
         const radius = fireballRadius(age, explosion.strength)
+        // 不透明な芯。**通常合成なので色が残る。**加算の火球だけだと
+        // 露出 6 倍と AgX で白い靄になる（実測）
+        place(
+          s.core,
+          center,
+          radius * CORE_SCALE,
+          fireballOpacity(age) * explosion.strength,
+          cameraPosition,
+          cameraForward,
+        )
+        // 外側の炎。**加算を弱くする。**強いと芯を覆って白い靄になる
         place(
           s.fireball,
           center,
-          radius,
-          fireballOpacity(age) * explosion.strength,
+          radius * FIREBALL_SCALE,
+          fireballOpacity(age) * explosion.strength * FIREBALL_ADDITIVE,
           cameraPosition,
           cameraForward,
         )
@@ -299,6 +349,7 @@ export function createExplosions(
       // 余った枠は隠す
       for (let i = count; i < slots.length; i++) {
         const s = slots[i]!
+        s.core.visible = false
         s.fireball.visible = false
         s.smoke.visible = false
         for (const shard of s.shards) shard.visible = false

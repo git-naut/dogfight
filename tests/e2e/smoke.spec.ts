@@ -1412,7 +1412,13 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'explosion-gun', script: 'gun-pass', frame: 130, hour: 16, coverage: 0 },
     // ミサイルの命中。弾頭の炸裂と撃墜の 2 つが重なる。
     // **台本を 1,200 m へ寄せたので命中が 5.56 秒 = f667 になった**
-    { name: 'explosion-missile', script: 'missile-shot', frame: 700, hour: 16, coverage: 0 },
+    //
+    // **芯が生きているフレームで撮る。**f700 は命中の 0.275 秒後で、芯は
+    // `CORE_HOLD` 0.18 秒 + 0.12 秒の減衰で 0.30 秒に消える。実測でも
+    // f700 の寄与は 118 画素・彩度 17 で、芯の色を変えても最大差が
+    // 19 → 13 としか動かなかった。**芯を壊しても気づけない見張りだった。**
+    // f679（0.10 秒後）なら 52 画素・彩度 27 で、色を変えると 45 へ動く
+    { name: 'explosion-missile', script: 'missile-shot', frame: 679, hour: 16, coverage: 0 },
     // DLZ バー。正面から向かい合う構図で、rNe と rMax の帯が分かれる。
     // 実測で接近 481 m/s・rMax 40,304 m・rNe 12,070 m
     { name: 'hud-dlz', script: 'head-on', frame: 1080, hour: 16, coverage: 0, hud: true },

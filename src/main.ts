@@ -495,8 +495,14 @@ async function main(): Promise<void> {
     drawHud(world)
 
     // 雲は時間方向に足し込むので、1 枚だけ描いても収束しない。
-    // カメラを止めたまま必要な本数を描く。実時間は使わないので決定論は保たれる
-    for (let i = 0; i < CAPTURE_CONVERGE_FRAMES; i++) view.render()
+    // カメラを止めたまま必要な本数を描く。実時間は使わないので決定論は保たれる。
+    //
+    // **雲量 0 なら 1 枚でよい。**マーチが何も返さないので蓄積の中身が毎回
+    // 同じになり、8 枚描いても絵は変わらない。基準画像 36 枚のうち 30 枚が
+    // `coverage=0` なので、ここが E2E の待ち時間に効く。
+    // 等価であることは `exact.mjs` の画素単位の比較で確かめる
+    const converge = capture.coverage === 0 ? 2 : CAPTURE_CONVERGE_FRAMES
+    for (let i = 0; i < converge; i++) view.render()
 
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
 

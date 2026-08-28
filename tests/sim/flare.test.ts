@@ -6,7 +6,9 @@ import {
   FLARE_INTENSITY,
   FLARE_INTERVAL,
   FLARE_PER_DEPLOY,
+  FLARE_FLASH_SECONDS,
   Flare,
+  flashIntensity,
 } from '@sim/weapons/flare'
 import { Missile } from '@sim/weapons/missile'
 import { AIRCRAFT_INTENSITY } from '@sim/combatant'
@@ -290,5 +292,40 @@ describe('決定論', () => {
       expect(positions[0]![i]!.y).toBe(positions[1]![i]!.y)
       expect(positions[0]![i]!.z).toBe(positions[1]![i]!.z)
     }
+  })
+})
+
+describe('閃光', () => {
+  it('点火の瞬間が最大で、閃光の終わりに 0 になる', () => {
+    expect(flashIntensity(0)).toBe(1)
+    expect(flashIntensity(FLARE_FLASH_SECONDS)).toBe(0)
+    expect(flashIntensity(FLARE_BURN_SECONDS)).toBe(0)
+  })
+
+  it('単調に減る', () => {
+    let previous = flashIntensity(0)
+    for (let i = 1; i <= 40; i++) {
+      const value = flashIntensity((FLARE_FLASH_SECONDS * i) / 40)
+      expect(value).toBeLessThanOrEqual(previous)
+      previous = value
+    }
+  })
+
+  it('二乗で落ちるので前半で大半が消える', () => {
+    // 立ち上がりを鋭く見せるための形。半分の時点で 1/4 まで落ちる
+    expect(flashIntensity(FLARE_FLASH_SECONDS / 2)).toBeCloseTo(0.25, 6)
+  })
+
+  it('負の経過でも 1 を超えない', () => {
+    expect(flashIntensity(-1)).toBe(1)
+  })
+
+  it('**囮の効き方には関わらない。**強度は燃焼のあいだ一定', () => {
+    // 閃光は見た目だけ。シーカーが使う値は別（`FLARE_INTENSITY`）
+    const flare = new Flare()
+    flare.burn = FLARE_BURN_SECONDS
+    expect(flare.intensity).toBe(FLARE_INTENSITY)
+    flare.burn = 0.01
+    expect(flare.intensity).toBe(FLARE_INTENSITY)
   })
 })

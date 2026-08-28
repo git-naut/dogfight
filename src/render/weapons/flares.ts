@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { Flare } from '../../sim/weapons/flare'
-import { FLARE_BURN_SECONDS } from '../../sim/weapons/flare'
+import { FLARE_BURN_SECONDS, flashIntensity } from '../../sim/weapons/flare'
 import { clampRadiusToNear } from './explosions'
 import type { QualitySettings } from '../quality'
 
@@ -50,8 +50,37 @@ export const FLARE_SMOKE_RADIUS = 3.2
  * | 通常合成・赤・芯だけ深度を書く | 89 | 121 |
  *
  * 121 は AgX のモデルが出す上限 123 にほぼ届いている。
+ *
+ * **点火の一瞬は白熱へ寄せる**（`FLASH_COLOR`）。落ち着いたあとがこの赤。
  */
 const FLARE_COLOR = new THREE.Color(0.14, 0.017, 0.004)
+
+/**
+ * 点火の瞬間の色。白熱。
+ *
+ * マグネシウム系の火工品は点火から一瞬で最大光度へ達する。AgX は明るい色ほど
+ * 彩度を落とすので、**白く飛ばしたいときはその性質を逆に使う。**露出後を
+ * 1 より大きく置くと脱色域に入って白熱になる。
+ *
+ * モデルで掃引した推移（通常合成・不透明度 1・深度あり）。
+ *
+ * | 色 | 露出後 | 出力 | 彩度 |
+ * | (1.20, 1.10, 0.95) | (7.20, 6.60, 5.70) | `rgb(247,246,244)` | 3 |
+ * | (0.50, 0.32, 0.10) | (3.00, 1.92, 0.60) | `rgb(235,222,195)` | 40 |
+ * | (0.28, 0.10, 0.02) | (1.68, 0.60, 0.12) | `rgb(225,183,141)` | 84 |
+ * | (0.14, 0.017, 0.004) | (0.84, 0.10, 0.02) | `rgb(207,118,84)` | 123 |
+ *
+ * `flashIntensity` で混ぜるので、白 → 黄 → 橙 → 赤 と推移する。
+ */
+const FLASH_COLOR = new THREE.Color(1.2, 1.1, 0.95)
+
+/**
+ * 閃光のときに半径を何倍にするか。
+ *
+ * 点火の瞬間だけ大きく見せる。**220 m の円は実測 17 画素**しかないので、
+ * 色だけでは閃光に見えない。
+ */
+const FLASH_RADIUS_GAIN = 1.6
 /**
  * 煙の色。白色の煙。無彩色にする。
  *
@@ -145,6 +174,20 @@ const NOT_ENABLED: Flares = {
 
 const scratch = new THREE.Vector3()
 const lookMatrix = new THREE.Matrix4()
+/** 閃光の色を混ぜる器。毎フレーム作らない */
+const flashColor = new THREE.Color()
+
+/**
+ * 材質の色を差し替える。
+ *
+ * **`lerp` の結果をそのまま渡すと全部のフレアが同じ色になる。**器は 1 つしか
+ * ないので、uniform には値を写す必要がある。スロットごとに材質を持つのは
+ * このため（`createFlares` の `slots`）
+ */
+function setColor(mesh: THREE.Mesh, color: THREE.Color): void {
+  const material = mesh.material as THREE.ShaderMaterial
+  ;(material.uniforms['uColor']!.value as THREE.Color).copy(color)
+}
 
 export function createFlares(capacity: number, quality: QualitySettings): Flares {
   let enabled = quality.flareSprites > 0
@@ -164,7 +207,9 @@ export function createFlares(capacity: number, quality: QualitySettings): Flares
   ): THREE.ShaderMaterial =>
     new THREE.ShaderMaterial({
       uniforms: {
-        uColor: { value: color },
+        // **複製する。**参照のまま入れるとスロット全部が同じ器を指し、
+        // 1 つの色を書き換えた瞬間に全部のフレアが同じ色になる
+        uColor: { value: color.clone() },
         uOpacity: { value: 0 },
         uFalloff: { value: falloff },
       },
@@ -295,6 +340,7 @@ export function createFlares(capacity: number, quality: QualitySettings): Flares
         const slot = slots[i]!
         const flare = flares[i]
         if (!enabled || flare === undefined || !flare.alive) {
+          slot.core.visible = false
           slot.fire.visible = false
           slot.smoke.visible = false
           continue
@@ -310,27 +356,22 @@ export function createFlares(capacity: number, quality: QualitySettings): Flares
         // 混ざり、赤が出ない（実測で経過 1.49 秒に不透明度 0.596）。爆発の芯
         // で同じ欠陥を直したのと同じ形にする（`sim/effects.ts` の
         // `coreOpacity`）。燃え尽きる手前 1 秒まで 1.0 を保つ
-        const fireFade = ignition * Math.min(1, remaining / FIRE_HOLD_FRACTION)
+        const fireFade = Math.min(1, remaining / FIRE_HOLD_FRACTION)
+        const flash = flashIntensity(burned)
+
+        // **閃光は点火の瞬間が最大。**立ち上がりの傾斜は掛けない。
+        // 火工品は一瞬で最大光度へ達するので、膨らませると閃光に見えない
         const fireOpacity = FLARE_OPACITY * fireFade
+        const fireRadius = FLARE_RADIUS * (1 + FLASH_RADIUS_GAIN * flash)
+        // 白熱と赤を混ぜる。`flash` が 1 なら白、0 なら赤
+        flashColor.copy(FLARE_COLOR).lerp(FLASH_COLOR, flash)
+        setColor(slot.core, flashColor)
+        setColor(slot.fire, flashColor)
 
         // 芯と暈は同じ大きさと濃さで置く。芯の側が `CORE_CUT` で内側だけ残す
-        place(
-          slot.core,
-          world,
-          FLARE_RADIUS * ignition,
-          fireOpacity,
-          cameraPosition,
-          cameraForward,
-        )
+        place(slot.core, world, fireRadius, fireOpacity, cameraPosition, cameraForward)
         if (
-          place(
-            slot.fire,
-            world,
-            FLARE_RADIUS * ignition,
-            fireOpacity,
-            cameraPosition,
-            cameraForward,
-          )
+          place(slot.fire, world, fireRadius, fireOpacity, cameraPosition, cameraForward)
         ) {
           drawn++
         }

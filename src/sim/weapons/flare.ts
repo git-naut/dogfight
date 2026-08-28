@@ -102,6 +102,32 @@ export const FLARE_INTERVAL = 0.5
 /** 積んでいる数 */
 export const FLARE_CAPACITY = 30
 
+/**
+ * 閃光が収まるまでの秒数。
+ *
+ * マグネシウム系の火工品は点火から一瞬で最大光度へ達し、そのあと安定した
+ * 燃焼へ落ちる。**見た目だけの値で、囮としての効き方には関わらない。**
+ * シーカーが使う `FLARE_INTENSITY` は燃焼のあいだ一定のまま。
+ *
+ * 0.25 秒は 60fps で 15 フレーム。これより短いと絵として読めない。
+ */
+export const FLARE_FLASH_SECONDS = 0.25
+
+/**
+ * 閃光の強さ 0..1。点火の瞬間が 1 で、`FLARE_FLASH_SECONDS` で 0 になる。
+ *
+ * 描画側がこの値で白熱と赤を混ぜ、大きさと濃さを持ち上げる。二乗で落とすと
+ * 立ち上がりが鋭く、尾を引かない。
+ *
+ * @param burned 点火からの経過秒
+ */
+export function flashIntensity(burned: number): number {
+  if (burned <= 0) return 1
+  if (burned >= FLARE_FLASH_SECONDS) return 0
+  const t = 1 - burned / FLARE_FLASH_SECONDS
+  return t * t
+}
+
 /** 排気口の後ろ。ここから出す（機体座標） */
 export const FLARE_OFFSET = new Vec3(0, -1, 3)
 

@@ -63,18 +63,25 @@ export const FLARE_DRAG_COEFFICIENT = 1.2
  * 2, 4, 6, 8, 16, 32 を振って挙動を見た。**6 以上は飽和してどの方向でも
  * 効く。**4 なら真後ろだけが確実で、横からは効かない。
  *
+ * 実測（`FLARE_SALVO_COUNT` 段の連射で撒いたとき）。
+ *
  * | 撃たれた方向 | なし | 0.5s | 1.0s | 1.5s | 2.0s |
  * | 180 度（真後ろ） | 命中 | 囮 | 囮 | 囮 | 囮 |
  * | 135 度 | 命中 | 命中 | 命中 | 外れ | 外れ |
  * | 90 度 | 命中 | 命中 | 命中 | 命中 | 命中 |
  * | 45 度 | 命中 | 外れ | 外れ | 囮 | 囮 |
- * | 0 度（正面） | 命中 | 命中 | 命中 | 命中 | 囮 |
+ * | 0 度（正面） | 命中 | 命中 | 命中 | 囮 | 囮 |
  *
  * 「囮」はフレアを掴んで外れた、「外れ」は誘導を失って自滅した状態。
  *
  * **真後ろにつかれたらフレアで振り切れるが、横からは旋回で逃げるしかない。**
  * それが駆け引きになる。正面から早めに出しても効かないのは、フレアが機体の
- * 向こう側へ落ちて距離で不利になるから。着弾直前（2.0 秒）なら効く。
+ * 向こう側へ落ちて距離で不利になるから。
+ *
+ * **段数を増やすと駆け引きが消える。**6 段まで増やすと横 90 度でも 2.0 秒で
+ * 外れ、正面も 1.0 秒から効く。3 段までなら 1 発だったころの表とほぼ同じで、
+ * 変わったのは正面の 1.5 秒だけ（命中 → 囮）。列のいちばん手前の 1 発が
+ * ミサイル寄りに残るぶん。
  */
 export const FLARE_INTENSITY = 4
 
@@ -87,14 +94,25 @@ export const FLARE_INTENSITY = 4
 export const FLARE_BURN_SECONDS = 4
 
 /**
- * 投下 1 回あたりの枚数。
+ * 1 回の操作で撒く段数。
  *
- * 実機は左右から複数を撒く。ここは実測で決める。
+ * **1 段につき 1 発を、間隔を空けて順に出す。**同時に複数を出すと束になって
+ * 1 つの熱源に見え、機体から離れる前に一緒に流れる。時間をずらすと空に列が
+ * できて、シーカーから見て別々の的になる。
  */
-export const FLARE_PER_DEPLOY = 2
+export const FLARE_SALVO_COUNT = 3
 
-/** 同じ投下で撒く枚数どうしの横方向の散らばり m/s。左右へ分ける */
-export const FLARE_SPREAD_SPEED = 8
+/** 段と段のあいだの秒数。列の間隔はこれと機体速度の積で決まる */
+export const FLARE_SALVO_INTERVAL = 0.12
+
+/**
+ * 横方向の散らばり m/s。
+ *
+ * **0 にする。**一列の直列に並べるので横へは散らさない。速度差だけで
+ * 間隔を作る。値を残してあるのは、束ねたくなったときにここだけ触れば
+ * 済むようにするため
+ */
+export const FLARE_SPREAD_SPEED = 0
 
 /** 投下の間隔 秒。押しっぱなしで撒き続けない */
 export const FLARE_INTERVAL = 0.5
@@ -215,6 +233,10 @@ export class Countermeasures {
   private sinceDeploy = FLARE_INTERVAL
   /** 前ステップで押されていたか。押しっぱなしで撒き続けない */
   private held = false
+  /** 残っている段数。1 回の操作で `FLARE_SALVO_COUNT` まで積む */
+  private salvoLeft = 0
+  /** 前の段からの経過 秒 */
+  private sinceSalvo = 0
 
   /** 燃えているフレア。シーカーへ渡す */
   get burning(): readonly HeatSource[] {
@@ -244,7 +266,14 @@ export class Countermeasures {
     orientation: { rotate(v: Vec3, out: Vec3): Vec3 },
   ): void {
     this.sinceDeploy += dt
+    this.sinceSalvo += dt
     for (const flare of this.flares) flare.step(dt)
+
+    // **走っている連射を先に進める。**引き金の状態とは独立に、残りの段を
+    // 間隔ごとに出す。1 回の操作で列ができるのはここ
+    if (this.salvoLeft > 0 && this.sinceSalvo >= FLARE_SALVO_INTERVAL) {
+      this.release(position, velocity, orientation)
+    }
 
     const edge = deploy && !this.held
     this.held = deploy
@@ -252,22 +281,42 @@ export class Countermeasures {
     if (this.left <= 0) return
     if (this.sinceDeploy < FLARE_INTERVAL) return
 
+    // 1 段目はその場で出す。残りは次のステップ以降に間隔を空けて出る
+    this.salvoLeft = FLARE_SALVO_COUNT
+    this.release(position, velocity, orientation)
+    this.sinceDeploy = 0
+  }
+
+  /**
+   * 連射の 1 段ぶんを出す。
+   *
+   * **1 段につき 1 発。**同時に複数を出すと束になって 1 つの熱源に見える。
+   */
+  private release(
+    position: Vec3,
+    velocity: Vec3,
+    orientation: { rotate(v: Vec3, out: Vec3): Vec3 },
+  ): void {
+    this.sinceSalvo = 0
+    if (this.salvoLeft <= 0) return
+    this.salvoLeft--
+    if (this.left <= 0) {
+      this.salvoLeft = 0
+      return
+    }
+    const flare = this.flares.find((f) => !f.alive)
+    if (flare === undefined) {
+      this.salvoLeft = 0
+      return
+    }
     orientation.rotate(FLARE_OFFSET, offset)
     offset.add(position)
-
-    for (let i = 0; i < FLARE_PER_DEPLOY; i++) {
-      const flare = this.flares.find((f) => !f.alive)
-      if (flare === undefined) break
-      // 左右へ交互に散らす。同じ場所に重ねても囮にならない
-      const sign = i % 2 === 0 ? 1 : -1
-      lateral.set(sign * FLARE_SPREAD_SPEED, 0, 0)
-      orientation.rotate(lateral, lateral)
-      flare.ignite(offset, velocity, lateral)
-      this.left--
-      this.deployed++
-      if (this.left <= 0) break
-    }
-    this.sinceDeploy = 0
+    // 横へは散らさない（`FLARE_SPREAD_SPEED` は 0）。列は時間差で作る
+    lateral.set(FLARE_SPREAD_SPEED, 0, 0)
+    orientation.rotate(lateral, lateral)
+    flare.ignite(offset, velocity, lateral)
+    this.left--
+    this.deployed++
   }
 
   /** ワールドを作り直すときに呼ぶ */
@@ -277,5 +326,9 @@ export class Countermeasures {
     this.deployed = 0
     this.sinceDeploy = FLARE_INTERVAL
     this.held = false
+    // **連射も畳む。**残したままだとワールドを作り直した直後に前回の続きが
+    // 出て、決定論が崩れる
+    this.salvoLeft = 0
+    this.sinceSalvo = 0
   }
 }

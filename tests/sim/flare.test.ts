@@ -5,7 +5,8 @@ import {
   FLARE_CAPACITY,
   FLARE_INTENSITY,
   FLARE_INTERVAL,
-  FLARE_PER_DEPLOY,
+  FLARE_SALVO_COUNT,
+  FLARE_SALVO_INTERVAL,
   FLARE_FLASH_SECONDS,
   Flare,
   flashIntensity,
@@ -148,31 +149,73 @@ describe('投下', () => {
     }
   }
 
-  it('1 回押すと決めた枚数だけ出る', () => {
+  /**
+   * 連射が出切るまで進めるステップ数。
+   *
+   * **1 段ずつ間隔を空けて出る。**押した瞬間に全部は出ないので、数える前に
+   * ここまで回す必要がある。
+   */
+  const SALVO_STEPS = Math.ceil(FLARE_SALVO_INTERVAL * 120) * (FLARE_SALVO_COUNT + 1)
+
+  /** 押して離し、連射が出切るまで進める */
+  function fireSalvo(cm: Countermeasures): void {
+    deploy(cm, true)
+    deploy(cm, false, SALVO_STEPS)
+  }
+
+  it('1 回押すと決めた段数だけ出る', () => {
+    const cm = new Countermeasures()
+    fireSalvo(cm)
+    expect(cm.aliveCount).toBe(FLARE_SALVO_COUNT)
+    expect(cm.left).toBe(FLARE_CAPACITY - FLARE_SALVO_COUNT)
+  })
+
+  it('**押した瞬間には 1 発しか出ない。**残りは間隔を空けて続く', () => {
     const cm = new Countermeasures()
     deploy(cm, true)
-    expect(cm.aliveCount).toBe(FLARE_PER_DEPLOY)
-    expect(cm.left).toBe(FLARE_CAPACITY - FLARE_PER_DEPLOY)
+    expect(cm.deployed).toBe(1)
+    // 1 段ぶんの間隔で 2 発目
+    deploy(cm, false, Math.ceil(FLARE_SALVO_INTERVAL * 120))
+    expect(cm.deployed).toBe(2)
+  })
+
+  it('列は時間差で作る。横へは散らさない', () => {
+    const cm = new Countermeasures()
+    fireSalvo(cm)
+    const alive = cm.flares.filter((f) => f.alive)
+    expect(alive).toHaveLength(FLARE_SALVO_COUNT)
+    // 機体は -Z へ 250 m/s で進むので、後から出たものほど Z が大きい
+    const z = alive.map((f) => f.position.z)
+    const sorted = [...z].sort((a, b) => a - b)
+    expect(z).not.toEqual(sorted.reverse())
+    // 横方向は散らさないので X はすべて同じ
+    for (const f of alive) expect(f.position.x).toBeCloseTo(alive[0]!.position.x, 6)
   })
 
   /** 押しっぱなしで撒き続けない。機銃とミサイルと同じ作法 */
-  it('押しっぱなしでは 1 回しか出ない', () => {
+  it('押しっぱなしでは 1 連射しか出ない', () => {
     const cm = new Countermeasures()
     deploy(cm, true, 120)
-    expect(cm.deployed).toBe(FLARE_PER_DEPLOY)
+    expect(cm.deployed).toBe(FLARE_SALVO_COUNT)
   })
 
   it('離して押し直せば出る。ただし間隔を空ける', () => {
     const cm = new Countermeasures()
     deploy(cm, true)
+    // **連射の途中で押し直しても新しい連射は始まらない。**
+    // `FLARE_INTERVAL` に達していない
     deploy(cm, false, 10)
     deploy(cm, true)
-    // 間隔が空いていないので出ない
-    expect(cm.deployed).toBe(FLARE_PER_DEPLOY)
+    deploy(cm, false, SALVO_STEPS)
+    expect(cm.deployed).toBe(FLARE_SALVO_COUNT)
 
+    // **連射が出切るころには間隔も満ちている。**1 連射は
+    // `FLARE_SALVO_INTERVAL * (FLARE_SALVO_COUNT - 1)` = 0.24 秒で、
+    // `FLARE_INTERVAL` の 0.5 秒より短い
     deploy(cm, false, Math.ceil(FLARE_INTERVAL * 120))
     deploy(cm, true)
-    expect(cm.deployed).toBe(FLARE_PER_DEPLOY * 2)
+    deploy(cm, false, SALVO_STEPS)
+    expect(cm.deployed).toBe(FLARE_SALVO_COUNT * 2)
   })
 
   it('積んでいる数を撃ち切ったら出ない', () => {
@@ -187,13 +230,17 @@ describe('投下', () => {
     expect(cm.deployed).toBe(before)
   })
 
-  it('左右へ散らす。同じ場所に重ねても囮にならない', () => {
+  it('**横へは散らさない。**列は時間差だけで作る', () => {
     const cm = new Countermeasures()
-    deploy(cm, true)
+    fireSalvo(cm)
     const alive = cm.flares.filter((f) => f.alive)
-    expect(alive).toHaveLength(2)
-    // 横方向の速度が逆向き
-    expect(alive[0]!.velocity.x * alive[1]!.velocity.x).toBeLessThan(0)
+    expect(alive).toHaveLength(FLARE_SALVO_COUNT)
+    // 同じ場所に重ねても囮にならないが、間隔は時間差が作る。
+    // 横方向の速度は全部 0
+    for (const flare of alive) expect(flare.velocity.x).toBeCloseTo(0, 6)
+    // 前後には離れている。後から出たものほど機体寄り（機体は -Z へ進む）
+    const z = alive.map((f) => f.position.z).sort((a, b) => a - b)
+    expect(z[z.length - 1]! - z[0]!).toBeGreaterThan(10)
   })
 
   it('リセットで元に戻る', () => {
@@ -261,7 +308,9 @@ describe('フレアが効く位置関係（強度 4 の実測）', () => {
   it('正面は早いと効かない。着弾直前なら効く', () => {
     expect(engage(0, 0.5)).toBe('命中')
     expect(engage(0, 1.0)).toBe('命中')
-    expect(engage(0, 1.5)).toBe('命中')
+    // **1.5 秒で効くようになった。**連射にして列を作ったぶん、いちばん手前の
+    // 1 発がミサイル寄りに残る。1 発だったころは 2.0 秒まで効かなかった
+    expect(engage(0, 1.5)).toBe('囮')
     expect(engage(0, 2.0)).toBe('囮')
   })
 })
@@ -286,7 +335,7 @@ describe('決定論', () => {
       }
       positions.push(cm.flares.filter((f) => f.alive).map((f) => new Vec3().copy(f.position)))
     }
-    expect(positions[0]).toHaveLength(FLARE_PER_DEPLOY)
+    expect(positions[0]).toHaveLength(FLARE_SALVO_COUNT)
     for (let i = 0; i < positions[0]!.length; i++) {
       expect(positions[0]![i]!.x).toBe(positions[1]![i]!.x)
       expect(positions[0]![i]!.y).toBe(positions[1]![i]!.y)

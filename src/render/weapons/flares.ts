@@ -33,27 +33,19 @@ export const FLARE_RADIUS = 1.6
 export const FLARE_SMOKE_RADIUS = 3.2
 
 /**
- * 火の玉の色。赤い燃焼。
+ * 燃えているあいだの色。白い光。
  *
- * **加算合成では赤が原理的に出ない。**理由は `explosions.ts` の
- * `FIREBALL_COLOR` に書いた。比は爆発と揃えて 1 : 0.12 : 0.03。
+ * **色は付けない。**マグネシウムの炎は白に近く、赤みは出ない。閃光との差は
+ * 色相ではなく明るさで見せる。
  *
- * **それだけでは足りない。**フレアは目線より下に出るので、後ろに 300 km の
- * 海面がいる。深度を書かないと大気のパスがその距離の霞をビルボードに掛け、
- * 寄与が透過率 0.13 まで潰れる。不透明な芯を分けて深度を書かせる
- * （`CORE_CUT`）。実測の推移（`enemy-flare` f180、`?flares=0` との引き算）。
+ * **深度を書かないと潰れる。**フレアは目線より下に出るので、後ろに 300 km の
+ * 海面がいる。大気のパスがその距離の霞をビルボードに掛け、寄与が透過率 0.13
+ * まで落ちる。不透明な芯を分けて深度を書かせる（`CORE_CUT`）。
  *
- * | 条件 | 赤み | 彩度 |
- * | 加算・白 (1, 0.86, 0.55) | 8 | 15 |
- * | 通常合成・明るい赤・深度なし | 45 | 48 |
- * | 通常合成・赤・縁ごと深度を書く | 76 | 95 |
- * | 通常合成・赤・芯だけ深度を書く | 89 | 121 |
- *
- * 121 は AgX のモデルが出す上限 123 にほぼ届いている。
- *
- * **点火の一瞬は白熱へ寄せる**（`FLASH_COLOR`）。落ち着いたあとがこの赤。
+ * 露出後 `(1.80, 1.68, 1.50)` で出力 `rgb(221,219,216)`、彩度 5。空の
+ * `rgb(160,177,195)` に対して 60 階調ぶん明るい。
  */
-const FLARE_COLOR = new THREE.Color(0.14, 0.017, 0.004)
+const FLARE_COLOR = new THREE.Color(0.30, 0.28, 0.25)
 
 /**
  * 点火の瞬間の色。白熱。
@@ -66,11 +58,10 @@ const FLARE_COLOR = new THREE.Color(0.14, 0.017, 0.004)
  *
  * | 色 | 露出後 | 出力 | 彩度 |
  * | (1.20, 1.10, 0.95) | (7.20, 6.60, 5.70) | `rgb(247,246,244)` | 3 |
- * | (0.50, 0.32, 0.10) | (3.00, 1.92, 0.60) | `rgb(235,222,195)` | 40 |
- * | (0.28, 0.10, 0.02) | (1.68, 0.60, 0.12) | `rgb(225,183,141)` | 84 |
- * | (0.14, 0.017, 0.004) | (0.84, 0.10, 0.02) | `rgb(207,118,84)` | 123 |
+ * | (0.45, 0.42, 0.38) | (2.70, 2.52, 2.28) | `rgb(231,229,227)` | 4 |
+ * | (0.30, 0.28, 0.25) | (1.80, 1.68, 1.50) | `rgb(221,219,216)` | 5 |
  *
- * `flashIntensity` で混ぜるので、白 → 黄 → 橙 → 赤 と推移する。
+ * `flashIntensity` で混ぜる。**どちらも無彩色なので、推移するのは明るさだけ。**
  */
 const FLASH_COLOR = new THREE.Color(1.2, 1.1, 0.95)
 
@@ -132,10 +123,18 @@ const IGNITION_SECONDS = 0.15
  * 火が満濃度を保つ残り時間の割合。
  *
  * これを下回ってから薄れ始める。0.25 は燃焼 4 秒に対して残り 1 秒。
- * **保持しないと赤が出ない。**線形に薄めると経過 1.49 秒で不透明度 0.596 に
- * なり、`CORE_CUT` を割って芯が消える。
+ * **保持しないと芯が消える。**線形に薄めると経過 1.49 秒で不透明度 0.596 に
+ * なり、`CORE_CUT` を割る。
  */
 const FIRE_HOLD_FRACTION = 0.25
+
+/**
+ * 至近で半径を絞り始める距離 m。
+ *
+ * この距離より近いと、板が画角いっぱいに広がらないよう半径を縮める。
+ * `MIN_CAMERA_DISTANCE` で完全に消すのではなく、まず絞る。
+ */
+const SHRINK_DISTANCE = 60
 
 /**
  * この距離より近いフレアは描かない m。
@@ -147,9 +146,19 @@ const FIRE_HOLD_FRACTION = 0.25
  * `clampRadiusToNear` は near 面を跨がないよう絞るだけで、至近の板が
  * 画角いっぱいに広がるのは止められない。**距離で切る。**
  *
- * 自機の全長は 17 m。カメラから 20 m は機体の少し後ろにあたる。
+ * **20 m にしていたら自機のフレアが一度も映らなかった。**排気口から出た
+ * 瞬間がカメラから 19.5 m で、足切りに 0.5 m 足りない。遠ざかる前に後ろへ
+ * 落ちるので、映る窓がまったくなかった（`flare-break` の実測）。
+ *
+ * | 経過 | 距離 | 前方深度 |
+ * | 0.00 s | 19.5 m | 18.5 m |
+ * | 0.39 s | 9.3 m | 4.8 m |
+ * | 0.56 s | 11.9 m | −7.3 m（カメラの後ろ） |
+ *
+ * 8 m まで下げて、代わりに `SHRINK_DISTANCE` から半径を絞る。画面を白く
+ * 塗りつぶすのは板の見かけの大きさが原因なので、そちらを抑えれば足りる。
  */
-const MIN_CAMERA_DISTANCE = 20
+const MIN_CAMERA_DISTANCE = 8
 
 export interface Flares {
   readonly object: THREE.Object3D
@@ -303,12 +312,18 @@ export function createFlares(capacity: number, quality: QualitySettings): Flares
       return false
     }
     // **至近では描かない。**板が画角いっぱいに広がって画面を塗りつぶす
-    if (scratch.subVectors(position, cameraPosition).lengthSq() < MIN_CAMERA_DISTANCE ** 2) {
+    const distanceSq = scratch.subVectors(position, cameraPosition).lengthSq()
+    if (distanceSq < MIN_CAMERA_DISTANCE ** 2) {
       mesh.visible = false
       return false
     }
+    // **消す前にまず絞る。**見かけの大きさを一定に近づけると、至近を通る
+    // フレアが画面を塗りつぶさずに済む。消してしまうと自機のフレアが
+    // 一度も映らない（`MIN_CAMERA_DISTANCE` の実測表）
+    const distance = Math.sqrt(distanceSq)
+    const shrink = distance < SHRINK_DISTANCE ? distance / SHRINK_DISTANCE : 1
     const depth = scratch.dot(cameraForward)
-    const clamped = clampRadiusToNear(depth, radius)
+    const clamped = clampRadiusToNear(depth, radius * shrink)
     if (clamped <= 0) {
       mesh.visible = false
       return false

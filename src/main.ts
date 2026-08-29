@@ -18,7 +18,7 @@ import { PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
-import { createHud, createHudLock, type Hud } from './hud/hud'
+import { createHud, createHudLock, type Hud, type HudArmament } from './hud/hud'
 import { createMissileThreat } from './sim/weapons/warning'
 import { showBenchPanel } from './hud/benchPanel'
 import { runBenchSweep } from './render/bench'
@@ -302,11 +302,13 @@ async function main(): Promise<void> {
   window.addEventListener('resize', applySize)
 
   /** HUD へ渡す武装の状態。使い回す */
-  const armament = {
+  const armament: HudArmament = {
     rounds: 0,
     lock: createHudLock(),
     flares: 0,
     threat: createMissileThreat(),
+    // 器を使い回す。ミッションのない台本では null を入れて何も描かせない
+    mission: { remainingFrames: 0, enemiesAlive: 0, outcome: 'none' },
   }
 
   /** HUD を 1 枚描き直して、読み取れる値をフックへ載せる */
@@ -314,6 +316,19 @@ async function main(): Promise<void> {
     if (hud === null) return
     armament.rounds = currentWorld.combat.rounds
     armament.flares = currentWorld.countermeasures.left
+
+    // ミッションが無ければ null。**HUD 側は null で何も描かない**ので、
+    // 既存の基準画像は 1 画素も動かない
+    const currentMission = currentWorld.mission
+    if (currentMission === null) armament.mission = null
+    else {
+      if (armament.mission === null) {
+        armament.mission = { remainingFrames: 0, enemiesAlive: 0, outcome: 'none' }
+      }
+      armament.mission.remainingFrames = currentMission.remainingFrames(currentWorld.frame)
+      armament.mission.enemiesAlive = currentWorld.enemiesAlive
+      armament.mission.outcome = currentMission.outcome
+    }
     // 器は使い回す。sim が測った値をそのまま写す
     const threat = currentWorld.combat.threat
     armament.threat.active = threat.active

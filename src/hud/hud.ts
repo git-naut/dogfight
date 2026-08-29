@@ -14,7 +14,12 @@ import {
   type Mat4,
   type ScreenPoint,
 } from './project'
-import { computeReadout, createHudReadout, type HudReadout } from './readout'
+import {
+  computeReadout,
+  createHudReadout,
+  formatClock,
+  type HudReadout,
+} from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
 
 /**
@@ -133,6 +138,28 @@ export interface HudArmament {
    * `src/sim/weapons/warning.ts` が測った値をそのまま渡す。
    */
   threat: MissileThreat
+  /**
+   * ミッション。走っていなければ null。
+   *
+   * **出ていないときは 1 画素も変えない。**基準画像 37 枚のうち HUD を出す
+   * ものは、ミッションのない台本で撮ってある。`drawThreat` と同じ作法
+   */
+  mission: HudMission | null
+}
+
+/** ミッションの表示に要る値 */
+export interface HudMission {
+  /** 残り時間 フレーム */
+  remainingFrames: number
+  /** 生きている敵の数 */
+  enemiesAlive: number
+  /**
+   * 決着。`running` のあいだは時計が緑、決着したら止める。
+   *
+   * 文字列で受ける。**`hud/` は sim を import しない**（`readout.ts` と
+   * `project.ts` が守っている境界）
+   */
+  outcome: string
 }
 
 export interface HudLock {
@@ -726,6 +753,40 @@ export function createHud(host: HTMLElement): Hud {
   }
 
   /**
+   * ミッション。残り時間と残敵。
+   *
+   * **左上に置く。**中央上部は方位テープ（`height * 0.11`）とその上の
+   * 現在方位・三角、さらに上へピッチラダーの目盛が来る（実測。上端まで
+   * 埋まっている）。左右の上隅は空いている。
+   *
+   * **走っていなければ何も描かない。**ミッションのない台本で撮った基準画像
+   * 37 枚は 1 画素も動かない。`drawThreat` と同じ作法。
+   *
+   * 決着したら色を変える。成功は主線、失敗は警告色。
+   */
+  function drawMission(mission: HudMission | null): void {
+    if (mission === null) return
+
+    const x = width * 0.06
+    const y = height * 0.08
+    const settled = mission.outcome !== 'running'
+    const failed = settled && mission.outcome !== 'cleared'
+
+    ctx!.textAlign = 'left'
+    ctx!.textBaseline = 'alphabetic'
+
+    // 残り時間。決着したらそこで止まる（`Mission.remainingFrames`）
+    ctx!.font = FONT
+    ctx!.fillStyle = failed ? WARN : PRIMARY
+    ctx!.fillText(formatClock(mission.remainingFrames), x, y)
+
+    // 残敵。0 になったら成功
+    ctx!.font = SMALL_FONT
+    ctx!.fillStyle = settled ? (failed ? WARN : PRIMARY) : DIM
+    ctx!.fillText(`ENEMY ${mission.enemiesAlive}`, x, y + 16)
+  }
+
+  /**
    * ミサイル警告。
    *
    * **方位を矢印で出す。**文字だけでは、どちらへ逃げるか決められない。
@@ -881,6 +942,7 @@ export function createHud(host: HTMLElement): Hud {
       )
       drawHeadingTape(readout.headingDeg)
       drawArmament(armament)
+      drawMission(armament.mission)
       drawThreat(armament.threat)
       drawReadouts()
     },

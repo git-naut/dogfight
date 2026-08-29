@@ -7,6 +7,7 @@ import {
   toCompassDegrees,
   toFeet,
   toKnots,
+  formatClock,
 } from '@hud/readout'
 import { createAircraftSample } from '@sim/aircraft'
 import { Quat } from '@sim/quat'
@@ -166,5 +167,34 @@ describe('computeReadout', () => {
     const out = computeReadout(s, createHudReadout())
     expect(out.stalled).toBe(true)
     expect(out.crashed).toBe(true)
+  })
+})
+
+describe('formatClock', () => {
+  it('分と秒に分ける', () => {
+    // 120 フレーム = 1 秒
+    expect(formatClock(0)).toBe('0:00')
+    expect(formatClock(120)).toBe('0:01')
+    expect(formatClock(60 * 120)).toBe('1:00')
+    expect(formatClock(300 * 120)).toBe('5:00')
+  })
+
+  it('秒は 2 桁に揃える', () => {
+    expect(formatClock(5 * 120)).toBe('0:05')
+    expect(formatClock(65 * 120)).toBe('1:05')
+  })
+
+  /**
+   * **切り上げる。**残り 0.5 秒を「0:00」と出すと、まだ時間があるのに
+   * 終わったように見える。0 になるのは本当に尽きたときだけにしたい。
+   */
+  it('端数は切り上げる', () => {
+    expect(formatClock(1)).toBe('0:01')
+    expect(formatClock(119)).toBe('0:01')
+    expect(formatClock(121)).toBe('0:02')
+  })
+
+  it('負の値は 0 として扱う', () => {
+    expect(formatClock(-100)).toBe('0:00')
   })
 })

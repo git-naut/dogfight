@@ -1,5 +1,6 @@
 import { AIRCRAFT_INTEGRITY, type AircraftSample } from '../sim/aircraft'
 import { Vec3 } from '../sim/vec3'
+import { FIXED_DT } from '../sim/loop'
 import { elevationOf, headingOf } from './project'
 
 /**
@@ -117,4 +118,20 @@ export function computeReadout(sample: AircraftSample, out: HudReadout): HudRead
   else out.flightPath.copy(out.nose)
 
   return out
+}
+
+/**
+ * フレーム数を `m:ss` へ直す。
+ *
+ * ミッションの残り時間に使う。**フレームで受け取る。**判定側がフレームで
+ * 持っているので（`sim/mission.ts`）、秒へ直すのは表示の直前だけにする。
+ *
+ * 切り上げる。残り 0.5 秒を「0:00」と出すと、まだ時間があるのに終わったように
+ * 見える。0 になるのは本当に尽きたときだけにしたい。
+ */
+export function formatClock(frames: number): string {
+  const seconds = Math.ceil(Math.max(0, frames) * FIXED_DT)
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${String(s).padStart(2, '0')}`
 }

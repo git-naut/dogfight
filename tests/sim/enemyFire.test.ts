@@ -10,6 +10,7 @@ import { makeInput } from '@sim/input'
 import { trimCondition } from '@sim/flightModel'
 import { airDensity } from '@sim/isa'
 import { AIRCRAFT_INTEGRITY } from '@sim/aircraft'
+import { ENEMY_MAGAZINE, MAGAZINE } from '@sim/weapons/gun'
 import { MUZZLE_SPEED, ENEMY_BULLET_POOL, bulletTimeToRange } from '@sim/weapons/gun'
 import {
   BURST_GAP_SECONDS,
@@ -241,9 +242,19 @@ describe('敵が撃つ', () => {
   /**
    * 押しっぱなしにしない。
    *
-   * 携行 578 発は 100 発/秒で 5.78 秒ぶんしかない。0.6 秒撃って 1.2 秒休むので、
-   * 実効は 33 発/秒。**バーストにしないと 6 秒で弾切れになる。**
+   * 敵の携行 578 発（`ENEMY_MAGAZINE`）は 100 発/秒で 5.78 秒ぶんしかない。
+   * 0.6 秒撃って 1.2 秒休むので実効は 33 発/秒。**バーストにしないと 6 秒で
+   * 弾切れになる。**自機の `MAGAZINE` は Phase 7 で 1,800 発へ増やしたが、
+   * 敵は据え置き
    */
+  it('**敵の携行弾は自機と別。**自機を増やしても敵は増えない', () => {
+    // `new Gun(ENEMY_BULLET_POOL)` が第 2 引数を省いていたので、`MAGAZINE` を
+    // 1,800 発へ増やしたとき敵も 3.1 倍になった。意図しない波及だった
+    const w = engagement(new Vec3(0, 0, 1000))
+    expect(w.enemies[0]!.gun.rounds).toBe(ENEMY_MAGAZINE)
+    expect(ENEMY_MAGAZINE).toBeLessThan(MAGAZINE)
+  })
+
   it('バーストで撃つ。押しっぱなしにしない', () => {
     const w = engagement(new Vec3(0, 0, 1000))
     const e = w.enemies[0]!

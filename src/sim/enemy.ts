@@ -6,7 +6,7 @@ import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
 import { AIRCRAFT_INTENSITY } from './combatant'
 import type { Combatant, Tracked } from './combatant'
 import { FighterAi, type AiState } from './ai/fighter'
-import { Gun, ENEMY_BULLET_POOL, MUZZLE_OFFSET } from './weapons/gun'
+import { Gun, ENEMY_BULLET_POOL, ENEMY_MAGAZINE, MUZZLE_OFFSET } from './weapons/gun'
 import { Missile } from './weapons/missile'
 import { Countermeasures } from './weapons/flare'
 import { ENEMY_MISSILE_COUNT, MISSILE_INTERVAL_SECONDS } from './ai/fighter'
@@ -100,7 +100,7 @@ export class Enemy implements Combatant {
    *
    * プールは自機の 272 より小さい 160。敵は連射しないので足りる。
    */
-  readonly gun = new Gun(ENEMY_BULLET_POOL)
+  readonly gun = new Gun(ENEMY_BULLET_POOL, ENEMY_MAGAZINE)
   /**
    * ダメージの煙の履歴。
    *

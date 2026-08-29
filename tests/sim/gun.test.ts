@@ -95,13 +95,17 @@ describe('発射速度', () => {
   it('残弾が尽きたら止まる', () => {
     const { gun: g, rng } = gun()
     expect(g.rounds).toBe(MAGAZINE)
-    const spawned = hold(g, rng, 10)
+    // **携行弾ぶんより長く回す。**`MAGAZINE` を増やしたときに、撃ち切る前に
+    // 止まると「尽きた」ことを検査できない
+    const spawned = hold(g, rng, MAGAZINE / ROUNDS_PER_SECOND + 2)
     expect(spawned).toBe(MAGAZINE)
     expect(g.rounds).toBe(0)
   })
 
-  it('携行弾は 5.78 秒ぶん', () => {
-    expect(MAGAZINE / ROUNDS_PER_SECOND).toBeCloseTo(5.78, 6)
+  it('携行弾は 18 秒ぶん', () => {
+    // **公表値の 578 発（5.78 秒）から増やした。**ミッション 01 が敵 5 機で、
+    // 1 対 1 の実測では 1 機に 545 発かかる（`MAGAZINE` の注記）
+    expect(MAGAZINE / ROUNDS_PER_SECOND).toBeCloseTo(18, 6)
   })
 
   it('曳光弾は 5 発に 1 発', () => {

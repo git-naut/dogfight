@@ -692,7 +692,15 @@ export function createHud(host: HTMLElement): Hud {
     )
   }
 
-  /** 残弾。機銃の帯として下部に置く */
+  /**
+   * 残弾。機銃の帯として下部に置く。
+   *
+   * **数字は帯の下に置く。**当初は帯の上（`height * 0.9`）に置いていたが、
+   * そこはピッチラダーの破線が通る高さで、`GUN 578` の 3 桁なら破線の隙間に
+   * 収まっていた。`MAGAZINE` を 1,800 発へ増やして 4 桁になった瞬間、
+   * 文字が左右へ 1 文字ぶん伸びて破線と角括弧に接触した（実測で差分
+   * 52 x 8 画素）。**桁数が増えると壊れる置き方だった。**
+   */
   function drawArmament(armament: HudArmament): void {
     ctx!.font = SMALL_FONT
     ctx!.textAlign = 'center'
@@ -700,7 +708,6 @@ export function createHud(host: HTMLElement): Hud {
     ctx!.fillStyle = armament.rounds > 0 ? DIM : WARN
     const x = width * 0.5
     const y = height * 0.9
-    ctx!.fillText(`GUN ${armament.rounds}`, x, y)
 
     // 残りを帯で見せる。数字より先に減りが目に入る
     const barWidth = 120
@@ -712,6 +719,10 @@ export function createHud(host: HTMLElement): Hud {
       ctx!.fillStyle = armament.rounds > 0 ? PRIMARY : WARN
       ctx!.fillRect(x - barWidth / 2, y + 6, filled, 5)
     }
+
+    // 帯の下。ピッチラダーの破線を避ける
+    ctx!.fillStyle = armament.rounds > 0 ? DIM : WARN
+    ctx!.fillText(`GUN ${armament.rounds}`, x, y + 24)
   }
 
   /**

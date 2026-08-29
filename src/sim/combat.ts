@@ -25,8 +25,15 @@ import { createDlz, solveDlz, type Dlz } from './weapons/dlz'
  *
  * F/A-18C のモデルには Sidewinder が 6 発付いている。同時に飛ばせる数と
  * 搭載数は別だが、Phase 5 では区別しないでプールも同じ数にする。
+ *
+ * **Phase 7 で 8 発へ増やした。ゲームの値で、モデルの見た目とは合わない。**
+ * ミッション 01 は敵 5 機。実測で 1 対 1 でも 2 発使っている（`docs/weapons.md`、
+ * 「15 秒に敵のミサイル 2 発が尽き」）ので、2 機をミサイルで落とすなら 4 発。
+ * 外れを見込んで 8 発に置く。
+ *
+ * **推定で、実測ではない**（`MAGAZINE` と同じ理由。段 14 で直す）。
  */
-export const MISSILE_COUNT = 6
+export const MISSILE_COUNT = 8
 
 /**
  * 発射の間隔 秒。

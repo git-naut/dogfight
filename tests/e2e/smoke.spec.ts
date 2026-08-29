@@ -925,8 +925,11 @@ test.describe('機銃', () => {
   })
 
   test('残弾が減る', async ({ page }) => {
+    // 1 秒（120 フレーム）撃って 100 発減る。**携行弾は 1,800 発**
+    // （`MAGAZINE`。公表値 578 発から Phase 7 で増やした）。この写しは
+    // sim を import しないので、値を変えたらここも直す
     const hook = await capture(page, { script: 'gun-pass', frame: 120 })
-    expect(hook.rounds).toBe(578 - 100)
+    expect(hook.rounds).toBe(1800 - 100)
   })
 
   test('曳光弾は 5 発に 1 発', async ({ page }) => {
@@ -1066,7 +1069,8 @@ test.describe('ミサイル', () => {
     const after = await capture(page, { script: 'missile-shot', frame: 150 })
     expect(after.missilesFired).toBe(1)
     expect(after.missilesInFlight).toBe(1)
-    expect(after.missilesLeft).toBe(5)
+    // **搭載は 8 発**（`MISSILE_COUNT`。Phase 7 で 6 発から増やした）
+    expect(after.missilesLeft).toBe(7)
   })
 
   test('sim と描画のミサイルの数が一致する', async ({ page }) => {

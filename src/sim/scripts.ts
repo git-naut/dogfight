@@ -594,6 +594,17 @@ export const SCRIPTS = {
     name: 'mission-01',
     seed: 20260828,
     spawn: { altitude: 3000, speed: 250 },
+    /**
+     * 制限時間 秒。**暫定値。実測ではない。**
+     *
+     * 1 対 1 の実測が 40.6 秒（後方 1,800 m から、ミサイル 2 発 + 機銃 60 発。
+     * `docs/weapons.md`）。5 機なら単純な外挿で 203 秒だが、次の相手を探して
+     * 詰める時間が要る。**探す時間は測れていない。**倍を見て 300 秒に置く。
+     *
+     * 測定用の自動操縦が勝てないので実測できない（`tests/sim/mission.test.ts`）。
+     * **実機で人が遊んで直す**（Phase 7 の段 14）。
+     */
+    missionSeconds: 300,
     enemies: [
       // 正面のやや上。最初に見つける相手。ミサイルを持つ
       { offset: new Vec3(0, 200, -2400), speed: 250, heading: Math.PI },

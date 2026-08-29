@@ -6,6 +6,7 @@ import { makeInput, type InputState } from '@sim/input'
 import { trimCondition } from '@sim/flightModel'
 import { airDensity } from '@sim/isa'
 import { getScript } from '@sim/scripts'
+import { createWorldFromScript } from '@sim/world'
 
 /**
  * ミッション 01（敵 5 機）の下地。
@@ -125,6 +126,38 @@ describe('ミッション 01 の下地', () => {
     // それを基準に確保されている。台本がそれを超えると描画側が足りない
     const script = getScript('mission-01')
     expect(script.enemies).toHaveLength(5)
+  })
+
+  it('台本の制限時間が World へ届く', () => {
+    // **秒からフレームへ直る経路を見る。**`missionSeconds` は人が読む秒で
+    // 書き、判定側はフレームで持つ（浮動小数の境界が揺れるため）
+    const script = getScript('mission-01')
+    expect(script.missionSeconds).toBe(300)
+
+    const { world } = createWorldFromScript(script)
+    expect(world.mission).not.toBeNull()
+    expect(world.mission!.spec.limitFrames).toBe(Math.round(300 / FIXED_DT))
+    expect(world.mission!.outcome).toBe('running')
+  })
+
+  it('**基準画像の台本にはミッションを付けない。**制限時間で絵が変わる', () => {
+    // 台本が制限時間で打ち切られると、長いフレームを撮る基準画像が壊れる
+    for (const name of ['level', 'gun-pass', 'enemy-eight', 'island-run']) {
+      const { world } = createWorldFromScript(getScript(name))
+      expect(world.mission, name).toBeNull()
+    }
+  })
+
+  it('ミッションは World を進めると判定される', () => {
+    // 配線の検査。`step()` の末尾で `update` が呼ばれていなければ
+    // いつまでも running のまま
+    const script = getScript('mission-01')
+    const { world, player } = createWorldFromScript(script)
+    const limit = world.mission!.spec.limitFrames
+    for (let i = 0; i < limit + 10; i++) world.step(player.at(i))
+    // 300 秒のあいだに決着しているはず（時間切れか、その前の失敗か）
+    expect(world.mission!.outcome).not.toBe('running')
+    expect(world.mission!.endedFrame).toBeGreaterThan(0)
   })
 
   it('ミサイルを持つのは 2 機だけ', () => {

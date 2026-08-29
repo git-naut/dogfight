@@ -320,6 +320,15 @@ export interface TestHook {
   missileTimeToImpact: number
   /** 残りのフレア */
   flaresLeft: number
+  /**
+   * ミッションの決着。台本にミッションがなければ 'none'。
+   *
+   * `MissionOutcome` の写しではなく 'none' を足した別物。**sim を import
+   * しない**という `capture.ts` の作法に合わせる
+   */
+  missionOutcome: string
+  /** 残り時間 フレーム。ミッションがなければ 0 */
+  missionRemaining: number
   /** 燃えているフレアの数 */
   flaresBurning: number
   /** 自機が受けた弾の数 */

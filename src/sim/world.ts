@@ -12,6 +12,7 @@ import type { DamageSmokeSource } from './damage'
 import { Combat } from './combat'
 import type { InputState } from './input'
 import { defaultTerrain, type Terrain } from './terrain'
+import { Mission, type MissionSpec } from './mission'
 
 export type { InputState } from './input'
 export { neutralInput, makeInput } from './input'
@@ -40,6 +41,13 @@ export interface WorldOptions {
    * こちらは `Aircraft` を持つので失速も墜落もする。空戦の台本はこちら。
    */
   enemies?: EnemySpec[]
+  /**
+   * ミッション。渡さなければ勝敗を判定しない。
+   *
+   * **自由飛行と台本の再生では要らない。**基準画像を撮る台本が制限時間で
+   * 打ち切られると困るので、既定は「ミッションなし」にしてある。
+   */
+  mission?: MissionSpec
   /**
    * 地形。省略すると共有の既定地形を使う。
    *
@@ -102,6 +110,13 @@ export class World {
   readonly countermeasures = new Countermeasures()
   /** 地形。描画側も同じものを読んで、当たる山と見える山を一致させる */
   readonly terrain: Terrain
+  /**
+   * ミッション。勝敗を判定する。台本に指定がなければ null。
+   *
+   * **`Combat` には混ぜない。**あちらは発射管制と当たり判定で手一杯で、
+   * 勝敗はさらに別の関心（`mission.ts`）
+   */
+  readonly mission: Mission | null
 
   private readonly stepOptions: StepOptions
   private _frame = 0
@@ -110,6 +125,7 @@ export class World {
     this.seed = options.seed
     this.rng = new Rng(options.seed)
     this.terrain = options.terrain ?? defaultTerrain()
+    this.mission = options.mission ? new Mission(options.mission) : null
     // 地形は毎ステップ Aircraft が引くので stepOptions に混ぜて渡す
     this.stepOptions = { ...(options.step ?? {}), terrain: this.terrain }
 
@@ -177,6 +193,15 @@ export class World {
     for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)
     this.combat.step(input, this.player, FIXED_DT, this._frame)
     this._frame++
+
+    // **フレームを進めたあとに判定する。**制限時間は `frame >= limitFrames`
+    // で見るので、進める前だと 1 フレーム早く切れる
+    this.mission?.update({
+      frame: this._frame,
+      enemiesAlive: this.enemiesAlive,
+      playerLosses: this.combat.losses,
+      playerCrashed: this.player.crashed,
+    })
   }
 
   /** 描画用に補間した自機の状態を書き込む。 */
@@ -240,6 +265,10 @@ export function createWorldFromScript(script: ReplayScript): {
     },
     ...(script.targets ? { targets: script.targets } : {}),
     ...(script.enemies ? { enemies: script.enemies } : {}),
+    // 秒からフレームへ直す。判定側は整数で比べる（`mission.ts`）
+    ...(script.missionSeconds !== undefined
+      ? { mission: { limitFrames: Math.round(script.missionSeconds / FIXED_DT) } }
+      : {}),
   })
   return { world, player: new ReplayPlayer(script) }
 }

@@ -53,6 +53,16 @@ export interface ReplayScript {
    * 測る台本が使い続ける。敵機は `Aircraft` を持ち、失速も墜落もする。
    */
   enemies?: EnemySpec[]
+  /**
+   * ミッションの制限時間 秒。省略すると勝敗を判定しない。
+   *
+   * **秒で書いてフレームへ直す。**台本は人が読むものなので秒のほうが読める。
+   * 判定側はフレームで持つ（`mission.ts` の `limitFrames`。浮動小数の境界が
+   * 揺れるため）。
+   *
+   * 基準画像を撮る台本には書かない。**制限時間で打ち切られると絵が変わる。**
+   */
+  missionSeconds?: number
   keyframes: ReplayKeyframe[]
 }
 

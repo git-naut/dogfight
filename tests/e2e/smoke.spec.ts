@@ -66,6 +66,8 @@ interface TestHook {
   missileBearing: number
   missileTimeToImpact: number
   flaresLeft: number
+  missionOutcome: string
+  missionRemaining: number
   flaresBurning: number
   playerTaken: number
   playerIntegrity: number
@@ -1277,6 +1279,33 @@ test.describe('デバッグ表示', () => {
  * 手段がないと「まっすぐ飛んでいて突然落ちる」になるので、警告とフレアは
  * 一組で意味を持つ。
  */
+test.describe('ミッション', () => {
+  test('始まった直後は進行中で、残り時間が満タン', async ({ page }) => {
+    const hook = await capture(page, { script: 'mission-01', frame: 60 })
+    expect(hook.missionOutcome).toBe('running')
+    // 制限時間 300 秒 = 36,000 フレーム。1 秒ぶん進んでいる
+    expect(hook.missionRemaining).toBe(36000 - 60)
+  })
+
+  test('ミッションのない台本では判定しない', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240 })
+    expect(hook.missionOutcome).toBe('none')
+    expect(hook.missionRemaining).toBe(0)
+  })
+
+  /**
+   * **300 秒ぶん回しても 6.1 秒で撮れる。**sim のステップは軽く、キャプチャの
+   * 所要は描画の初期化が支配する（f600 が 5.9 秒、f36000 が 6.1 秒。実測）。
+   * ミッション全体を E2E で回せる。
+   */
+  test('制限時間まで回すと決着している', async ({ page }) => {
+    const hook = await capture(page, { script: 'mission-01', frame: 36000 })
+    expect(hook.missionOutcome).not.toBe('running')
+    expect(hook.missionOutcome).not.toBe('none')
+    expect(hook.missionRemaining).toBeGreaterThanOrEqual(0)
+  })
+})
+
 test.describe('ミサイル警告とフレア', () => {
   test('撃たれると警告が出る', async ({ page }) => {
     const hook = await capture(page, { script: 'enemy-missile', frame: 360 })

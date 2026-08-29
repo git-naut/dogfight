@@ -108,6 +108,8 @@ const hook = installTestHook({
   missileBearing: 0,
   missileTimeToImpact: 0,
   flaresLeft: 0,
+  missionOutcome: 'none',
+  missionRemaining: 0,
   flaresBurning: 0,
   playerTaken: 0,
   playerIntegrity: 0,
@@ -407,6 +409,9 @@ async function main(): Promise<void> {
     hook.missileBearing = currentWorld.combat.threat.bearing
     hook.missileTimeToImpact = currentWorld.combat.threat.timeToImpact
     hook.flaresLeft = currentWorld.countermeasures.left
+    const mission = currentWorld.mission
+    hook.missionOutcome = mission ? mission.outcome : 'none'
+    hook.missionRemaining = mission ? mission.remainingFrames(currentWorld.frame) : 0
     // **敵のぶんも数える。**自機のフレアは追従カメラに映らないので、
     // 絵の見張りは前方の敵が撒くぶん。自機だけ数えると 0 になる
     hook.flaresBurning =

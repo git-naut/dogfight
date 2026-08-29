@@ -574,6 +574,38 @@ export const SCRIPTS = {
     ],
     keyframes: [],
   },
+
+  /**
+   * ミッション 01。敵 5 機。
+   *
+   * **`enemy-eight` とは目的が違う。**あちらは性能の計測用で、全機を画面に
+   * 入れるため前方 400〜1,100 m に横へ広げてある。**その構図では成立しない。**
+   * 実測で、開始 15 秒に 4 発のミサイルが同時に飛来し、フレア 1 連射 3 発では
+   * 捌けずに 27.9 秒で落ちた（`tests/sim/mission.test.ts`）。
+   *
+   * ここでは 2 つ変えた。**距離を取る**（2,000〜3,500 m）。ミサイルの警告から
+   * 反応するまでの間ができる。**ミサイルを持つのは 2 機だけ**にする。残り
+   * 3 機は機銃だけで、圧力は残しつつ同時に飛んでくる数を抑える。
+   *
+   * 5 機は器の上限（`MAX_TARGETS` = 8）の内側。弾薬の見積もりもこの数を前提に
+   * している（`MAGAZINE` と `MISSILE_COUNT` の注記）。
+   */
+  'mission-01': {
+    name: 'mission-01',
+    seed: 20260828,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [
+      // 正面のやや上。最初に見つける相手。ミサイルを持つ
+      { offset: new Vec3(0, 200, -2400), speed: 250, heading: Math.PI },
+      // 左右に開いた 2 機。機銃だけ
+      { offset: new Vec3(-1200, -100, -2800), speed: 250, missiles: 0 },
+      { offset: new Vec3(1200, 100, -2800), speed: 250, missiles: 0 },
+      // 遅れて絡んでくる 2 機。奥のほうがミサイルを持つ
+      { offset: new Vec3(-600, 300, -3500), speed: 250, heading: Math.PI },
+      { offset: new Vec3(700, -200, -3200), speed: 250, missiles: 0 },
+    ],
+    keyframes: [],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

@@ -158,6 +158,8 @@ const hook = installTestHook({
   hour: capture.hour,
   volume: 0,
   audioReady: false,
+  programs: 0,
+  compileMs: 0,
   audioProbe: null,
   speed: 0,
   altitude: 0,
@@ -905,6 +907,7 @@ async function main(): Promise<void> {
     }
 
     publish(world, world.frame)
+    hook.programs = view.renderer.info.programs?.length ?? 0
 
     // **音は `publish` の後。**あちらが `hook` と HUD へ状態を配るので、
     // 同じフレームの値を見ることになる
@@ -980,6 +983,36 @@ async function main(): Promise<void> {
   )
   view.render()
   drawHud(world)
+
+  /**
+   * シェーダを先に全部作る。
+   *
+   * **1 枚描いただけでは足りない。**three はオブジェクトを最初に描くときに
+   * コンパイルするので、そのとき画面に出ていないもの（爆発・フレア・
+   * 曳光弾・ミサイル・煙）は初登場のフレームでまとめて走る。実測で、
+   * 初弾を撃った瞬間に 13 個が作られ、そのフレームが 772.9 ms かかった
+   * （SwiftShader、`?script=mission-01`）。
+   *
+   * 読み込み表示を出している間に済ませて、遊び始めてからの予算を空ける。
+   * **失敗しても進む。**コンパイルは遅れて起きるだけで、遊べなくはならない
+   */
+  setBoot('シェーダを準備中')
+  const compileStarted = performance.now()
+  try {
+    // **4 段ぶん作る。**品質を落とすと影のマップ解像度が変わり、全マテリアルの
+    // プログラムが作り直される。実測でその瞬間が 772.9 ms 止まった
+    await view.compileAllPresets(preset, (done, total) => {
+      // **4 段ぶんは時間がかかる。**実測で SwiftShader が 6.6 秒。
+      // 何も出さないと止まったように見える
+      setBoot(`シェーダを準備中 ${done}/${total}`)
+    })
+    applySize()
+  } catch (error) {
+    console.warn('[dogfight] シェーダの事前コンパイルに失敗した', error)
+  }
+  hook.compileMs = performance.now() - compileStarted
+  hook.programs = view.renderer.info.programs?.length ?? 0
+
   finishBoot()
   requestAnimationFrame(frame)
 }

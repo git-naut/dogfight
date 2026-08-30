@@ -363,6 +363,16 @@ export interface TestHook {
   /** 効果音が使える状態か。START を押すまで false */
   audioReady: boolean
   /**
+   * 生成済みのシェーダプログラム数（`renderer.info.programs`）。
+   *
+   * **フレーム中に増えたら、そこでコンパイルが走っている。**three は
+   * マテリアルを作った時点ではなく、それを持つオブジェクトを最初に
+   * 描くときにコンパイルする。爆発やフレアの初登場でカクつく原因になる
+   */
+  programs: number
+  /** 起動時のシェーダ事前コンパイルにかかったミリ秒 */
+  compileMs: number
+  /**
    * 音の自己診断の結果。`?audioprobe=1` のときだけ埋まる。
    *
    * 5 つの音それぞれの rms と peak。**sim を import しない**という

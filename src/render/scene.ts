@@ -39,7 +39,7 @@ import {
   type QualityOverride,
   type PresetName,
   type QualitySettings,
-} from './quality'
+  PRESET_ORDER,} from './quality'
 import { createGpuTimer, type GpuTimer } from './gpuTimer'
 import { createEnvironmentProbe, type EnvironmentProbe } from './environment'
 import { createAircraftTrails, type AircraftTrails } from './aircraft/trails'
@@ -246,6 +246,43 @@ export interface SceneHandle {
    * ここでは内側の計測を一切しない。
    */
   renderPlain(): void
+  /**
+   * シェーダを先に全部コンパイルする。
+   *
+   * **three は「マテリアルを作ったとき」ではなく「それを持つオブジェクトを
+   * 最初に描くとき」にコンパイルする。**爆発・フレア・曳光弾・ミサイルは
+   * 出るまで描かれないので、初登場のフレームでまとめて走る。
+   *
+   * 実測（SwiftShader、`?script=mission-01`）。起動直後は 25 プログラム。
+   * 初弾を撃った瞬間に 13 個が増え、そのフレームが 772.9 ms かかった。
+   * フレアの初投下で +2（192.4 ms）、爆発とミサイルの初回で +1（143.4 ms）。
+   *
+   * `renderer.compile` は `scene.traverse` で回るので、`visible = false` や
+   * インスタンス数 0 のものも拾う。`compileAsync` は
+   * `KHR_parallel_shader_compile` があればドライバに並列で投げる。
+   *
+   * 読み込み表示を出している間に呼ぶ。**遊び始めてからの予算を空ける。**
+   */
+  compileShaders(): Promise<void>
+  /**
+   * 4 段のプリセットぶんのシェーダを先に作る。
+   *
+   * **品質を落とすと全マテリアルのプログラムが作り直される。**プリセットで
+   * 影のマップ解像度が変わり、それが `getProgramCacheKey` に入るため
+   * （実測で `...,306,512,...` と `...,306,256,...` の 1 か所だけが違った）。
+   *
+   * `PerformanceGovernor` は 3 秒連続で 55 fps を割ると 1 段落とす。その
+   * 瞬間に機体のマテリアル 13 個がまとめてコンパイルされ、実測で 772.9 ms
+   * 止まった（SwiftShader）。**軽くするための降格が、その瞬間に最大の
+   * スパイクを作っていた。**`?nodegrade=1` にすると消えることを確かめた。
+   *
+   * 起動時に全段ぶん作っておけば、降格しても切り替えるだけで済む。
+   * 読み込み表示を出している間に済ませる。
+   */
+  compileAllPresets(
+    current: PresetName,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void>
   resize(width: number, height: number, devicePixelRatio: number): void
   setQuality(preset: PresetName): void
   /**
@@ -590,6 +627,43 @@ export async function createScene(
     camera.updateProjectionMatrix()
   }
 
+  /**
+   * 品質プリセットを当てる。
+   *
+   * ハンドルの外に置いてあるのは `compileAllPresets` が呼ぶため。
+   * メソッドどうしを `this` で呼ぶと、オブジェクトリテラルの推論が
+   * `SceneHandle | PromiseLike<SceneHandle>` になって型が付かない
+   */
+  /**
+   * 内側の計測を挟まずに 1 枚描く。
+   *
+   * ハンドルの外に置いてあるのは `compileAllPresets` が呼ぶため
+   */
+  function renderPlainImpl(): void {
+    renderer.info.reset()
+    updateShadowUniforms()
+    cloudsPass.setTimingEnabled(false)
+    // 雲を切っているときは影も焼かない。切った意味がなくなる
+    if (cloudsEnabled) cloudsPass.renderShadow(renderer)
+    composer.render()
+  }
+
+  function applyPreset(preset: PresetName): void {
+    quality = applyQualityOverride(getQuality(preset), qualityOverride)
+    composer.setQuality(quality)
+    cloudsPass.setQuality(quality)
+    terrainMesh.setQuality(quality)
+    water.setQuality(quality)
+    trails.setQuality(quality)
+    missileSmoke.setQuality(quality)
+    damageSmoke.setQuality(quality)
+    explosions.setQuality(quality)
+    environment.setQuality(quality)
+    scene.environment = environment.texture
+    aircraftShadow.setQuality(quality)
+    applySize()
+  }
+
   return {
     renderer,
     scene,
@@ -845,6 +919,31 @@ export async function createScene(
       water.setWaveTime(cloudTime(frame, FIXED_DT))
     },
 
+    async compileShaders() {
+      await renderer.compileAsync(scene, camera)
+    },
+
+    async compileAllPresets(current, onProgress) {
+      let done = 0
+      for (const name of PRESET_ORDER) {
+        onProgress?.(done, PRESET_ORDER.length)
+        applyPreset(name)
+        await renderer.compileAsync(scene, camera)
+        // **実際に 1 枚描く。**`compileAsync` だけでは足りない。影の状態が
+        // 変わったことによる作り直しは `WebGLRenderer.setProgram` の中で
+        // 判定されるので、描かないと起きない。実測で、medium を当てて
+        // `compileAsync` を呼んでも medium 用の機体プログラムは 1 つも
+        // 作られなかった（起動後の分布が `306,512` の 10 個だけだった）
+        renderPlainImpl()
+        done++
+      }
+      onProgress?.(done, PRESET_ORDER.length)
+      // **最後に戻す。**呼ぶ前の見た目に影響を残さない
+      applyPreset(current)
+      await renderer.compileAsync(scene, camera)
+      renderPlainImpl()
+    },
+
     render() {
       renderer.info.reset()
       // 影のテクスチャは three が最初の描画で作る。sync() で入れると
@@ -864,14 +963,7 @@ export async function createScene(
       if (!measureClouds) gpuTimer.end()
     },
 
-    renderPlain() {
-      renderer.info.reset()
-      updateShadowUniforms()
-      cloudsPass.setTimingEnabled(false)
-      // 雲を切っているときは影も焼かない。切った意味がなくなる
-      if (cloudsEnabled) cloudsPass.renderShadow(renderer)
-      composer.render()
-    },
+    renderPlain: renderPlainImpl,
 
     resize(width, height, devicePixelRatio) {
       cssWidth = width
@@ -953,21 +1045,7 @@ export async function createScene(
       }
     },
 
-    setQuality(preset) {
-      quality = applyQualityOverride(getQuality(preset), qualityOverride)
-      composer.setQuality(quality)
-      cloudsPass.setQuality(quality)
-      terrainMesh.setQuality(quality)
-      water.setQuality(quality)
-      trails.setQuality(quality)
-      missileSmoke.setQuality(quality)
-      damageSmoke.setQuality(quality)
-      explosions.setQuality(quality)
-      environment.setQuality(quality)
-      scene.environment = environment.texture
-      aircraftShadow.setQuality(quality)
-      applySize()
-    },
+    setQuality: applyPreset,
 
     setHour(hour) {
       atmosphere.setHour(hour)

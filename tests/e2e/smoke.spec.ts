@@ -69,6 +69,8 @@ interface TestHook {
   controlMode: string
   volume: number
   audioReady: boolean
+  programs: number
+  compileMs: number
   audioProbe: Record<string, { rms: number; peak: number }> | null
   missionOutcome: string
   missionRemaining: number
@@ -1995,5 +1997,72 @@ test.describe('効果音', () => {
     const hook = await readHook(page)
     expect(hook!.roundsFired, '撃てていない').toBeGreaterThan(0)
     expect(errors, '例外が出ている').toEqual([])
+  })
+})
+
+/**
+ * シェーダの事前コンパイル。
+ *
+ * **three はマテリアルを作ったときではなく、それを持つオブジェクトを最初に
+ * 描くときにコンパイルする。**しかも品質プリセットを落とすと影のマップ
+ * 解像度が変わり、全マテリアルのプログラムが作り直される。
+ *
+ * 実測（SwiftShader、`?script=mission-01`）。`PerformanceGovernor` が
+ * high から medium へ落とした瞬間に 13 個がまとめて作られ、そのフレームが
+ * 772.9 ms 止まった。**軽くするための降格が、その瞬間に最大のスパイクを
+ * 作っていた。**起動時に 4 段ぶん作っておくと 344.9 ms まで下がる。
+ */
+test.describe('シェーダの事前コンパイル', () => {
+  test('起動を終えた時点で 4 段ぶん作ってある', async ({ page }) => {
+    await page.goto('/dogfight/?script=mission-01&title=0')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 300_000 },
+    )
+    const hook = await readHook(page)
+    // 実測で 119 個。1 段ぶんだけなら 43 個だった
+    expect(hook!.programs, '事前コンパイルが効いていない').toBeGreaterThan(90)
+    expect(hook!.compileMs, 'コンパイルの時間が記録されていない').toBeGreaterThan(0)
+  })
+
+  /**
+   * **降格してもほとんど増えない。**増えるならその場でコンパイルが
+   * 走っている
+   */
+  test('品質が落ちても作り直しがほぼ起きない', async ({ page }) => {
+    await page.goto('/dogfight/?script=mission-01&title=0')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 300_000 },
+    )
+    const before = (await readHook(page))!.programs
+
+    // SwiftShader は遅いので自動降格が起きる。起きなければこの検査は素通り
+    const degraded = await page
+      .waitForFunction(
+        () =>
+          (window as unknown as { __dogfight?: TestHook }).__dogfight?.preset !== 'high',
+        undefined,
+        { timeout: 60_000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+
+    if (!degraded) {
+      test.skip(true, '降格が起きなかった（速い環境）')
+      return
+    }
+    await page.waitForTimeout(1500)
+    const after = (await readHook(page))!.programs
+    // 事前コンパイルが無いと 13 個増えていた。残るのは環境マップ関連の数個
+    expect(after - before, '降格でプログラムが大量に作られている').toBeLessThan(8)
+  })
+
+  /** キャプチャモードは早期 return より前なので通らない */
+  test('キャプチャモードでは走らない', async ({ page }) => {
+    const hook = await capture(page, { frame: 60 })
+    expect(hook.compileMs, 'キャプチャで事前コンパイルが走っている').toBe(0)
   })
 })

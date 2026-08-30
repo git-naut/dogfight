@@ -1,4 +1,5 @@
 import type { AircraftSample } from '../sim/aircraft'
+import { controlHelpLine } from '../input/keyboard'
 import { AIRCRAFT } from '../sim/flightModel'
 
 /**
@@ -130,8 +131,8 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
 
   const help = document.createElement('div')
   help.className = 'debug-help'
-  help.textContent =
-    'S/W ピッチ · A/D ロール · Q/E ヨー · Shift/Ctrl スロットル · 右ドラッグ 視点 · R リセット'
+  // **キー割り当ての正本は `keyboard.ts`。**ここに書き写すと片方だけ古くなる
+  help.textContent = controlHelpLine()
   root.append(help)
 
   host.append(root)

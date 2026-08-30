@@ -21,6 +21,11 @@
       中身は JS が生やす
     -->
     <div id="result" class="is-hidden" role="dialog" aria-modal="true" aria-labelledby="result-title" hidden></div>
+    <!--
+      タイトル。**開始まで出す。**`#hud` の中には入れない（あちらは
+      pointer-events: none）。中身は JS が生やす
+    -->
+    <div id="title" class="is-hidden" role="dialog" aria-modal="true" aria-labelledby="title-heading" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

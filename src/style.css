@@ -183,3 +183,74 @@ body {
   margin: 1rem 0 0;
   opacity: 0.6;
 }
+
+/**
+ * タイトル。開始まで出す。
+ *
+ * `#result` と同じ作法。`#hud` の兄弟として置く（あちらは
+ * `pointer-events: none` で操作できない）。
+ */
+#title {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 16, 26, 0.88);
+  color: rgba(126, 255, 170, 0.92);
+  font: 14px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+
+#title.is-hidden {
+  display: none;
+}
+
+.title-panel {
+  min-width: 24rem;
+  padding: 2rem 2.5rem;
+  border: 1px solid currentColor;
+  background: rgba(5, 16, 26, 0.92);
+  text-align: left;
+}
+
+.title-heading {
+  margin: 0 0 0.2rem;
+  font-size: 1.6rem;
+  letter-spacing: 0.2em;
+}
+
+.title-subtitle {
+  margin: 0 0 1.5rem;
+  opacity: 0.7;
+}
+
+.title-controls {
+  margin: 0 0 1.5rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 1.5rem;
+  opacity: 0.85;
+}
+
+.title-controls dt {
+  opacity: 0.7;
+}
+
+.title-controls dd {
+  margin: 0;
+}
+
+.title-start {
+  padding: 0.6rem 1.4rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.title-start:hover,
+.title-start:focus-visible {
+  background: rgba(126, 255, 170, 0.14);
+}

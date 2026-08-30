@@ -23,6 +23,7 @@ import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
 import { createHud, createHudLock, type Hud, type HudArmament } from './hud/hud'
 import { createResultPanel, type ResultPanel } from './hud/resultPanel'
+import { createTitlePanel, type TitlePanel } from './hud/titlePanel'
 import { createMissileThreat } from './sim/weapons/warning'
 import { showBenchPanel } from './hud/benchPanel'
 import { runBenchSweep } from './render/bench'
@@ -602,6 +603,24 @@ async function main(): Promise<void> {
     : null
   /** 台本の敵の総数。自滅の内訳を出すのに要る */
   const enemyTotal = getScript(capture.script).enemies?.length ?? 0
+
+  /**
+   * タイトル。**ライブ専用**（キャプチャはここより前に return する）。
+   *
+   * `?title=0` で出さない。開発中に毎回押すのは邪魔なので逃げ道を作る
+   */
+  const titleRoot = document.querySelector<HTMLElement>('#title')
+  const showTitle = new URLSearchParams(window.location.search).get('title') !== '0'
+  const titlePanel: TitlePanel | null =
+    titleRoot && showTitle
+      ? createTitlePanel(titleRoot, {
+          onStart: () => {
+            titlePanel?.hide()
+            // 段 9 で音の初期化をここに繋ぐ
+          },
+        })
+      : null
+  titlePanel?.show()
 
   /**
    * 操作の型。**既定は `expert`**（`resolveControlMode`）。段 8 で設定画面

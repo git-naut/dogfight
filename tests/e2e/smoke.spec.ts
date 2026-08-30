@@ -189,7 +189,12 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
  * SwiftShader だと 5 秒では足りず、全件走らせたときだけ落ちた。
  */
 async function openLive(page: Page, query = ''): Promise<void> {
-  await page.goto(`/dogfight/${query}`)
+  // **タイトルは出さない。**`#title` は `inset: 0` で全面を覆うので、ライブの
+  // 検査対象（HUD、リザルト、デバッグ計器）がその下に隠れる。`toBeVisible()`
+  // は被覆を見ないので通ってしまい、検査が意味を失う。
+  // タイトル自体は「タイトル画面」の describe で検査する
+  const sep = query === '' ? '?' : '&'
+  await page.goto(`/dogfight/${query}${sep}title=0`)
   await page.waitForFunction(
     () => {
       const hook = (window as unknown as { __dogfight?: { frame: number } }).__dogfight
@@ -1623,4 +1628,66 @@ test.describe('スクリーンショット回帰', () => {
       await expect(page.locator('#viewport')).toHaveScreenshot(`${scene.name}.png`)
     })
   }
+})
+
+/**
+ * タイトル画面。
+ *
+ * **ライブ専用。**キャプチャモードは `main.ts` が早期 return するので作られ
+ * ない。基準画像 39 枚は 1 画素も動かない（`exact.mjs` で確認済み）。
+ */
+test.describe('タイトル画面', () => {
+  test('起動すると出て、START で消える', async ({ page }) => {
+    // openLive は title=0 を混ぜるので、ここは直接開く
+    await page.goto('/dogfight/?script=level')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+
+    const title = page.locator('#title')
+    await expect(title).toBeVisible()
+    await expect(title.locator('.title-heading')).toHaveText('DOGFIGHT')
+
+    await page.locator('.title-start').click()
+    await expect(title).toBeHidden()
+  })
+
+  /**
+   * 操作説明の抜けを押さえる。
+   *
+   * `debugPanel.ts` のハードコード文字列には**機銃・ミサイル・フレアが
+   * 無かった**。撃つ手段が説明に出ていない状態だったので、キー割り当ての
+   * 正本を `keyboard.ts` の `CONTROL_HELP` に一元化した
+   */
+  test('撃つ操作が説明に出ている', async ({ page }) => {
+    await page.goto('/dogfight/?script=level')
+    await page.waitForSelector('.title-controls')
+    const text = await page.locator('.title-controls').innerText()
+    for (const word of ['機銃', 'ミサイル', 'フレア', 'ピッチ', 'ロール', 'スロットル']) {
+      expect(text, `操作説明に「${word}」が無い`).toContain(word)
+    }
+  })
+
+  test('?title=0 では出ない', async ({ page }) => {
+    await openLive(page, '?script=level')
+    await expect(page.locator('#title')).toBeHidden()
+    expect(await page.locator('.title-panel').count()).toBe(0)
+  })
+
+  /** **`#hud` の中に入れない。**あちらは pointer-events: none で押せない */
+  test('#hud の兄弟に置く', async ({ page }) => {
+    await page.goto('/dogfight/?script=level')
+    await page.waitForSelector('.title-panel')
+    expect(await page.locator('#hud #title').count()).toBe(0)
+    expect(await page.locator('body > #title').count()).toBe(1)
+  })
+
+  /** キャプチャモードでは作らない。基準画像に写らせない */
+  test('キャプチャモードでは作られない', async ({ page }) => {
+    await capture(page, { frame: 60 })
+    expect(await page.locator('.title-panel').count()).toBe(0)
+    await expect(page.locator('#title')).toBeHidden()
+  })
 })

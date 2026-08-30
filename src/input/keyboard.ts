@@ -79,6 +79,58 @@ export class KeyboardInput {
   }
 }
 
+/** 操作の 1 行 */
+export interface ControlHelpEntry {
+  /** 画面に出す表記 */
+  readonly keys: string
+  /** 何が起きるか */
+  readonly action: string
+  /**
+   * 対応する `KeyboardEvent.code`。
+   *
+   * **表示には使わない。**`poll()` が見ているコードと説明がずれていないことを
+   * `tests/input/controlHelp.test.ts` が機械で突き合わせるために持つ。
+   * キーボードで操作しないもの（視点の右ドラッグ）は空にする。
+   */
+  readonly codes: readonly string[]
+}
+
+/**
+ * 操作の一覧。表示する側が使う。
+ *
+ * **キー割り当ての正本はこのファイル。**説明を別の場所に書くと、キーを
+ * 変えたときに片方だけ古くなる。実際に `debugPanel.ts` の文字列から
+ * `Space`（機銃）`KeyF`（ミサイル）`KeyC`（フレア）が抜けていた。
+ */
+export const CONTROL_HELP: readonly ControlHelpEntry[] = [
+  {
+    keys: 'S / W',
+    action: 'ピッチ',
+    codes: ['KeyS', 'KeyW', 'ArrowDown', 'ArrowUp'],
+  },
+  {
+    keys: 'A / D',
+    action: 'ロール',
+    codes: ['KeyD', 'KeyA', 'ArrowRight', 'ArrowLeft'],
+  },
+  { keys: 'Q / E', action: 'ヨー', codes: ['KeyE', 'KeyQ'] },
+  {
+    keys: 'Shift / Ctrl',
+    action: 'スロットル',
+    codes: ['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight'],
+  },
+  { keys: 'Space', action: '機銃', codes: ['Space'] },
+  { keys: 'F', action: 'ミサイル', codes: ['KeyF'] },
+  { keys: 'C', action: 'フレア', codes: ['KeyC'] },
+  { keys: '右ドラッグ', action: '視点', codes: [] },
+  { keys: 'R', action: 'やり直す', codes: ['KeyR'] },
+]
+
+/** 1 行に並べた操作説明。デバッグパネルのような狭い場所で使う */
+export function controlHelpLine(): string {
+  return CONTROL_HELP.map((c) => `${c.keys} ${c.action}`).join(' · ')
+}
+
 const SCROLL_KEYS = new Set([
   'ArrowUp',
   'ArrowDown',

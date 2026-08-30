@@ -84,6 +84,16 @@ function classify(parts, asset) {
   const gearPattern = asset.gearPattern ?? DEFAULT_GEAR_PATTERN
   const hidden = new Set(asset.hidden ?? [])
   const notGear = new Set(asset.notGear ?? [])
+  /**
+   * 丸ごと落とすテクスチャ。
+   *
+   * **名前ではなくテクスチャで指定する。**空母の乗員は `Crew-1` から
+   * `Crew-69` まで 61 個あり、名前を書き並べると保守できない。落とす根拠は
+   * 「そのテクスチャを取り込まない」ことなので、そのまま書ける。
+   *
+   * 1 つも当たらないパターンがあれば例外。打ち間違いを見逃さない
+   */
+  const dropTextures = asset.dropTextures ?? []
   const groups = new Map()
   const put = (key, part) => {
     const list = groups.get(key)
@@ -91,7 +101,13 @@ function classify(parts, asset) {
     else list.push(part)
   }
 
+  const dropped = new Map(dropTextures.map((re) => [re, 0]))
   for (const part of parts) {
+    const drop = dropTextures.find((re) => part.texture !== null && re.test(part.texture))
+    if (drop !== undefined) {
+      dropped.set(drop, dropped.get(drop) + 1)
+      continue
+    }
     const hinge = hingeOf.get(part.name)
     if (hinge !== undefined) put(hinge, part)
     else if (extra.includes(part.name)) put(part.name, part)
@@ -107,6 +123,10 @@ function classify(parts, asset) {
   // ノード単位で見るだけでは足りない。F-16 のラダーは 6 つのオブジェクトに
   // 割れていて、そのうち 1 つの名前が原本に無かった（XML には書いてある）。
   // 5 つ当たれば通ってしまう
+  for (const [re, count] of dropped) {
+    if (count === 0) throw new Error(`dropTextures の ${re} に当たるパーツが無い`)
+  }
+
   const present = new Set(parts.map((p) => p.name))
   for (const hinge of asset.hinges) {
     for (const object of hinge.objects) {
@@ -174,11 +194,18 @@ function buildPrimitives(parts, origin) {
   for (const part of parts) {
     const worldVerts = part.vertices.map(toWorld)
     const originWorld = origin
-    if (part.texrep[0] !== 1 || part.texrep[1] !== 1) {
-      throw new Error(
-        `${part.name} の texrep が ${part.texrep.join(' ')}。UV の繰り返しは未対応`,
-      )
-    }
+    /**
+     * テクスチャの繰り返しとずらし。
+     *
+     * **UV に焼き込む。**glTF のサンプラは既定で REPEAT なので、1 の外へ
+     * 出た UV はそのまま繰り返される。KHR_texture_transform のような
+     * 拡張を足すより、頂点の値を直すほうが読み手に追える。
+     *
+     * 空母は `texrep` を 15 箇所、`texoff` を 1 箇所で使う。機体はどちらも
+     * 使わない（値が 1,1 と 0,0 なので下の式は恒等になる）。
+     */
+    const [repU, repV] = part.texrep
+    const [offU, offV] = part.texoff
     const cosCrease = part.crease === null ? -Infinity : Math.cos(part.crease * DEG)
 
     // 滑らかな面の法線を頂点ごとにためる。平均は面を出すときに取る
@@ -222,8 +249,9 @@ function buildPrimitives(parts, origin) {
             bucket,
             [v[0] - originWorld[0], v[1] - originWorld[1], v[2] - originWorld[2]],
             n,
-            // AC3D の V は下が 0。glTF は上が 0 なので反転する
-            [ref[1], 1 - ref[2]],
+            // AC3D の V は下が 0。glTF は上が 0 なので反転する。
+            // 反転は繰り返しとずらしを掛けたあと
+            [ref[1] * repU + offU, 1 - (ref[2] * repV + offV)],
           )
         }
       }
@@ -544,8 +572,22 @@ function convert(asset) {
   )
   console.log(`  出力 ${gltf.meshes.length} メッシュ / ${triangles} 三角形`)
   console.log(
-    `  境界（.ac 座標） X ${b.size[0].toFixed(3)} / Y ${b.size[1].toFixed(3)} / Z ${b.size[2].toFixed(3)}`,
+    `  境界（.ac 座標・原本の全体） X ${b.size[0].toFixed(3)} / Y ${b.size[1].toFixed(3)} / Z ${b.size[2].toFixed(3)}`,
   )
+  // **落とした部分を含まない境界も出す。**空母は航跡（`Wake`）が船の後ろへ
+  // 743.6 m 伸びていて、原本の全体では 872 m になる。取り込んだ結果の
+  // 大きさが分からないと、海面へ置くときの寸法が読めない
+  if ((asset.dropTextures ?? []).length > 0) {
+    const kept = parts.filter(
+      (part) =>
+        part.texture === null ||
+        !asset.dropTextures.some((re) => re.test(part.texture)),
+    )
+    const kb = bounds(kept)
+    console.log(
+      `  境界（.ac 座標・取り込むぶん） X ${kb.size[0].toFixed(3)} / Y ${kb.size[1].toFixed(3)} / Z ${kb.size[2].toFixed(3)}`,
+    )
+  }
   console.log(`  ノード: ${gltf.nodes.map((n) => n.name).join(', ')}`)
 }
 

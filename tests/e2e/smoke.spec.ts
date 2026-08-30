@@ -71,6 +71,7 @@ interface TestHook {
   audioReady: boolean
   programs: number
   compileMs: number
+  gearDown: boolean
   audioProbe: Record<string, { rms: number; peak: number }> | null
   missionOutcome: string
   missionRemaining: number
@@ -148,6 +149,13 @@ interface CaptureQuery {
   targets?: boolean
   /** 敵機を描くか。切ると差分で敵の寄与を測れる */
   enemies?: boolean
+  /**
+   * 自機を出すか。既定は出す。
+   *
+   * 追従カメラは自機の後方にあるので、被写体が自機より前にあると隠れる。
+   * 空母の甲板がそうだった
+   */
+  aircraft?: boolean
   /** ダメージの煙を描くか。切ると差分で寄与を測れる */
   damageSmoke?: boolean
   /** フレアを描くか。切ると差分で寄与を測れる */
@@ -172,6 +180,7 @@ async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> 
   params.set('coverage', String(query.coverage ?? 0))
   if (query.targets === false) params.set('targets', '0')
   if (query.enemies === false) params.set('enemies', '0')
+  if (query.aircraft === false) params.set('aircraft', '0')
   if (query.damageSmoke === false) params.set('dmgsmoke', '0')
   if (query.flares === false) params.set('flares', '0')
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
@@ -198,8 +207,12 @@ async function openLive(page: Page, query = ''): Promise<void> {
   // 検査対象（HUD、リザルト、デバッグ計器）がその下に隠れる。`toBeVisible()`
   // は被覆を見ないので通ってしまい、検査が意味を失う。
   // タイトル自体は「タイトル画面」の describe で検査する
+  // **シェーダの事前コンパイルも省く。**4 段ぶんは SwiftShader で 6.6 秒
+  // かかり、並列に走らせると起動待ちが 120 秒を超えて落ちた（実測。E2E
+  // 全体も 11.8 分から 17.2 分へ延びた）。事前コンパイル自体は専用の
+  // describe が見ている
   const sep = query === '' ? '?' : '&'
-  await page.goto(`/dogfight/${query}${sep}title=0`)
+  await page.goto(`/dogfight/${query}${sep}title=0&precompile=0`)
   await page.waitForFunction(
     () => {
       const hook = (window as unknown as { __dogfight?: { frame: number } }).__dogfight
@@ -323,7 +336,7 @@ test.describe('ライブループ', () => {
       const errors: string[] = []
       page.on('pageerror', (e) => errors.push(e.message))
 
-      await page.goto(`/dogfight/${query}`)
+      await page.goto(`/dogfight/${query}${query === '' ? '?' : '&'}precompile=0`)
       await page.waitForFunction(
         () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
         undefined,
@@ -1625,6 +1638,31 @@ test.describe('スクリーンショット回帰', () => {
       coverage: 0,
       hud: true,
     },
+    // 空母。**自機を消す。**追従カメラは自機の後方にあるので、出したまま
+    // だと船体の前半が機体で隠れて甲板の標識が読めない。差分が読めない
+    // 基準画像には意味がない
+    // 降着装置。**対地 30 m なので出ている**（`GEAR_DOWN_AGL` は 80 m）。
+    // 脚の有無が画素に出る。他の 40 枚はすべて高度 1,000 m 以上なので
+    // 出ていない
+    {
+      name: 'gear-down',
+      script: 'gear-down',
+      frame: 30,
+      hour: 16,
+      coverage: 0,
+      targets: false,
+      enemies: false,
+    },
+    {
+      name: 'carrier',
+      script: 'carrier-deck',
+      frame: 1,
+      hour: 16,
+      coverage: 0,
+      targets: false,
+      enemies: false,
+      aircraft: false,
+    },
   ] as const
 
   for (const scene of scenes) {
@@ -1644,7 +1682,7 @@ test.describe('スクリーンショット回帰', () => {
 test.describe('タイトル画面', () => {
   test('起動すると出て、START で消える', async ({ page }) => {
     // openLive は title=0 を混ぜるので、ここは直接開く
-    await page.goto('/dogfight/?script=level')
+    await page.goto('/dogfight/?script=level&precompile=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -1667,7 +1705,7 @@ test.describe('タイトル画面', () => {
    * 正本を `keyboard.ts` の `CONTROL_HELP` に一元化した
    */
   test('撃つ操作が説明に出ている', async ({ page }) => {
-    await page.goto('/dogfight/?script=level')
+    await page.goto('/dogfight/?script=level&precompile=0')
     await page.waitForSelector('.title-controls')
     const text = await page.locator('.title-controls').innerText()
     for (const word of ['機銃', 'ミサイル', 'フレア', 'ピッチ', 'ロール', 'スロットル']) {
@@ -1683,7 +1721,7 @@ test.describe('タイトル画面', () => {
 
   /** **`#hud` の中に入れない。**あちらは pointer-events: none で押せない */
   test('#hud の兄弟に置く', async ({ page }) => {
-    await page.goto('/dogfight/?script=level')
+    await page.goto('/dogfight/?script=level&precompile=0')
     await page.waitForSelector('.title-panel')
     expect(await page.locator('#hud #title').count()).toBe(0)
     expect(await page.locator('body > #title').count()).toBe(1)
@@ -1706,7 +1744,7 @@ test.describe('タイトル画面', () => {
 test.describe('設定画面', () => {
   /** タイトルから開く。開いた状態を作る */
   async function openSettings(page: Page, query = '?script=level'): Promise<void> {
-    await page.goto(`/dogfight/${query}`)
+    await page.goto(`/dogfight/${query}&precompile=0`)
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -1814,7 +1852,7 @@ test.describe('設定画面', () => {
     await page.locator('.settings-close').click()
 
     // 同じ context なので localStorage は共有される
-    await page.goto('/dogfight/?script=level')
+    await page.goto('/dogfight/?script=level&precompile=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -1831,7 +1869,7 @@ test.describe('設定画面', () => {
     await page.selectOption('#settings-preset', 'low')
     await page.locator('.settings-close').click()
 
-    await page.goto('/dogfight/?script=level&preset=ultra')
+    await page.goto('/dogfight/?script=level&preset=ultra&precompile=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -1863,12 +1901,12 @@ test.describe('設定画面', () => {
 
   /** 壊れた保存値で起動しなくなってはいけない */
   test('保存値が壊れていても起動する', async ({ page }) => {
-    await page.goto('/dogfight/?title=0&script=level')
+    await page.goto('/dogfight/?title=0&script=level&precompile=0')
     await page.evaluate(() => localStorage.setItem('dogfight.settings', '{壊れている'))
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
 
-    await page.goto('/dogfight/?title=0&script=level')
+    await page.goto('/dogfight/?title=0&script=level&precompile=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -1940,7 +1978,7 @@ test.describe('効果音', () => {
    * 経ずに作った `AudioContext` は `suspended` のまま音が出ない
    */
   test('START で音が使えるようになる', async ({ page }) => {
-    await page.goto('/dogfight/?script=level')
+    await page.goto('/dogfight/?script=level&precompile=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -1959,7 +1997,7 @@ test.describe('効果音', () => {
   })
 
   test('?sound=0 では作らない', async ({ page }) => {
-    await page.goto('/dogfight/?script=level&sound=0')
+    await page.goto('/dogfight/?script=level&sound=0&precompile=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -1981,7 +2019,7 @@ test.describe('効果音', () => {
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
 
-    await page.goto('/dogfight/?script=mission-01')
+    await page.goto('/dogfight/?script=mission-01&precompile=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -2064,5 +2102,54 @@ test.describe('シェーダの事前コンパイル', () => {
   test('キャプチャモードでは走らない', async ({ page }) => {
     const hook = await capture(page, { frame: 60 })
     expect(hook.compileMs, 'キャプチャで事前コンパイルが走っている').toBe(0)
+  })
+})
+
+/**
+ * 降着装置。
+ *
+ * **判定は sim が持つ**（`AircraftSample.gearDown`）。描画側に高度を見る
+ * 処理を置くと、キャプチャモードは `sync()` が 1 回しか走らないので出ない。
+ *
+ * 閾値は対地 80 m（`GEAR_DOWN_AGL`）。ゲームの値で、実機は速度で制限する。
+ * 甲板（海面から 20 m）にいるあいだ出ていて、射出後すぐ引き込まれる高さ。
+ */
+test.describe('降着装置', () => {
+  test('対地 30 m では出ている', async ({ page }) => {
+    const hook = await capture(page, { script: 'gear-down', frame: 30 })
+    expect(hook.agl, '対地高度が想定と違う').toBeLessThan(80)
+    expect(hook.gearDown, '低空で脚が出ていない').toBe(true)
+  })
+
+  test('空戦の高度では出ていない', async ({ page }) => {
+    const hook = await capture(page, { script: 'mission-01', frame: 120 })
+    expect(hook.agl, '高度が想定と違う').toBeGreaterThan(80)
+    expect(hook.gearDown, '高空で脚が出ている').toBe(false)
+  })
+
+  /**
+   * **絵に出ていることを三角形の数で確かめる。**`gearDown` が true でも、
+   * 描画側が `visible` を切り替えていなければ意味がない。
+   */
+  test('出ていると三角形が増える', async ({ page }) => {
+    const low = await capture(page, {
+      script: 'gear-down',
+      frame: 30,
+      targets: false,
+      enemies: false,
+    })
+    const high = await capture(page, {
+      script: 'gear-down-high',
+      frame: 30,
+      targets: false,
+      enemies: false,
+    })
+    expect(low.gearDown).toBe(true)
+    expect(high.gearDown).toBe(false)
+    // 同じ台本で高度だけ違う。差は脚のぶん
+    expect(
+      low.drawnTriangles - high.drawnTriangles,
+      '脚を出しても三角形が増えていない',
+    ).toBeGreaterThan(500)
   })
 })

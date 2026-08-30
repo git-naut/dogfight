@@ -1,5 +1,5 @@
 /**
- * 取り込む機体の定義。
+ * 取り込むモデルの定義。
  *
  * `ac3d-to-glb.mjs` は F/A-18C 専用にハードコードしてあった。Phase 6 で F-16 を
  * 足すので、機体ごとに違うところをここへ集める。**変換の手順は共通で、違うのは
@@ -140,6 +140,58 @@ export const AIRCRAFT_ASSETS = [
     ],
     copyright:
       'F-16 model from FlightGear FGAddon, GPLv2+. See assets/CREDITS.md',
+  },
+  {
+    id: 'nimitz',
+    source: 'assets/upstream/nimitz/nimitz.ac',
+    /**
+     * テクスチャは原本のまま使う。
+     *
+     * 機体は SGI の .rgb を WebP へ落としてあるが、空母は最初から PNG で
+     * 512² 以下、10 枚で 769 KB。**変換して得るものが無い。**Pillow を
+     * 経路に入れられない事情（`textureDir` の注記）も避けられる
+     */
+    textureDir: 'assets/upstream/nimitz',
+    textures: {
+      'catapult.png': 'catapult.png',
+      'deck-stripe.png': 'deck-stripe.png',
+      'holdback_marking.png': 'holdback_marking.png',
+      'hull_left.png': 'hull_left.png',
+      'hull_left1.png': 'hull_left1.png',
+      'hullright.png': 'hullright.png',
+      'hullright2.png': 'hullright2.png',
+      'island1.png': 'island1.png',
+      'island3.png': 'island3.png',
+      'island_68.png': 'island_68.png',
+    },
+    textureHint: 'assets/upstream/nimitz/ に原本が要る',
+    /** 舵面は無い */
+    hinges: [],
+    xmlToWorld,
+    /**
+     * 降着装置の既定パターンを切る。
+     *
+     * **空母には `Hangar-Door-1`〜4 と `Door-Fairing-1`〜4 がある。**
+     * 既定の `/Door|Gear|Wheel|Tire|Strut|Hook/i` に引っかかり、格納庫の
+     * 扉 8 枚が `gear` ノードへ入って隠れてしまう
+     */
+    gearPattern: /(?!)/,
+    /**
+     * 取り込まない部分。
+     *
+     * 乗員 61 個（`rainbow_*.rgb` と `crew_*.rgb`）、航跡（`wake.rgb`）、
+     * 軍艦旗（`flag.png`）。これで 2,806 三角形が 2,644 に、テクスチャが
+     * 31 種から 10 種に減る。
+     *
+     * **航跡は外さないと境界が 872 m になる。**船の後ろへ 743.6 m 伸びる
+     * 板で、当方の海面と二重になる。
+     *
+     * 乗員は絵として悪くないが、虹色のベスト 1 枚のために 12 種の
+     * テクスチャが要る。甲板の作業員は段 13 以降で必要になったら戻す
+     */
+    dropTextures: [/^rainbow_/, /^crew_/, /^wake\.rgb$/, /^flag\.png$/],
+    copyright:
+      'USS Nimitz (CVN-68) model by Vivian Meazza, FlightGear fgdata, GPLv2. See assets/CREDITS.md',
   },
 ]
 

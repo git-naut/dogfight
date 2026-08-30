@@ -5,6 +5,7 @@ import type { LookOffset } from '../input/mouseLook'
 import { createChaseCamera, type ChaseCamera } from './camera'
 import { createAircraftView, type AircraftView } from './aircraftView'
 import { loadAircraftModel, type AircraftModel } from './aircraft/model'
+import { loadCarrier, placeCarrier, type Carrier } from './carrier'
 import { createTargetViews, type TargetViews } from './targetView'
 import { createEnemyViews, type EnemyViews } from './enemyView'
 import { createDamageSmoke, type DamageSmokeView } from './damageSmoke'
@@ -353,6 +354,15 @@ export interface SceneOptions {
   aircraftUrl: string
   /** 敵機モデルの glb の URL */
   enemyUrl: string
+  /**
+   * 空母の glb の URL。省略すると出さない。
+   *
+   * **省略できるようにしてある。**基準画像 39 枚は空母の無い海を撮って
+   * あるので、既定で出すと全部差分が出る。台本が要求したときだけ置く
+   */
+  carrierUrl?: string
+  /** 空母を置く位置と艦首の向き。`carrierUrl` があるときだけ意味を持つ */
+  carrier?: { x: number; z: number; heading: number }
   /** プリセットの上書き。実機でつまみを振るときに使う */
   qualityOverride?: QualityOverride
   /** 雲バッファの持ち方の比較用。決着したら消す */
@@ -488,6 +498,20 @@ export async function createScene(
   const enemyViews: EnemyViews = createEnemyViews(enemyModel, MAX_TARGETS)
   enemyViews.object.visible = options.showEnemies ?? true
   scene.add(enemyViews.object)
+
+  /**
+   * 空母。**台本が要求したときだけ読む。**
+   *
+   * 実測で 2,644 三角形（シーン予算 1.5M の 0.18%）、glb 189 KB。
+   * 動かないので視錐台の判定は残す
+   */
+  const carrier: Carrier | null =
+    options.carrierUrl !== undefined ? await loadCarrier(options.carrierUrl) : null
+  if (carrier !== null) {
+    const at = options.carrier ?? { x: 0, z: 0, heading: 0 }
+    placeCarrier(carrier, at.x, at.z, at.heading)
+    scene.add(carrier.object)
+  }
 
   // 曳光弾。5 発に 1 発なので線分は 55 本ぶん確保すれば足りるが、
   // プールと同じ大きさにしておけば割合を変えても壊れない
@@ -815,6 +839,9 @@ export async function createScene(
       // 舵面は sim が持つ位置をそのまま渡す。描画側で入力を読むと
       // キャプチャモードで再現しない
       aircraft.setControls(sample.elevator, sample.aileron, sample.rudder)
+      // **判定は sim が持つ。**ここで高度を見て切り替えると、キャプチャ
+      // モード（`sync()` が 1 回だけ）で出ない
+      aircraft.setGearDown(sample.gearDown)
 
       // 太陽光と天空光の基準位置を機体に合わせる。高度によって透過率が変わる。
       // ライト本体の位置は update() が太陽方向から決めるので触らない

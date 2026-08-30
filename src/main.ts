@@ -73,6 +73,7 @@ const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
 // 機体は tools/ac3d-to-glb.mjs が public/aircraft/ へ置く
 const AIRCRAFT_URL = `${import.meta.env.BASE_URL}aircraft/f18.glb`
 const ENEMY_URL = `${import.meta.env.BASE_URL}aircraft/f16.glb`
+const CARRIER_URL = `${import.meta.env.BASE_URL}aircraft/nimitz.glb`
 
 const hook = installTestHook({
   frame: 0,
@@ -160,6 +161,7 @@ const hook = installTestHook({
   audioReady: false,
   programs: 0,
   compileMs: 0,
+  gearDown: false,
   audioProbe: null,
   speed: 0,
   altitude: 0,
@@ -303,6 +305,14 @@ async function main(): Promise<void> {
     texturesUrl: TEXTURES_URL,
     aircraftUrl: AIRCRAFT_URL,
     enemyUrl: ENEMY_URL,
+    // **台本が空母を要求したときだけ読む。**基準画像 39 枚は空母の無い
+    // 海を撮ってあるので、既定で置くと全件が差分を出す
+    ...(getScript(capture.script).carrier !== undefined
+      ? {
+          carrierUrl: CARRIER_URL,
+          carrier: getScript(capture.script).carrier!,
+        }
+      : {}),
     coverage: capture.coverage,
     qualityOverride: {
       ...(capture.cloudScale !== null ? { resolutionScale: capture.cloudScale } : {}),
@@ -456,6 +466,7 @@ async function main(): Promise<void> {
     hook.speed = sample.speed
     hook.altitude = sample.altitude
     hook.agl = sample.agl
+    hook.gearDown = sample.gearDown
     hook.groundHeight = sample.groundHeight
     hook.elevator = sample.elevator
     hook.aileron = sample.aileron
@@ -996,21 +1007,22 @@ async function main(): Promise<void> {
    * 読み込み表示を出している間に済ませて、遊び始めてからの予算を空ける。
    * **失敗しても進む。**コンパイルは遅れて起きるだけで、遊べなくはならない
    */
-  setBoot('シェーダを準備中')
-  const compileStarted = performance.now()
-  try {
-    // **4 段ぶん作る。**品質を落とすと影のマップ解像度が変わり、全マテリアルの
-    // プログラムが作り直される。実測でその瞬間が 772.9 ms 止まった
-    await view.compileAllPresets(preset, (done, total) => {
-      // **4 段ぶんは時間がかかる。**実測で SwiftShader が 6.6 秒。
-      // 何も出さないと止まったように見える
-      setBoot(`シェーダを準備中 ${done}/${total}`)
-    })
-    applySize()
-  } catch (error) {
-    console.warn('[dogfight] シェーダの事前コンパイルに失敗した', error)
+  if (capture.precompile) {
+    const compileStarted = performance.now()
+    try {
+      // **4 段ぶん作る。**品質を落とすと影のマップ解像度が変わり、全マテリアルの
+      // プログラムが作り直される。実測でその瞬間が 772.9 ms 止まった
+      await view.compileAllPresets(preset, (done, total) => {
+        // **4 段ぶんは時間がかかる。**実測で SwiftShader が 6.6 秒。
+        // 何も出さないと止まったように見える
+        setBoot(`シェーダを準備中 ${done}/${total}`)
+      })
+      applySize()
+    } catch (error) {
+      console.warn('[dogfight] シェーダの事前コンパイルに失敗した', error)
+    }
+    hook.compileMs = performance.now() - compileStarted
   }
-  hook.compileMs = performance.now() - compileStarted
   hook.programs = view.renderer.info.programs?.length ?? 0
 
   finishBoot()

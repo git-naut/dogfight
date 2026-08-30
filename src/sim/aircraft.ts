@@ -40,6 +40,21 @@ import { TrailRing, type TrailSource } from './trail'
  */
 export const AIRCRAFT_INTEGRITY = 60
 
+/**
+ * 降着装置を出す対地高度 m。
+ *
+ * **ゲームの値。**実機の F/A-18C は速度で制限する（降ろすのが 250 kt 以下、
+ * 出したまま飛べるのが 250 kt 以下）。高度では決めない。
+ *
+ * ここで高度にしたのは、操作を増やさずに「甲板にいるときは出ている」を
+ * 表すため。段 12 の射出は甲板（海面から 20 m）から始まり、そこから
+ * 上昇していく。80 m は射出の 2.4 秒で稼ぐ高度より上に取ってあるので、
+ * **飛び上がってすぐ引き込まれる。**
+ *
+ * 空戦の高度（`mission-01` は 3,000 m）では常に false。
+ */
+export const GEAR_DOWN_AGL = 80
+
 export interface AircraftInit {
   position?: Vec3
   velocity?: Vec3
@@ -179,6 +194,15 @@ export interface AircraftSample {
   elevator: number
   aileron: number
   rudder: number
+  /**
+   * 降着装置を出しているか。
+   *
+   * **判定は sim 側に置く。**描画側に状態を持たせるとキャプチャモードで
+   * 出ない（`sync()` が 1 回しか走らないので、そこで false のままになる）。
+   * `docs/aircraft.md` が「捨てずに分けておく理由は、地上の場面を作るとき
+   * 戻せるようにしておくため」と書いていた、その用途。
+   */
+  gearDown: boolean
 }
 
 // 毎ステップの一時変数。使い回してゴミを出さない。
@@ -482,6 +506,7 @@ export class Aircraft {
     out.elevator = this.elevator
     out.aileron = this.aileron
     out.rudder = this.rudder
+    out.gearDown = this.agl < GEAR_DOWN_AGL
     return out
   }
 
@@ -536,6 +561,7 @@ export function createAircraftSample(): AircraftSample {
     elevator: 0,
     aileron: 0,
     rudder: 0,
+    gearDown: false,
   }
 }
 

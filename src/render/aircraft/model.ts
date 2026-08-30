@@ -37,6 +37,8 @@ export interface AircraftHinge {
 
 export interface AircraftModel {
   readonly object: THREE.Object3D
+  /** 降着装置のノード。原本に無ければ null */
+  readonly gear: THREE.Object3D | null
   /** 舵面のノード。名前で引く */
   readonly surfaces: ReadonlyMap<string, THREE.Object3D>
   /** 変換ツールが埋めたヒンジの定義 */
@@ -57,6 +59,14 @@ export interface AircraftModel {
  * なっていた。どの部品をここへ入れるかは機体の定義が持つ。
  */
 const HIDDEN_NODES = ['gear', 'stowed']
+
+/**
+ * 降着装置のノード名。
+ *
+ * `HIDDEN_NODES` に入っているので既定では隠れている。地上にいるあいだ
+ * だけ出す（`AircraftSample.gearDown`）
+ */
+export const GEAR_NODE = 'gear'
 
 export async function loadAircraftModel(url: string): Promise<AircraftModel> {
   const loader = new GLTFLoader()
@@ -86,6 +96,7 @@ export async function loadAircraftModel(url: string): Promise<AircraftModel> {
 
   return {
     object,
+    gear: object.getObjectByName(GEAR_NODE) ?? null,
     surfaces,
     hinges,
     triangles,

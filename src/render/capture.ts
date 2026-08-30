@@ -120,6 +120,17 @@ export interface CaptureConfig {
    */
   audioProbe: boolean
   /**
+   * 起動時にシェーダを全プリセットぶん作るか。
+   *
+   * `?precompile=0` で省ける。**E2E で使う。**4 段ぶんのコンパイルは
+   * SwiftShader で 6.6 秒かかり、並列に走らせると起動待ちが 120 秒を
+   * 超えて落ちた（実測。E2E 全体も 11.8 分から 17.2 分へ延びた）。
+   *
+   * 事前コンパイル自体は専用のテストで見ているので、機能を見るテストで
+   * 毎回 4 段ぶん作る必要はない。
+   */
+  precompile: boolean
+  /**
    * 描画を繰り返して 1 回あたりの時間を測る回数。0 なら測らない。
    *
    * SwiftShader は CPU ラスタライザなので、時間はシェーダの実行量にほぼ
@@ -202,6 +213,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? params.get('sound') === '1'
       : params.get('capture') !== '1',
     audioProbe: params.get('audioprobe') === '1',
+    precompile: params.get('precompile') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
     sweepOnly: params.get('only') ?? '',
@@ -372,6 +384,13 @@ export interface TestHook {
   programs: number
   /** 起動時のシェーダ事前コンパイルにかかったミリ秒 */
   compileMs: number
+  /**
+   * 自機が降着装置を出しているか。
+   *
+   * **判定は sim が持つ**（`AircraftSample.gearDown`）。描画側に置くと
+   * キャプチャモードで出ない
+   */
+  gearDown: boolean
   /**
    * 音の自己診断の結果。`?audioprobe=1` のときだけ埋まる。
    *

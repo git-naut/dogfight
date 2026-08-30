@@ -32,12 +32,20 @@ export interface AircraftView {
   setThrottle(value: number): void
   /** 舵面の位置 −1..1。sim の AircraftSample の値をそのまま渡す */
   setControls(elevator: number, aileron: number, rudder: number): void
+  /**
+   * 降着装置を出すか。sim の `AircraftSample.gearDown` をそのまま渡す。
+   *
+   * **判定を描画側に持たない。**キャプチャモードは `sync()` が 1 回しか
+   * 走らないので、描画側で高度を見て切り替える形にすると出ない
+   */
+  setGearDown(down: boolean): void
   dispose(): void
 }
 
 export function createAircraftView(model: AircraftModel): AircraftView {
   const externalFlame = model.object.getObjectByName('ExternalFlame') ?? null
   if (externalFlame !== null) externalFlame.visible = false
+  const gear = model.gear
 
   const surfaces: ControlSurfaces = createControlSurfaces(model.surfaces, model.hinges)
 
@@ -48,6 +56,11 @@ export function createAircraftView(model: AircraftModel): AircraftView {
 
     setControls(elevator, aileron, rudder) {
       surfaces.update(elevator, aileron, rudder)
+    },
+
+    setGearDown(down) {
+      if (gear === null) return
+      gear.visible = down
     },
 
     setThrottle(value: number) {

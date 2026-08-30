@@ -25,6 +25,8 @@ import { createHud, createHudLock, type Hud, type HudArmament } from './hud/hud'
 import { createResultPanel, type ResultPanel } from './hud/resultPanel'
 import { createTitlePanel, type TitlePanel } from './hud/titlePanel'
 import { createSettingsPanel, type SettingsPanel } from './hud/settingsPanel'
+import { createGameAudio, type GameAudio } from './audio/audio'
+import { probeAudio } from './audio/probe'
 import {
   loadSettings,
   saveSettings,
@@ -155,6 +157,8 @@ const hook = installTestHook({
   preset: capture.preset,
   hour: capture.hour,
   volume: 0,
+  audioReady: false,
+  audioProbe: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -277,6 +281,18 @@ async function main(): Promise<void> {
   // 起点なので、シーンを作る前に合わせる
   hook.preset = initialSettings.preset
   hook.hour = initialSettings.hour
+
+  // **音の自己診断。**`?audioprobe=1` のときだけ。絵には影響しないので
+  // キャプチャの早期 return より前に置く。`OfflineAudioContext` なので
+  // 実時間を待たず、1.5 秒ぶんの合成がミリ秒で終わる
+  if (capture.audioProbe) {
+    void probeAudio().then((result) => {
+      hook.audioProbe = result as unknown as Record<
+        string,
+        { rms: number; peak: number }
+      >
+    })
+  }
 
   setBoot('大気の散乱テーブルを読み込み中')
   const view = await createScene(canvas!, {
@@ -662,7 +678,7 @@ async function main(): Promise<void> {
       ? createTitlePanel(titleRoot, {
           onStart: () => {
             titlePanel?.hide()
-            // 段 9 で音の初期化をここに繋ぐ
+            startAudio()
           },
           onSettings: () => openSettings(),
         })
@@ -693,6 +709,20 @@ async function main(): Promise<void> {
    * タイトルの文字が設定の下に透けて雑然として見えた
    */
   let titleWasShown = false
+
+  /**
+   * 効果音。**START を押すまで作らない。**
+   *
+   * ブラウザの autoplay 制限で、ユーザ操作を経ずに作った `AudioContext` は
+   * `suspended` のまま音が出ない。`?sound=0` とキャプチャモードでは作らない
+   */
+  let audio: GameAudio | null = null
+
+  const startAudio = (): void => {
+    if (audio !== null || !capture.sound) return
+    audio = createGameAudio(settings.volume)
+    hook.audioReady = audio !== null
+  }
 
   const openSettings = (): void => {
     titleWasShown = titlePanel?.visible ?? false
@@ -735,7 +765,7 @@ async function main(): Promise<void> {
             controlMode = next.controlMode
             hook.controlMode = controlMode
           }
-          // 音量は段 9 で `GainNode` に繋ぐ。いまは保存だけ
+          if (next.volume !== settings.volume) audio?.setVolume(next.volume)
           settings = next
           hook.volume = next.volume
           saveSettings(settingsStorage(), next)
@@ -875,6 +905,16 @@ async function main(): Promise<void> {
     }
 
     publish(world, world.frame)
+
+    // **音は `publish` の後。**あちらが `hook` と HUD へ状態を配るので、
+    // 同じフレームの値を見ることになる
+    audio?.update({
+      roundsFired: world.combat.roundsFired,
+      explosionCount: world.combat.explosionCount,
+      missilesFired: world.combat.missilesFired,
+      throttle: world.player.throttle,
+      threatened: world.combat.threat.active,
+    })
 
     // 決着したらリザルトを出す。**毎フレーム作り直さない。**出ていなければ
     // 1 回だけ。R でやり直すと `hide()` が呼ばれて畳まれる

@@ -68,6 +68,8 @@ interface TestHook {
   flaresLeft: number
   controlMode: string
   volume: number
+  audioReady: boolean
+  audioProbe: Record<string, { rms: number; peak: number }> | null
   missionOutcome: string
   missionRemaining: number
   flaresBurning: number
@@ -1872,5 +1874,126 @@ test.describe('設定画面', () => {
     )
     expect(errors, '例外が出ている').toEqual([])
     expect((await readHook(page))?.preset, '既定へ倒れていない').toBe('high')
+  })
+})
+
+/**
+ * 効果音。
+ *
+ * **音は目で見えない。**ノードが繋がっただけで振幅が 0 という状態は、
+ * 画面にも基準画像にも出ない。`?audioprobe=1` で `OfflineAudioContext` に
+ * 書き出し、実際の波形を測る（`src/audio/probe.ts`）。
+ */
+test.describe('効果音', () => {
+  test('すべての音が実際に鳴っている', async ({ page }) => {
+    await page.goto('/dogfight/?capture=1&frame=60&audioprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const handle = await page.waitForFunction(
+      () =>
+        (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
+      undefined,
+      { timeout: 60_000 },
+    )
+    const probe = (await handle.jsonValue()) as Record<
+      string,
+      { rms: number; peak: number }
+    >
+
+    for (const name of ['explosion', 'launch', 'warning', 'gun', 'engine']) {
+      const r = probe[name]
+      expect(r, `${name} が測れていない`).toBeDefined()
+      // 実測の最小は launch の rms 0.0196。無音との差は桁で開いている
+      expect(r!.rms, `${name} が無音`).toBeGreaterThan(0.005)
+      expect(r!.peak, `${name} の振幅が小さすぎる`).toBeGreaterThan(0.05)
+    }
+  })
+
+  /**
+   * **全部が同時に鳴ってもクリップしない。**
+   *
+   * `DynamicsCompressorNode` はルックアヘッドを持たないので瞬間的な
+   * ピークを通す。実測で、ソフトクリップを入れる前は 8 回中 2 回が 1 を
+   * 超えた（1.0166 と 1.0535）。
+   */
+  test('最悪の場合でもクリップしない', async ({ page }) => {
+    await page.goto('/dogfight/?capture=1&frame=60&audioprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const handle = await page.waitForFunction(
+      () =>
+        (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
+      undefined,
+      { timeout: 60_000 },
+    )
+    const probe = (await handle.jsonValue()) as Record<
+      string,
+      { rms: number; peak: number }
+    >
+    expect(probe['worstCase']!.peak, 'クリップしている').toBeLessThan(1)
+    // 鳴ってはいる。0 なら経路が切れている
+    expect(probe['worstCase']!.rms).toBeGreaterThan(0.05)
+  })
+
+  /**
+   * **START を押すまで作らない。**ブラウザの autoplay 制限で、操作を
+   * 経ずに作った `AudioContext` は `suspended` のまま音が出ない
+   */
+  test('START で音が使えるようになる', async ({ page }) => {
+    await page.goto('/dogfight/?script=level')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    expect((await readHook(page))?.audioReady, 'START の前に作っている').toBe(false)
+
+    await page.locator('.title-start').click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioReady,
+        ),
+      )
+      .toBe(true)
+  })
+
+  test('?sound=0 では作らない', async ({ page }) => {
+    await page.goto('/dogfight/?script=level&sound=0')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    await page.locator('.title-start').click()
+    await page.waitForTimeout(500)
+    expect((await readHook(page))?.audioReady).toBe(false)
+  })
+
+  /** キャプチャは 1 枚描いて止まるので鳴らす意味がない */
+  test('キャプチャモードでは作らない', async ({ page }) => {
+    const hook = await capture(page, { frame: 60 })
+    expect(hook.audioReady).toBe(false)
+  })
+
+  /** 音を鳴らしても絵は変わらない。基準画像を汚さないことの確認 */
+  test('音を出しても例外が出ない', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
+
+    await page.goto('/dogfight/?script=mission-01')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    await page.locator('.title-start').click()
+    // 撃つ・被弾する・爆発する を一通り通す
+    await page.keyboard.down('Space')
+    await page.waitForTimeout(2000)
+    await page.keyboard.up('Space')
+    await page.waitForTimeout(1000)
+
+    const hook = await readHook(page)
+    expect(hook!.roundsFired, '撃てていない').toBeGreaterThan(0)
+    expect(errors, '例外が出ている').toEqual([])
   })
 })

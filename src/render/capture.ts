@@ -102,6 +102,24 @@ export interface CaptureConfig {
    */
   showHud: boolean
   /**
+   * 音を鳴らすか。
+   *
+   * `?sound=1` / `?sound=0` で明示できる。省略したときはライブで鳴らし、
+   * キャプチャでは鳴らさない（`showHud` と同型）。**キャプチャは 1 枚
+   * 描いて止まるので、鳴らしても意味がないうえに `AudioContext` の
+   * 生成が待ち時間になる。**
+   */
+  sound: boolean
+  /**
+   * 音の自己診断を走らせるか。
+   *
+   * `?audioprobe=1`。**音は目で見えない。**ノードが繋がっただけで振幅が
+   * 0 という状態は画面にも基準画像にも出ない。`OfflineAudioContext` で
+   * 波形を書き出して測り、結果を `hook.audioProbe` に置く。
+   * `?bench=` や `?sweep=1` と同じ、計測のためのモード
+   */
+  audioProbe: boolean
+  /**
    * 描画を繰り返して 1 回あたりの時間を測る回数。0 なら測らない。
    *
    * SwiftShader は CPU ラスタライザなので、時間はシェーダの実行量にほぼ
@@ -180,6 +198,10 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showHud: params.has('hud')
       ? params.get('hud') === '1'
       : params.get('capture') !== '1',
+    sound: params.has('sound')
+      ? params.get('sound') === '1'
+      : params.get('capture') !== '1',
+    audioProbe: params.get('audioprobe') === '1',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
     sweepOnly: params.get('only') ?? '',
@@ -338,6 +360,15 @@ export interface TestHook {
   controlMode: string
   /** 効果音の音量 0..1。設定画面から変わる */
   volume: number
+  /** 効果音が使える状態か。START を押すまで false */
+  audioReady: boolean
+  /**
+   * 音の自己診断の結果。`?audioprobe=1` のときだけ埋まる。
+   *
+   * 5 つの音それぞれの rms と peak。**sim を import しない**という
+   * `capture.ts` の作法に合わせ、型は素の数値だけで書く
+   */
+  audioProbe: Record<string, { rms: number; peak: number }> | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *

@@ -315,3 +315,83 @@ describe('舵角の上限が原典と一致する', () => {
     expect(byNode.get('ElevatorLeft')).toBe(25)
   })
 })
+
+/**
+ * 空母（`nimitz.ac`）。
+ *
+ * **`texoff` で落ちた。**パーサは知らないキーワードで例外を投げる。黙って
+ * 無視すると形が崩れたまま気づけないので、その設計自体は正しい。実際に
+ * 空母を足したときに 18175 行目で止まり、対応が要ることが分かった。
+ */
+describe('空母の .ac', () => {
+  const carrier = parseAc3d(
+    readFileSync(fileURLToPath(new URL('../../assets/upstream/nimitz/nimitz.ac', import.meta.url)), 'latin1'),
+  )
+  const parts = flatten(carrier.root)
+
+  it('読める', () => {
+    const s = stats(carrier.root)
+    expect(s.objects).toBe(270)
+    expect(s.vertices).toBe(2593)
+    expect(s.surfaces).toBe(2812)
+  })
+
+  /** `Net` の 1 箇所だけが持つ。機体には出てこない */
+  it('texoff を読む', () => {
+    const net = parts.find((p) => p.name === 'Net')!
+    expect(net, 'Net が無い').toBeDefined()
+    expect(net.texoff).toEqual([-0.006, 0])
+    expect(net.texrep).toEqual([2, 1])
+  })
+
+  it('texoff が無いパーツは 0', () => {
+    const hull = parts.find((p) => p.name === 'Hull_Stbd')!
+    expect(hull.texoff).toEqual([0, 0])
+  })
+
+  /**
+   * 船体の全長。ニミッツ級の公表値 333 m とほぼ一致する。
+   *
+   * **`Wake`（航跡）を含めてはいけない。**船の後ろへ 743.6 m 伸びていて、
+   * 全体の境界を測ると 872 m になる
+   */
+  it('船体の全長が公表値と合う', () => {
+    const hull = parts.filter((p) => /^Hull/i.test(p.name))
+    const xs = hull.flatMap((p) => p.vertices.map((v) => v[0] ?? 0))
+    const length = Math.max(...xs) - Math.min(...xs)
+    expect(length).toBeGreaterThan(320)
+    expect(length).toBeLessThan(335)
+  })
+
+  /**
+   * カタパルトは三角形を持たない線分。射出の始点と終点。
+   *
+   * **艦首は −X**（`Stern` が X 214.2..217.1 にある）。2 点のうち +X 側が
+   * 開始点になる
+   */
+  it('カタパルト 4 基が線分で入っている', () => {
+    for (const name of ['cat-1', 'cat-2', 'cat-3', 'cat-4']) {
+      const cat = parts.find((p) => p.name === name)!
+      expect(cat, `${name} が無い`).toBeDefined()
+      expect(cat.vertices.length, `${name} は 2 点であるべき`).toBe(2)
+      const a = cat.vertices[0]!
+      const b = cat.vertices[1]!
+      // 甲板の高さに乗っている
+      expect(a[1]).toBeCloseTo(20, 1)
+      expect(b[1]).toBeCloseTo(20, 1)
+      // C-13 の全長 94 m 前後。実測は 115〜117 m（前後の余裕を含む）
+      const dx = a[0]! - b[0]!
+      const dz = a[2]! - b[2]!
+      const length = Math.hypot(dx, dz)
+      expect(length, `${name} の長さ`).toBeGreaterThan(110)
+      expect(length, `${name} の長さ`).toBeLessThan(120)
+    }
+  })
+
+  it('艦尾が +X にある', () => {
+    const stern = parts.find((p) => p.name === 'Stern')!
+    expect(stern, 'Stern が無い').toBeDefined()
+    const xs = stern.vertices.map((v) => v[0] ?? 0)
+    expect(Math.min(...xs)).toBeGreaterThan(200)
+  })
+})

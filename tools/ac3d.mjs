@@ -4,9 +4,9 @@
  * FlightGear の機体はこの形式で配布されている。素のテキストで、行ごとに
  * キーワードと値が並ぶだけなので依存パッケージは要らない。
  *
- * 仕様のうちこのファイルが使う部分だけ実装した。原本（assets/upstream/f18）に
- * 出てこない `rot` `crease` `texrep` `url` `data` は扱わない。出てきたら
- * 例外を投げる。黙って無視すると形が崩れたまま気づけない。
+ * 仕様のうち取り込む原本が使う部分だけ実装した。どれにも出てこない `rot`
+ * `url` は扱わない。出てきたら例外を投げる。黙って無視すると形が崩れた
+ * まま気づけない。実際に空母を足したとき `texoff` で落ちて気づいた。
  *
  * 座標系は 機首 −X、上 +Y、左 +Z。当プロジェクトは 機首 −Z、上 +Y、右 +X。
  * 変換は `toWorld` が行う。
@@ -101,6 +101,13 @@ function parseObject(lines, start) {
     crease: null,
     /** テクスチャの繰り返し。UV に掛ける */
     texrep: [1, 1],
+    /**
+     * テクスチャのずらし。UV に足す。
+     *
+     * 空母（`nimitz.ac`）に 1 箇所だけある（`Net` の `texoff -0.006 0`）。
+     * 機体には出てこない
+     */
+    texoff: [0, 0],
     vertices: [],
     surfaces: [],
     kids: [],
@@ -146,6 +153,9 @@ function parseObject(lines, start) {
       index++
     } else if (key === 'texrep') {
       node.texrep = line.split(/\s+/).slice(1, 3).map(Number)
+      index++
+    } else if (key === 'texoff') {
+      node.texoff = line.split(/\s+/).slice(1, 3).map(Number)
       index++
     } else if (key === 'data') {
       // AC3D の data は「バイト数 + 次の行から続く生データ」。Blender の
@@ -237,6 +247,7 @@ export function flatten(root) {
         texture: node.texture,
         crease: node.crease,
         texrep: node.texrep,
+        texoff: node.texoff,
         // .ac のままの世界座標。変換はここではしない
         vertices: node.vertices.map((v) => [
           v[0] + origin[0],

@@ -30,6 +30,12 @@ export interface Ac3dNode {
   name: string
   texture: string | null
   loc: number[]
+  /** 稜線とみなす角度 度。書かれていなければ null */
+  crease: number | null
+  /** テクスチャの繰り返し。UV に掛ける */
+  texrep: number[]
+  /** テクスチャのずらし。UV に足す */
+  texoff: number[]
   vertices: number[][]
   surfaces: Ac3dSurface[]
   kids: Ac3dNode[]
@@ -38,6 +44,9 @@ export interface Ac3dNode {
 export interface Ac3dPart {
   name: string
   texture: string | null
+  crease: number | null
+  texrep: number[]
+  texoff: number[]
   vertices: number[][]
   surfaces: Ac3dSurface[]
 }

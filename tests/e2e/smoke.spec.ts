@@ -67,6 +67,7 @@ interface TestHook {
   missileTimeToImpact: number
   flaresLeft: number
   controlMode: string
+  volume: number
   missionOutcome: string
   missionRemaining: number
   flaresBurning: number
@@ -1689,5 +1690,187 @@ test.describe('タイトル画面', () => {
     await capture(page, { frame: 60 })
     expect(await page.locator('.title-panel').count()).toBe(0)
     await expect(page.locator('#title')).toBeHidden()
+  })
+})
+
+/**
+ * 設定画面。
+ *
+ * **ライブ専用。**キャプチャモードは `localStorage` を読まない（開発者の
+ * ブラウザに保存された画質や時刻で基準画像が変わってしまう）。
+ */
+test.describe('設定画面', () => {
+  /** タイトルから開く。開いた状態を作る */
+  async function openSettings(page: Page, query = '?script=level'): Promise<void> {
+    await page.goto(`/dogfight/${query}`)
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    await page.locator('.title-settings').click()
+    await expect(page.locator('#settings')).toBeVisible()
+  }
+
+  test('タイトルから開いて閉じるで畳む', async ({ page }) => {
+    await openSettings(page)
+    await page.locator('.settings-close').click()
+    await expect(page.locator('#settings')).toBeHidden()
+  })
+
+  /**
+   * **暗幕を 2 枚重ねない。**どちらも `rgba(5, 16, 26, 0.88)` を全面に
+   * 敷くので、重なると実質 0.986 になって背景がほぼ黒くなる。実測で
+   * タイトルの文字が設定の下に透けて見えた
+   */
+  test('設定を開くとタイトルは畳まれ、閉じると戻る', async ({ page }) => {
+    await openSettings(page)
+    await expect(page.locator('#title')).toBeHidden()
+
+    await page.locator('.settings-close').click()
+    await expect(page.locator('#title')).toBeVisible()
+    await expect(page.locator('#settings')).toBeHidden()
+  })
+
+  test('Escape で閉じてもタイトルへ戻る', async ({ page }) => {
+    await openSettings(page)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#settings')).toBeHidden()
+    await expect(page.locator('#title')).toBeVisible()
+  })
+
+  /**
+   * **焦点をパネルに置く。**`select` に置くと `Space` がドロップダウンを
+   * 開き、`Escape` がそれを閉じるほうに消費されて設定が閉じない。
+   * 実測で Escape 2 回が要る状態だった
+   */
+  test('Space のあとでも Escape 1 回で閉じる', async ({ page }) => {
+    await openSettings(page)
+    await page.keyboard.press('Space')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#settings')).toBeHidden()
+  })
+
+  test('画質を選ぶと即座に効く', async ({ page }) => {
+    await openSettings(page)
+    await page.selectOption('#settings-preset', 'low')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.preset,
+        ),
+      )
+      .toBe('low')
+  })
+
+  test('操作の型を選ぶと即座に効く', async ({ page }) => {
+    await openSettings(page)
+    await page.selectOption('#settings-controlMode', 'standard')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.controlMode,
+        ),
+      )
+      .toBe('standard')
+  })
+
+  /**
+   * **操縦を止める。**つまみに焦点があるとき矢印キーは値を動かすもので、
+   * 同時に機体をロールさせては困る。`R` でやり直しが走るのも困る
+   */
+  test('開いている間は撃てない', async ({ page }) => {
+    await openSettings(page)
+    const before = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.roundsFired ?? -1,
+    )
+    await page.keyboard.down('Space')
+    await page.waitForTimeout(600)
+    await page.keyboard.up('Space')
+    const during = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.roundsFired ?? -1,
+    )
+    expect(during, '設定を開いている間に撃っている').toBe(before)
+
+    // 閉じたら戻る
+    await page.locator('.settings-close').click()
+    await page.keyboard.down('Space')
+    await page.waitForTimeout(600)
+    await page.keyboard.up('Space')
+    const after = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.roundsFired ?? -1,
+    )
+    expect(after, '閉じても撃てないままになっている').toBeGreaterThan(during)
+  })
+
+  test('保存されて次に開いたとき効いている', async ({ page }) => {
+    await openSettings(page)
+    await page.selectOption('#settings-preset', 'medium')
+    await page.selectOption('#settings-controlMode', 'standard')
+    await page.locator('.settings-close').click()
+
+    // 同じ context なので localStorage は共有される
+    await page.goto('/dogfight/?script=level')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    const hook = await readHook(page)
+    expect(hook?.preset).toBe('medium')
+    expect(hook?.controlMode).toBe('standard')
+  })
+
+  /** **URL が保存値に勝つ。**条件を固定して比べられなくなる */
+  test('URL の指定が保存値に勝つ', async ({ page }) => {
+    await openSettings(page)
+    await page.selectOption('#settings-preset', 'low')
+    await page.locator('.settings-close').click()
+
+    await page.goto('/dogfight/?script=level&preset=ultra')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    expect((await readHook(page))?.preset).toBe('ultra')
+  })
+
+  /**
+   * **キャプチャモードは保存値を読まない。**読むと開発者のブラウザの
+   * 設定で基準画像が変わる
+   */
+  test('キャプチャモードは保存値を無視する', async ({ page }) => {
+    await openSettings(page)
+    await page.selectOption('#settings-preset', 'low')
+    await page.locator('.settings-close').click()
+
+    const hook = await capture(page, { frame: 60 })
+    expect(hook.preset, 'キャプチャが localStorage を読んでいる').toBe('high')
+    expect(await page.locator('.settings-panel').count()).toBe(0)
+  })
+
+  /** **`#hud` の中に入れない。**あちらは pointer-events: none で押せない */
+  test('#hud の兄弟に置く', async ({ page }) => {
+    await openSettings(page)
+    expect(await page.locator('#hud #settings').count()).toBe(0)
+    expect(await page.locator('body > #settings').count()).toBe(1)
+  })
+
+  /** 壊れた保存値で起動しなくなってはいけない */
+  test('保存値が壊れていても起動する', async ({ page }) => {
+    await page.goto('/dogfight/?title=0&script=level')
+    await page.evaluate(() => localStorage.setItem('dogfight.settings', '{壊れている'))
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
+
+    await page.goto('/dogfight/?title=0&script=level')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    expect(errors, '例外が出ている').toEqual([])
+    expect((await readHook(page))?.preset, '既定へ倒れていない').toBe('high')
   })
 })

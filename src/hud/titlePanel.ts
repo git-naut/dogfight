@@ -27,6 +27,8 @@ export interface TitlePanel {
 export interface TitleOptions {
   /** 開始が押されたとき。音の初期化をここに繋ぐ */
   onStart: () => void
+  /** 設定が押されたとき */
+  onSettings: () => void
 }
 
 export function createTitlePanel(
@@ -59,12 +61,22 @@ export function createTitlePanel(
   }
   panel.append(controls)
 
+  const buttons = document.createElement('div')
+  buttons.className = 'title-buttons'
+
   const start = document.createElement('button')
   start.className = 'title-start'
   start.type = 'button'
   start.textContent = 'START'
-  panel.append(start)
+  buttons.append(start)
 
+  const settings = document.createElement('button')
+  settings.className = 'title-settings'
+  settings.type = 'button'
+  settings.textContent = '設定'
+  buttons.append(settings)
+
+  panel.append(buttons)
   host.append(panel)
 
   let shown = false
@@ -72,7 +84,11 @@ export function createTitlePanel(
   const onClick = (): void => {
     options.onStart()
   }
+  const onSettings = (): void => {
+    options.onSettings()
+  }
   start.addEventListener('click', onClick)
+  settings.addEventListener('click', onSettings)
 
   return {
     get visible(): boolean {
@@ -95,6 +111,7 @@ export function createTitlePanel(
 
     dispose(): void {
       start.removeEventListener('click', onClick)
+      settings.removeEventListener('click', onSettings)
       panel.remove()
     },
   }

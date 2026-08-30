@@ -24,6 +24,15 @@ import { createDebugPanel } from './hud/debugPanel'
 import { createHud, createHudLock, type Hud, type HudArmament } from './hud/hud'
 import { createResultPanel, type ResultPanel } from './hud/resultPanel'
 import { createTitlePanel, type TitlePanel } from './hud/titlePanel'
+import { createSettingsPanel, type SettingsPanel } from './hud/settingsPanel'
+import {
+  loadSettings,
+  saveSettings,
+  applyUrlOverrides,
+  DEFAULT_SETTINGS,
+  type Settings,
+  type SettingsStorage,
+} from './hud/settings'
 import { createMissileThreat } from './sim/weapons/warning'
 import { showBenchPanel } from './hud/benchPanel'
 import { runBenchSweep } from './render/bench'
@@ -145,6 +154,7 @@ const hook = installTestHook({
   hudDlzBarShown: false,
   preset: capture.preset,
   hour: capture.hour,
+  volume: 0,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -231,11 +241,47 @@ const missileScratch = { position: new Vec3(), orientation: new Quat() }
 /** 描画へ渡す配列。長さが有効な本数になる */
 const activeMissilePoses: MissilePose[] = []
 
+/**
+ * `localStorage` を取る。
+ *
+ * **アクセスそのものが投げる場合がある。**プライベートモードや site data を
+ * 拒否する設定では `window.localStorage` を読んだ瞬間に `SecurityError` に
+ * なる。取れなければ null を返し、設定はこのセッション限りになる
+ */
+function settingsStorage(): SettingsStorage | null {
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 起動時の設定。
+ *
+ * **キャプチャモードは `localStorage` を読まない。**開発者のブラウザに
+ * 保存された画質や時刻で基準画像が変わってしまう。URL だけで絵が決まる
+ * 状態を保つ
+ */
+const initialSettings: Settings = capture.enabled
+  ? {
+      ...DEFAULT_SETTINGS,
+      preset: capture.preset,
+      hour: capture.hour,
+      controlMode: resolveControlMode(window.location.search),
+    }
+  : applyUrlOverrides(loadSettings(settingsStorage()), window.location.search)
+
 async function main(): Promise<void> {
+  // hook の初期値は `capture` から置いてある。ライブでは保存された設定が
+  // 起点なので、シーンを作る前に合わせる
+  hook.preset = initialSettings.preset
+  hook.hour = initialSettings.hour
+
   setBoot('大気の散乱テーブルを読み込み中')
   const view = await createScene(canvas!, {
-    preset: capture.preset,
-    hour: capture.hour,
+    preset: initialSettings.preset,
+    hour: initialSettings.hour,
     texturesUrl: TEXTURES_URL,
     aircraftUrl: AIRCRAFT_URL,
     enemyUrl: ENEMY_URL,
@@ -618,20 +664,101 @@ async function main(): Promise<void> {
             titlePanel?.hide()
             // 段 9 で音の初期化をここに繋ぐ
           },
+          onSettings: () => openSettings(),
         })
       : null
   titlePanel?.show()
 
   /**
+   * 設定。**ライブ専用。**
+   *
+   * `Escape` で開閉する。ポーズは段 13 の範囲なので、開いていてもシムは
+   * 進み続ける
+   */
+  let settings: Settings = initialSettings
+  /**
+   * 自動降格を続けるか。
+   *
+   * **設定画面で画質を選んだら止める。**`PerformanceGovernor` は 3 秒
+   * 連続で 55 fps を割ると 1 段落とす。選んだ直後に落とされると、選んだ
+   * ことが無かったことになる。人の指定が機械の判断に勝つ
+   */
+  let autoDegrade = true
+
+  /**
+   * 設定を開いたときタイトルが出ていたか。閉じるとき戻すのに使う。
+   *
+   * **暗幕を 2 枚重ねない。**どちらも `rgba(5, 16, 26, 0.88)` を全面に
+   * 敷くので、重なると実質 0.986 になって背景がほぼ黒くなる。実測で
+   * タイトルの文字が設定の下に透けて雑然として見えた
+   */
+  let titleWasShown = false
+
+  const openSettings = (): void => {
+    titleWasShown = titlePanel?.visible ?? false
+    titlePanel?.hide()
+    // **操縦を止める。**つまみに焦点があるとき矢印キーは値を動かすもので、
+    // 同時に機体をロールさせては困る
+    keyboard.setEnabled(false)
+    settingsPanel?.show()
+  }
+
+  const closeSettings = (): void => {
+    settingsPanel?.hide()
+    // **キーは常に戻す。**タイトルへ帰る場合も、あちらは操縦を止めない
+    // （段 7 からの挙動）。止めたままにすると設定を開いた履歴で操作感が変わる
+    keyboard.setEnabled(true)
+    if (titleWasShown) titlePanel?.show()
+  }
+
+  const settingsRoot = document.querySelector<HTMLElement>('#settings')
+  const settingsPanel: SettingsPanel | null = settingsRoot
+    ? createSettingsPanel(settingsRoot, settings, {
+        onChange: (next) => {
+          if (next.preset !== settings.preset) {
+            preset = next.preset
+            view.setQuality(preset)
+            applySize()
+            hook.preset = preset
+            // 人が選んだので機械の判断を止める
+            autoDegrade = false
+            governor.reset()
+          }
+          if (next.hour !== settings.hour) {
+            view.setHour(next.hour)
+            hook.hour = next.hour
+          }
+          if (next.mouseSensitivity !== settings.mouseSensitivity) {
+            mouse.setSensitivity(next.mouseSensitivity)
+          }
+          if (next.controlMode !== settings.controlMode) {
+            controlMode = next.controlMode
+            hook.controlMode = controlMode
+          }
+          // 音量は段 9 で `GainNode` に繋ぐ。いまは保存だけ
+          settings = next
+          hook.volume = next.volume
+          saveSettings(settingsStorage(), next)
+        },
+        onClose: () => closeSettings(),
+      })
+    : null
+
+  // 保存された値を起動時に効かせる。画質と時刻はシーンの生成時に渡して
+  // あるが、感度と操作の型は渡す先が無いのでここで入れる
+  mouse.setSensitivity(settings.mouseSensitivity)
+  hook.volume = settings.volume
+
+  /**
    * 操作の型。**既定は `expert`**（`resolveControlMode`）。段 8 で設定画面
    * から変えられるようにするので `let` で持つ
    */
-  let controlMode: ControlMode = resolveControlMode(window.location.search)
+  let controlMode: ControlMode = initialSettings.controlMode
   hook.controlMode = controlMode
 
   const driver = new FixedStepDriver()
   const governor = new PerformanceGovernor()
-  let preset: PresetName = capture.preset
+  let preset: PresetName = initialSettings.preset
   let world = spawnWorld()
   view.setTrailSource(world.player)
   view.setBulletSources(world.combat.bulletSources)
@@ -734,12 +861,17 @@ async function main(): Promise<void> {
 
     // 重いときは品質を1段落とす。実時間に依存するので capture では動かさない。
     // ?nodegrade=1 のときも止める。品質を固定しないと GPU 時間を比較できない
-    const degraded = capture.noDegrade ? null : governor.update(delta, preset)
+    const degraded =
+      capture.noDegrade || !autoDegrade ? null : governor.update(delta, preset)
     if (degraded !== null) {
       preset = degraded
       view.setQuality(preset)
       applySize()
       hook.preset = preset
+      // **設定画面の表示も合わせる。**開いたまま降格すると、選択肢が
+      // 実際の画質と食い違ったままになる。保存はしない（人の指定ではない）
+      settings = { ...settings, preset }
+      settingsPanel?.sync(settings)
     }
 
     publish(world, world.frame)

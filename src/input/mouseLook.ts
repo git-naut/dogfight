@@ -9,7 +9,12 @@
 
 const MAX_YAW = Math.PI * 0.9
 const MAX_PITCH = Math.PI * 0.45
-/** 画面 1 px あたりの回転量 rad */
+/**
+ * 画面 1 px あたりの回転量 rad。
+ *
+ * 1,280 px を端から端まで引くと 6.4 rad = 367 度で、1 回のドラッグでちょうど
+ * 一周する。設定画面から倍率で増減できる（`setSensitivity`）
+ */
 const SENSITIVITY = 0.005
 /** 手を離してから正面へ戻る時定数 s */
 const RECENTER_TAU = 0.25
@@ -22,6 +27,20 @@ export interface LookOffset {
 export class MouseLook {
   readonly offset: LookOffset = { yaw: 0, pitch: 0 }
   private looking = false
+  /** 感度の倍率。1 が素の `SENSITIVITY` */
+  private scale = 1
+
+  /**
+   * 感度を変える。設定画面から呼ぶ。
+   *
+   * **範囲は呼ぶ側が守る**（`settings.ts` の `MIN_SENSITIVITY` /
+   * `MAX_SENSITIVITY`）。ここでは有限でない値だけ弾く。0 を許すと視点が
+   * 動かなくなり、故障と見分けがつかない
+   */
+  setSensitivity(scale: number): void {
+    if (!Number.isFinite(scale) || scale <= 0) return
+    this.scale = scale
+  }
 
   attach(canvas: HTMLCanvasElement): () => void {
     const onDown = (event: PointerEvent) => {
@@ -40,13 +59,10 @@ export class MouseLook {
 
     const onMove = (event: PointerEvent) => {
       if (!this.looking) return
-      this.offset.yaw = clamp(
-        this.offset.yaw - event.movementX * SENSITIVITY,
-        -MAX_YAW,
-        MAX_YAW,
-      )
+      const rate = SENSITIVITY * this.scale
+      this.offset.yaw = clamp(this.offset.yaw - event.movementX * rate, -MAX_YAW, MAX_YAW)
       this.offset.pitch = clamp(
-        this.offset.pitch - event.movementY * SENSITIVITY,
+        this.offset.pitch - event.movementY * rate,
         -MAX_PITCH,
         MAX_PITCH,
       )

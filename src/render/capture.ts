@@ -334,14 +334,16 @@ export interface TestHook {
   missileTimeToImpact: number
   /** 残りのフレア */
   flaresLeft: number
+  /** 操作の型。'expert' か 'standard' */
+  controlMode: string
+  /** 効果音の音量 0..1。設定画面から変わる */
+  volume: number
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *
    * `MissionOutcome` の写しではなく 'none' を足した別物。**sim を import
    * しない**という `capture.ts` の作法に合わせる
    */
-  /** 操作の型。'expert' か 'standard' */
-  controlMode: string
   missionOutcome: string
   /** 残り時間 フレーム。ミッションがなければ 0 */
   missionRemaining: number

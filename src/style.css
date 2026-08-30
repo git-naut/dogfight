@@ -240,7 +240,13 @@ body {
   margin: 0;
 }
 
-.title-start {
+.title-buttons {
+  display: flex;
+  gap: 1rem;
+}
+
+.title-start,
+.title-settings {
   padding: 0.6rem 1.4rem;
   border: 1px solid currentColor;
   background: transparent;
@@ -251,6 +257,95 @@ body {
 }
 
 .title-start:hover,
-.title-start:focus-visible {
+.title-start:focus-visible,
+.title-settings:hover,
+.title-settings:focus-visible {
+  background: rgba(126, 255, 170, 0.14);
+}
+
+/**
+ * 設定。タイトルの上に重ねる。
+ *
+ * DOM 順で `#title` より後にあるので、そのまま上へ描かれる
+ */
+#settings {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 16, 26, 0.88);
+  color: rgba(126, 255, 170, 0.92);
+  font: 14px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+
+#settings.is-hidden {
+  display: none;
+}
+
+.settings-panel {
+  min-width: 26rem;
+  padding: 2rem 2.5rem;
+  border: 1px solid currentColor;
+  background: rgba(5, 16, 26, 0.94);
+}
+
+.settings-panel:focus {
+  /* 焦点を置くのは Space と Escape の行き先を決めるためで、枠は要らない */
+  outline: none;
+}
+
+.settings-heading {
+  margin: 0 0 1.2rem;
+  font-size: 1.2rem;
+  letter-spacing: 0.16em;
+}
+
+.settings-row {
+  display: grid;
+  /* ラベル / つまみ / 現在値。値の桁が増えてもつまみの幅を動かさない */
+  grid-template-columns: 6rem 1fr 4rem;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.settings-row label {
+  opacity: 0.75;
+}
+
+.settings-row select,
+.settings-row input[type='range'] {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  accent-color: rgba(126, 255, 170, 0.9);
+}
+
+.settings-row select {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid currentColor;
+  background: rgba(5, 16, 26, 0.9);
+}
+
+.settings-readout {
+  text-align: right;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-close {
+  margin-top: 1.2rem;
+  padding: 0.5rem 1.2rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.settings-close:hover,
+.settings-close:focus-visible {
   background: rgba(126, 255, 170, 0.14);
 }

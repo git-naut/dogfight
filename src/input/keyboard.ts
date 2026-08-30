@@ -20,9 +20,33 @@ export class KeyboardInput {
 
   /** R が押されたら立つ。読み取り側が consumeReset() で降ろす */
   private resetRequested = false
+  /** 操縦を受け付けるか。設定画面を開いている間は false */
+  private enabled = true
+
+  /**
+   * 操縦の受け付けを切り替える。
+   *
+   * **設定画面が開いている間は止める。**つまみに焦点があるとき矢印キーは
+   * 値を動かすためのもので、同時に機体をロールさせては困る。`R` も同じで、
+   * 設定を触っているつもりがミッションをやり直すことになる。
+   *
+   * 止めるときは押しっぱなしを消す。残すとその状態のまま飛び続ける
+   * （フォーカスを失ったときの `onBlur` と同じ理由）。
+   *
+   * **`preventDefault` も止まる。**有効なままだと矢印キーがつまみに届かず、
+   * キーボードだけで設定を変えられなくなる
+   */
+  setEnabled(value: boolean): void {
+    this.enabled = value
+    if (!value) {
+      this.pressed.clear()
+      this.resetRequested = false
+    }
+  }
 
   attach(target: Window = window): () => void {
     const onDown = (event: KeyboardEvent) => {
+      if (!this.enabled) return
       // ブラウザのショートカットと衝突するキーだけ止める
       if (SCROLL_KEYS.has(event.code)) event.preventDefault()
       this.pressed.add(event.code)

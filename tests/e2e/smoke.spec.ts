@@ -66,6 +66,7 @@ interface TestHook {
   missileBearing: number
   missileTimeToImpact: number
   flaresLeft: number
+  controlMode: string
   missionOutcome: string
   missionRemaining: number
   flaresBurning: number
@@ -1244,6 +1245,34 @@ test.describe('DLZ', () => {
     expect(a.dlzMax).toBe(b.dlzMax)
     expect(a.dlzNe).toBe(b.dlzNe)
     expect(a.dlzMin).toBe(b.dlzMin)
+  })
+})
+
+test.describe('操作の型', () => {
+  test('既定はエキスパート', async ({ page }) => {
+    const hook = await capture(page, { frame: 60 })
+    expect(hook.controlMode).toBe('expert')
+  })
+
+  test('?control=standard で切り替わる', async ({ page }) => {
+    await openLive(page, '?control=standard')
+    const mode = await page.evaluate(
+      () =>
+        (window as unknown as { __dogfight?: { controlMode: string } }).__dogfight
+          ?.controlMode,
+    )
+    expect(mode).toBe('standard')
+  })
+
+  /** **不正な値は既定へ倒す。**`resolvePreset` と同じ作法 */
+  test('知らない値はエキスパートへ倒れる', async ({ page }) => {
+    await openLive(page, '?control=arcade')
+    const mode = await page.evaluate(
+      () =>
+        (window as unknown as { __dogfight?: { controlMode: string } }).__dogfight
+          ?.controlMode,
+    )
+    expect(mode).toBe('expert')
   })
 })
 

@@ -190,6 +190,20 @@ export function isDebugEnabled(search: string): boolean {
   return new URLSearchParams(search).get('debug') === '1'
 }
 
+/**
+ * 操作の型を URL から読む。
+ *
+ * **既定は `expert`。**Phase 6.5 までの手ごたえはこの挙動で測ってあるので、
+ * 指定がなければ何も変えない。段 8 で設定画面から選べるようにする。
+ *
+ * 不正な値は既定へ倒す。`resolvePreset` と同じ作法
+ */
+export function resolveControlMode(search: string): 'expert' | 'standard' {
+  return new URLSearchParams(search).get('control') === 'standard'
+    ? 'standard'
+    : 'expert'
+}
+
 function clampInt(
   raw: string | null,
   min: number,
@@ -326,6 +340,8 @@ export interface TestHook {
    * `MissionOutcome` の写しではなく 'none' を足した別物。**sim を import
    * しない**という `capture.ts` の作法に合わせる
    */
+  /** 操作の型。'expert' か 'standard' */
+  controlMode: string
   missionOutcome: string
   /** 残り時間 フレーム。ミッションがなければ 0 */
   missionRemaining: number

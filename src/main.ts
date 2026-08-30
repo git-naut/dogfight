@@ -11,11 +11,14 @@ import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/cloudsPass'
 import {
   readCaptureConfig,
   isDebugEnabled,
+  resolveControlMode,
   installTestHook,
   DEFAULT_SEED,
 } from './render/capture'
 import { PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
+import { applyAssist, type ControlMode } from './sim/assist'
+import { climbAngleOf } from './sim/ai/steering'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
 import { createHud, createHudLock, type Hud, type HudArmament } from './hud/hud'
@@ -109,6 +112,7 @@ const hook = installTestHook({
   missileBearing: 0,
   missileTimeToImpact: 0,
   flaresLeft: 0,
+  controlMode: 'expert',
   missionOutcome: 'none',
   missionRemaining: 0,
   flaresBurning: 0,
@@ -599,6 +603,13 @@ async function main(): Promise<void> {
   /** 台本の敵の総数。自滅の内訳を出すのに要る */
   const enemyTotal = getScript(capture.script).enemies?.length ?? 0
 
+  /**
+   * 操作の型。**既定は `expert`**（`resolveControlMode`）。段 8 で設定画面
+   * から変えられるようにするので `let` で持つ
+   */
+  let controlMode: ControlMode = resolveControlMode(window.location.search)
+  hook.controlMode = controlMode
+
   const driver = new FixedStepDriver()
   const governor = new PerformanceGovernor()
   let preset: PresetName = capture.preset
@@ -661,7 +672,15 @@ async function main(): Promise<void> {
       governor.reset()
     }
 
-    const input = keyboard.poll(delta)
+    const raw = keyboard.poll(delta)
+    // **補助は sim へ渡す直前に掛ける。**`expert` は素通しなので、既存の
+    // 操作感は 1 つも変わらない（`assist.ts`）
+    const input = applyAssist(raw, controlMode, {
+      bank: world.player.bank,
+      agl: world.player.agl,
+      speed: world.player.speed,
+      climbAngle: climbAngleOf(world.player.velocity),
+    })
     const t0 = performance.now()
     const alpha = driver.advance(delta, () => world.step(input))
 

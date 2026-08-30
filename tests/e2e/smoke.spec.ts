@@ -1247,6 +1247,54 @@ test.describe('DLZ', () => {
   })
 })
 
+test.describe('リザルト', () => {
+  /**
+   * **ライブ専用。**キャプチャモードは早期 return するので、基準画像には
+   * 写らない。DOM を直接見る。
+   */
+  test('決着すると出る', async ({ page }) => {
+    await openLive(page, '?script=mission-01')
+    const result = page.locator('#result')
+
+    // 走っているあいだは畳まれている
+    await expect(result).toBeHidden()
+
+    // 入力なしで飛ぶので正面の敵に撃たれる。決着まで待つ
+    await page.waitForFunction(
+      () => {
+        const hook = (window as unknown as { __dogfight?: { missionOutcome: string } })
+          .__dogfight
+        return hook !== undefined && hook.missionOutcome === 'shotDown'
+      },
+      undefined,
+      { timeout: 120_000 },
+    )
+
+    await expect(result).toBeVisible()
+    await expect(result).toHaveClass(/is-failed/)
+    await expect(result.locator('.result-title')).toHaveText('MISSION FAILED')
+    await expect(result.locator('.result-reason')).toHaveText('撃墜された')
+  })
+
+  test('ミッションのない台本では出ない', async ({ page }) => {
+    await openLive(page, '?script=level')
+    await expect(page.locator('#result')).toBeHidden()
+  })
+
+  /** **`#hud` の中に入れない。**あちらは pointer-events: none で操作できない */
+  test('#hud の兄弟に置く', async ({ page }) => {
+    await openLive(page, '?script=level')
+    const inside = await page.evaluate(
+      () => document.querySelector('#hud #result') !== null,
+    )
+    expect(inside).toBe(false)
+    const exists = await page.evaluate(
+      () => document.querySelector('body > #result') !== null,
+    )
+    expect(exists).toBe(true)
+  })
+})
+
 test.describe('デバッグ表示', () => {
   test('?debug=1 で計器が出て数値が更新される', async ({ page }) => {
     await openLive(page, '?debug=1')

@@ -119,3 +119,67 @@ body {
 #boot.is-error {
   color: #ff8b7a;
 }
+
+/**
+ * リザルト。ミッションが決着したら出す。
+ *
+ * `#hud` の兄弟として置く。**あちらの中には入れられない。**
+ * `pointer-events: none` で操作できず、`aria-hidden="true"` で
+ * スクリーンリーダからも消えるため。
+ *
+ * 色は HUD と揃える（`hud.ts` の PRIMARY と WARN）。canvas 側の定数を
+ * ここへ写しているので、片方を変えたらもう片方も直す。
+ */
+#result {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 16, 26, 0.82);
+  color: rgba(126, 255, 170, 0.92);
+  font: 14px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+
+#result.is-hidden {
+  display: none;
+}
+
+#result.is-failed {
+  color: rgba(255, 150, 90, 0.95);
+}
+
+.result-panel {
+  min-width: 20rem;
+  padding: 1.5rem 2rem;
+  border: 1px solid currentColor;
+  text-align: left;
+  /**
+   * **枠の中を塗る。**外側の暗幕（`#result` の背景）だけだと、下にある
+   * デバッグパネルの数字が透けて読みにくい。実測で確認した（`?debug=1` は
+   * 開発中に常用する）
+   */
+  background: rgba(5, 16, 26, 0.92);
+}
+
+.result-title {
+  margin: 0 0 0.2rem;
+  font-size: 1.25rem;
+  letter-spacing: 0.14em;
+}
+
+.result-reason {
+  margin: 0 0 1rem;
+  opacity: 0.75;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.result-hint {
+  margin: 1rem 0 0;
+  opacity: 0.6;
+}

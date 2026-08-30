@@ -19,6 +19,7 @@ import { KeyboardInput } from './input/keyboard'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
 import { createHud, createHudLock, type Hud, type HudArmament } from './hud/hud'
+import { createResultPanel, type ResultPanel } from './hud/resultPanel'
 import { createMissileThreat } from './sim/weapons/warning'
 import { showBenchPanel } from './hud/benchPanel'
 import { runBenchSweep } from './render/bench'
@@ -587,6 +588,17 @@ async function main(): Promise<void> {
     ? createDebugPanel(hudRoot!)
     : null
 
+  /**
+   * リザルト。**ライブ専用。**キャプチャモードはここより前に return するので
+   * 基準画像には写らない。`#hud` の兄弟に置く（あちらは pointer-events: none）
+   */
+  const resultRoot = document.querySelector<HTMLElement>('#result')
+  const resultPanel: ResultPanel | null = resultRoot
+    ? createResultPanel(resultRoot)
+    : null
+  /** 台本の敵の総数。自滅の内訳を出すのに要る */
+  const enemyTotal = getScript(capture.script).enemies?.length ?? 0
+
   const driver = new FixedStepDriver()
   const governor = new PerformanceGovernor()
   let preset: PresetName = capture.preset
@@ -619,6 +631,11 @@ async function main(): Promise<void> {
       },
       ...(script.targets ? { targets: script.targets } : {}),
       ...(script.enemies ? { enemies: script.enemies } : {}),
+      // **ここも渡す。**`createWorldFromScript`（キャプチャとテストの経路）と
+      // 別に組み立てているので、片方だけ直すとライブでミッションが走らない
+      ...(script.missionSeconds !== undefined
+        ? { mission: { limitFrames: Math.round(script.missionSeconds / FIXED_DT) } }
+        : {}),
     })
     fitTargetSamples(world.targets.length)
     fitEnemySamples(world.enemies.length)
@@ -630,6 +647,8 @@ async function main(): Promise<void> {
     lastTime = now
 
     if (keyboard.consumeReset()) {
+      // やり直すのでリザルトを畳む
+      resultPanel?.hide()
       world = spawnWorld()
       view.setTrailSource(world.player)
       view.setBulletSources(world.combat.bulletSources)
@@ -686,6 +705,25 @@ async function main(): Promise<void> {
     }
 
     publish(world, world.frame)
+
+    // 決着したらリザルトを出す。**毎フレーム作り直さない。**出ていなければ
+    // 1 回だけ。R でやり直すと `hide()` が呼ばれて畳まれる
+    const settled = world.mission
+    if (settled !== null && settled.outcome !== 'running' && resultPanel !== null) {
+      if (!resultPanel.visible) {
+        resultPanel.show({
+          outcome: settled.outcome,
+          endedFrame: settled.endedFrame,
+          enemyTotal,
+          enemiesAlive: world.enemiesAlive,
+          kills: world.combat.kills,
+          roundsFired: world.combat.roundsFired,
+          hits: world.combat.hits,
+          missilesFired: world.combat.missilesFired,
+        })
+      }
+    }
+
     hook.droppedSteps = driver.droppedSteps
     debug?.update(sample, world.frame, smoothedFps, {
       sunElevation: view.sunElevation,

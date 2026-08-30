@@ -38,6 +38,9 @@ describe('ミッションの決着', () => {
 
   it('制限時間を使い切ったら時間切れ', () => {
     const m = new Mission({ limitFrames: LIMIT })
+    // **`limitFrames` は時計を始めてからの数。**フレーム 0 が起点になる
+    // ように 1 回目を打つ
+    m.update(view({ frame: 0 }))
     m.update(view({ frame: LIMIT }))
     expect(m.outcome).toBe('timeout')
     expect(m.endedFrame).toBe(LIMIT)
@@ -62,6 +65,7 @@ describe('ミッションの決着', () => {
 
   it('制限時間の境界。1 フレーム手前では切れない', () => {
     const m = new Mission({ limitFrames: LIMIT })
+    m.update(view({ frame: 0 }))
     m.update(view({ frame: LIMIT - 1 }))
     expect(m.outcome).toBe('running')
     m.update(view({ frame: LIMIT }))
@@ -100,21 +104,55 @@ describe('ミッションの決着', () => {
   describe('残り時間', () => {
     it('進行中はフレームぶん減る', () => {
       const m = new Mission({ limitFrames: LIMIT })
+      m.start(0)
       expect(m.remainingFrames(0)).toBe(LIMIT)
       expect(m.remainingFrames(200)).toBe(LIMIT - 200)
     })
 
     it('0 より下へは行かない', () => {
       const m = new Mission({ limitFrames: LIMIT })
+      m.start(0)
       expect(m.remainingFrames(LIMIT + 500)).toBe(0)
     })
 
     it('決着したらそこで止まる', () => {
       const m = new Mission({ limitFrames: LIMIT })
+      m.start(0)
       m.update(view({ frame: 150, enemiesAlive: 0 }))
       // 決着後にフレームが進んでも残り時間は動かない
       expect(m.remainingFrames(150)).toBe(LIMIT - 150)
       expect(m.remainingFrames(500)).toBe(LIMIT - 150)
+    })
+
+    /**
+     * **始まる前は満タン。**カタパルトから始まる台本では、甲板で待って
+     * いるあいだ制限時間が減らない
+     */
+    it('時計が始まる前は減らない', () => {
+      const m = new Mission({ limitFrames: LIMIT })
+      expect(m.started).toBe(false)
+      expect(m.remainingFrames(0)).toBe(LIMIT)
+      expect(m.remainingFrames(1000)).toBe(LIMIT)
+      expect(m.elapsedFrames(1000)).toBe(0)
+    })
+
+    /** 途中から始めても、そこからの経過で数える */
+    it('起点がずれても経過は始点から', () => {
+      const m = new Mission({ limitFrames: LIMIT })
+      m.start(500)
+      expect(m.elapsedFrames(500)).toBe(0)
+      expect(m.elapsedFrames(700)).toBe(200)
+      expect(m.remainingFrames(700)).toBe(LIMIT - 200)
+      // 始点より前を渡しても負にならない
+      expect(m.elapsedFrames(100)).toBe(0)
+    })
+
+    /** 二度目の start は無視する。起点が動くと時間が飛ぶ */
+    it('二度目の start を無視する', () => {
+      const m = new Mission({ limitFrames: LIMIT })
+      m.start(100)
+      m.start(500)
+      expect(m.elapsedFrames(600)).toBe(500)
     })
   })
 })

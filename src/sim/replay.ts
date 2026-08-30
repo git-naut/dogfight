@@ -74,6 +74,14 @@ export interface ReplayScript {
    * 自機との相対で書くと段 12 の射出位置が自機の位置に依存してしまう。**
    */
   carrier?: { x: number; z: number; heading: number }
+  /**
+   * カタパルト射出を使うか。`carrier` と一緒に書く。
+   *
+   * 値はカタパルトの名前（`cat-1`〜`cat-4`）。位置と向きは空母の配置と
+   * 原本の座標から計算する（`carrierDeck.ts`）。**台本に座標を書き写さない。**
+   * 空母を動かしたときに片方だけ古くなる
+   */
+  launchFrom?: 'cat-1' | 'cat-2' | 'cat-3' | 'cat-4'
   keyframes: ReplayKeyframe[]
 }
 

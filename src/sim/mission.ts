@@ -42,8 +42,11 @@ export interface MissionSpec {
    *
    * **秒ではなくフレームで持つ。**`World.time` は `frame * FIXED_DT` の
    * 浮動小数なので、`time >= 180.0` の境界がフレームによって揺れる。
-   * `frame >= limitFrames` なら整数の比較で揺れない。`Combat` も同じ流儀で
-   * 経過秒を持たずフレームを受け取る。
+   * 整数の比較なら揺れない。`Combat` も同じ流儀で経過秒を持たずフレームを
+   * 受け取る。
+   *
+   * **絶対フレームではなく、時計を始めてからの数。**カタパルトから始まる
+   * 台本では、甲板で待っている時間と射出の 2.4 秒を数えない。
    */
   readonly limitFrames: number
 }
@@ -86,9 +89,39 @@ export class Mission {
 
   private _outcome: MissionOutcome = 'running'
   private _endedFrame = -1
+  /**
+   * 時計を始めたフレーム。まだなら −1。
+   *
+   * **甲板で待っている時間と射出の 2.4 秒を数えない。**カタパルトから
+   * 始まる台本では、`airborne` へ移った瞬間に `start()` が呼ばれる。
+   * 射出のない台本は最初のステップで始まるので、絶対フレームと一致する。
+   */
+  private _startFrame = -1
 
   constructor(spec: MissionSpec) {
     this.spec = spec
+  }
+
+  /** 時計が動いているか */
+  get started(): boolean {
+    return this._startFrame >= 0
+  }
+
+  /**
+   * 時計を始める。二度目は無視する。
+   *
+   * **`update()` が最初の呼び出しで自動的に呼ぶ。**外から明示的に呼ぶ
+   * 必要はない。呼べるようにしてあるのはテストのため
+   */
+  start(frame: number): void {
+    if (this._startFrame < 0) this._startFrame = frame
+  }
+
+  /** 始めてからの経過 フレーム。始まっていなければ 0 */
+  elapsedFrames(frame: number): number {
+    if (this._startFrame < 0) return 0
+    const at = this._endedFrame >= 0 ? this._endedFrame : frame
+    return Math.max(0, at - this._startFrame)
   }
 
   get outcome(): MissionOutcome {
@@ -106,8 +139,7 @@ export class Mission {
    * 0 より下へは行かない。
    */
   remainingFrames(frame: number): number {
-    const at = this._endedFrame >= 0 ? this._endedFrame : frame
-    return Math.max(0, this.spec.limitFrames - at)
+    return Math.max(0, this.spec.limitFrames - this.elapsedFrames(frame))
   }
 
   /**
@@ -121,6 +153,10 @@ export class Mission {
    */
   update(view: MissionView): void {
     if (this._outcome !== 'running') return
+    // **最初に呼ばれたフレームが起点。**カタパルトから始まる台本では、
+    // `World` が射出中は呼ばないので、`airborne` になった次のフレームから
+    // 数え始まる。射出のない台本は最初のステップなので絶対フレームと一致する
+    this.start(view.frame)
 
     if (view.enemiesAlive === 0) {
       this.settle('cleared', view.frame)
@@ -134,7 +170,7 @@ export class Mission {
       this.settle('crashed', view.frame)
       return
     }
-    if (view.frame >= this.spec.limitFrames) {
+    if (this.elapsedFrames(view.frame) >= this.spec.limitFrames) {
       this.settle('timeout', view.frame)
     }
   }

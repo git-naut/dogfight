@@ -18,6 +18,8 @@ import {
 import { PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
 import { applyAssist, type ControlMode } from './sim/assist'
+import { catapultLaunch } from './sim/carrierDeck'
+import { LAUNCH_DISTANCE } from './sim/launch'
 import { climbAngleOf } from './sim/ai/steering'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
@@ -835,6 +837,11 @@ async function main(): Promise<void> {
       // 別に組み立てているので、片方だけ直すとライブでミッションが走らない
       ...(script.missionSeconds !== undefined
         ? { mission: { limitFrames: Math.round(script.missionSeconds / FIXED_DT) } }
+        : {}),
+      // **ここも渡す。**`createWorldFromScript`（キャプチャとテストの経路）と
+      // 別に組み立てているので、片方だけ直すとライブで射出が始まらない
+      ...(script.launchFrom !== undefined && script.carrier !== undefined
+        ? { launch: catapultLaunch(script.carrier, script.launchFrom, LAUNCH_DISTANCE) }
         : {}),
     })
     fitTargetSamples(world.targets.length)

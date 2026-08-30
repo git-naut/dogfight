@@ -676,6 +676,23 @@ export const SCRIPTS = {
     spawn: { altitude: 300, speed: 70 },
     keyframes: [],
   },
+  /**
+   * カタパルト射出。
+   *
+   * 甲板で待ち、スロットルを開けて射出される。`spawn` の高度と速度は
+   * 使われない（`World` が甲板の位置へ移す）が、型が要求するので置く。
+   *
+   * **キーフレームでスロットルを開ける。**キャプチャモードは入力なしで
+   * 飛ぶので、何もしないと甲板で待ち続ける。f60（0.5 秒）で開ける
+   */
+  'catapult-launch': {
+    name: 'catapult-launch',
+    seed: 20260831,
+    spawn: { altitude: 20, speed: 0 },
+    carrier: { x: 0, z: 0, heading: 0 },
+    launchFrom: 'cat-1',
+    keyframes: [{ frame: 60, input: { throttle: 1 } }],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

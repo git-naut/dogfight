@@ -1653,6 +1653,17 @@ test.describe('スクリーンショット回帰', () => {
       targets: false,
       enemies: false,
     },
+    // カタパルト射出の途中。**甲板の上を走っている。**降着装置が出て、
+    // 機首上げ 10 度、スロットル全開でアフターバーナーが点いている。
+    // f180 は射出開始（f60）から 1 秒
+    {
+      name: 'catapult',
+      script: 'catapult-launch',
+      frame: 180,
+      hour: 16,
+      coverage: 0,
+      hud: true,
+    },
     {
       name: 'carrier',
       script: 'carrier-deck',
@@ -2151,5 +2162,52 @@ test.describe('降着装置', () => {
       low.drawnTriangles - high.drawnTriangles,
       '脚を出しても三角形が増えていない',
     ).toBeGreaterThan(500)
+  })
+})
+
+/**
+ * カタパルト射出。
+ *
+ * **飛行モデルには触らない。**射出中は `Aircraft.step()` を呼ばず、位置と
+ * 速度を直接書く（`launch.ts`）。加速の積分を 2 か所に書かないため。
+ *
+ * 諸元は C-13 カタパルトの公表値から。終端速度 150 kt、行程 94 m、
+ * そこから `a = v²/(2s)` = 31.7 m/s²（3.2 G）、所要 2.44 秒。
+ */
+test.describe('カタパルト射出', () => {
+  test('甲板で待っている', async ({ page }) => {
+    const hook = await capture(page, { script: 'catapult-launch', frame: 30 })
+    expect(hook.speed, '甲板で動いている').toBe(0)
+    // 甲板の 20 m に車輪の高さ 1.786 m を足した値
+    expect(hook.altitude).toBeCloseTo(21.8, 0)
+    expect(hook.gearDown, '甲板で脚が出ていない').toBe(true)
+  })
+
+  test('射出されて公表値の速度に達する', async ({ page }) => {
+    const hook = await capture(page, { script: 'catapult-launch', frame: 360 })
+    // 150 kt = 77.17 m/s。射出が終わった直後
+    expect(hook.speed).toBeGreaterThan(75)
+    expect(hook.speed).toBeLessThan(82)
+    // 甲板の高さを保っている
+    expect(hook.altitude).toBeCloseTo(21.8, 0)
+  })
+
+  /**
+   * **射出後に海へ落ちない。**入力なしで飛ぶキャプチャモードで最後まで
+   * 回す。実測で最低 11.7 m まで沈んでから加速して上がる
+   */
+  test('射出後に上昇へ移る', async ({ page }) => {
+    const hook = await capture(page, { script: 'catapult-launch', frame: 3000 })
+    expect(hook.altitude, '海へ落ちている').toBeGreaterThan(100)
+    expect(hook.speed).toBeGreaterThan(150)
+    // 高度が上がったので脚は引き込まれている
+    expect(hook.gearDown).toBe(false)
+  })
+
+  /** 射出を要求しない台本では空中から始まる */
+  test('射出のない台本は影響を受けない', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 60 })
+    expect(hook.altitude).toBeGreaterThan(1000)
+    expect(hook.speed).toBeGreaterThan(100)
   })
 })

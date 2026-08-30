@@ -324,15 +324,29 @@ export function availableThrust(throttle: number, density: number): number {
  * テストの初期条件と、将来のオートパイロットに使う。揚力と重量、
  * 推力と抗力をそれぞれ釣り合わせて解く。
  */
+/**
+ * 釣り合いを求める速度の下限 m/s。
+ *
+ * **速度 0 で呼ばれると NaN が出る。**動圧が 0 になって `cl = 重量 / 0` が
+ * Infinity、`drag = 0 × Infinity` が NaN になり、それが `throttle` として
+ * 機体へ入る。実際に踏んだ（カタパルト射出の台本が `speed: 0` で spawn
+ * していた）。射出中は `Aircraft.step()` を通らないので気づかず、
+ * `airborne` へ移った瞬間に位置と速度がまとめて NaN になった。
+ *
+ * この速度以下では釣り合いが存在しない（失速速度のはるか下）ので、
+ * 意味のある値は返せない。**NaN を返すよりは下限で計算した値を返す。**
+ */
+const TRIM_MIN_SPEED = 40
+
 export function trimCondition(
   speed: number,
   density: number,
 ): { alpha: number; throttle: number } {
-  const q = dynamicPressure(density, speed)
+  const q = dynamicPressure(density, Math.max(speed, TRIM_MIN_SPEED))
   const weight = AIRCRAFT.mass * GRAVITY
   const cl = weight / (q * AIRCRAFT.wingArea)
   const alpha = cl / AIRCRAFT.liftSlope
   const drag = q * AIRCRAFT.wingArea * dragCoefficient(cl)
-  const throttle = drag / availableThrust(1, density)
+  const throttle = clamp(drag / availableThrust(1, density), 0, 1)
   return { alpha, throttle }
 }

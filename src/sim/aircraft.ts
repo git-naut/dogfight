@@ -333,6 +333,34 @@ export class Aircraft {
     this.updateDerived()
   }
 
+  /**
+   * カタパルト射出中の状態を反映する。
+   *
+   * **`step()` を通さない。**位置と速度はカタパルトが直接書いているので、
+   * ここでは補間用の前フレームを送り、派生値（速度・高度・対地高度）を
+   * 計算し直すだけ。加速の積分を 2 か所に書かないため（`launch.ts`）。
+   *
+   * 姿勢は射出方向を向かせる。甲板の上で機首がカタパルトの向きを向いて
+   * いる状態。ピッチとロールは 0。
+   */
+  syncFromLaunch(
+    direction: Vec3,
+    pitch: number,
+    groundHeight = this.groundHeight,
+  ): void {
+    this.prevPosition.copy(this.position)
+    this.prevOrientation.copy(this.orientation)
+    // −Z が機首方向。XZ 平面での向きから yaw を出す
+    const yaw = Math.atan2(direction.x, -direction.z)
+    this.orientation.setFromAxisAngle(tmpUp.set(0, 1, 0), yaw)
+    // **機首上げを掛ける。**実機は前脚を伸ばして射出姿勢を作る。
+    // 機体の右軸まわりに回すので、ヨーのあとに掛ける
+    if (pitch !== 0) {
+      this.orientation.multiply(tmpQuat.setFromAxisAngle(tmpRight.set(1, 0, 0), pitch))
+    }
+    this.updateDerived(undefined, groundHeight)
+  }
+
   step(input: InputState, dt: number, options: StepOptions = {}): void {
     this.prevPosition.copy(this.position)
     this.prevOrientation.copy(this.orientation)

@@ -10,6 +10,14 @@ import { Enemy, type EnemySpec } from './enemy'
 import type { Combatant } from './combatant'
 import type { DamageSmokeSource } from './damage'
 import { Combat } from './combat'
+import {
+  Catapult,
+  LAUNCH_THROTTLE,
+  LAUNCH_DISTANCE,
+  LAUNCH_PITCH,
+  type LaunchSpec,
+} from './launch'
+import { catapultLaunch } from './carrierDeck'
 import type { InputState } from './input'
 import { defaultTerrain, type Terrain } from './terrain'
 import { Mission, type MissionSpec } from './mission'
@@ -48,6 +56,13 @@ export interface WorldOptions {
    * 打ち切られると困るので、既定は「ミッションなし」にしてある。
    */
   mission?: MissionSpec
+  /**
+   * カタパルト射出。渡さなければ空中から始まる。
+   *
+   * **既定は「射出なし」。**基準画像を撮る台本も、性能を測る台本も、
+   * 空中から始まる前提で書いてある。
+   */
+  launch?: LaunchSpec
   /**
    * 地形。省略すると共有の既定地形を使う。
    *
@@ -118,6 +133,14 @@ export class World {
    */
   readonly mission: Mission | null
 
+  /**
+   * カタパルト。台本が射出を要求していなければ null。
+   *
+   * **状態は sim が持つ。**描画側に置くとキャプチャモード（`sync()` が
+   * 1 回だけ）で動かない
+   */
+  readonly catapult: Catapult | null
+
   private readonly stepOptions: StepOptions
   private _frame = 0
 
@@ -126,6 +149,7 @@ export class World {
     this.rng = new Rng(options.seed)
     this.terrain = options.terrain ?? defaultTerrain()
     this.mission = options.mission ? new Mission(options.mission) : null
+    this.catapult = options.launch ? new Catapult(options.launch, FIXED_DT) : null
     // 地形は毎ステップ Aircraft が引くので stepOptions に混ぜて渡す
     this.stepOptions = { ...(options.step ?? {}), terrain: this.terrain }
 
@@ -145,6 +169,35 @@ export class World {
       (spec) => new Enemy(spec, this.player.position, this.stepOptions),
     )
     this.combatants = [...this.targets, ...this.enemies]
+
+    /**
+     * 射出があるなら甲板の上へ移す。
+     *
+     * **敵を作ったあとに移す。**標的と敵の位置は自機のスポーン地点からの
+     * 相対で、台本は空中の高度を書いている。先に甲板（海面から 20 m）へ
+     * 移すと、敵が海面すれすれに並ぶ。
+     *
+     * `spawn` は高度と速度しか持たず水平位置は常に原点なので、台本側で
+     * 甲板の位置を指定する手段がない。ここで移す。
+     */
+    /**
+     * 射出がなければ時計はフレーム 0 から。
+     *
+     * **`update()` の自動開始に任せない。**`step()` は `_frame++` の
+     * あとに `mission.update()` を呼ぶので、最初の呼び出しは frame 1 に
+     * なる。1 フレームぶん短くなり、実測で `hud-mission` の基準画像が
+     * 156 画素動いた（時計の数字が 1 秒ずれた）。
+     */
+    if (this.catapult === null) this.mission?.start(0)
+
+    if (this.catapult !== null) {
+      this.catapult.hold(this.player.position, this.player.velocity)
+      // **スロットルも甲板の値にする。**`spawnFromSpec` が台本の速度から
+      // トリムを求めるが、射出の台本は `speed: 0` を書く（甲板で止まって
+      // いるので）。速度 0 の釣り合いは存在しない
+      this.player.throttle = 0
+      this.player.syncFromLaunch(this.catapult.spec.direction, LAUNCH_PITCH)
+    }
 
     this.combat = new Combat({
       rng: this.rng,
@@ -188,6 +241,45 @@ export class World {
       this.player.velocity,
       this.player.orientation,
     )
+
+    /**
+     * カタパルト。
+     *
+     * **`Aircraft.step()` を呼ばない。**位置と速度を直接書く。加速の
+     * 積分を 2 か所に書かないため（`launch.ts`）。
+     *
+     * 甲板で待っているあいだは操縦を受け付けない。押しても動かないのは
+     * 演出として正しく、`fireGun` などが通ると甲板の上で撃ってしまう。
+     */
+    if (this.catapult !== null && this.catapult.phase !== 'airborne') {
+      // **スロットルは入力をそのまま入れる。**`Aircraft.step()` を通らない
+      // ので追従の時定数は掛からない。実機は全開で射出されるので、
+      // HUD の THR が 0% のままだと嘘になる
+      this.player.throttle = input.throttle
+      if (this.catapult.phase === 'onDeck') {
+        this.catapult.hold(this.player.position, this.player.velocity)
+        // スロットルを開けたら射出する。**専用のキーを増やさない**
+        if (input.throttle > LAUNCH_THROTTLE) this.catapult.fire(this._frame)
+      } else {
+        // false を返したら `airborne` へ移った。**`phase` を見に行かない。**
+        // TypeScript は `else` の中で `launching` に絞り込んでいて、
+        // `update()` の中で変わることを知らない
+        const stillLaunching = this.catapult.update(
+          this._frame,
+          this.player.position,
+          this.player.velocity,
+        )
+        // **甲板で待っている時間と射出の 2.4 秒は制限時間に入れない。**
+        // 次のフレームが起点になる
+        if (!stillLaunching) this.mission?.start(this._frame + 1)
+      }
+      this.player.syncFromLaunch(this.catapult.spec.direction, LAUNCH_PITCH)
+      for (const target of this.targets) target.step(FIXED_DT)
+      for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)
+      this._frame++
+      return
+    }
+
     this.player.step(input, FIXED_DT, this.stepOptions)
     for (const target of this.targets) target.step(FIXED_DT)
     for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)
@@ -268,6 +360,10 @@ export function createWorldFromScript(script: ReplayScript): {
     // 秒からフレームへ直す。判定側は整数で比べる（`mission.ts`）
     ...(script.missionSeconds !== undefined
       ? { mission: { limitFrames: Math.round(script.missionSeconds / FIXED_DT) } }
+      : {}),
+    // **台本に座標を書き写さない。**空母の配置と原本の座標から計算する
+    ...(script.launchFrom !== undefined && script.carrier !== undefined
+      ? { launch: catapultLaunch(script.carrier, script.launchFrom, LAUNCH_DISTANCE) }
       : {}),
   })
   return { world, player: new ReplayPlayer(script) }

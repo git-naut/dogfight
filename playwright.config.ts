@@ -8,6 +8,22 @@ import { SWIFTSHADER_ARGS, VIEWPORT, DEFAULT_PROJECT } from './tests/e2e/launch.
 export default defineConfig({
   testDir: './tests/e2e',
   /**
+   * 画素の逆テストは既定で走らせない。
+   *
+   * 1 件ごとにキャプチャと比較が要るので所要が長い。段の終わりに手で回す。
+   *
+   *     MUTATE=1 npx playwright test pixel-mutate
+   */
+  testIgnore: process.env.MUTATE === '1' ? [] : ['**/pixel-mutate.spec.ts'],
+  /**
+   * 基準画像の置き場を spec ファイル名から切り離す。
+   *
+   * 既定は `{testFileName}-snapshots/` に解決するので、同じ 42 枚を読む
+   * `pixel-mutate.spec.ts` が別のディレクトリを見てしまい、比較ではなく
+   * **新規作成**になる。落ちるはずの逆テストが静かに通る。
+   */
+  snapshotPathTemplate: '{testDir}/smoke.spec.ts-snapshots/{arg}{-projectName}{-platform}{ext}',
+  /**
    * 1 テストの制限。既定の 30 秒では足りない。
    *
    * 雲は時間方向に足し込むので、キャプチャ 1 枚あたり 8 回描く。CI の
@@ -74,9 +90,27 @@ export default defineConfig({
        * F/A-18C へ差し替えたとき、10 枚のうち 4 枚が通ってしまった。機体は
        * 画面の 5% ほどしか占めないので、差分画素は 1.96% で 0.02 をわずかに
        * 下回る。0.005 まで締めると 4 倍の余裕で捕まる。
+       *
+       * **その 0.005 でも足りなかった。**Phase 8 段 6 で 42 枚それぞれが
+       * 何を見張っているかを機械で測ったところ、宣言 56 件のうち 29 件が
+       * 発火しなかった。0.005 は 1280x720 で 4,608 画素まで許すが、
+       * カットのコメントに記録された実測はフレア 1,590 画素、曳光弾
+       * 304 画素、爆発 52 画素、標的 124 画素。**全部その下にある。**
+       *
+       * | トグル | 見張れていた | 見張れていなかった |
+       * |---|---|---|
+       * | aircraft / terrain / water | 26 | 0 |
+       * | trails / enemies / targets ほか VFX | 1 | 29 |
+       *
+       * 大面積のものだけが守られていた。**基準画像が 42 枚あることと、
+       * 42 個の見張りがあることは別。**
+       *
+       * 0 にする。`tools/exact.mjs` が 42 枚すべてで差分 0 画素を実証して
+       * いるので、SwiftShader は同じビルドなら画素を再現する。1 画素あたり
+       * の許容（threshold 0.05）は残すので、階調 13 未満のにじみは数えない。
        */
       threshold: 0.05,
-      maxDiffPixelRatio: 0.005,
+      maxDiffPixelRatio: 0,
       animations: 'disabled',
     },
   },

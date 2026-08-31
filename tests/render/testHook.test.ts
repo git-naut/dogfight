@@ -62,9 +62,9 @@ describe('TestHook', () => {
   })
 
   it('E2E 側の写しが本家とずれていない', () => {
-    // tests/e2e/smoke.spec.ts が TestHook の写しを持っている。写しなので
+    // tests/e2e/harness.ts が TestHook の写しを持っている。写しなので
     // 黙ってずれる。Phase 3.5 で実際に 5 項目ずれていた
-    const spec = readFileSync(`${ROOT}tests/e2e/smoke.spec.ts`, 'utf8')
+    const spec = readFileSync(`${ROOT}tests/e2e/harness.ts`, 'utf8')
     const start = spec.indexOf('interface TestHook {')
     expect(start, '写しが見つからない').toBeGreaterThan(-1)
     const body = spec.slice(start, spec.indexOf('\n}', start))

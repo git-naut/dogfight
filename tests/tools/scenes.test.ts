@@ -50,6 +50,23 @@ describe('基準画像の構図', () => {
     }
   })
 
+  it('watches は実測に基づく', () => {
+    // **宣言ではなく測った結果を書く。**段 6 で 56 件を宣言して測り、
+    // 発火しなかった 7 件を落として 49 件になった。空の 4 枚は画素では
+    // 何も見張っていない（数値の検査が担う）。
+    //
+    // 増やしたら `MUTATE=1 npx playwright test pixel-mutate` で確かめる。
+    const total = SCENES.reduce((sum, s) => sum + (s.watches?.length ?? 0), 0)
+    expect(total).toBe(49)
+    const empty = SCENES.filter((s) => (s.watches ?? []).length === 0).map((s) => s.name)
+    expect(empty).toEqual([
+      'aircraft-vortex-fade',
+      'hud-dlz',
+      'hud-mission-failed',
+      'missile-warning',
+    ])
+  })
+
   it('HUD を含むのは 13 枚', () => {
     expect(SCENES.filter((s) => s.hud === true).length).toBe(13)
   })

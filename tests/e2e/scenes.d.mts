@@ -5,7 +5,34 @@
  * 実行する必要があるため。型だけここで与える（`tools/ac3d.mjs` と同じ作法）。
  */
 
-export interface CaptureQuery {
+/**
+ * 描画を切り分けるトグルの名前。
+ *
+ * `src/render/capture.ts` の `show*` と対になる。**切れないものは差分で
+ * 測れない。**演出を足すときはここにも 1 つ足す。
+ */
+export type ToggleKey =
+  | 'terrain'
+  | 'water'
+  | 'environment'
+  | 'aircraftShadow'
+  | 'targets'
+  | 'enemies'
+  | 'damageSmoke'
+  | 'flares'
+  | 'tracers'
+  | 'aircraft'
+  | 'trails'
+  | 'missiles'
+  | 'smoke'
+  | 'explosions'
+
+/** トグルの内部名と URL のパラメータ名の対 */
+export declare const TOGGLES: readonly (readonly [ToggleKey, string])[]
+
+type ToggleQuery = { readonly [K in ToggleKey]?: boolean }
+
+export interface CaptureQuery extends ToggleQuery {
   readonly script?: string
   readonly frame?: number
   readonly hour?: number
@@ -22,29 +49,8 @@ export interface CaptureQuery {
    * `coverage` に 0 以外を明示した 15 枚。
    */
   readonly coverage?: number
-  /** 標的機を描くか。切ると差分で標的の寄与を測れる */
-  readonly targets?: boolean
-  /** 敵機を描くか。切ると差分で敵の寄与を測れる */
-  readonly enemies?: boolean
-  /**
-   * 自機を出すか。既定は出す。
-   *
-   * 追従カメラは自機の後方にあるので、被写体が自機より前にあると隠れる。
-   * 空母の甲板がそうだった
-   */
-  readonly aircraft?: boolean
-  /** ダメージの煙を描くか。切ると差分で寄与を測れる */
-  readonly damageSmoke?: boolean
-  /** フレアを描くか。切ると差分で寄与を測れる */
-  readonly flares?: boolean
   /** HUD を出すか。キャプチャの既定はオフ */
   readonly hud?: boolean
-  /** 曳光弾を描くか。切ると差分で寄与を測れる */
-  readonly tracers?: boolean
-  /** ミサイルの煙を描くか。切ると差分で寄与を測れる */
-  readonly smoke?: boolean
-  /** 爆発を描くか。切ると差分で寄与を測れる */
-  readonly explosions?: boolean
 }
 
 /** 基準画像 1 枚ぶんの構図。`name` がそのまま PNG のファイル名になる */
@@ -52,6 +58,14 @@ export interface SceneSpec extends CaptureQuery {
   readonly name: string
   readonly script: string
   readonly frame: number
+  /**
+   * このカットが見張っていると主張する描画要素。
+   *
+   * **主張であって事実ではない。**`MUTATE=1` の逆テストが 1 つずつ切って、
+   * 基準画像が実際に落ちるかを確かめる。落ちなければ主張が嘘なので、
+   * 宣言から外して理由を `docs/lessons.md` に書く。
+   */
+  readonly watches?: readonly ToggleKey[]
 }
 
 /**

@@ -19,7 +19,8 @@
     "test:e2e": "playwright test",
     "exact": "node tools/exact.mjs",
     "mutate": "node tools/mutate.mjs",
-    "stryker": "stryker run"
+    "stryker": "stryker run",
+    "mutate:pixel": "MUTATE=1 playwright test pixel-mutate"
   },
   "dependencies": {
     "@takram/three-atmosphere": "^0.19.1",

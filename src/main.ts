@@ -83,6 +83,7 @@ const hook = installTestHook({
   captureReady: false,
   seed: DEFAULT_SEED,
   droppedSteps: 0,
+  backend: '',
   webglVersion: 0,
   atmosphereReady: false,
   sunElevation: 0,
@@ -345,7 +346,11 @@ async function main(): Promise<void> {
   })
 
   setBoot('描画の準備中')
-  hook.webglVersion = view.renderer.capabilities.isWebGL2 ? 2 : 1
+  // **バックエンドの名前を出す。**`webglVersion` は WebGPU 経路では意味を
+  // 失うので、段 18 まで残しつつ `backend` を正本にする。ただし値そのものは
+  // `kind` から導かず、バックエンドが `gl.VERSION` を読んだ実物を渡す
+  hook.backend = view.backend.kind
+  hook.webglVersion = view.backend.webglVersion
   hook.atmosphereReady = true
   hook.sunElevation = view.sunElevation
   hook.sunRadiance = view.sunRadiance.toArray()
@@ -616,7 +621,7 @@ async function main(): Promise<void> {
       hook.benchSweep = rows
       // **何を測ったかを絵の中に残す。**実機の計測で 3 度、script を
       // 渡し忘れて既定の level を測っていた
-      const gl = view.renderer.getContext()
+      const size = view.backend.drawingBufferSize()
       if (hudRoot)
         showBenchPanel(hudRoot, rows, {
           script: capture.script,
@@ -625,23 +630,16 @@ async function main(): Promise<void> {
           coverage: capture.coverage,
           preset: capture.preset,
           noDegrade: capture.noDegrade,
-          drawingBufferWidth: gl.drawingBufferWidth,
-          drawingBufferHeight: gl.drawingBufferHeight,
+          drawingBufferWidth: size.width,
+          drawingBufferHeight: size.height,
           enemyCount: world.enemies.length,
           targetCount: world.targets.length,
           samplesPerCase,
           caseCount: rows.length,
         })
     } else if (capture.bench > 0) {
-      const gl = view.renderer.getContext()
-      const pixel = new Uint8Array(4)
-      // gl.finish() では足りない。Chrome は描画コマンドを溜めるので、
-      // 読み戻しで排出させないと投入時間しか測れない。実測で全解像度が
-      // 1/4 解像度より速く出て気づいた
-      const drain = () => {
-        gl.finish()
-        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
-      }
+      // 排出はバックエンドが持つ。`gl.finish()` では足りない理由もそちらに書いた
+      const drain = () => view.backend.drain()
 
       // 1 回目はシェーダのコンパイルとテクスチャの常駐化が混ざるので捨てる
       view.render()
@@ -997,7 +995,7 @@ async function main(): Promise<void> {
     }
 
     publish(world, world.frame)
-    hook.programs = view.renderer.info.programs?.length ?? 0
+    hook.programs = view.backend.programs
 
     // **音は `publish` の後。**あちらが `hook` と HUD へ状態を配るので、
     // 同じフレームの値を見ることになる
@@ -1047,8 +1045,8 @@ async function main(): Promise<void> {
       drawnTriangles: view.drawnTriangles,
       enemiesAlive: world.enemies.filter((enemy) => enemy.alive).length,
       enemyCount: world.enemies.length,
-      drawingBufferWidth: view.renderer.domElement.width,
-      drawingBufferHeight: view.renderer.domElement.height,
+      drawingBufferWidth: view.backend.domElement.width,
+      drawingBufferHeight: view.backend.domElement.height,
       devicePixelRatio: window.devicePixelRatio,
     })
 
@@ -1102,7 +1100,7 @@ async function main(): Promise<void> {
     }
     hook.compileMs = performance.now() - compileStarted
   }
-  hook.programs = view.renderer.info.programs?.length ?? 0
+  hook.programs = view.backend.programs
 
   finishBoot()
   requestAnimationFrame(frame)

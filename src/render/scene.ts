@@ -3,6 +3,7 @@ import type { AircraftSample, AircraftTrailSource } from '../sim/aircraft'
 import type { TargetSample } from '../sim/target'
 import type { LookOffset } from '../input/mouseLook'
 import { createChaseCamera, type ChaseCamera } from './camera'
+import { createWebGLBackend, type RenderBackend } from './backend'
 import { createAircraftView, type AircraftView } from './aircraftView'
 import { loadAircraftModel, type AircraftModel } from './aircraft/model'
 import { loadCarrier, placeCarrier, type Carrier } from './carrier'
@@ -143,6 +144,13 @@ export interface MeasureConfig {
 }
 
 export interface SceneHandle {
+  /**
+   * 描画バックエンドの継ぎ目。
+   *
+   * WebGPU へ移すと消えるか名前が変わる面は、すべてこちらを通す。
+   * `renderer` は段 8 までの過渡的な口で、新しい参照を増やさない。
+   */
+  backend: RenderBackend
   renderer: THREE.WebGLRenderer
   scene: THREE.Scene
   camera: THREE.PerspectiveCamera
@@ -426,11 +434,12 @@ export async function createScene(
   // 輝度を「単位放射輝度の太陽の輝度」で正規化して返すので、空はその何桁も
   // 下の値になる。掛け直さないと真昼でも薄暗い絵にしかならない。
   renderer.toneMapping = THREE.NoToneMapping
+  renderer.toneMappingExposure = options.exposure ?? DEFAULT_EXPOSURE
+
   // 統計を自動で消させない。既定では renderer.render() ごとに 0 へ戻るので、
   // 最後のポストパスだけが残って「ドローコール 1」に見える。フレームの頭で
-  // 自分で消して、合計を読む
-  renderer.info.autoReset = false
-  renderer.toneMappingExposure = options.exposure ?? DEFAULT_EXPOSURE
+  // 自分で消して、合計を読む。`createWebGLBackend` が `autoReset` を落とす
+  const backend = createWebGLBackend(renderer)
 
   const scene = new THREE.Scene()
   // near 0.5 / far 400,000 だと比が 80 万あり、地形が遠くまで伸びると遠景の
@@ -455,7 +464,7 @@ export async function createScene(
   scene.add(atmosphere.skyLight)
 
   // 雲のノイズを焼く。起動時の一度だけで、以降は使い回す
-  const noise: CloudNoise = generateCloudNoise(renderer)
+  const noise: CloudNoise = generateCloudNoise(backend)
 
   // 地形。高さ場は sim が持つ。ここはテクスチャへ上げて頂点シェーダで引くだけ。
   // 生成時間は sim 層で測れない（performance.now() が使えない）のでここで挟む
@@ -571,6 +580,7 @@ export async function createScene(
   scene.environment = (options.showEnvironment ?? true) ? environment.texture : null
 
   const cloudsPass = new CloudsPass({
+    backend,
     camera,
     noise,
     quality,
@@ -593,7 +603,7 @@ export async function createScene(
 
   terrainUniforms.cloudShadowMap.value = cloudsPass.shadowTexture
 
-  const gpuTimer: GpuTimer = createGpuTimer(renderer)
+  const gpuTimer: GpuTimer = createGpuTimer(backend)
   /** 雲のパスを描いているか。計測で切ったときは影の焼き込みも止める */
   let cloudsEnabled = true
   let measureClouds = false
@@ -665,7 +675,7 @@ export async function createScene(
    * ハンドルの外に置いてあるのは `compileAllPresets` が呼ぶため
    */
   function renderPlainImpl(): void {
-    renderer.info.reset()
+    backend.resetInfo()
     updateShadowUniforms()
     cloudsPass.setTimingEnabled(false)
     // 雲を切っているときは影も焼かない。切った意味がなくなる
@@ -690,6 +700,7 @@ export async function createScene(
   }
 
   return {
+    backend,
     renderer,
     scene,
     camera,
@@ -792,11 +803,11 @@ export async function createScene(
     },
 
     get drawCalls() {
-      return renderer.info.render.calls
+      return backend.drawCalls
     },
 
     get drawnTriangles() {
-      return renderer.info.render.triangles
+      return backend.triangles
     },
 
     get aircraftShadowReady() {
@@ -973,7 +984,7 @@ export async function createScene(
     },
 
     render() {
-      renderer.info.reset()
+      backend.resetInfo()
       // 影のテクスチャは three が最初の描画で作る。sync() で入れると
       // 1 枚目が null のままになり、キャプチャモード（sync は 1 回だけ、
       // 描画は 8 回）では影がまったく出ない。毎フレームここで入れ直す

@@ -1,4 +1,4 @@
-import type { WebGLRenderer } from 'three'
+import type { RenderBackend } from './backend'
 
 /**
  * GPU のフレーム時間を測る。
@@ -10,6 +10,10 @@ import type { WebGLRenderer } from 'three'
  * WebGL2 の EXT_disjoint_timer_query_webgl2 で GPU 側の経過を直接測る。
  * 拡張が無い環境（多くのソフトウェアレンダラ）では supported が false になり、
  * 表示側で伏せる。
+ *
+ * **WebGPU にはこの拡張がない。**`renderer.resolveTimestampsAsync()` という
+ * 別の API になるので、ここは段 16 で作り直す。それまでは
+ * `RenderBackend.webglContext()` の逃げ口を通す。null が返れば伏せる。
  */
 
 interface TimerExtension {
@@ -45,8 +49,14 @@ const NOT_SUPPORTED: GpuTimer = {
   dispose() {},
 }
 
-export function createGpuTimer(renderer: WebGLRenderer): GpuTimer {
-  const gl = renderer.getContext() as WebGL2RenderingContext
+export function createGpuTimer(backend: RenderBackend): GpuTimer {
+  const gl = backend.webglContext()
+  // WebGPU 経路では null。**その場合は計測を伏せる。**段 16 で作り直す
+  if (gl === null) return NOT_SUPPORTED
+  return createWebGLTimer(gl)
+}
+
+function createWebGLTimer(gl: WebGL2RenderingContext): GpuTimer {
   const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as TimerExtension | null
   if (ext === null) return NOT_SUPPORTED
 

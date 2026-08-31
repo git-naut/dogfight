@@ -26,6 +26,7 @@ import densityChunk from './shaders/density.glsl?raw'
 import type { CloudNoise } from './noise'
 import type { QualitySettings } from '../quality'
 import { createGpuTimer, type GpuTimer } from '../gpuTimer'
+import type { RenderBackend } from '../backend'
 
 /**
  * 雲のレイマーチを低解像度で走らせ、結果を大気エフェクトの overlay へ渡す。
@@ -148,6 +149,13 @@ export const SHADOW_EXTENT = 30_000
 
 export interface CloudsPassOptions {
   camera: PerspectiveCamera
+  /**
+   * 描画バックエンド。GPU タイマーの取得だけに使う。
+   *
+   * `Pass.render` は `WebGLRenderer` を受け取るが、WebGPU 経路では
+   * `getContext()` が空になる。計測の口はバックエンド側へ寄せてある
+   */
+  backend: RenderBackend
   noise: CloudNoise
   quality: QualitySettings
   /** 雲量 0..1 */
@@ -176,6 +184,7 @@ export interface CloudsUpdate {
 }
 
 export class CloudsPass extends Pass {
+  private readonly backend: RenderBackend
   private readonly cloudCamera: PerspectiveCamera
   private readonly target: WebGLRenderTarget
   /**
@@ -228,6 +237,7 @@ export class CloudsPass extends Pass {
   constructor(options: CloudsPassOptions) {
     super('CloudsPass')
 
+    this.backend = options.backend
     this.cloudCamera = options.camera
     this.quality = options.quality
 
@@ -509,7 +519,7 @@ export class CloudsPass extends Pass {
   }
 
   override render(renderer: WebGLRenderer): void {
-    if (this.timer === null) this.timer = createGpuTimer(renderer)
+    if (this.timer === null) this.timer = createGpuTimer(this.backend)
     const timing = this.timingEnabled && this.timer.supported
     if (timing) this.timer.begin()
 

@@ -17,6 +17,7 @@ import {
 } from 'three'
 import noise3dFrag from './shaders/noise3d.frag?raw'
 import weatherFrag from './shaders/weather.frag?raw'
+import type { RenderBackend } from '../backend'
 
 /**
  * 雲のノイズを GPU で焼く。
@@ -86,7 +87,8 @@ function createQuad(material: ShaderMaterial): { scene: Scene; camera: Orthograp
   return { scene, camera }
 }
 
-export function generateCloudNoise(renderer: WebGLRenderer): CloudNoise {
+export function generateCloudNoise(backend: RenderBackend): CloudNoise {
+  const renderer = backend.renderer
   const started = performance.now()
 
   const previousTarget = renderer.getRenderTarget()
@@ -147,7 +149,7 @@ export function generateCloudNoise(renderer: WebGLRenderer): CloudNoise {
   // ただし ANGLE 経由だと finish() でも完全には待ち切れず、この値は実際の
   // 生成時間を下回る。信用できるのはページ読み込みからの実測のほうで、
   // 解像度の判断はそちらで行った（docs/decisions/0003 参照）
-  renderer.getContext().finish()
+  backend.drain()
   const elapsedMs = performance.now() - started
 
   const stats = sampleStats(renderer, shapeTarget, Math.floor(SHAPE_SIZE / 2))

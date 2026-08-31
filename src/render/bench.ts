@@ -1,5 +1,5 @@
-import type { WebGLRenderer } from 'three'
 import type { MeasureConfig, MeasureToggles } from './scene'
+import type { RenderBackend } from './backend'
 
 /**
  * 同じ 1 枚を設定を変えながら繰り返し描いて、GPU 時間の内訳を測る。
@@ -45,7 +45,13 @@ export interface BenchRow {
 }
 
 export interface BenchTarget {
-  readonly renderer: WebGLRenderer
+  /**
+   * 描画バックエンド。排出と GPU タイマーの取得に使う。
+   *
+   * **WebGPU 経路では `getContext()` が空になる。**計測の口をここへ寄せて
+   * あるので、段 16 で作り直すときに触るのはこのファイルとバックエンドだけ
+   */
+  readonly backend: RenderBackend
   readonly terrainTriangles: number
   /** 直前のフレームで実際に投入した三角形。切り替えが効いたかの確認に使う */
   readonly drawnTriangles: number
@@ -169,19 +175,20 @@ export async function runBenchSweep(
   samplesPerCase: number,
   only = '',
 ): Promise<BenchRow[]> {
-  const gl = view.renderer.getContext() as WebGL2RenderingContext
-  const ext = gl.getExtension(
-    'EXT_disjoint_timer_query_webgl2',
-  ) as TimerExtension | null
-  const pixel = new Uint8Array(4)
+  // **`ext` があるなら `gl` もある、を型で表す。**別々の変数にすると
+  // 片方だけ null 検査した経路が通ってしまう。WebGPU 経路では
+  // `webglContext()` が null を返し、GPU 時間は測らず CPU 時間だけ残る
+  const timer = ((): { gl: WebGL2RenderingContext; ext: TimerExtension } | null => {
+    const gl = view.backend.webglContext()
+    if (gl === null) return null
+    const ext = gl.getExtension(
+      'EXT_disjoint_timer_query_webgl2',
+    ) as TimerExtension | null
+    return ext === null ? null : { gl, ext }
+  })()
 
-  // gl.finish() では足りない。Chrome は描画コマンドを溜めるので、読み戻しで
-  // 排出させないと投入時間しか測れない。実測で全解像度が 1/4 解像度より
-  // 速く出て気づいた
-  const drain = (): void => {
-    gl.finish()
-    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
-  }
+  // 排出はバックエンドが持つ。`gl.finish()` では足りない理由もそちらに書いた
+  const drain = (): void => view.backend.drain()
 
   // **型で埋め忘れを止める。**`MeasureToggles` はすべての切り替えを必須にする
   const base: MeasureToggles & MeasureConfig = {
@@ -271,7 +278,8 @@ export async function runBenchSweep(
   const inflight: Inflight[] = []
 
   function collect(): void {
-    if (ext === null) return
+    if (timer === null) return
+    const { gl, ext } = timer
     // 乱れた区間の値は信用できない。読むとフラグは落ちる
     const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT) as boolean
     for (let i = inflight.length - 1; i >= 0; i--) {
@@ -314,11 +322,15 @@ export async function runBenchSweep(
       view.renderPlain()
       drain()
 
-      const query = ext !== null ? gl.createQuery() : null
-      if (query !== null && ext !== null) gl.beginQuery(ext.TIME_ELAPSED_EXT, query)
+      const query = timer?.gl.createQuery() ?? null
+      if (timer !== null && query !== null) {
+        timer.gl.beginQuery(timer.ext.TIME_ELAPSED_EXT, query)
+      }
       const started = performance.now()
       view.renderPlain()
-      if (query !== null && ext !== null) gl.endQuery(ext.TIME_ELAPSED_EXT)
+      if (timer !== null && query !== null) {
+        timer.gl.endQuery(timer.ext.TIME_ELAPSED_EXT)
+      }
       drain()
       cpuSamples[c]!.push(performance.now() - started)
       if (query !== null) inflight.push({ query, caseIndex: c })
@@ -334,7 +346,7 @@ export async function runBenchSweep(
     await nextFrame()
     collect()
   }
-  for (const item of inflight) gl.deleteQuery(item.query)
+  for (const item of inflight) timer?.gl.deleteQuery(item.query)
 
   // 測り終えたら元に戻す。以降の描画が設定違いにならないように
   view.setMeasureConfig(base)

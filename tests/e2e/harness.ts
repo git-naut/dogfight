@@ -20,6 +20,8 @@ export interface TestHook {
   captureReady: boolean
   seed: number
   droppedSteps: number
+  /** 描画バックエンドの名前。`webgl` / `node-webgl` / `node-webgpu` */
+  backend: string
   webglVersion: number
   atmosphereReady: boolean
   sunElevation: number

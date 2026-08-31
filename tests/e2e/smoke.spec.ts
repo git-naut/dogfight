@@ -20,6 +20,9 @@ test.describe('起動', () => {
     expect(hook.atmosphereReady).toBe(true)
     // SwiftShader でも WebGL2 は取れる。1 に落ちていたら描画品質の前提が崩れる
     expect(hook.webglVersion).toBe(2)
+    // 既定はこれまでどおり WebGLRenderer 直結の経路。node 経路へ勝手に
+    // 切り替わっていないことを見る
+    expect(hook.backend).toBe('webgl')
     expect(errors).toEqual([])
   })
 

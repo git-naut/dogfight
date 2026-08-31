@@ -23,6 +23,7 @@
 | 基準画像 42 枚が VFX を見張っていなかった。宣言 56 件のうち発火したのは 27 件で、大面積のもの（`aircraft` 13、`terrain` 9、`water` 4）だけ。`maxDiffPixelRatio: 0.005` は 4,608 画素まで許すが、フレアの寄与は 1,590、曳光弾 304、爆発 52 画素 | 段 6 の画素の逆テスト | `tests/e2e/pixel-mutate.spec.ts`（`MUTATE=1`）が宣言と実測を突き合わせる。許容を 0 にした |
 | 逆テストの基準画像が別ディレクトリに解決され、比較ではなく新規作成になっていた。`toHaveScreenshot` は spec ファイル名から置き場を決める。**落ちるはずの検査が静かに通る** | 書いた直後に気づいた | `playwright.config.ts` の `snapshotPathTemplate` が置き場を spec 名から切り離す |
 | 追い越しの判定と DLZ の clamp が丸ごと素通りしていた。`overtook = true` を `false` にしても、`rNe > rMax` の補正を消しても落ちない | 同上 | `tests/sim/dlz.test.ts` が値を固定する。歯型 `dlz-overtook-never` `dlz-drop-clamp` |
+| `webglVersion` をバックエンドの facade へ寄せるとき、値を `kind` から導いた。`kind === 'node-webgpu' ? 0 : 2` は WebGL 経路で必ず 2 を返すので、`smoke.spec.ts` の「WebGL2 が取れているか」が**原理的に落ちなくなっていた**。継ぎ目を作る作業がそのまま見張りを外す | 段 7 の差分を読み直したとき | `RenderBackend.webglVersion` が `gl.VERSION` の実物を読む。`smoke.spec.ts` は `hook.backend` も見る |
 
 ## まだ守るものがない穴
 

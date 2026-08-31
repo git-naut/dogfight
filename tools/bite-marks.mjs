@@ -31,6 +31,15 @@ export const BITE_MARKS = [
     lesson: '操作説明と実装のキー割り当てがずれる',
   },
   {
+    id: 'help-drop-escape',
+    kind: '表の行の削除',
+    file: 'src/input/keyboard.ts',
+    find: "  { keys: 'Escape', action: 'ポーズ', codes: ['Escape'] },\n",
+    replace: '',
+    expect: 'tests/input/controlHelp.test.ts',
+    lesson: 'ポーズ（Escape）が `CONTROL_HELP` に載っていない',
+  },
+  {
     id: 'layering-drop-rule',
     kind: '表の行の削除',
     file: 'tests/sim/layering.test.ts',
@@ -118,7 +127,26 @@ export const BITE_MARKS = [
     why: '固定ステップの境界。ちょうど 1 ステップぶん溜まったときに進めなくなる。「半ステップ 2 回で 1 ステップ」がこれを見張っているはず',
   },
 
+  {
+    id: 'escape-uses-event-key',
+    kind: '比較の反転',
+    file: 'src/main.ts',
+    find: "    if (event.code !== 'Escape') return",
+    replace: "    if (event.key !== 'Escape') return",
+    expect: 'tests/input/controlHelp.test.ts',
+    lesson: 'ポーズ（Escape）が `CONTROL_HELP` に載っていない',
+  },
+
   // ── 条件の固定 ──────────────────────────────────────────────
+  {
+    id: 'help-scan-one-file',
+    kind: '条件の固定',
+    file: 'tests/input/controlHelp.test.ts',
+    find: "    .filter(({ source }) => source.includes('keydown') || source.includes('KeyboardEvent'))",
+    replace: "    .filter(({ path }) => path.endsWith('keyboard.ts'))",
+    expect: 'tests/input/controlHelp.test.ts',
+    lesson: 'ポーズ（Escape）が `CONTROL_HELP` に載っていない',
+  },
   {
     id: 'aoa-limiter-always-off',
     kind: '条件の固定',

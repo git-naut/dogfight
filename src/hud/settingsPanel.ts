@@ -190,7 +190,8 @@ export function createSettingsPanel(
    * ここが拾えば、割り当ての重複にならない
    */
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (!shown || event.key !== 'Escape') return
+    // `event.code` で見る。理由は `main.ts` の `onEscape` と同じ
+    if (!shown || event.code !== 'Escape') return
     event.preventDefault()
     options.onClose()
   }

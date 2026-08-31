@@ -127,7 +127,7 @@ describe('docs/lessons.md', () => {
     // 「未対応」の行は教訓ではなく穴。**数が見えていることが大事。**
     // 減ったらここを下げる。増えたら理由を書く
     const holes = (lessons.match(/未対応/g) ?? []).length
-    // 段 1 時点で 7。段が進むごとに減るはず。**増やすときは理由を書く**
-    expect(holes).toBeLessThanOrEqual(7)
+    // 段 1 で 7、段 2 で 6。段が進むごとに減るはず。**増やすときは理由を書く**
+    expect(holes).toBeLessThanOrEqual(6)
   })
 })

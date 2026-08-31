@@ -810,7 +810,9 @@ async function main(): Promise<void> {
    * タイトルが出ているあいだも何もしない。まだ始まっていない。
    */
   const onEscape = (event: KeyboardEvent): void => {
-    if (event.key !== 'Escape') return
+    // **`event.code` で見る。**`event.key` はレイアウトで変わるうえ、
+    // 操作説明との突合（`tests/input/controlHelp.test.ts`）が拾えない
+    if (event.code !== 'Escape') return
     if (settingsPanel?.visible === true) return
     if (titlePanel?.visible === true) return
     event.preventDefault()

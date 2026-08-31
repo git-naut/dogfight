@@ -148,6 +148,10 @@ export const CONTROL_HELP: readonly ControlHelpEntry[] = [
   { keys: 'C', action: 'フレア', codes: ['KeyC'] },
   { keys: '右ドラッグ', action: '視点', codes: [] },
   { keys: 'R', action: 'やり直す', codes: ['KeyR'] },
+  // **判定はこのファイルにない。**`main.ts` がポーズを、`settingsPanel.ts` が
+  // 設定を閉じるのに使う。それでも割り当ての正本はここに置く。
+  // 置かなかったせいで、Phase 7 まで操作説明にポーズが出ていなかった
+  { keys: 'Escape', action: 'ポーズ', codes: ['Escape'] },
 ]
 
 /** 1 行に並べた操作説明。デバッグパネルのような狭い場所で使う */

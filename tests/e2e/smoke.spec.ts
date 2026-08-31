@@ -1305,7 +1305,9 @@ test.describe('リザルト', () => {
    * 写らない。DOM を直接見る。
    */
   test('決着すると出る', async ({ page }) => {
-    await openLive(page, '?script=mission-01')
+    // **空中から始まる台本を使う。**`mission-01` は甲板でスロットルを
+    // 開けるまで始まらないので、入力なしで回るこの検査には向かない
+    await openLive(page, '?script=mission-air')
     const result = page.locator('#result')
 
     // 走っているあいだは畳まれている
@@ -1381,7 +1383,7 @@ test.describe('デバッグ表示', () => {
  */
 test.describe('ミッション', () => {
   test('始まった直後は進行中で、残り時間が満タン', async ({ page }) => {
-    const hook = await capture(page, { script: 'mission-01', frame: 60 })
+    const hook = await capture(page, { script: 'mission-air', frame: 60 })
     expect(hook.missionOutcome).toBe('running')
     // 制限時間 300 秒 = 36,000 フレーム。1 秒ぶん進んでいる
     expect(hook.missionRemaining).toBe(36000 - 60)
@@ -1399,7 +1401,7 @@ test.describe('ミッション', () => {
    * ミッション全体を E2E で回せる。
    */
   test('制限時間まで回すと決着している', async ({ page }) => {
-    const hook = await capture(page, { script: 'mission-01', frame: 36000 })
+    const hook = await capture(page, { script: 'mission-air', frame: 36000 })
     expect(hook.missionOutcome).not.toBe('running')
     expect(hook.missionOutcome).not.toBe('none')
     expect(hook.missionRemaining).toBeGreaterThanOrEqual(0)
@@ -1608,22 +1610,26 @@ test.describe('スクリーンショット回帰', () => {
     { name: 'enemy-flare-flash', script: 'enemy-flare', frame: 10, hour: 16, coverage: 0 },
     // ミッションの時計と残敵。**走行中は HUD 緑。**左上に置く（中央上部は
     // 方位テープとその上の現在方位・三角、さらに上へピッチラダーの目盛が
-    // 来て埋まっている）。f120 は開始 1 秒で、まだ 5 機とも生きている
+    // 来て埋まっている）。
+    //
+    // **f600 は射出が終わった直後。**mission-01 は空母から始まるので、
+    // 甲板で待つあいだと射出の 2.4 秒は時計が動かない（f353 で射出完了）。
+    // ここは動き始めて 2 秒で、まだ 5 機とも生きている
     {
       name: 'hud-mission',
       script: 'mission-01',
-      frame: 120,
+      frame: 600,
       hour: 16,
       coverage: 0,
       hud: true,
     },
     // 決着したミッション。**失敗すると橙に変わる。**この 1 枚が色の
-    // 切り替わりの見張り。f1200（10 秒）で自機は既に撃墜されている
-    // （キャプチャは入力なしで飛ぶので正面の敵に撃たれる）
+    // 切り替わりの見張り。実測で f2284（19.0 秒）に撃墜されるので、
+    // その後の f2400 を撮る（キャプチャは入力なしで飛ぶので撃たれる）
     {
       name: 'hud-mission-failed',
       script: 'mission-01',
-      frame: 1200,
+      frame: 2400,
       hour: 16,
       coverage: 0,
       hud: true,
@@ -2030,7 +2036,8 @@ test.describe('効果音', () => {
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
 
-    await page.goto('/dogfight/?script=mission-01&precompile=0')
+    // **空中から始まる台本を使う。**甲板では操縦を受け付けないので撃てない
+    await page.goto('/dogfight/?script=mission-air&precompile=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -2133,7 +2140,8 @@ test.describe('降着装置', () => {
   })
 
   test('空戦の高度では出ていない', async ({ page }) => {
-    const hook = await capture(page, { script: 'mission-01', frame: 120 })
+    // `mission-01` は f120 だとまだ甲板の上（射出は f353 に終わる）
+    const hook = await capture(page, { script: 'mission-air', frame: 120 })
     expect(hook.agl, '高度が想定と違う').toBeGreaterThan(80)
     expect(hook.gearDown, '高空で脚が出ている').toBe(false)
   })
@@ -2209,5 +2217,179 @@ test.describe('カタパルト射出', () => {
     const hook = await capture(page, { script: 'level', frame: 60 })
     expect(hook.altitude).toBeGreaterThan(1000)
     expect(hook.speed).toBeGreaterThan(100)
+  })
+})
+
+/**
+ * ポーズ。
+ *
+ * **`Escape` は 3 つの状態で意味が変わる。**設定が開いていれば設定を閉じ、
+ * タイトルが出ていれば何もせず、それ以外はポーズの切り替え。
+ *
+ * 出しているあいだ `FixedStepDriver` を回さない。復帰のとき `reset()` を
+ * 呼んで蓄積を捨てる。捨てないと、止まっていた秒数ぶんのステップをまとめて
+ * 進めようとして大きく飛ぶ。
+ */
+test.describe('ポーズ', () => {
+  /** タイトルを閉じて飛んでいる状態にする */
+  async function play(page: Page, query = '?script=level'): Promise<void> {
+    await page.goto(`/dogfight/${query}&precompile=0`)
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    await page.locator('.title-start').click()
+    await expect(page.locator('#title')).toBeHidden()
+  }
+
+  test('Escape で止まり、もう一度で戻る', async ({ page }) => {
+    await play(page)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#pause')).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#pause')).toBeHidden()
+  })
+
+  /** **止まっているあいだフレームが進まない** */
+  test('止まるとシムが進まない', async ({ page }) => {
+    await play(page)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#pause')).toBeVisible()
+
+    const before = (await readHook(page))!.frame
+    await page.waitForTimeout(1500)
+    const during = (await readHook(page))!.frame
+    expect(during, 'ポーズ中に進んでいる').toBe(before)
+
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(1500)
+    const after = (await readHook(page))!.frame
+    expect(after, '再開しても進まない').toBeGreaterThan(during)
+  })
+
+  /** **タイトルが出ているあいだは効かない。**まだ始まっていない */
+  test('タイトル中は効かない', async ({ page }) => {
+    await page.goto('/dogfight/?script=level&precompile=0')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    await expect(page.locator('#title')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#pause')).toBeHidden()
+    await expect(page.locator('#title')).toBeVisible()
+  })
+
+  /**
+   * **設定が開いていれば設定を閉じるだけ。**二重に処理すると、設定を
+   * 閉じた勢いでポーズも切り替わる
+   */
+  test('設定が開いていればそちらを閉じる', async ({ page }) => {
+    await play(page)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#pause')).toBeVisible()
+
+    await page.locator('.pause-settings').click()
+    await expect(page.locator('#settings')).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#settings')).toBeHidden()
+    // ポーズは残る
+    await expect(page.locator('#pause')).toBeVisible()
+  })
+
+  /** ポーズから設定を開いて閉じたらポーズへ戻る。いきなり動き出さない */
+  test('設定を閉じるとポーズへ戻る', async ({ page }) => {
+    await play(page)
+    await page.keyboard.press('Escape')
+    await page.locator('.pause-settings').click()
+    await expect(page.locator('#settings')).toBeVisible()
+
+    await page.locator('.settings-close').click()
+    await expect(page.locator('#settings')).toBeHidden()
+    await expect(page.locator('#pause')).toBeVisible()
+
+    const before = (await readHook(page))!.frame
+    await page.waitForTimeout(1000)
+    expect((await readHook(page))!.frame, '設定を閉じたら動き出している').toBe(before)
+  })
+
+  test('再開ボタンでも戻る', async ({ page }) => {
+    await play(page)
+    await page.keyboard.press('Escape')
+    await page.locator('.pause-resume').click()
+    await expect(page.locator('#pause')).toBeHidden()
+  })
+
+  /** **`Space` でボタンを押さない。**焦点はパネル自体に置いてある */
+  test('Space を押しても閉じない', async ({ page }) => {
+    await play(page)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('#pause')).toBeVisible()
+    await page.keyboard.press('Space')
+    await expect(page.locator('#pause')).toBeVisible()
+  })
+
+  /** **`#hud` の中に入れない。**あちらは pointer-events: none で押せない */
+  test('#hud の兄弟に置く', async ({ page }) => {
+    await play(page)
+    expect(await page.locator('#hud #pause').count()).toBe(0)
+    expect(await page.locator('body > #pause').count()).toBe(1)
+  })
+})
+
+/**
+ * 通しの流れ。
+ *
+ * タイトル → 甲板 → 射出 → 空戦 の経路が繋がっていること。
+ */
+test.describe('通しの流れ', () => {
+  test('タイトルから甲板を経て射出される', async ({ page }) => {
+    await page.goto('/dogfight/?script=mission-01&precompile=0')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: 120_000 },
+    )
+    // タイトルの裏で甲板に乗っている
+    await expect(page.locator('#title')).toBeVisible()
+    const onDeck = (await readHook(page))!
+    expect(onDeck.speed, '甲板で動いている').toBe(0)
+    expect(onDeck.gearDown, '甲板で脚が出ていない').toBe(true)
+    // 甲板で待つあいだ制限時間は減らない
+    expect(onDeck.missionRemaining).toBe(300 * 120)
+
+    await page.locator('.title-start').click()
+    await expect(page.locator('#title')).toBeHidden()
+
+    // スロットルを開けて射出する
+    await page.keyboard.down('ShiftLeft')
+    await page.waitForTimeout(3000)
+    await page.keyboard.up('ShiftLeft')
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.speed ?? 0,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThan(50)
+
+    // 射出が終わると時計が動き出す
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              (window as unknown as { __dogfight?: TestHook }).__dogfight
+                ?.missionRemaining ?? 0,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBeLessThan(300 * 120)
   })
 })

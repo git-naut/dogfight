@@ -349,3 +349,71 @@ body {
 .settings-close:focus-visible {
   background: rgba(126, 255, 170, 0.14);
 }
+
+/**
+ * ポーズ。設定より下に置く。
+ *
+ * DOM 順で `#settings` が後にあるので、ポーズ中に設定を開くと設定が上に来る
+ */
+#pause {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 16, 26, 0.72);
+  color: rgba(126, 255, 170, 0.92);
+  font: 14px/1.9 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+}
+
+#pause.is-hidden {
+  display: none;
+}
+
+.pause-panel {
+  min-width: 18rem;
+  padding: 1.8rem 2.2rem;
+  border: 1px solid currentColor;
+  background: rgba(5, 16, 26, 0.92);
+  text-align: center;
+}
+
+.pause-panel:focus {
+  /* 焦点を置くのは Space と Escape の行き先を決めるためで、枠は要らない */
+  outline: none;
+}
+
+.pause-heading {
+  margin: 0 0 1.2rem;
+  font-size: 1.3rem;
+  letter-spacing: 0.2em;
+}
+
+.pause-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.pause-resume,
+.pause-settings {
+  padding: 0.5rem 1.2rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.pause-resume:hover,
+.pause-resume:focus-visible,
+.pause-settings:hover,
+.pause-settings:focus-visible {
+  background: rgba(126, 255, 170, 0.14);
+}
+
+.pause-hint {
+  margin: 1rem 0 0;
+  opacity: 0.6;
+}

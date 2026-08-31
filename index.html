@@ -27,6 +27,11 @@
     -->
     <div id="title" class="is-hidden" role="dialog" aria-modal="true" aria-labelledby="title-heading" hidden></div>
     <!--
+      ポーズ。設定より前に置く。**設定はポーズの上に重ねる**ので、
+      DOM 順で後にあるほうが上に描かれる性質をそのまま使う
+    -->
+    <div id="pause" class="is-hidden" role="dialog" aria-modal="true" aria-labelledby="pause-heading" hidden></div>
+    <!--
       設定。タイトルより後に置く。**タイトルの上に重ねて出す**ので、
       DOM 順で後にあるほうが上に描かれる性質をそのまま使う
     -->

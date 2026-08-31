@@ -68,7 +68,7 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('35 本すべて引ける', () => {
+  it('36 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
@@ -101,6 +101,7 @@ describe('スクリプトの登録', () => {
       'damage-smoke-near',
       'enemy-eight',
       'mission-01',
+      'mission-air',
       'carrier-deck',
       'gear-down',
       'gear-down-high',
@@ -130,6 +131,7 @@ describe('スクリプトの登録', () => {
       'damage-smoke-near',
       'enemy-eight',
       'mission-01',
+      'mission-air',
     ])
   })
 

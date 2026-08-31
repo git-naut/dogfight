@@ -27,6 +27,7 @@ import { createHud, createHudLock, type Hud, type HudArmament } from './hud/hud'
 import { createResultPanel, type ResultPanel } from './hud/resultPanel'
 import { createTitlePanel, type TitlePanel } from './hud/titlePanel'
 import { createSettingsPanel, type SettingsPanel } from './hud/settingsPanel'
+import { createPausePanel, type PausePanel } from './hud/pausePanel'
 import { createGameAudio, type GameAudio } from './audio/audio'
 import { probeAudio } from './audio/probe'
 import {
@@ -724,6 +725,8 @@ async function main(): Promise<void> {
    * タイトルの文字が設定の下に透けて雑然として見えた
    */
   let titleWasShown = false
+  /** 設定を開いたときポーズが出ていたか。閉じたら戻すのに使う */
+  let pauseWasShown = false
 
   /**
    * 効果音。**START を押すまで作らない。**
@@ -741,7 +744,10 @@ async function main(): Promise<void> {
 
   const openSettings = (): void => {
     titleWasShown = titlePanel?.visible ?? false
+    pauseWasShown = pausePanel?.visible ?? false
     titlePanel?.hide()
+    // **ポーズは畳まない。**設定は DOM 順で後にあるので上に重なる。
+    // 暗幕は 0.72 と 0.88 で、重なっても背景は読める
     // **操縦を止める。**つまみに焦点があるとき矢印キーは値を動かすもので、
     // 同時に機体をロールさせては困る
     keyboard.setEnabled(false)
@@ -754,7 +760,64 @@ async function main(): Promise<void> {
     // （段 7 からの挙動）。止めたままにすると設定を開いた履歴で操作感が変わる
     keyboard.setEnabled(true)
     if (titleWasShown) titlePanel?.show()
+    // **ポーズから開いたならポーズへ帰る。**いきなり動き出さない
+    else if (pauseWasShown) {
+      pausePanel?.show()
+      keyboard.setEnabled(false)
+    }
   }
+
+  /**
+   * ポーズ。
+   *
+   * **`Escape` は 3 つの状態で意味が変わる。**設定が開いていれば設定を
+   * 閉じる（段 8 で `settingsPanel` が自前で拾う）。タイトルが出ていれば
+   * 何もしない（まだ始まっていない）。それ以外はポーズの切り替え。
+   *
+   * 出しているあいだ `FixedStepDriver` を回さない。復帰のとき `reset()` を
+   * 呼んで蓄積を捨てる。捨てないと、止まっていた秒数ぶんのステップを
+   * まとめて進めようとして大きく飛ぶ。
+   */
+  const pauseRoot = document.querySelector<HTMLElement>('#pause')
+  const pausePanel: PausePanel | null = pauseRoot
+    ? createPausePanel(pauseRoot, {
+        onResume: () => resumeFromPause(),
+        onSettings: () => openSettings(),
+      })
+    : null
+
+  const enterPause = (): void => {
+    if (pausePanel === null || pausePanel.visible) return
+    pausePanel.show()
+    keyboard.setEnabled(false)
+  }
+
+  const resumeFromPause = (): void => {
+    if (pausePanel === null || !pausePanel.visible) return
+    pausePanel.hide()
+    keyboard.setEnabled(true)
+    // **蓄積を捨てる。**止まっていた秒数ぶんをまとめて進めない
+    driver.reset()
+  }
+
+  /**
+   * `Escape` を拾う。
+   *
+   * **設定が開いているときは何もしない。**あちらが自前で拾って閉じる
+   * （`settingsPanel.ts`）。二重に処理すると、設定を閉じた勢いでポーズも
+   * 切り替わる。
+   *
+   * タイトルが出ているあいだも何もしない。まだ始まっていない。
+   */
+  const onEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape') return
+    if (settingsPanel?.visible === true) return
+    if (titlePanel?.visible === true) return
+    event.preventDefault()
+    if (pausePanel?.visible === true) resumeFromPause()
+    else enterPause()
+  }
+  document.addEventListener('keydown', onEscape)
 
   const settingsRoot = document.querySelector<HTMLElement>('#settings')
   const settingsPanel: SettingsPanel | null = settingsRoot
@@ -878,7 +941,14 @@ async function main(): Promise<void> {
       climbAngle: climbAngleOf(world.player.velocity),
     })
     const t0 = performance.now()
-    const alpha = driver.advance(delta, () => world.step(input))
+    /**
+     * ポーズ中はシムを進めない。
+     *
+     * **描画は続ける。**止めると画面が固まって、ポーズの UI も更新
+     * されなくなる。`alpha` は 1 に固定して最後の状態を見せる
+     */
+    const paused = pausePanel?.visible === true
+    const alpha = paused ? 1 : driver.advance(delta, () => world.step(input))
 
     const t1 = performance.now()
     world.samplePlayer(alpha, sample)

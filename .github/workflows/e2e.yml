@@ -44,6 +44,31 @@ jobs:
         run: node tools/webgpu-probe.mjs
         continue-on-error: true
 
+  # 歯型。わざと壊して、落ちるべき検査が落ちることを確かめる。
+  #
+  # **テストが通ることと、テストが守っていることは別。**実測 11 件で 39 秒。
+  # ブラウザも apt も要らない node だけの仕事なので、E2E とは分けて速く回す。
+  # `deploy.yml` の `npm test` は main への push でしか走らないので、
+  # PR でも回るこちらに置く。
+  bite-marks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 表が現在のソースと噛み合っているか。18 秒で分かる
+      - run: npx vitest run tests/tools/mutate.test.ts
+
+      # 実際に当てる。1 件でも生存したら赤
+      - run: npm run mutate
+
   playwright:
     runs-on: ubuntu-latest
     # 56 枚の基準画像を SwiftShader で撮る。ランナーは 4 vCPU しかないので

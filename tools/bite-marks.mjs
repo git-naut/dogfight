@@ -1,0 +1,131 @@
+// 歯型。わざと壊して、落ちるべき検査が落ちることを確かめる表。
+//
+// **テストが通ることと、テストが守っていることは別。**この repo には
+// 「宣言しただけで代入を忘れると E2E が静かに嘘をつく」「toHaveScreenshot の
+// 通ったは変わっていないではない」という記録がある。どちらも「通っている
+// のに守れていない」形だった。
+//
+// ここに 1 行足すと、その壊し方が毎回試される。`docs/lessons.md` に書いた
+// 教訓のうち、機械にできるものはここへ落とす。**教訓を実行可能な形にする。**
+//
+// 表そのものが腐るので、`tests/tools/mutate.test.ts` が 18 秒の単体テストで
+// 健全性を守る。`find` が対象ファイルにちょうど 1 回現れること、`expect` の
+// テストが実在すること、`lesson` が `docs/lessons.md` にあること。定数を
+// リネームしただけで `find` が当たらなくなり、変異を 1 度も走らせずに気づける。
+//
+// 変異の型は 6 つ。定数の摂動、比較の反転、条件の固定、文の削除、
+// 表の行の削除、符号の反転。
+
+/**
+ * @type {import('./bite-marks.d.mts').BiteMark[]}
+ */
+export const BITE_MARKS = [
+  // ── 表の行の削除 ────────────────────────────────────────────
+  {
+    id: 'help-drop-keyf',
+    kind: '表の行の削除',
+    file: 'src/input/keyboard.ts',
+    find: "  { keys: 'F', action: 'ミサイル', codes: ['KeyF'] },\n",
+    replace: '',
+    expect: 'tests/input/controlHelp.test.ts',
+    lesson: '操作説明と実装のキー割り当てがずれる',
+  },
+  {
+    id: 'layering-drop-rule',
+    kind: '表の行の削除',
+    file: 'tests/sim/layering.test.ts',
+    find: "  { pattern: /Math\\.random\\s*\\(/, reason: 'Math.random（Rng を使うこと）' },\n",
+    replace: '',
+    expect: 'tests/sim/layering.test.ts',
+    lesson: '`src/sim` から three を import しても、実行するまで気づけない',
+  },
+
+  // ── 文の削除 ────────────────────────────────────────────────
+  {
+    id: 'help-drop-keyc-impl',
+    kind: '文の削除',
+    file: 'src/input/keyboard.ts',
+    find: "    this.input.deployFlare = this.pressed.has('KeyC')\n",
+    replace: '',
+    expect: 'tests/input/controlHelp.test.ts',
+    lesson: '操作説明と実装のキー割り当てがずれる',
+  },
+  {
+    id: 'hook-drop-assign',
+    kind: '文の削除',
+    file: 'src/main.ts',
+    find: '    hook.missilesLeft = currentWorld.combat.missilesLeft\n',
+    replace: '',
+    expect: 'tests/render/testHook.test.ts',
+    lesson: '`TestHook` に項目を足したのに `publish` の代入だけ抜け',
+  },
+
+  // ── 定数の摂動 ──────────────────────────────────────────────
+  {
+    id: 'docs-drag-factor',
+    kind: '定数の摂動',
+    file: 'docs/flight-model.md',
+    find: 'k  = 1 / (π AR e) = 0.113173',
+    replace: 'k  = 1 / (π AR e) = 0.1158',
+    expect: 'tests/tools/docsNumbers.test.ts',
+    lesson: '誘導抗力係数が `0.1158` のままだった',
+  },
+  {
+    id: 'scenes-change-coverage',
+    kind: '定数の摂動',
+    file: 'tests/e2e/scenes.mjs',
+    find: "{ name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.8 }",
+    replace: "{ name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.3 }",
+    expect: 'tests/tools/scenes.test.ts',
+    lesson: '画素比較の道具と基準画像を撮る側で雲量の既定が違った',
+  },
+  {
+    id: 'lift-slope',
+    kind: '定数の摂動',
+    file: 'src/sim/flightModel.ts',
+    find: '  liftSlope: 4.0,',
+    replace: '  liftSlope: 4.5,',
+    expect: 'tests/sim/flightModel.test.ts',
+    why: '揚力傾斜は最大揚力係数とコーナー速度の両方に効く。動かして誰も気づかないなら、その 2 つを見張れていない',
+  },
+  {
+    id: 'seeker-acquire-angle',
+    kind: '定数の摂動',
+    file: 'src/sim/weapons/lock.ts',
+    find: 'export const SEEKER_ACQUIRE_ANGLE = 20 * DEG',
+    replace: 'export const SEEKER_ACQUIRE_ANGLE = 30 * DEG',
+    expect: 'tests/sim/lock.test.ts',
+    why: '捕捉の視野。広げて誰も気づかないなら、境界を見張れていない',
+  },
+  {
+    id: 'standard-roll-gain',
+    kind: '定数の摂動',
+    file: 'src/sim/assist.ts',
+    find: 'const STANDARD_ROLL_GAIN = 0.7',
+    replace: 'const STANDARD_ROLL_GAIN = 1.0',
+    expect: 'tests/sim/assist.test.ts',
+    why: 'スタンダード操作のロール抑制。1.0 はエキスパートと同じ。補助が効いていることを数で見張れているか',
+  },
+
+  // ── 比較の反転 ──────────────────────────────────────────────
+  {
+    id: 'fixed-step-boundary',
+    kind: '比較の反転',
+    file: 'src/sim/loop.ts',
+    find: '    while (this.accumulator >= this.dt) {',
+    replace: '    while (this.accumulator > this.dt) {',
+    expect: 'tests/sim/loop.test.ts',
+    why: '固定ステップの境界。ちょうど 1 ステップぶん溜まったときに進めなくなる。「半ステップ 2 回で 1 ステップ」がこれを見張っているはず',
+  },
+
+  // ── 条件の固定 ──────────────────────────────────────────────
+  {
+    id: 'aoa-limiter-always-off',
+    kind: '条件の固定',
+    file: 'src/sim/aircraft.ts',
+    find: '    const useLimiter = options.aoaLimiter !== false',
+    replace: '    const useLimiter = false',
+    expect: 'tests/sim/aircraft.test.ts',
+    why: '迎角制限器を常に切る。既定で効いていることを見張れているか。切れるようにしてある機能は、既定側も見張らないと片側しか通らない',
+  },
+]

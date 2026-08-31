@@ -332,6 +332,18 @@ WebGPU が 1.29 倍遅い。どちらも SwiftShader の Vulkan に落ちるの�
 
 **この比を E2E の所要へ掛けてはいけない。**「サンプル数の比から ms を外挿しない」が禁じている形そのもの（雲で +31% の見積りが実測 +58% だった）。実物の場面での比は、node 経路が実際の絵を描けるようになる段 7 以降でしか測れない。それまでは見積りとして扱う。
 
-### CI では未確認
+### CI でも描ける（2026-08-31 実測、run 33378420162）
 
-GitHub Actions の ubuntu-latest での可否は測っていない。`.github/workflows/e2e.yml` に `webgpu-probe` ジョブを足したので、次に CI が回ったときに yes / no が出る。落ちても後続は止めない。知ることが目的で、通すことが目的ではない。
+GitHub Actions の ubuntu-latest でも同じ結果になった。`.github/workflows/e2e.yml` の `webgpu-probe` ジョブが答えを出す。
+
+| 測ったもの | WSL2 | ubuntu-latest |
+|---|---|---|
+| adapter | google swiftshader | google swiftshader |
+| `timestamp-query` | 使える | 使える |
+| adapter の取得 | 4.7 ms | 3.7 ms |
+| 1 フレーム（320x200） | 3.9 ms | 3.4 ms |
+| 画素 (10,10) | 8, 13, 191 | 8, 13, 191 |
+
+**apt は要らなかった。**Playwright の chromium が `libvk_swiftshader.so` と `vk_swiftshader_icd.json` を同梱している。`playwright install-deps` で 3 回詰まった経緯があるので、ここは大きい。
+
+段 18 で基準画像を WebGPU で撮り直すという判断の前提が、これで立った。

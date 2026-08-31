@@ -2,7 +2,7 @@
 
 Three.js で作るアーケード空戦ゲーム。Ace Combat 系の操作感と絵作りを目標にしたオリジナルのオマージュ作。
 
-現在 Phase 7（ミッションになる）まで。空母の甲板からカタパルトで射出され、敵 5 機と戦って制限時間内に決着する。物理ベースの大気散乱とボリュメトリック雲、海と島嶼、F/A-18C の機体、機銃とミサイル、敵 AI、HUD、効果音が入っている。
+現在 Phase 7（ミッションになる）まで完了。空母の甲板からカタパルトで射出され、敵 5 機と戦って制限時間内に決着する。物理ベースの大気散乱とボリュメトリック雲、海と島嶼、F/A-18C の機体、機銃とミサイル、敵 AI、HUD、効果音が入っている。
 
 空力は F-16 の実測値を基準にした揚力・抗力・推力・重力の4力に、アーケード向けの補正を重ねてある。詳細は `docs/flight-model.md`。空は Bruneton の Precomputed Atmospheric Scattering で、時刻を変えると朝焼けから薄暮まで変化する。経緯は `docs/decisions/0002-atmosphere-integration.md`。
 
@@ -53,7 +53,7 @@ E2E は初回に `npx playwright install chromium` が要る。
 
 Phase 4 で機体モデル、Phase 5 で武装と HUD、Phase 6 で敵 AI、Phase 7 でミッション。
 
-Phase 7 で残っているのは実機での調整だけ。機銃の携行弾数、ミサイルの数、制限時間は推定で置いてあり、遊んで直す。手順は `docs/playtest.md`。
+Phase 7 は 2026-08-31 に完了した。機銃の携行弾数・ミサイルの数・制限時間は推定から置いた値だが、実機を通しで遊んで確かめてある。記録は `docs/playtest.md`。
 
 計画の正本は `/home/naut8/.claude/plans/ace-combat-claude-code-indexed-wadler.md`。
 

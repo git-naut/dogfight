@@ -2030,10 +2030,18 @@ test.describe('ポーズ', () => {
     const during = (await readHook(page))!.frame
     expect(during, 'ポーズ中に進んでいる').toBe(before)
 
+    // **再開したことは値で待つ。**実時間で 1.5 秒待っても、競合していれば
+    // 1 フレームも進まないことがある
     await page.keyboard.press('Escape')
-    await page.waitForTimeout(1500)
-    const after = (await readHook(page))!.frame
-    expect(after, '再開しても進まない').toBeGreaterThan(during)
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThan(during)
   })
 
   /** **タイトルが出ているあいだは効かない。**まだ始まっていない */
@@ -2132,19 +2140,24 @@ test.describe('通しの流れ', () => {
     await page.locator('.title-start').click()
     await expect(page.locator('#title')).toBeHidden()
 
-    // スロットルを開けて射出する
+    // スロットルを開けて射出する。
+    //
+    // **実時間で待ってはいけない。**スロットルは `dt / 2.5` を積んで開く。
+    // SwiftShader が競合するとシムが実時間に追いつかず、3 秒待っても開き
+    // 切らない。実際に CI で `speed > 50` が 30 秒待って 0 のまま落ちた
+    // （run 33378420162 の shard 2。リトライで通ったので隠れていた）。
+    // 押しっぱなしにして、速度が出るまで値で待つ
     await page.keyboard.down('ShiftLeft')
-    await page.waitForTimeout(3000)
-    await page.keyboard.up('ShiftLeft')
     await expect
       .poll(
         () =>
           page.evaluate(
             () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.speed ?? 0,
           ),
-        { timeout: 30_000 },
+        { timeout: 60_000 },
       )
       .toBeGreaterThan(50)
+    await page.keyboard.up('ShiftLeft')
 
     // 射出が終わると時計が動き出す
     await expect

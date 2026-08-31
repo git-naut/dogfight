@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "exact": "node tools/exact.mjs",
-    "mutate": "node tools/mutate.mjs"
+    "mutate": "node tools/mutate.mjs",
+    "stryker": "stryker run"
   },
   "dependencies": {
     "@takram/three-atmosphere": "^0.19.1",
@@ -28,6 +29,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^26.2.0",
     "@types/three": "^0.185.4",
     "pngjs": "^7.0.0",

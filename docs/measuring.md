@@ -347,3 +347,65 @@ GitHub Actions の ubuntu-latest でも同じ結果になった。`.github/workf
 **apt は要らなかった。**Playwright の chromium が `libvk_swiftshader.so` と `vk_swiftshader_icd.json` を同梱している。`playwright install-deps` で 3 回詰まった経緯があるので、ここは大きい。
 
 段 18 で基準画像を WebGPU で撮り直すという判断の前提が、これで立った。
+
+## Stryker の網羅掃引を測る（2026-08-31 実測、Phase 8 段 4）
+
+歯型表（`tools/bite-marks.mjs`）は手で選んだ変異しか試さない。思いついた穴しか塞げないので、網羅的に当てる道具を測った。
+
+対象は `src/sim/assist.ts`（113 行）、`src/sim/weapons/lock.ts`（131 行）、`src/sim/weapons/dlz.ts`（117 行）の 3 本。
+
+| 測ったもの | 値 |
+|---|---|
+| vitest 4.1.10 で動くか | 動く（errors 0） |
+| 注入した変異 | 240 |
+| 所要 | 12 分 57 秒 |
+| 変異スコア | 83.75%（killed 199 / timeout 2 / survived 37 / no cov 2） |
+| 1 変異あたりに走ったテスト | 24.06 件 |
+| 依存の増加 | 87 → 249 パッケージ。`node_modules` のうち Stryker 関連は 3.3 MB |
+| 脆弱性 | moderate 2 件（`typed-rest-client` の `qs`）。開発依存なので配布物には入らない |
+
+`ignorePatterns` で `assets` を外すと初回の素通し実行で落ちる。Stryker はプロジェクトを複製してその中でテストを走らせるので、`tests/tools/ac3d.test.ts` が読む原本まで消える。除外してよいのは `dist`、`test-results`、基準画像くらい。
+
+### 生存 37 件の内訳
+
+| 変異の種類 | 件数 |
+|---|---|
+| EqualityOperator | 15 |
+| ConditionalExpression | 11 |
+| ArithmeticOperator | 3 |
+| StringLiteral | 3 |
+| その他 | 5 |
+
+読んで分けたところ、**本物の穴を指していたのは 8 から 10 件**。残りは等価変異（初期値の書き換え、`1e-6` の閾値、測度 0 の境界）で、テストを足す価値がない。
+
+拾った穴は 4 つ。
+
+`assist.ts` の自動水平化が `-bank * LEVEL_GAIN` を `-bank / LEVEL_GAIN` にしても落ちなかった。**符号と向きしか見ていない。**1.2 倍と 0.833 倍の違いを誰も見張っていなかった。
+
+同じく `Math.abs(bank) < 0.5` を `<=` にしても落ちない。0.5 ちょうどで「深く傾いている」側に倒す約束が無検査だった。
+
+`dlz.ts` の `overtook = true` を `false` にしても落ちない。追い越しの記録が効いていることを誰も見ていない。この分岐は「発射直後の遅さで打ち切ってはいけない」という実測由来の処置で、消えると `rMax` が変わる。
+
+同じく `if (out.rNe > out.rMax) out.rNe = out.rMax` を消しても落ちない。**「反転して逃げても届く距離」が「そのまま飛ぶ前提の距離」より長い**という、意味の通らない答えが出ても通る。
+
+### テストを足したあと
+
+9 件のテストを足して測り直した（`assist.ts` と `dlz.ts` の 2 本、139 変異）。
+
+| | 前 | 後 |
+|---|---|---|
+| `assist.ts` | 87.80%（生存 5） | **95.12%（生存 2）** |
+| `dlz.ts` | 84.69%（生存 14） | **88.78%（生存 10）** |
+| 所要 | — | 4 分 26 秒 |
+
+7 つの変異が死んだ。**掃引が指した穴は本物だった。**
+
+### 判断
+
+**手動の道具として残す。CI には載せない。**
+
+3 ファイル 361 行で 13 分かかる。`src/sim` は 32 ファイル 5,055 行あるので、全体を回せば分ではなく時間の単位になる。CI の枠には入らない。
+
+**掃引で見つけた穴は歯型（`tools/bite-marks.mjs`）へ引き上げる。**4 件を足した。13 分の掃引を毎回は回せないが、見つかったものは 1 秒の検査になる。層 2 が探し、層 1 が守る。
+
+使い方は `npm run stryker`。対象は `stryker.config.json` の `mutate` か、`--mutate` で上書きする。**広げる前にここへ実測を足すこと。**

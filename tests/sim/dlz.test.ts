@@ -267,3 +267,59 @@ describe('前提', () => {
     expect(maxRange(250, 3000, 0)).toBeCloseTo(flight.distance, 0)
   })
 })
+
+/**
+ * Stryker が見つけた穴（Phase 8 段 4）。
+ *
+ * 240 の変異のうち 37 件が生き残った。`dlz.ts` では**追い越しの判定と、
+ * 逆転しないための clamp が丸ごと素通り**していた。前者は
+ * `overtook = true` を `false` にしても、`else if (overtook) break` を
+ * 消しても落ちない。値の大きさを見ていなかった。
+ */
+describe('追い越してから打ち切る', () => {
+  it('発射直後の遅さで打ち切らない', () => {
+    // 母機 180 m/s、目標が 300 m/s で離れる。ミサイルの初速は母機の速度なので
+    // 最初は目標より遅い。**そこで打ち切ると 0 になる。**燃焼で追い越し、
+    // 抗力で再び遅くなったところで切る
+    expect(Math.round(maxRange(180, 3000, 300))).toBe(7442)
+  })
+
+  it('打ち切らずに積分を続けると値が縮む', () => {
+    // 追い越しの記録を落とすと break が効かず、遅くなったあとも積分が続いて
+    // 詰めた距離が削られる。**上の 7442 はその上端でもある**
+    expect(Math.round(maxRange(180, 3000, 300))).toBeGreaterThan(7000)
+    expect(Math.round(maxRange(180, 3000, 300))).toBeLessThan(7900)
+  })
+
+  it('逃げない目標なら最初から追い越している', () => {
+    expect(Math.round(maxRange(180, 3000, 0))).toBe(25115)
+  })
+})
+
+describe('DLZ の逆転を止める', () => {
+  it('rNe は rMax を超えない', () => {
+    // 目標がほぼ止まっていて、しかも自機から見て速く離れていく構図。
+    // 素の計算では rNe 25,870 m が rMax 3,358 m を追い越す。
+    // **clamp を外すと「反転して逃げても届く距離」が「そのまま飛ぶ前提の
+    // 距離」より長くなる**という、意味の通らない答えが出る
+    const dlz = solveDlz({
+      launchSpeed: 250,
+      altitude: 3000,
+      targetSpeed: 10,
+      closingSpeed: -200,
+    })
+    expect(dlz.rNe).toBeLessThanOrEqual(dlz.rMax)
+    expect(Math.round(dlz.rMax)).toBe(3358)
+    expect(Math.round(dlz.rNe)).toBe(3358)
+  })
+
+  it('rMin は rNe を超えない', () => {
+    const dlz = solveDlz({
+      launchSpeed: 250,
+      altitude: 3000,
+      targetSpeed: 10,
+      closingSpeed: -200,
+    })
+    expect(dlz.rMin).toBeLessThanOrEqual(dlz.rNe)
+  })
+})

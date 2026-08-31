@@ -24,3 +24,7 @@ dist/
 # 機体の変換結果（tools/ac3d-to-glb.mjs と tools/sgi-to-webp.py が
 # assets/upstream/f18/ から生成する。原本のほうはコミットする）
 /public/aircraft/
+
+# Stryker の作業ディレクトリと報告
+/.stryker-tmp/
+/reports/

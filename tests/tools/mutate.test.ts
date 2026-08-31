@@ -50,8 +50,8 @@ describe('歯型表', () => {
     // 誰も試していない
     const used = new Set(BITE_MARKS.map((m) => m.kind))
     const unused = [...KINDS].filter((k) => !used.has(k))
-    // 符号の反転はまだ守るものがない（`docs/lessons.md` の穴に書いてある）
-    expect(unused).toEqual(['符号の反転'])
+    // 段 4 で符号の反転が埋まり、6 つ全部を使うようになった
+    expect(unused).toEqual([])
   })
 
   it('find が対象ファイルにちょうど 1 回だけ現れる', () => {

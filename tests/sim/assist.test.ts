@@ -354,3 +354,40 @@ describe('補助は旋回を妨げない', () => {
     expect(standard.crashed).toBe(false)
   })
 })
+
+/**
+ * Stryker が見つけた穴（Phase 8 段 4）。
+ *
+ * 3 ファイルに 240 の変異を注入したところ 37 件が生き残った。うち
+ * `assist.ts` の 5 件は、**符号と向きしか見ていない**ことを突いていた。
+ * 掛け算を割り算に変えても、境界を `<` から `<=` に変えても落ちなかった。
+ */
+describe('補助の大きさと境界', () => {
+  it('自動水平化のゲインの大きさが効く', () => {
+    const input = makeInput({ roll: 0 })
+    applyAssist(input, 'standard', view({ bank: 0.5 }))
+    // clamp(-0.5 * 1.2, -1, 1) = -0.6。**割り算に変えると -0.4167 になるが、
+    // 符号も向きも変わらないので、大きさを見ないと気づけない**
+    expect(input.roll).toBeCloseTo(-0.6, 9)
+  })
+
+  it('地面の回避でも同じゲインで水平へ戻す', () => {
+    const input = makeInput({ roll: 0 })
+    applyAssist(input, 'standard', view({ bank: 0.5, agl: 1 }))
+    expect(input.roll).toBeCloseTo(-0.6, 9)
+  })
+
+  it('引く強さの境界はバンク 0.5 rad ちょうどで弱いほう', () => {
+    const input = makeInput({ roll: 0 })
+    applyAssist(input, 'standard', view({ bank: 0.5, agl: 1 }))
+    // `Math.abs(bank) < 0.5` なので 0.5 ちょうどは「深く傾いている」側。
+    // **`<=` に変えると 1 になる**
+    expect(input.pitch).toBeCloseTo(0.2, 9)
+  })
+
+  it('境界のすぐ内側では目一杯引く', () => {
+    const input = makeInput({ roll: 0 })
+    applyAssist(input, 'standard', view({ bank: 0.4999, agl: 1 }))
+    expect(input.pitch).toBeCloseTo(1, 9)
+  })
+})

@@ -19,6 +19,8 @@
 | `src/sim` から three を import しても、実行するまで気づけない | Phase 0 の設計 | `tests/sim/layering.test.ts` が禁止 13 パターンを検査し、既知違反 12 件で発火も確かめる |
 | 操作説明と実装のキー割り当てがずれる | Phase 7 | `tests/input/controlHelp.test.ts` が `poll()` のソースと `CONTROL_HELP` を双方向に突き合わせる |
 | ポーズ（Escape）が `CONTROL_HELP` に載っていない。判定が `main.ts` にあって抽出対象の外、しかも `event.key` を使うので正規表現にも当たらなかった。**二重に外れていた** | Phase 8 の着手前調査 | 同じ検査が `src/` からキーボードを見ているファイルを探して全部読む。`event.key` での判定も禁じる |
+| 符号と向きだけを見ていると、掛け算を割り算に変えても落ちない。`assist.ts` の自動水平化は `-bank * 1.2` を `-bank / 1.2` にしても全テストが通った | Stryker の掃引（段 4） | `tests/sim/assist.test.ts` がゲインの大きさと境界を固定する。歯型 `level-gain-divide` `recover-pitch-boundary` |
+| 追い越しの判定と DLZ の clamp が丸ごと素通りしていた。`overtook = true` を `false` にしても、`rNe > rMax` の補正を消しても落ちない | 同上 | `tests/sim/dlz.test.ts` が値を固定する。歯型 `dlz-overtook-never` `dlz-drop-clamp` |
 
 ## まだ守るものがない穴
 

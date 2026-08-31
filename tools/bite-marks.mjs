@@ -14,7 +14,7 @@
 // リネームしただけで `find` が当たらなくなり、変異を 1 度も走らせずに気づける。
 //
 // 変異の型は 6 つ。定数の摂動、比較の反転、条件の固定、文の削除、
-// 表の行の削除、符号の反転。
+// 表の行の削除、符号の反転。段 4 で 6 つ全部が埋まった。
 
 /**
  * @type {import('./bite-marks.d.mts').BiteMark[]}
@@ -106,6 +106,50 @@ export const BITE_MARKS = [
     expect: 'tests/sim/lock.test.ts',
     why: '捕捉の視野。広げて誰も気づかないなら、境界を見張れていない',
   },
+  // ── Stryker の掃引が見つけた穴（段 4）────────────────────────
+  // 生存していた変異をそのまま歯型にする。13 分の掃引を毎回は回せないので、
+  // **見つかったものだけ 1 秒の検査へ引き上げる。**
+  {
+    id: 'level-gain-divide',
+    kind: '符号の反転',
+    file: 'src/sim/assist.ts',
+    find:
+      '  if (input.roll === 0 && Math.abs(view.bank) > LEVEL_DEADZONE) {\n' +
+      '    roll = clamp(-view.bank * LEVEL_GAIN, -1, 1)',
+    replace:
+      '  if (input.roll === 0 && Math.abs(view.bank) > LEVEL_DEADZONE) {\n' +
+      '    roll = clamp(-view.bank / LEVEL_GAIN, -1, 1)',
+    expect: 'tests/sim/assist.test.ts',
+    lesson: '符号と向きだけを見ていると、掛け算を割り算に変えても落ちない',
+  },
+  {
+    id: 'recover-pitch-boundary',
+    kind: '比較の反転',
+    file: 'src/sim/assist.ts',
+    find: '    pitch = Math.abs(view.bank) < 0.5 ? 1 : 0.2',
+    replace: '    pitch = Math.abs(view.bank) <= 0.5 ? 1 : 0.2',
+    expect: 'tests/sim/assist.test.ts',
+    lesson: '符号と向きだけを見ていると、掛け算を割り算に変えても落ちない',
+  },
+  {
+    id: 'dlz-overtook-never',
+    kind: '定数の摂動',
+    file: 'src/sim/weapons/dlz.ts',
+    find: '    if (speed > targetSpeedAway) overtook = true',
+    replace: '    if (speed > targetSpeedAway) overtook = false',
+    expect: 'tests/sim/dlz.test.ts',
+    lesson: '追い越しの判定と DLZ の clamp が丸ごと素通りしていた',
+  },
+  {
+    id: 'dlz-drop-clamp',
+    kind: '文の削除',
+    file: 'src/sim/weapons/dlz.ts',
+    find: '  if (out.rNe > out.rMax) out.rNe = out.rMax\n',
+    replace: '',
+    expect: 'tests/sim/dlz.test.ts',
+    lesson: '追い越しの判定と DLZ の clamp が丸ごと素通りしていた',
+  },
+
   {
     id: 'standard-roll-gain',
     kind: '定数の摂動',

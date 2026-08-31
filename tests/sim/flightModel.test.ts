@@ -307,7 +307,7 @@ describe('水平定常飛行のトリム', () => {
   })
 
   it('高度 1000 m・速度 250 m/s の迎角が 1.8 度前後', () => {
-    // 翼面荷重が F-16 級の 3,330 から 4,395 N/m² へ上がったぶん、
+    // 翼面荷重が F-16 級の 3,330 から 4,394 N/m² へ上がったぶん、
     // 同じ条件でも迎角が 1.37 度から増える
     const { alpha } = trimCondition(speed, rho)
     expect(alpha / DEG).toBeCloseTo(1.81, 1)
@@ -331,7 +331,7 @@ describe('水平定常飛行のトリム', () => {
 })
 
 describe('コーナー速度', () => {
-  it('9G と最大揚力の交点が 170 m/s 前後になる', () => {
+  it('7.5G と最大揚力の交点が 177 m/s 前後になる', () => {
     // 揚力で出せる荷重倍数が gLimit に達する速度を二分探索で求める
     const rho = airDensity(1000)
     const weight = AIRCRAFT.mass * GRAVITY
@@ -346,7 +346,9 @@ describe('コーナー速度', () => {
       else hi = mid
     }
 
-    // 実機 F-16 のコーナー速度（およそ 350 KIAS ≒ 180 m/s）と同程度
+    // 実機 F/A-18C のコーナー速度（およそ 350 KCAS ≒ 180 m/s）と同程度。
+    // **9G と F-16 で書いてあったのは Phase 1 の残骸。**gLimit は 7.5 で、
+    // 高度 1000 m での交点は実測 177 m/s
     expect(lo).toBeGreaterThan(155)
     expect(lo).toBeLessThan(190)
   })

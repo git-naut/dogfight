@@ -9,6 +9,41 @@ on:
   workflow_dispatch:
 
 jobs:
+  # このランナーで WebGPU が使えるかを yes / no で答える。
+  #
+  # Phase 8 は基準画像を WebGPU で撮り直す。**ここが no なら E2E が丸ごと
+  # 止まる**ので、移行に着手する前に答えを出しておく。落ちても後続は止めない。
+  # 知ることが目的で、通すことが目的ではない。
+  webgpu-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      available: ${{ steps.probe.outputs.available }}
+      timestamp_query: ${{ steps.probe.outputs.timestamp_query }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npx playwright install chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 8
+
+      - id: probe
+        run: node tools/webgpu-probe.mjs
+        continue-on-error: true
+
   playwright:
     runs-on: ubuntu-latest
     # 56 枚の基準画像を SwiftShader で撮る。ランナーは 4 vCPU しかないので

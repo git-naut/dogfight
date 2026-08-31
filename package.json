@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "exact": "node tools/exact.mjs"
   },
   "dependencies": {
     "@takram/three-atmosphere": "^0.19.1",
@@ -28,6 +29,7 @@
     "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",
     "@types/three": "^0.185.4",
+    "pngjs": "^7.0.0",
     "typescript": "^5.9.3",
     "vite": "^8.2.1",
     "vitest": "^4.1.10"

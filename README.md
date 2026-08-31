@@ -4,7 +4,7 @@ Three.js で作るアーケード空戦ゲーム。Ace Combat 系の操作感と
 
 現在 Phase 7（ミッションになる）まで完了。空母の甲板からカタパルトで射出され、敵 5 機と戦って制限時間内に決着する。物理ベースの大気散乱とボリュメトリック雲、海と島嶼、F/A-18C の機体、機銃とミサイル、敵 AI、HUD、効果音が入っている。
 
-空力は F-16 の実測値を基準にした揚力・抗力・推力・重力の4力に、アーケード向けの補正を重ねてある。詳細は `docs/flight-model.md`。空は Bruneton の Precomputed Atmospheric Scattering で、時刻を変えると朝焼けから薄暮まで変化する。経緯は `docs/decisions/0002-atmosphere-integration.md`。
+空力は F/A-18C の諸元を基準にした揚力・抗力・推力・重力の4力に、アーケード向けの補正を重ねてある。Phase 1 は F-16 を基準にしていたが、機体を Hornet へ差し替えたときに係数も揃えた。詳細は `docs/flight-model.md`。空は Bruneton の Precomputed Atmospheric Scattering で、時刻を変えると朝焼けから薄暮まで変化する。経緯は `docs/decisions/0002-atmosphere-integration.md`。
 
 雲はレイマーチングで自前実装した。積雲が点在し、間を抜けられる。山肌には雲影が落ちる。原理と実装の対応は `docs/clouds.md`。
 

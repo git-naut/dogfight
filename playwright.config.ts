@@ -1,5 +1,6 @@
 import os from 'node:os'
 import { defineConfig, devices } from '@playwright/test'
+import { SWIFTSHADER_ARGS, VIEWPORT, DEFAULT_PROJECT } from './tests/e2e/launch.mjs'
 
 // スクリーンショット回帰を環境差から守るため、GPU を使わず
 // Chromium 内蔵のソフトウェアレンダラ SwiftShader に固定する。
@@ -83,25 +84,18 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
-    viewport: { width: 1280, height: 720 },
+    // 窓の大きさと起動引数は tests/e2e/launch.mjs が正本。
+    // tools/exact.mjs も同じものを読む。写しを持つと画素が黙ってずれる
+    viewport: { ...VIEWPORT },
     deviceScaleFactor: 1,
   },
 
   projects: [
     {
-      name: 'chromium-swiftshader',
+      name: DEFAULT_PROJECT,
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: {
-          args: [
-            '--use-gl=swiftshader',
-            '--use-angle=swiftshader',
-            '--enable-unsafe-swiftshader',
-            '--disable-gpu',
-            '--hide-scrollbars',
-            '--force-device-scale-factor=1',
-          ],
-        },
+        launchOptions: { args: [...SWIFTSHADER_ARGS] },
       },
     },
   ],

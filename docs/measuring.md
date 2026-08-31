@@ -295,3 +295,43 @@ three がシェーダをコンパイルするのは、マテリアルを作っ�
 ### 地形は問題なかった
 
 CDLOD のパッチはインスタンス属性を毎フレーム書き換えるだけで、ジオメトリを作り直すのは品質プリセットが変わったときだけ（`terrainMesh.ts` の `setQuality`）。フレーム中の生成負荷は無い。
+
+## WebGPU が headless で描けるか（2026-08-31 実測、Phase 8 段 0）
+
+Phase 8 は基準画像を WebGPU で撮り直す。撮れなければ E2E が丸ごと止まるので、着手の前に測った。道具は `tools/webgpu-probe.mjs`。
+
+**`about:blank` で測ってはいけない。**保安コンテキストではないので `navigator.gpu` そのものが undefined になる。最初にそれで測って「WebGPU は使えない」と誤った結論を出した。localhost 由来のページなら `isSecureContext` が true になり、`navigator.gpu` が現れる。
+
+**adapter が取れることと描けることは別。**プローブは 320x200 に WGSL で全画面三角形を描き、2D キャンバスへ写して画素を読み戻し、シェーダの式と突き合わせるところまでやる。
+
+WSL2 の Playwright 同梱 HeadlessChrome 151 での結果。
+
+| 測ったもの | 値 |
+|---|---|
+| adapter | `google swiftshader`（Dawn の SwiftShader Vulkan） |
+| device | 取れる |
+| `timestamp-query` | 使える |
+| adapter の取得 | 4.7 ms |
+| 1 フレーム（320x200） | 3.9 ms |
+| 画素 (10,10) | `8, 13, 191`（期待 8、13、191） |
+
+フラグは `tests/e2e/launch.mjs` の `WEBGPU_ARGS`。付けないと `navigator.gpu` はあるが `requestAdapter()` が null を返す。
+
+**`timestamp-query` を必ず見る。**無いと `trackTimestamp` が静かに false になり、`resolveTimestampsAsync` が undefined を返す。知らずに「GPU 時間が 0」を不具合として追うと時間を溶かす。
+
+### 速さの比（合成ベンチ、外挿してはいけない）
+
+1280x720 の全画面クアッドに 192 回反復する重いフラグメントシェーダを載せ、同じ計算を WGSL と GLSL で書いて 5 フレームの平均を取った。
+
+| バックエンド | 1 フレーム |
+|---|---|
+| WebGPU / Dawn / SwiftShader Vulkan | 65.2 ms |
+| WebGL2 / ANGLE / SwiftShader Vulkan | 50.4 ms |
+
+WebGPU が 1.29 倍遅い。どちらも SwiftShader の Vulkan に落ちるので、差は Dawn と ANGLE の経路の違いになる。
+
+**この比を E2E の所要へ掛けてはいけない。**「サンプル数の比から ms を外挿しない」が禁じている形そのもの（雲で +31% の見積りが実測 +58% だった）。実物の場面での比は、node 経路が実際の絵を描けるようになる段 7 以降でしか測れない。それまでは見積りとして扱う。
+
+### CI では未確認
+
+GitHub Actions の ubuntu-latest での可否は測っていない。`.github/workflows/e2e.yml` に `webgpu-probe` ジョブを足したので、次に CI が回ったときに yes / no が出る。落ちても後続は止めない。知ることが目的で、通すことが目的ではない。

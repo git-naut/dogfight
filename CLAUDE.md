@@ -24,7 +24,9 @@ Three.js で作るアーケード空戦ゲーム。Ace Combat 系の操作感と
 
 描画に使う時間も `frame + alpha` から導く。エフェクトの位相もパーティクルの寿命も同様。実時間に依存する値を描画へ持ち込むとスクリーンショット回帰が壊れる。
 
-`?capture=1&frame=N&seed=S&preset=high` で決定論キャプチャモードに入る。実時間を使わず N ステップ進めて 1 枚描き、`document.body.dataset.captureReady` を立てて止まる。Playwright はこのフラグを待って撮る。
+`?capture=1&frame=N&script=S&preset=high` で決定論キャプチャモードに入る。実時間を使わず N ステップ進めて 1 枚描き、`document.body.dataset.captureReady` を立てて止まる。Playwright はこのフラグを待って撮る。
+
+シードは URL では変えられない。台本が `ReplayScript.seed` で持ち、ライブは `DEFAULT_SEED` を使う。`?seed=` を書いても `readCaptureConfig` は読まないので黙って無視される。
 
 ## コマンド
 
@@ -38,7 +40,9 @@ npm run test:e2e   # Playwright。SwiftShader 固定でスクリーンショッ�
 
 ## 品質プリセット
 
-Low / Medium / High / Ultra の4段。レンダースケール、雲の方式、影のカスケード段数、LOD 切替距離、ポストエフェクトの有無が連動する。基準は Intel Arc 140V で High・1080p・60fps。
+Low / Medium / High / Ultra の4段。レンダースケール、雲のステップ数、影マップの解像度、LOD 切替距離、ポストエフェクトの有無が連動する。基準は Intel Arc 140V で High・1080p・60fps。
+
+カスケード影は実装していない。Phase 4 で `shadowCascades` を `aircraftShadowMapSize` へ置き換えた経緯が `src/render/quality.ts` にある。
 
 描画の設定を足すときは、必ずプリセット表に列を追加してから実装する。プリセットに載らない設定項目を作らない。
 

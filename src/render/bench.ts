@@ -1,4 +1,4 @@
-import type { MeasureConfig, MeasureToggles } from './scene'
+import type { MeasureConfig, MeasureToggles } from './pipeline/types'
 import type { RenderBackend } from './backend'
 
 /**

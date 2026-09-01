@@ -24,6 +24,8 @@
 | 逆テストの基準画像が別ディレクトリに解決され、比較ではなく新規作成になっていた。`toHaveScreenshot` は spec ファイル名から置き場を決める。**落ちるはずの検査が静かに通る** | 書いた直後に気づいた | `playwright.config.ts` の `snapshotPathTemplate` が置き場を spec 名から切り離す |
 | 追い越しの判定と DLZ の clamp が丸ごと素通りしていた。`overtook = true` を `false` にしても、`rNe > rMax` の補正を消しても落ちない | 同上 | `tests/sim/dlz.test.ts` が値を固定する。歯型 `dlz-overtook-never` `dlz-drop-clamp` |
 | `webglVersion` をバックエンドの facade へ寄せるとき、値を `kind` から導いた。`kind === 'node-webgpu' ? 0 : 2` は WebGL 経路で必ず 2 を返すので、`smoke.spec.ts` の「WebGL2 が取れているか」が**原理的に落ちなくなっていた**。継ぎ目を作る作業がそのまま見張りを外す | 段 7 の差分を読み直したとき | `RenderBackend.webglVersion` が `gl.VERSION` の実物を読む。`smoke.spec.ts` は `hook.backend` も見る |
+| 継ぎ目は、越える者が現れた瞬間に意味を失う。帳簿からレンダラを 1 行借りても絵は動かないので、基準画像 42 枚は気づかない。**段 15 で実装を差し替えたときに初めて落ちる** | 段 8 で継ぎ目を切ったとき | `tests/render/pipelineSeam.test.ts` が `scene.ts` の本文と import を検査する。`createGpuTimer` を 1 行足すと 2 件落ちることを実測した |
+| three の描画順は、不透明が `material.id` を深度より先に見る（`WebGLRenderLists.js:1-49`）。`material.id` も `object.id` も生成のたびに 1 増える大域の連番なので、**組み立ての順番を入れ替えると前後関係に関係なく絵が動く** | 段 8 で 1,130 行を移す前に `node_modules` を読んだ | 組み立ての順番は `pipeline/webgl.ts` の 1 か所だけ。`npm run exact` が許容 0 で 42 枚を数える |
 
 ## まだ守るものがない穴
 

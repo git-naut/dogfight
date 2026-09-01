@@ -33,6 +33,8 @@
 | **`forceWebGL: true` は退避路にならなかった。**計画は「TSL で 1 度書けば両方で動く」と書いていたが、node 経路の WebGL2 バックエンドは大気の構造体を GLSL へ落とせない（`'AtmosphereParameters' : syntax error`） | 段 10 で `?gpu=1` に大気を入れて測った | `tests/e2e/node-path.spec.ts` が `?gpu=1` で `atmosphere === false` を見る。大気から先は `?gpu=2` だけ |
 | 読み戻しの向きと原点がバックエンドで違う。WebGL2 は行が下から・原点が左下、WebGPU は行が上から・原点が左上。しかも WebGPU は行を 256 バイトへ揃える（16 px 幅を 16 行で 3,904 バイト）。**算術は合っていて並びだけが違う**ので、気づかないと「WGSL がずれている」と読み違える | 段 11 でハッシュの格子の先頭が `hashTopByte(0, 15, 0)` に一致して分かった | `src/render/pipeline/node.ts` の `unpadRows` が詰め物と並びを揃え、原点も `side - readSide` へ寄せる。`tests/e2e/node-path.spec.ts` が 768 + 1,024 個をビットで突き合わせる |
 | TSL の `toVar()` と `assign()` は `Fn` の中にしか置けない。素の関数で使うと `THREE.TSL: No stack defined for assign operation.` が出る | 段 11 で `worley` を素の関数として書いて踏んだ | `worley` と `perlin` を `Fn(() => ...)()` で包んだ。`tests/e2e/node-path.spec.ts` がノイズの 1,024 個を突き合わせるので、壊れれば落ちる |
+| `--update-snapshots` の既定は `changed` で、**比較器が「変わっていない」と判断した画像は書き直さない。**`threshold: 0.05` は 12.75 階調まで同一とみなすので、1〜8 階調の変化は許容の内側に入り、撮り直したのに古いバイトが残る。段 6 で許容を 0 にした関門と食い違う | 雲の上限距離を縮めて撮り直した直後、`npm run exact` が 3 枚を「動いた」と報告した | `npm run exact` が許容 0 で数える。撮り直しは `--update-snapshots=all` で行う |
+| 雲のマーチの上限距離だけ縮めても費用は下がらない。`stepGrowthScale` が「その歩数で上限距離を覆う」ように歩幅を解くので、同じ歩数で細かく刻み直すだけになる。密度サンプルは 29.2 から 38.8 へ**増えた** | 26 km を 12 km にして測ったとき | `tests/render/quality.test.ts` が「歩数が上限距離を覆い切る」ことと「上の 2 段は上限でも手前の 4 倍より細かい」ことを縛る |
 
 ## まだ守るものがない穴
 

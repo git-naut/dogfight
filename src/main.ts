@@ -358,6 +358,7 @@ async function main(): Promise<void> {
       ...(capture.cloudLight !== null ? { lightSteps: capture.cloudLight } : {}),
       ...(capture.lodScale !== null ? { lodDistanceScale: capture.lodScale } : {}),
       ...(capture.terrainCells !== null ? { terrainPatchCells: capture.terrainCells } : {}),
+      ...(capture.cloudFar !== null ? { cloudMaxDistance: capture.cloudFar } : {}),
     },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
     cloudProbe: capture.probe,

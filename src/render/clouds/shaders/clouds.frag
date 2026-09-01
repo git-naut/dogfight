@@ -57,7 +57,7 @@ out vec4 fragColor;
  * どの方向も不透明になって空が消えた。手前だけ描いて、その先は大気の霞に
  * 溶かす。
  */
-const float MAX_MARCH_DISTANCE = 26000.0;
+uniform float maxMarchDistance;
 
 
 /**
@@ -295,7 +295,7 @@ void main() {
     end = min(max(toBottom, toTop), sceneDistance);
   }
 
-  end = min(end, MAX_MARCH_DISTANCE);
+  end = min(end, maxMarchDistance);
   if (end <= start) { fragColor = vec4(0.0, 0.0, 0.0, probeMode > 0 ? 1.0 : 0.0); return; }
 
   float span = end - start;

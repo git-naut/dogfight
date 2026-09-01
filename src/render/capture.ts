@@ -139,6 +139,13 @@ export interface CaptureConfig {
    */
   noiseProbe: boolean
   /**
+   * 雲のマーチを打ち切る距離 m。`?cloudfar=` で振る。
+   *
+   * 遠方の雲海をどこで切るかを絵と費用の両方で測るための口。
+   * 指定しなければプリセットの値
+   */
+  cloudFar: number | null
+  /**
    * 起動時にシェーダを全プリセットぶん作るか。
    *
    * `?precompile=0` で省ける。**E2E で使う。**4 段ぶんのコンパイルは
@@ -234,6 +241,9 @@ export function readCaptureConfig(search: string): CaptureConfig {
     audioProbe: params.get('audioprobe') === '1',
     gpu: clampInt(params.get('gpu'), 0, 2, 0),
     noiseProbe: params.get('noiseprobe') === '1',
+    cloudFar: params.has('cloudfar')
+      ? clampNumber(params.get('cloudfar'), 500, 60_000, 26_000)
+      : null,
     precompile: params.get('precompile') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',

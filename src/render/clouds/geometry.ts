@@ -171,3 +171,27 @@ export function powder(density: number, distance: number): number {
 export function cloudTime(frame: number, fixedDt: number): number {
   return frame * fixedDt
 }
+
+/** 手前の歩幅 m。clouds.frag の NEAR_STEP と揃える */
+export const NEAR_STEP = 45
+
+/**
+ * 歩幅の伸び率の尺度を歩数から解く。
+ *
+ * 歩幅を s(t) = NEAR_STEP * (1 + t / G) とすると、k 歩目の距離は
+ * t(k) = G * (exp(NEAR_STEP * k / G) - 1) になる。t(maxSteps) が上限距離に
+ * なる G を二分法で求める。これで到達距離が歩数から保証され、マーチが
+ * 途中で止まらない。止まると位置がカメラの移動で前後し、遠くの雲が
+ * 現れたり消えたりする。
+ */
+export function stepGrowthScale(maxSteps: number, maxDistance: number): number {
+  let low = 10
+  let high = 1e6
+  for (let i = 0; i < 60; i++) {
+    const g = (low + high) / 2
+    const reach = g * (Math.exp((NEAR_STEP * maxSteps) / g) - 1)
+    if (reach > maxDistance) low = g
+    else high = g
+  }
+  return (low + high) / 2
+}

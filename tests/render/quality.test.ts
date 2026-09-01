@@ -9,6 +9,7 @@ import {
   lowerPreset,
   resolvePreset,
 } from '@render/quality'
+import { NEAR_STEP, stepGrowthScale } from '@render/clouds/geometry'
 
 describe('品質プリセットの表', () => {
   it('4 段そろっている', () => {
@@ -205,6 +206,40 @@ describe('品質プリセットの表', () => {
         )
       }
       previous = size
+    }
+  })
+
+  it('雲のマーチの上限距離が段によらず同じ', () => {
+    // **これは費用の段ではなく絵の決めごと。**段によって遠くの雲が
+    // 出たり消えたりすると、品質を落としたときに構図が変わる
+    const values = PRESET_ORDER.map((name) => QUALITY_PRESETS[name].cloudMaxDistance)
+    expect(new Set(values).size, `段ごとに違う: ${values.join(', ')}`).toBe(1)
+  })
+
+  it('歩数が上限距離を歩幅の伸びで覆い切る', () => {
+    // `stepGrowthScale` の契約。足りないとマーチが途中で止まり、止まる位置が
+    // 空振りの歩数で決まるのでカメラの移動で前後する（遠くの雲が現れたり
+    // 消えたりする形）
+    for (const name of PRESET_ORDER) {
+      const q = QUALITY_PRESETS[name]
+      const g = stepGrowthScale(q.cloudMaxSteps, q.cloudMaxDistance)
+      const reach = g * (Math.exp((NEAR_STEP * q.cloudMaxSteps) / g) - 1)
+      // 二分法なので厳密には届かない（実測で 11999.999999999989）。
+      // 1e-9 の相対誤差まで許す
+      expect(reach, `${name} の到達距離`).toBeGreaterThanOrEqual(
+        q.cloudMaxDistance * (1 - 1e-9),
+      )
+    }
+  })
+
+  it('上の 2 段は上限距離でも手前の 4 倍より細かく刻む', () => {
+    // 「近くは細かいが遠くは粗い」を実機で指摘された経緯がある。
+    // 下の 2 段は歩数が少ないので粗くなるのを許す
+    for (const name of ['high', 'ultra'] as const) {
+      const q = QUALITY_PRESETS[name]
+      const g = stepGrowthScale(q.cloudMaxSteps, q.cloudMaxDistance)
+      const far = NEAR_STEP * (1 + q.cloudMaxDistance / g)
+      expect(far / NEAR_STEP, `${name} の上限での粗さ`).toBeLessThanOrEqual(4)
     }
   })
 

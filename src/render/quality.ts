@@ -34,6 +34,19 @@ export interface QualitySettings {
   cloudDetail: boolean
   /** 地面へ雲影を落とすか */
   cloudGroundShadow: boolean
+  /**
+   * 雲のレイマーチを打ち切る距離 m。
+   *
+   * **ここが遠方の雲海を決める。**雲層（1,200〜4,500 m）の内側を水平に
+   * 飛ぶと視線がいくらでも雲の中を進み、遠方の雲が水平線際で横に長い帯に
+   * なる。打ち切った先は大気の霞に溶ける。
+   *
+   * 費用にも直結する。歩数は `cloudMaxSteps` で決まるが、同じ歩数で
+   * 覆う距離が縮むぶん手前の刻みが細かくなる（`stepGrowthScale`）。
+   *
+   * 以前は `clouds.frag` と `cloudsPass.ts` に写しで 2 つ持っていた
+   */
+  cloudMaxDistance: number
 
   /**
    * 地形パッチの一辺のセル数。
@@ -177,10 +190,11 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     smaa: false,
     anisotropy: 1,
     cloudResolutionScale: 0.125,
-    cloudMaxSteps: 32,
+    cloudMaxSteps: 27,
     cloudLightSteps: 2,
     cloudDetail: false,
     cloudGroundShadow: false,
+    cloudMaxDistance: 12_000,
     terrainPatchCells: 16,
     terrainLodLevels: 5,
     terrainDetailNormals: false,
@@ -203,10 +217,11 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     smaa: true,
     anisotropy: 4,
     cloudResolutionScale: 0.25,
-    cloudMaxSteps: 64,
+    cloudMaxSteps: 51,
     cloudLightSteps: 3,
     cloudDetail: true,
     cloudGroundShadow: true,
+    cloudMaxDistance: 12_000,
     terrainPatchCells: 24,
     terrainLodLevels: 6,
     terrainDetailNormals: true,
@@ -232,10 +247,11 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
     // 雲 10.8 ms、合計 13 ms 前後に収まる
     cloudResolutionScale: 0.5,
-    cloudMaxSteps: 256,
+    cloudMaxSteps: 163,
     cloudLightSteps: 4,
     cloudDetail: true,
     cloudGroundShadow: true,
+    cloudMaxDistance: 12_000,
     // 実測で 220 枚 × 32² × 2 = 45 万三角形。プレースホルダ機体は数百なので、
     // これがシーンのほぼ全部になる。Phase 4 の機体 9 機で 550k 前後を
     // 見込むと、合計は予算 1.5M の内側に収まる
@@ -263,10 +279,11 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // High より上の段。実機で 60fps は狙わない位置づけ。
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
     cloudResolutionScale: 1,
-    cloudMaxSteps: 384,
+    cloudMaxSteps: 214,
     cloudLightSteps: 8,
     cloudDetail: true,
     cloudGroundShadow: true,
+    cloudMaxDistance: 12_000,
     // 48 だと三角形が 1.18M になり、機体のぶんが残らない。40 で 82 万
     terrainPatchCells: 40,
     // High と同じ 7 段。段数を増やすより手前を細かくするほうが効く
@@ -317,6 +334,8 @@ export interface QualityOverride {
   lodDistanceScale?: number
   /** 地形パッチの一辺のセル数 */
   terrainPatchCells?: number
+  /** 雲のレイマーチを打ち切る距離 m。遠方の雲海の見え方と費用を振るのに使う */
+  cloudMaxDistance?: number
 }
 
 export function applyQualityOverride(
@@ -337,6 +356,9 @@ export function applyQualityOverride(
       : {}),
     ...(override.terrainPatchCells !== undefined
       ? { terrainPatchCells: override.terrainPatchCells }
+      : {}),
+    ...(override.cloudMaxDistance !== undefined
+      ? { cloudMaxDistance: override.cloudMaxDistance }
       : {}),
   }
 }

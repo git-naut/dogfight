@@ -7,6 +7,7 @@ import { Quat } from './sim/quat'
 import { getScript } from './sim/scripts'
 import { spawnFromSpec } from './sim/replay'
 import { createScene, createMissilePose, type MissilePose } from './render/scene'
+import { runNodeProbe } from './render/pipeline/node'
 import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/cloudsPass'
 import {
   readCaptureConfig,
@@ -167,6 +168,7 @@ const hook = installTestHook({
   compileMs: 0,
   gearDown: false,
   audioProbe: null,
+  gpuProbe: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -300,6 +302,30 @@ async function main(): Promise<void> {
         { rms: number; peak: number }
       >
     })
+  }
+
+  // **node 経路の自己診断。**`?gpu=1` か `?gpu=2` のときだけ。第 2 経路を
+  // 立てて glb を 1 枚描くところまでを確かめ、既定の経路には入らない。
+  // 音の自己診断と同じく、絵とは別の目的で走らせるモード
+  if (capture.gpu > 0) {
+    setBoot('node 経路を立てています')
+    const probe = await runNodeProbe(canvas!, {
+      gpu: capture.gpu,
+      aircraftUrl: AIRCRAFT_URL,
+      carrierUrl: CARRIER_URL,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    })
+    hook.gpuProbe = probe
+    hook.backend = probe.backend
+    hook.drawCalls = probe.drawCalls
+    hook.drawnTriangles = probe.triangles
+    hook.programs = probe.programs
+    finishBoot()
+    // **キャプチャの合図は出す。**E2E が同じ待ち方で拾えるようにする
+    document.body.dataset['captureReady'] = '1'
+    hook.captureReady = true
+    return
   }
 
   setBoot('大気の散乱テーブルを読み込み中')

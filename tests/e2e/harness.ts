@@ -82,6 +82,22 @@ export interface TestHook {
   compileMs: number
   gearDown: boolean
   audioProbe: Record<string, { rms: number; peak: number }> | null
+  /** node 経路の自己診断。`?gpu=1|2` のときだけ埋まる */
+  gpuProbe: {
+    requested: number
+    backend: string
+    fellBack: boolean
+    sharedCore: boolean
+    meshes: number
+    shaderMaterials: number
+    drawCalls: number
+    triangles: number
+    programs: number
+    initMs: number
+    firstFrameMs: number
+    renderMs: number
+    frames: number
+  } | null
   missionOutcome: string
   missionRemaining: number
   flaresBurning: number

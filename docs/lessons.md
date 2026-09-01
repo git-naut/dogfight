@@ -26,6 +26,8 @@
 | `webglVersion` をバックエンドの facade へ寄せるとき、値を `kind` から導いた。`kind === 'node-webgpu' ? 0 : 2` は WebGL 経路で必ず 2 を返すので、`smoke.spec.ts` の「WebGL2 が取れているか」が**原理的に落ちなくなっていた**。継ぎ目を作る作業がそのまま見張りを外す | 段 7 の差分を読み直したとき | `RenderBackend.webglVersion` が `gl.VERSION` の実物を読む。`smoke.spec.ts` は `hook.backend` も見る |
 | 継ぎ目は、越える者が現れた瞬間に意味を失う。帳簿からレンダラを 1 行借りても絵は動かないので、基準画像 42 枚は気づかない。**段 15 で実装を差し替えたときに初めて落ちる** | 段 8 で継ぎ目を切ったとき | `tests/render/pipelineSeam.test.ts` が `scene.ts` の本文と import を検査する。`createGpuTimer` を 1 行足すと 2 件落ちることを実測した |
 | three の描画順は、不透明が `material.id` を深度より先に見る（`WebGLRenderLists.js:1-49`）。`material.id` も `object.id` も生成のたびに 1 増える大域の連番なので、**組み立ての順番を入れ替えると前後関係に関係なく絵が動く** | 段 8 で 1,130 行を移す前に `node_modules` を読んだ | 組み立ての順番は `pipeline/webgl.ts` の 1 か所だけ。`npm run exact` が許容 0 で 42 枚を数える |
+| node 経路の `ShaderMaterial` は**落ちない**。`THREE.NodeBuilder: Material "ShaderMaterial" is not compatible.` をコンソールへ出したまま描画が進み、`initError` も立たない。例外で止まると思っていると、エラーを 1 行見落とした時点で「動いている」と読む | 段 9 で実際に 1 枚入れて測った | `tests/e2e/node-path.spec.ts` が `shaderMaterials` の数と `errors` の両方を見る。1 枚入れると 2 件落ちることを実測した |
+| node 経路の `info` は自分で 0 に戻さないと積算される。`autoReset` は既定 true だが、`info.reset()` は `Animation.js:75`（`setAnimationLoop` の中）からしか呼ばれない。`WebGLRenderer` は `render()` の中で戻すので、作法が逆になる | 9 枚描いたらドローコール 52 が 468、三角形 18,899 が 170,091 とちょうど 9 倍になった | `src/render/pipeline/node.ts` が読む直前に `info.reset()` を呼ぶ。段 15 で `backend.resetInfo()` を node 側へ移すときの前提 |
 
 ## まだ守るものがない穴
 
@@ -44,7 +46,7 @@
 | `about:blank` で `navigator.gpu` を見て「WebGPU は使えない」と結論した。保安コンテキストではないため undefined になる | 同じ測定を localhost 由来のページでやり直した | `tools/webgpu-probe.mjs` が `secureContext` を必ず出す |
 | adapter が取れることと描けることを同じものとして扱いかけた | 読み戻しまでやった | `tools/webgpu-probe.mjs` が画素をシェーダの式と突き合わせる |
 | `toHaveScreenshot` が通ったことを「変わっていない」と読んだ。1 画素あたり 0.05 まで許すので、機体をまるごと差し替えても 10 枚中 4 枚が通る | Phase 4 | `tools/exact.mjs` が許容差なしで数える。描画に触る段ごとに走らせる |
-| 合成ベンチ 1 本の比から所要を外挿しかけた。雲では +31% の見積りが実測 +58% だった | Phase 3 の記録 | 未対応。人が思い出すしかない |
+| 合成ベンチ 1 本の比から所要を外挿しかけた。雲では +31% の見積りが実測 +58% だった。**段 9 では向きすら逆だった。**段 0 の合成ベンチは「WebGPU が 1.29 倍遅い」、実物の場面では WebGPU が 1.23 倍速い | Phase 3 の記録と、段 9 の実測 | 未対応。人が思い出すしかない。`docs/measuring.md` に見積りと実測を並べて残した |
 | 21 条件を全部回すと統合 GPU が熱で遅くなる。ばらつきが 0.35 から 6.01 ms へ悪化した | Phase 6 | `?only=` で条件を絞る。`benchUnreadable` が読めない表を判定する |
 | CI の E2E が 25 分の上限に当たった。テストは 1 件も落ちていない。2 分割のまま所要が 16.7 → 24.0 → 25.7 分と育っていたが、通り続けていたので余裕が減っていることが見えなかった | 上限に当たって初めて | 4 分割にして 1 台 13 分前後へ。上限を 18 分に下げ、余裕を 1.4 倍に留めた。**当たったら分割を増やす。上限は上げない** |
 | `--shard` はテストの本数で割る。並びはファイル順・行順なので、末尾に固まったライブ UI が 1 台へ寄る。4 分割にしても最長 17.4 分で上限 18 分に対し余裕 1.03 倍だった | 上限に当たって初めて | 未対応。8 分割にして薄めているだけで、釣り合わせてはいない。所要を見た分配が要る |

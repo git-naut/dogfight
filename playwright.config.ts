@@ -1,6 +1,11 @@
 import os from 'node:os'
 import { defineConfig, devices } from '@playwright/test'
-import { SWIFTSHADER_ARGS, VIEWPORT, DEFAULT_PROJECT } from './tests/e2e/launch.mjs'
+import {
+  SWIFTSHADER_ARGS,
+  WEBGPU_ARGS,
+  VIEWPORT,
+  DEFAULT_PROJECT,
+} from './tests/e2e/launch.mjs'
 
 // スクリーンショット回帰を環境差から守るため、GPU を使わず
 // Chromium 内蔵のソフトウェアレンダラ SwiftShader に固定する。
@@ -130,6 +135,19 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: { args: [...SWIFTSHADER_ARGS] },
+      },
+    },
+    {
+      // node 経路だけを WebGPU の起動引数で回す。
+      //
+      // **全件を 2 周させない。**基準画像 42 枚は `chromium-swiftshader` の
+      // ものなので、こちらで撮ると別物になる。`testMatch` で 1 本に絞る。
+      // 段 18 で撮り直すときにこの分け方を畳む
+      name: 'chromium-webgpu',
+      testMatch: /node-path\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { args: [...WEBGPU_ARGS] },
       },
     },
   ],

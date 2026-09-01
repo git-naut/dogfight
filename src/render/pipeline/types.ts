@@ -279,3 +279,59 @@ export interface ScenePipeline {
   setMeasureConfig(config: MeasureConfig): void
   dispose(): void
 }
+
+/**
+ * node 経路の自己診断の結果。
+ *
+ * 段 9 で `?gpu=1|2` の第 2 経路を立てたときに埋まる。**移行の前提を
+ * 1 ページで測るためのもの**で、既定の絵とは関係がない。
+ */
+export interface NodeProbeResult {
+  /** 要求した経路。1 = `forceWebGL: true`、2 = WebGPU */
+  requested: number
+  /** 実際に立ったバックエンド */
+  backend: 'node-webgl' | 'node-webgpu'
+  /** WebGPU を要求して WebGL2 へ落ちたか */
+  fellBack: boolean
+  /**
+   * `three` と `three/webgpu` がコアクラスの実体を共有しているか。
+   *
+   * **ここが false なら移行は総取り替えになる。**`Mesh` が 2 種類できると
+   * `instanceof` が通らず、既存のローダもビューも node 経路で使えない。
+   * 実測では両方の build が `three.core.js` から import しているので true
+   */
+  sharedCore: boolean
+  /** シーンに入れたメッシュの数 */
+  meshes: number
+  /**
+   * シーンに入れた `ShaderMaterial` の数。
+   *
+   * **node 経路では 0 でなければならない。**`StandardNodeLibrary` に
+   * 登録がない。glb の材質は `MeshStandardMaterial` なので通る。
+   *
+   * 入れても例外にはならない。実測では `THREE.NodeBuilder: Material
+   * "ShaderMaterial" is not compatible.` をコンソールへ出したまま描画が進む
+   * （`initError` も立たない）ので、数で見張る
+   */
+  shaderMaterials: number
+  drawCalls: number
+  triangles: number
+  programs: number
+  /** `renderer.init()` にかかったミリ秒 */
+  initMs: number
+  /**
+   * 1 枚目にかかったミリ秒。
+   *
+   * シェーダの生成とテクスチャの常駐化が乗るので、定常の値ではない。
+   * バックエンドの比較には使わない
+   */
+  firstFrameMs: number
+  /**
+   * 定常状態の 1 枚のミリ秒。**最小値。**
+   *
+   * `bench.ts` と同じ代表値の取り方。平均は他プロセスの割り込みを拾う
+   */
+  renderMs: number
+  /** 定常状態で測った枚数 */
+  frames: number
+}

@@ -1,3 +1,4 @@
+import type { NodeProbeResult } from './pipeline/types'
 import { resolvePreset, type PresetName } from './quality'
 import { DEFAULT_HOUR } from './atmosphere'
 
@@ -120,6 +121,17 @@ export interface CaptureConfig {
    */
   audioProbe: boolean
   /**
+   * 描画バックエンドの経路。`?gpu=0|1|2`。
+   *
+   * 0 が既定で、いままでどおり `WebGLRenderer` を直に立てる。1 と 2 は
+   * `WebGPURenderer` を立てる第 2 経路で、1 は `forceWebGL: true` で
+   * WebGL2 バックエンドへ落とし、2 は WebGPU を要求する。
+   *
+   * **既定の絵には触らない。**移行が終わるまで 1 と 2 は自己診断であって、
+   * 基準画像 42 枚は 0 の経路だけを見る
+   */
+  gpu: number
+  /**
    * 起動時にシェーダを全プリセットぶん作るか。
    *
    * `?precompile=0` で省ける。**E2E で使う。**4 段ぶんのコンパイルは
@@ -213,6 +225,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? params.get('sound') === '1'
       : params.get('capture') !== '1',
     audioProbe: params.get('audioprobe') === '1',
+    gpu: clampInt(params.get('gpu'), 0, 2, 0),
     precompile: params.get('precompile') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
@@ -400,6 +413,13 @@ export interface TestHook {
    * `capture.ts` の作法に合わせ、型は素の数値だけで書く
    */
   audioProbe: Record<string, { rms: number; peak: number }> | null
+  /**
+   * node 経路の自己診断の結果。`?gpu=1` か `?gpu=2` のときだけ埋まる。
+   *
+   * **これが埋まったフレームは既定の経路を通っていない。**第 2 経路を
+   * 立てて glb を 1 枚描いただけの状態で、シムも HUD も動いていない
+   */
+  gpuProbe: NodeProbeResult | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *

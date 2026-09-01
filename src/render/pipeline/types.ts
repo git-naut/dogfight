@@ -39,8 +39,22 @@ import type { PresetName, QualityOverride, QualitySettings } from '../quality'
  */
 export const DEFAULT_EXPOSURE = 6
 
-/** 既定の雲量。点在する積雲になる値 */
-export const DEFAULT_COVERAGE = 0.3
+/**
+ * 既定の雲量。点在する積雲になる値。
+ *
+ * **0.3 から 0.29 へ下げた。**密度の側は `threshold = 1 - coverage` を
+ * 気象マップの FBM へ当てているので、0.3 付近は分布の裾に載っていて応答が
+ * 急峻。0.02 動かすと雲がほぼ消える（実測。0.28 で密度サンプルが 27.3 から
+ * 16.2 へ、0.24 では画面から消えた）。
+ *
+ * 0.29 なら主役の積雲は残り、密度サンプルは `level-afternoon` で 27.3 から
+ * 20.4、`terrain-overlook` で 29.1 から 23.7 へ落ちる。
+ *
+ * **正本はここだけ。**`capture.ts` の URL 既定も `tests/e2e/scenes.mjs` の
+ * 構図もこの値に合わせる。以前は写しを持っていて、道具ごとに違う雲量で
+ * 撮っていた（`docs/lessons.md`）
+ */
+export const DEFAULT_COVERAGE = 0.29
 
 /**
  * 同時に出せる標的機の上限。

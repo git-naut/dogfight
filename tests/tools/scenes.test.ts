@@ -3,6 +3,7 @@ import { readdirSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import { SCENES, captureParams } from '../e2e/scenes.mjs'
 import { DEFAULT_PROJECT, snapshotSuffix } from '../e2e/launch.mjs'
+import { DEFAULT_COVERAGE } from '@render/pipeline/types'
 import { getScript, isScriptName } from '@sim/scripts'
 
 /**
@@ -129,5 +130,20 @@ describe('キャプチャ URL', () => {
     expect(p.get('frame')).toBe('480')
     expect(p.get('coverage')).toBe('0.8')
     expect(p.get('hour')).toBe('16')
+  })
+})
+
+describe('雲量', () => {
+  it('雲ありのカットが本番の既定と揃っている', () => {
+    // **道具ごとに違う雲量で撮っていた過去がある**（`docs/lessons.md`）。
+    // 快晴（0）と濃い雲（0.8）は意図した外れ値で、それ以外は本番の既定に
+    // 揃える。揃っていないと、基準画像が出荷される絵を写さなくなる
+    const cloudy = SCENES.map((s) => s.coverage).filter(
+      (c) => c !== undefined && c !== 0 && c !== 0.8,
+    )
+    expect(cloudy.length, '雲ありのカットが無い').toBeGreaterThan(5)
+    for (const c of cloudy) {
+      expect(c, '本番の既定とずれている').toBe(DEFAULT_COVERAGE)
+    }
   })
 })

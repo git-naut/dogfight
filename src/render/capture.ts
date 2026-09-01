@@ -1,4 +1,4 @@
-import type { NodeProbeResult } from './pipeline/types'
+import { DEFAULT_COVERAGE, type NodeProbeResult } from './pipeline/types'
 import { resolvePreset, type PresetName } from './quality'
 import { DEFAULT_HOUR } from './atmosphere'
 
@@ -183,12 +183,13 @@ export interface CaptureConfig {
 export const DEFAULT_SEED = 20260816
 
 /**
- * 既定の雲量。
+ * 既定の雲量。**正本は `pipeline/types.ts`。**
  *
  * ノイズを Nyquist 内へ収めた際に塊が育つ方向へ変わったので、点在する
- * 見え方を保つために 0.35 から下げた。
+ * 見え方を保つために 0.35 から下げた。写しを持っていた名残でここにも
+ * 定義があったが、値は 1 つにした
  */
-export const DEFAULT_COVERAGE = 0.3
+export { DEFAULT_COVERAGE } from './pipeline/types'
 
 export function readCaptureConfig(search: string): CaptureConfig {
   const params = new URLSearchParams(search)

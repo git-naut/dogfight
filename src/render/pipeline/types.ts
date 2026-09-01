@@ -317,6 +317,27 @@ export interface NodeProbeResult {
   drawCalls: number
   triangles: number
   programs: number
+  /** 大気を node 経路で組んだか */
+  atmosphere: boolean
+  /**
+   * 大気の LUT を GPU で計算するのにかかったミリ秒。
+   *
+   * **これが段 10 の主目的。**4.1 MB の EXR を配るのをやめられるかは、
+   * この値で決まる。SwiftShader で 1 ページあたり 3 秒を超えるなら
+   * `atmosphereLutScale` を落とすか、オフラインで焼いたものを差す
+   */
+  lutMs: number
+  /** LUT の解像度の倍率。プリセットの `atmosphereLutScale` */
+  lutScale: number
+  /** `compileAsync` にかかったミリ秒。ここで `setup()` が走る */
+  buildMs: number
+  /**
+   * 太陽高度 deg。
+   *
+   * WebGL 経路の `hook.sunElevation` と突き合わせる。**同じ時刻から同じ
+   * 太陽が出ることを数値で確かめる。**絵を見比べても分からない
+   */
+  sunElevationDeg: number
   /** `renderer.init()` にかかったミリ秒 */
   initMs: number
   /**

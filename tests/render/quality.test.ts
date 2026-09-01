@@ -169,6 +169,45 @@ describe('品質プリセットの表', () => {
     expect(getQuality(DEFAULT_PRESET).renderScale).toBe(1)
   })
 
+  it('大気の LUT の倍率が段ごとに下がらず、1 を超えない', () => {
+    // **1 を超えさせない。**原本より大きくしても情報は増えず、起動時の
+    // GPU 計算だけが面積の 2 乗で伸びる
+    let previous = 0
+    for (const name of PRESET_ORDER) {
+      const scale = QUALITY_PRESETS[name].atmosphereLutScale
+      expect(scale, `${name} の atmosphereLutScale`).toBeGreaterThanOrEqual(previous)
+      expect(scale, `${name} の atmosphereLutScale`).toBeLessThanOrEqual(1)
+      previous = scale
+    }
+  })
+
+  it('遠景の霞の光線行進は上の段だけで入る', () => {
+    // 毎フレームの費用なので、下の段では切る
+    expect(QUALITY_PRESETS.low.aerialRaymarchScattering).toBe(false)
+    expect(QUALITY_PRESETS.ultra.aerialRaymarchScattering).toBe(true)
+    let seenTrue = false
+    for (const name of PRESET_ORDER) {
+      const on = QUALITY_PRESETS[name].aerialRaymarchScattering
+      // 一度 true になったら下がらない
+      if (seenTrue) expect(on, `${name} の aerialRaymarchScattering`).toBe(true)
+      seenTrue ||= on
+    }
+  })
+
+  it('空から焼く環境反射の一辺が 2 のべき乗で、段ごとに減らない', () => {
+    let previous = 0
+    for (const name of PRESET_ORDER) {
+      const size = QUALITY_PRESETS[name].skyEnvironmentSize
+      expect(size, `${name} の skyEnvironmentSize`).toBeGreaterThanOrEqual(previous)
+      if (size > 0) {
+        expect(Number.isInteger(Math.log2(size)), `${name} の skyEnvironmentSize`).toBe(
+          true,
+        )
+      }
+      previous = size
+    }
+  })
+
   it('すべての値が有限で、0 を許すのは機能を切る枠だけ', () => {
     // 0 は「その機能を使わない」の意味。Low で影と環境反射と軌跡を切る
     const zeroAllowed = new Set([
@@ -179,6 +218,8 @@ describe('品質プリセットの表', () => {
       'explosionSprites',
       'damageSmokeSegments',
       'flareSprites',
+      // 空から焼く環境反射。low では焼かない
+      'skyEnvironmentSize',
     ])
     for (const name of PRESET_ORDER) {
       const q = QUALITY_PRESETS[name]

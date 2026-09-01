@@ -513,3 +513,36 @@ node 経路に `gl.finish()` は無い。`RenderTarget` へ描いて `readRender
 `WebGLRenderer` は `render()` の中で集計を戻すので `autoReset = false` にして自分で読んでいた。node 経路は逆で、`autoReset` が既定の true でも **`info.reset()` は `Animation.js:75` からしか呼ばれない。**`setAnimationLoop` を使わず自分で `render()` を回すと積算され続ける。
 
 9 枚描いてから読んで、ドローコール 52 が 468、三角形 18,899 が 170,091 になった。ちょうど 9 倍で、これで気づいた。
+
+## 大気を node へ移した（2026-09-01 実測、Phase 8 段 10）
+
+`?gpu=2` で `AtmosphereContext` を組み、LUT を実行時に GPU で計算させた。1280x720、SwiftShader、`preset=high`（`atmosphereLutScale = 1`）。
+
+| 測ったもの | 値 |
+|---|---|
+| `renderer.init()` | 14.2 ms |
+| `compileAsync` | 2,676.9 ms |
+| LUT の計算（`updateTextures`） | 76.1 ms |
+| 1 枚目 | 396.1 ms |
+| 定常 1 枚（排出込み） | 252.8 ms |
+| ドローコール | 54 |
+| 三角形 | 39,075 |
+| プログラム | 31 |
+| 太陽高度 | 32.31568193450447 度 |
+
+**LUT は安い。**段の合格条件に置いた 3 秒に対して 76.1 ms で、40 分の 1。4.1 MB の EXR を配るのをやめられる。起動時間の主は `compileAsync` のほうで、35 倍の差がある。
+
+太陽高度は WebGL 経路の `hook.sunElevation` と小数 6 桁まで一致した。**同じ時刻から同じ太陽が出ることを数値で確かめた。**絵を見比べても分からない種類のずれを、ここで止める。
+
+大気を入れると 1 枚が 13.1 ms から 252.8 ms へ伸びる。SwiftShader で空を光線行進しているためで、実機の値ではない。
+
+### `forceWebGL` では大気が組めない
+
+`?gpu=1`（node 経路の WebGL2 バックエンド）は、大気の構造体を GLSL へ落とせずに落ちる。
+
+```
+ERROR: 0:76: 'AtmosphereParameters' : syntax error
+> 76: AtmosphereParameters nodeVar...
+```
+
+計画が退避路として当てにしていた二重化は、大気には効かない。`?gpu=1` は glb だけの経路として残す。

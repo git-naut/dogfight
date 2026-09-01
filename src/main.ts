@@ -16,7 +16,7 @@ import {
   installTestHook,
   DEFAULT_SEED,
 } from './render/capture'
-import { PerformanceGovernor, type PresetName } from './render/quality'
+import { getQuality, PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
 import { applyAssist, type ControlMode } from './sim/assist'
 import { catapultLaunch } from './sim/carrierDeck'
@@ -309,12 +309,19 @@ async function main(): Promise<void> {
   // 音の自己診断と同じく、絵とは別の目的で走らせるモード
   if (capture.gpu > 0) {
     setBoot('node 経路を立てています')
+    // 大気の設定はプリセットから取る。**`?preset=` で振れるので、LUT の
+    // 費用を段ごとに測れる**
+    const quality = getQuality(initialSettings.preset)
     const probe = await runNodeProbe(canvas!, {
       gpu: capture.gpu,
       aircraftUrl: AIRCRAFT_URL,
       carrierUrl: CARRIER_URL,
       width: window.innerWidth,
       height: window.innerHeight,
+      hour: initialSettings.hour,
+      lutScale: quality.atmosphereLutScale,
+      skyEnvironmentSize: quality.skyEnvironmentSize,
+      raymarchScattering: quality.aerialRaymarchScattering,
     })
     hook.gpuProbe = probe
     hook.backend = probe.backend

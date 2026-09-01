@@ -45,6 +45,11 @@ test.describe('node 経路', () => {
     // compatible.` がコンソールに 2 行出た。**例外にはならず描画は進む**ので、
     // 数と `errors` の両方で見張る
     expect(result.shaderMaterials).toBe(0)
+    // **大気は組まない。**node 経路の WebGL2 バックエンドでは、大気の
+    // 構造体が GLSL のコンパイルで落ちる（実測。`'AtmosphereParameters' :
+    // syntax error`）。計画が退避路として当てにしていた `forceWebGL` は、
+    // 大気には効かない
+    expect(result.atmosphere).toBe(false)
     expect(errors).toEqual([])
   })
 
@@ -58,6 +63,33 @@ test.describe('node 経路', () => {
     expect(result.shaderMaterials).toBe(0)
     expect(result.triangles).toBeGreaterThan(0)
     expect(errors).toEqual([])
+  })
+
+  test('WebGPU なら大気まで組み、LUT を実行時に計算する', async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium-webgpu',
+      'WebGPU の起動引数が要る',
+    )
+    const { result, errors } = await probe(page, 'gpu=2')
+
+    expect(result.backend).toBe('node-webgpu')
+    expect(result.atmosphere).toBe(true)
+    // **4.1 MB の EXR を配らずに済むかは、この値で決まる。**実測 76 ms
+    expect(result.lutMs).toBeGreaterThan(0)
+    expect(result.lutMs).toBeLessThan(3_000)
+    expect(result.lutScale).toBeGreaterThan(0)
+    expect(errors).toEqual([])
+
+    // **絵を見比べても分からない。**同じ時刻から同じ太陽が出ることを数値で
+    // 確かめる。ずれていれば座標系の橋渡しがどこかで違っている。
+    // 大気付きの WebGPU 起動は 2 分かかるので、同じ 1 回に相乗りさせる
+    await page.goto('/dogfight/?capture=1&frame=0')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const webglDeg = ((hook?.sunElevation ?? 0) * 180) / Math.PI
+    expect(result.sunElevationDeg).toBeCloseTo(webglDeg, 6)
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

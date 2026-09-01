@@ -39,8 +39,8 @@ const DEG = Math.PI / 180
  * この地点を原点に置く行列で橋渡しする。局所座標が原点近傍に留まるため、
  * ECEF の 6,400 km を float32 で扱うときの精度崩れも起きない。
  */
-const REFERENCE_LONGITUDE = 139.7 * DEG
-const REFERENCE_LATITUDE = 35.6 * DEG
+export const REFERENCE_LONGITUDE = 139.7 * DEG
+export const REFERENCE_LATITUDE = 35.6 * DEG
 
 /**
  * 基準の日時。基準地点の地方真太陽時で正午にあたる UTC。

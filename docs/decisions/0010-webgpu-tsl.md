@@ -84,3 +84,36 @@ pmndrs `postprocessing` への依存。`EffectComposer` / `EffectPass` / `SMAAEf
 - 実装計画は `~/.claude/plans/phase-8-compiled-sprout.md`
 - 置き換えられた判断は `docs/decisions/0001-rendering-stack.md`
 - takram の WebGPU の使い方は `packages/atmosphere/WEBGPU.md`（three-geospatial）
+
+## three は 0.184 に留める（2026-09-01 追記、段 10）
+
+node 経路で takram の大気を立てたら、モジュール評価の時点で `Cannot read properties of undefined (reading 'name')` で落ちた。
+
+原因は `struct()` の戻り値の形が three 0.185 で変わったこと。
+
+| three | `struct()` の戻り値 |
+|---|---|
+| 0.175〜0.184 | `struct.layout = structLayout; return struct` |
+| 0.185.1 | `nodeProxyConstructor(struct, structType)` |
+
+takram 0.19.1（この日の最新）は `.layout` を 8 か所で読む。atmosphere に 5、geospatial に 3。geospatial の判定は `'layout' in s && s.layout instanceof StructTypeNode` という形で、プロパティの存在そのものを見る。0.185 が返す Proxy は `get` と `set` しかトラップしないので `in` が false になる。**プロトタイプに `layout` を生やしても越えられない。**実際に生やして次の壁に当たった。
+
+takram の peer は `three: '>=0.170.0'` で上限が無い。npm install では気づけない。
+
+three を 0.184.0、`@types/three` を 0.184.1 へ落とした。**既定の絵は 1 画素も動かない。**基準画像 42 枚が許容 0 で一致し、単体 1,160 件が緑。`tests/render/atmosphereCompat.test.ts` が `struct()` の形を 18 秒の単体テストで縛るので、three を上げた瞬間にここが落ちる。
+
+0001 の撤回条件で踏んだのと同じ作法がここにも要る。**「対応した」と「いま噛み合う」は別。**版の下限だけを見て上限を見なかった。
+
+## `forceWebGL` は退避路にならない
+
+この文書は「`WebGPURenderer` は `forceWebGL: true` で WebGL2 バックエンドに落ちる。TSL で 1 度書けば両方で動く。移行の途中で退避できる」と書いた。
+
+実測では、node 経路の WebGL2 バックエンドは大気の構造体を GLSL へ落とせない。`ERROR: 0:76: 'AtmosphereParameters' : syntax error` で頂点シェーダのコンパイルが失敗する。
+
+`?gpu=1` は glb だけを描く経路として残す。大気から先は `?gpu=2` だけになる。**二重化という安全弁は無い。**段 18 で切り替える前に戻れる先は `main` の `phase-7-webgl` タグだけ。
+
+## LUT の実行時計算は安い
+
+`atmosphereLutScale = 1` で 76.1 ms（SwiftShader の WebGPU）。段の合格条件に置いた 3 秒に対して 40 分の 1 だった。**4.1 MB の EXR と `tools/copy-atmosphere-assets.mjs` を捨てられる。**
+
+起動時間の主は LUT ではなく `compileAsync` で、2,676.9 ms かかる。段 17 で見る。

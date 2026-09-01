@@ -93,6 +93,11 @@ export interface TestHook {
     drawCalls: number
     triangles: number
     programs: number
+    atmosphere: boolean
+    lutMs: number
+    lutScale: number
+    buildMs: number
+    sunElevationDeg: number
     initMs: number
     firstFrameMs: number
     renderMs: number

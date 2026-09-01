@@ -83,6 +83,31 @@ export interface QualitySettings {
    * 時刻が変わったときだけ焼き直すので毎フレームの費用はない。
    */
   environmentMapSize: number
+
+  /**
+   * 大気の LUT の解像度の倍率。1.0 が原本の大きさ。
+   *
+   * node 経路では LUT を実行時に GPU で計算する（4.1 MB の EXR を配らなく
+   * なる）。費用は起動時に一度だけ乗り、テクスチャの面積で効く。弱い機械で
+   * 起動が伸びるときに落とす。**空の見え方に効くので、絵の段ではない。**
+   *
+   * 段 10 の規約どおり、実測より先に列を作った（`CLAUDE.md`）
+   */
+  atmosphereLutScale: number
+  /**
+   * 遠景の霞を光線行進で解くか。
+   *
+   * `AtmosphereContext.raymarchScattering`。切ると LUT の引きだけになり
+   * 安いが、雲の中や地平線際の精度が落ちる。**毎フレームの費用。**
+   */
+  aerialRaymarchScattering: boolean
+  /**
+   * 空から焼く環境反射の一辺。0 で焼かない。
+   *
+   * `skyEnvironment(size)` に渡す。段 16 で `environmentMapSize` の
+   * `CubeCamera` + `PMREMGenerator` を置き換える。それまでは並ぶ
+   */
+  skyEnvironmentSize: number
   /**
    * 軌跡のリボンの分割数。0 で軌跡なし。
    *
@@ -163,6 +188,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 0.5,
     aircraftShadowMapSize: 0,
     environmentMapSize: 0,
+    atmosphereLutScale: 0.5,
+    aerialRaymarchScattering: false,
+    skyEnvironmentSize: 0,
     trailSegments: 0,
     missileTrailSegments: 0,
     explosionSprites: 0,
@@ -186,6 +214,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
     environmentMapSize: 64,
+    atmosphereLutScale: 0.75,
+    aerialRaymarchScattering: false,
+    skyEnvironmentSize: 64,
     trailSegments: 192,
     missileTrailSegments: 192,
     explosionSprites: 6,
@@ -215,6 +246,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
     environmentMapSize: 128,
+    atmosphereLutScale: 1,
+    aerialRaymarchScattering: true,
+    skyEnvironmentSize: 128,
     trailSegments: 384,
     missileTrailSegments: 384,
     explosionSprites: 12,
@@ -244,6 +278,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 1.15,
     aircraftShadowMapSize: 2048,
     environmentMapSize: 256,
+    atmosphereLutScale: 1,
+    aerialRaymarchScattering: true,
+    skyEnvironmentSize: 256,
     trailSegments: 768,
     missileTrailSegments: 512,
     explosionSprites: 12,

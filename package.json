@@ -26,14 +26,14 @@
     "@takram/three-atmosphere": "^0.19.1",
     "@takram/three-geospatial": "^0.9.1",
     "postprocessing": "^6.39.4",
-    "three": "^0.185.1"
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^26.2.0",
-    "@types/three": "^0.185.4",
+    "@types/three": "^0.184.1",
     "pngjs": "^7.0.0",
     "typescript": "^5.9.3",
     "vite": "^8.2.1",

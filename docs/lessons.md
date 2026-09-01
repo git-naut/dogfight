@@ -28,6 +28,9 @@
 | three の描画順は、不透明が `material.id` を深度より先に見る（`WebGLRenderLists.js:1-49`）。`material.id` も `object.id` も生成のたびに 1 増える大域の連番なので、**組み立ての順番を入れ替えると前後関係に関係なく絵が動く** | 段 8 で 1,130 行を移す前に `node_modules` を読んだ | 組み立ての順番は `pipeline/webgl.ts` の 1 か所だけ。`npm run exact` が許容 0 で 42 枚を数える |
 | node 経路の `ShaderMaterial` は**落ちない**。`THREE.NodeBuilder: Material "ShaderMaterial" is not compatible.` をコンソールへ出したまま描画が進み、`initError` も立たない。例外で止まると思っていると、エラーを 1 行見落とした時点で「動いている」と読む | 段 9 で実際に 1 枚入れて測った | `tests/e2e/node-path.spec.ts` が `shaderMaterials` の数と `errors` の両方を見る。1 枚入れると 2 件落ちることを実測した |
 | node 経路の `info` は自分で 0 に戻さないと積算される。`autoReset` は既定 true だが、`info.reset()` は `Animation.js:75`（`setAnimationLoop` の中）からしか呼ばれない。`WebGLRenderer` は `render()` の中で戻すので、作法が逆になる | 9 枚描いたらドローコール 52 が 468、三角形 18,899 が 170,091 とちょうど 9 倍になった | `src/render/pipeline/node.ts` が読む直前に `info.reset()` を呼ぶ。段 15 で `backend.resetInfo()` を node 側へ移すときの前提 |
+| ライブラリの peer に上限が無いと、**「対応した」と「いま噛み合う」の差に気づけない。**takram 0.19.1 の peer は `three: '>=0.170.0'` だが、three 0.185 で `struct()` の戻り値が Proxy になり、takram が読む `.layout` が消えた。モジュール評価の時点で落ちる | 段 10 で `?gpu=2` を立てたとき | three を 0.184 に留め、`tests/render/atmosphereCompat.test.ts` が `struct()` の形を単体テストで縛る。three を上げた瞬間に落ちる |
+| 三者の噛み合わせは、**プロトタイプに生やしても越えられないことがある。**`StructTypeNode.prototype.layout` を足すと 1 つ目の壁は越えたが、geospatial は `'layout' in s` で存在そのものを見ており、Proxy に `has` トラップが無いので false のままだった | shim を入れて測り直したとき | 版で解いた。`docs/decisions/0010-webgpu-tsl.md` に両方の壁を書いた |
+| **`forceWebGL: true` は退避路にならなかった。**計画は「TSL で 1 度書けば両方で動く」と書いていたが、node 経路の WebGL2 バックエンドは大気の構造体を GLSL へ落とせない（`'AtmosphereParameters' : syntax error`） | 段 10 で `?gpu=1` に大気を入れて測った | `tests/e2e/node-path.spec.ts` が `?gpu=1` で `atmosphere === false` を見る。大気から先は `?gpu=2` だけ |
 
 ## まだ守るものがない穴
 

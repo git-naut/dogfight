@@ -169,6 +169,7 @@ const hook = installTestHook({
   gearDown: false,
   audioProbe: null,
   gpuProbe: null,
+  noiseSlice: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -385,6 +386,9 @@ async function main(): Promise<void> {
   hook.backend = view.backend.kind
   hook.webglVersion = view.backend.webglVersion
   hook.atmosphereReady = true
+  // **生バイトを出すのは頼まれたときだけ。**1,024 個をフックへ常時置くと
+  // 読み出しの費用が全テストに乗る
+  hook.noiseSlice = capture.noiseProbe ? [...view.noiseSlice] : null
   hook.sunElevation = view.sunElevation
   hook.sunRadiance = view.sunRadiance.toArray()
   hook.skyRadiance = view.skyRadiance.toArray()

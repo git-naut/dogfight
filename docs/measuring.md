@@ -546,3 +546,34 @@ ERROR: 0:76: 'AtmosphereParameters' : syntax error
 ```
 
 計画が退避路として当てにしていた二重化は、大気には効かない。`?gpu=1` は glb だけの経路として残す。
+
+## 雲ノイズを TSL へ移した（2026-09-01 実測、Phase 8 段 11）
+
+`noise3d.frag` を `src/render/clouds/noiseNodes.ts` へ写した。移行全体の決定論の土台なので、画素比較ではなく数値比較で押さえる。
+
+比べたのは 2 つ。ハッシュ（PCG3D）の上位 8 ビットを 16x16 の格子で焼いたもの 768 個と、形状ノイズの中央スライスの左下 16x16 を RGBA8 で読み戻した 1,024 個。
+
+| 比べたもの | GLSL（既定） | node/WebGL2 | node/WebGPU |
+|---|---|---|---|
+| ハッシュ 768 個 対 CPU 参照 | ― | 一致 | 一致 |
+| ノイズ 1,024 個 対 GLSL 版 | 基準 | 一致 | 一致 |
+
+**浮動小数まで一致した。**計画が仕様上ビット一致すると見ていたのは整数のハッシュだけだったが、Worley と Perlin の `sqrt` `normalize` `mix` を含む合成まで、GLSL と WGSL で 1 ビットも違わなかった。
+
+### 読み戻しの向きと原点がバックエンドで違う
+
+3 回つまずいた。どれも算術ではなく読み戻しの側。
+
+**行が 256 バイトへ揃う。**WebGPU で 16 px 幅（64 バイト）を 16 行読むと 3,904 バイト戻る。15 行 x 256 + 64 で、最後の行だけ揃えられない。WebGL2 は詰まったまま 1,024 バイトを返す。
+
+**行の並びが逆。**WebGL2 は下から、WebGPU は上から返る。ハッシュの格子で、WebGPU の先頭が `hashTopByte(0, 15, 0)` に一致した。**算術は合っていて並びだけが違う**ので、気づかないと「WGSL のハッシュがずれている」と読み違える。
+
+**原点の上下も逆。**`readRenderTargetPixelsAsync(target, 0, 0, 16, 16)` は WebGL2 では左下の角、WebGPU では左上の角を指す。64x64 の左下を読むには WebGPU 側で `y = 48` から読む。行を反転しただけでは足りなかった。
+
+### TSL で踏んだもの
+
+`toVar()` と `assign()` は `Fn` の中にしか置けない。素の関数の中で使うと `THREE.TSL: No stack defined for assign operation.` が出る。`worley` と `perlin` を `Fn(() => ...)()` で包んだ。
+
+`@types/three` の整数ビット演算は `IntegerType = 'int' | 'uint'` に限られていて、`uvec3` には型が付かない（`OperatorNode.d.ts:507`）。実装は通る。成分ごとのスカラで書いたので、計画が案じていた `uvec3 >> uint` のスカラ渡しの問題も消えた。
+
+`%` を使わずに済ませた。周波数がすべて 2 のべき乗（2, 4, 8, 16）なので `cell & (period - 1)` が `((cell % period) + period) % period` と同値になる。`tests/render/noiseWrap.test.ts` が、実際に使う周波数を本文から拾って同値を確かめる。

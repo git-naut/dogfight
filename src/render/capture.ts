@@ -132,6 +132,13 @@ export interface CaptureConfig {
    */
   gpu: number
   /**
+   * 雲ノイズの突き合わせ用の読み戻しを出すか。`?noiseprobe=1`。
+   *
+   * 形状ノイズの中央スライスの左下 16x16 を `hook.noiseSlice` に置く。
+   * **統計だけでは 1 ビットのずれが埋もれる**ので、生バイトを出す
+   */
+  noiseProbe: boolean
+  /**
    * 起動時にシェーダを全プリセットぶん作るか。
    *
    * `?precompile=0` で省ける。**E2E で使う。**4 段ぶんのコンパイルは
@@ -226,6 +233,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       : params.get('capture') !== '1',
     audioProbe: params.get('audioprobe') === '1',
     gpu: clampInt(params.get('gpu'), 0, 2, 0),
+    noiseProbe: params.get('noiseprobe') === '1',
     precompile: params.get('precompile') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
@@ -420,6 +428,12 @@ export interface TestHook {
    * 立てて glb を 1 枚描いただけの状態で、シムも HUD も動いていない
    */
   gpuProbe: NodeProbeResult | null
+  /**
+   * 形状ノイズの中央スライスの生バイト。`?noiseprobe=1` のときだけ埋まる。
+   *
+   * RGBA8 で 1,024 個。JSON で運ぶので素の配列にする
+   */
+  noiseSlice: number[] | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *

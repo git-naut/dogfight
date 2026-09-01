@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test'
 import type { TestHook } from './harness'
+import {
+  hashProbeExpected,
+  HASH_PROBE_SIDE,
+} from '../../src/render/hashReference'
 
 /**
  * node 経路（`WebGPURenderer`）が立つことを確かめる。
@@ -90,6 +94,73 @@ test.describe('node 経路', () => {
     )
     const webglDeg = ((hook?.sunElevation ?? 0) * 180) / Math.PI
     expect(result.sunElevationDeg).toBeCloseTo(webglDeg, 6)
+  })
+
+  test('TSL のハッシュが CPU 参照とビット一致する', async ({ page }) => {
+    // **ここが移行全体の決定論の土台。**PCG が 1 ビットずれたら、以降の
+    // 雲の絵はすべて別物になる。`uint` の乗算は GLSL でも WGSL でも 2^32 で
+    // 巻くので、仕様上は一致するはず。**「はず」を数値で確かめる**
+    const { result, errors } = await probe(page, 'gpu=1')
+    expect(errors).toEqual([])
+
+    const expected = hashProbeExpected()
+    const side = HASH_PROBE_SIDE
+    expect(result.hashProbe.length).toBe(side * side * 4)
+
+    const actual: number[] = []
+    for (let i = 0; i < side * side; i++) {
+      actual.push(
+        result.hashProbe[i * 4]!,
+        result.hashProbe[i * 4 + 1]!,
+        result.hashProbe[i * 4 + 2]!,
+      )
+    }
+    expect(actual).toEqual([...expected])
+  })
+
+  test('TSL のノイズが GLSL 版とビット一致する', async ({ page }) => {
+    // 中央スライスの左下 16x16 を RGBA8 で 1,024 個。**統計だけでは
+    // 1 ビットのずれが埋もれる**ので生バイトで比べる
+    const { result, errors } = await probe(page, 'gpu=1')
+    expect(errors).toEqual([])
+    expect(result.noiseSlice.length).toBe(16 * 16 * 4)
+
+    await page.goto('/dogfight/?capture=1&frame=0&noiseprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    expect(hook?.noiseSlice?.length, 'GLSL 側が読み戻せていない').toBe(16 * 16 * 4)
+    expect(result.noiseSlice).toEqual(hook?.noiseSlice)
+  })
+
+  test('WGSL でも GLSL 版とビット一致する', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
+    const { result, errors } = await probe(page, 'gpu=2')
+    expect(errors).toEqual([])
+
+    // ハッシュ
+    const expected = hashProbeExpected()
+    const side = HASH_PROBE_SIDE
+    const actual: number[] = []
+    for (let i = 0; i < side * side; i++) {
+      actual.push(
+        result.hashProbe[i * 4]!,
+        result.hashProbe[i * 4 + 1]!,
+        result.hashProbe[i * 4 + 2]!,
+      )
+    }
+    expect(actual, 'WGSL のハッシュが CPU 参照とずれた').toEqual([...expected])
+
+    // ノイズ
+    await page.goto('/dogfight/?capture=1&frame=0&noiseprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    expect(result.noiseSlice, 'WGSL のノイズが GLSL 版とずれた').toEqual(
+      hook?.noiseSlice,
+    )
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

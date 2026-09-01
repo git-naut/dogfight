@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere'
 import { Geodetic } from '@takram/three-geospatial'
 import { loadAircraftModel } from '../aircraft/model'
+import { NOISE_SLICE_SIDE, SHAPE_SIZE } from '../clouds/noise'
+import { HASH_PROBE_SIDE } from '../hashReference'
 import { loadCarrier, placeCarrier, DECK_HEIGHT } from '../carrier'
 import {
   createLocalFrame,
@@ -48,6 +50,56 @@ export interface NodeProbeOptions {
   raymarchScattering: boolean
 }
 
+/**
+ * 読み戻しの行の詰め物を外す。
+ *
+ * **WebGPU は行を 256 バイトへ揃える。**16 px 幅（64 バイト）を 16 行
+ * 読むと 3,904 バイト戻った。15 行 x 256 + 64 で、最後の行だけ揃えられない。
+ * WebGL2 バックエンドは詰まったまま 1,024 バイトを返す。
+ *
+ * 揃え幅を決め打ちにせず、戻ってきた長さから行の間隔を割り出す。
+ * 詰まっていればそのまま返す
+ */
+function unpadRows(
+  data: ArrayLike<number>,
+  width: number,
+  height: number,
+  flipRows: boolean,
+): number[] {
+  const rowBytes = width * 4
+  const total = data.length
+  const stride =
+    total === rowBytes * height
+      ? rowBytes
+      : height > 1
+        ? (total - rowBytes) / (height - 1)
+        : total
+
+  if (!Number.isInteger(stride) || stride < rowBytes) {
+    throw new Error(
+      `読み戻しの行の間隔が読めない: 長さ ${total}、幅 ${width}、高さ ${height}`,
+    )
+  }
+
+  const out: number[] = []
+  for (let row = 0; row < height; row++) {
+    const y = flipRows ? height - 1 - row : row
+    const base = y * stride
+    for (let i = 0; i < rowBytes; i++) out.push(data[base + i]!)
+  }
+  return out
+}
+
+/**
+ * `NodeMaterial.fragmentNode` へ入れる。
+ *
+ * `@types/three` の `NodeMaterial` はこの枠を宣言していないので、逃げ口を
+ * 1 か所へ寄せる。読む側は `NodeMaterial.setup()`
+ */
+function assignFragment(material: object, node: unknown): void {
+  ;(material as { fragmentNode: unknown }).fragmentNode = node
+}
+
 export async function runNodeProbe(
   canvas: HTMLCanvasElement,
   options: NodeProbeOptions,
@@ -69,6 +121,79 @@ export async function runNodeProbe(
   const initMs = performance.now() - initStarted
 
   const isWebGPU = 'isWebGPUBackend' in renderer.backend
+
+  // ---- 雲ノイズを TSL で焼く ----
+  //
+  // **1 スライスで足りる。**64 層すべてを焼かなくても、GLSL 版が読み戻して
+  // いるのと同じ中央スライスの同じ 16x16 を比べれば、式が一致しているかは
+  // 分かる。1 ビットずれれば以降の雲はすべて別物になるので、ここで止める
+  const tsl = await import('three/tsl')
+  const noiseNodes = await import('../clouds/noiseNodes')
+
+  const bake = async (
+    fragmentNode: Parameters<typeof assignFragment>[1],
+    side: number,
+    readSide: number,
+  ): Promise<number[]> => {
+    const target = new webgpu.RenderTarget(side, side, {
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      depthBuffer: false,
+      stencilBuffer: false,
+    })
+    const material = new webgpu.NodeMaterial()
+    assignFragment(material, fragmentNode)
+    material.depthTest = false
+    material.depthWrite = false
+
+    const quad = new THREE.Scene()
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material)
+    quad.add(mesh)
+    const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+
+    renderer.setRenderTarget(target)
+    renderer.render(quad, ortho)
+    // **原点の上下がバックエンドで違う。**WebGL2 は左下、WebGPU は左上。
+    // GLSL 版が読んでいるのは左下の `readSide` 角なので、WebGPU では
+    // `side - readSide` から読む。行の並びは `unpadRows` が返す側で揃える
+    const originY = isWebGPU ? side - readSide : 0
+    const pixels = await renderer.readRenderTargetPixelsAsync(
+      target,
+      0,
+      originY,
+      readSide,
+      readSide,
+    )
+    renderer.setRenderTarget(null)
+    mesh.geometry.dispose()
+    material.dispose()
+    target.dispose()
+    // **行の向きがバックエンドで違う。**WebGL2 の読み戻しは下から、WebGPU は
+    // 上から返る。実測で確かめた。ハッシュの検査用の格子で、WebGPU の先頭が
+    // `hashTopByte(0, 15, 0)` に一致し、WebGL2 は `(0, 0, 0)` だった。
+    // **算術は一致していて、違うのは並びだけ。**気づかなければ「WGSL の
+    // ハッシュがずれている」と読み違える
+    return unpadRows(
+      pixels as unknown as ArrayLike<number>,
+      readSide,
+      readSide,
+      isWebGPU,
+    )
+  }
+
+  // GLSL 版と同じ層と同じ周波数の上限を使う。`bakeVolume` の式を写す
+  const centerLayer = (Math.floor(SHAPE_SIZE / 2) + 0.5) / SHAPE_SIZE
+  const maxFreq = Math.max(1, Math.floor(SHAPE_SIZE / 4))
+  const noiseSlice = await bake(
+    noiseNodes.noiseFragmentNode(0, maxFreq, tsl.float(centerLayer)),
+    SHAPE_SIZE,
+    NOISE_SLICE_SIDE,
+  )
+  const hashProbe = await bake(
+    noiseNodes.hashProbeFragmentNode(HASH_PROBE_SIDE),
+    HASH_PROBE_SIDE,
+    HASH_PROBE_SIDE,
+  )
 
   renderer.setPixelRatio(1)
   renderer.setSize(options.width, options.height, false)
@@ -110,7 +235,6 @@ export async function runNodeProbe(
     // WebGL 経路は 4.1 MB の EXR を読んで `SkyMaterial` へ流し込んでいた。
     // node 経路は LUT を実行時に GPU で計算する。**その費用を測るのが
     // この段の主目的。**
-    const tsl = await import('three/tsl')
     const atmos = await import('@takram/three-atmosphere/webgpu')
 
     // 原点も時刻も WebGL 経路と同じものを使う。**別々に持つと、絵を見比べても
@@ -255,6 +379,8 @@ export async function runNodeProbe(
 
   return {
     requested: options.gpu,
+    noiseSlice,
+    hashProbe,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',
     fellBack: options.gpu === 2 && !isWebGPU,
     sharedCore,

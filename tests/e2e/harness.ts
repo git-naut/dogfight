@@ -93,6 +93,8 @@ export interface TestHook {
     drawCalls: number
     triangles: number
     programs: number
+    noiseSlice: number[]
+    hashProbe: number[]
     atmosphere: boolean
     lutMs: number
     lutScale: number
@@ -103,6 +105,8 @@ export interface TestHook {
     renderMs: number
     frames: number
   } | null
+  /** 形状ノイズの中央スライスの生バイト。`?noiseprobe=1` のときだけ埋まる */
+  noiseSlice: number[] | null
   missionOutcome: string
   missionRemaining: number
   flaresBurning: number

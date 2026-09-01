@@ -31,6 +31,8 @@
 | ライブラリの peer に上限が無いと、**「対応した」と「いま噛み合う」の差に気づけない。**takram 0.19.1 の peer は `three: '>=0.170.0'` だが、three 0.185 で `struct()` の戻り値が Proxy になり、takram が読む `.layout` が消えた。モジュール評価の時点で落ちる | 段 10 で `?gpu=2` を立てたとき | three を 0.184 に留め、`tests/render/atmosphereCompat.test.ts` が `struct()` の形を単体テストで縛る。three を上げた瞬間に落ちる |
 | 三者の噛み合わせは、**プロトタイプに生やしても越えられないことがある。**`StructTypeNode.prototype.layout` を足すと 1 つ目の壁は越えたが、geospatial は `'layout' in s` で存在そのものを見ており、Proxy に `has` トラップが無いので false のままだった | shim を入れて測り直したとき | 版で解いた。`docs/decisions/0010-webgpu-tsl.md` に両方の壁を書いた |
 | **`forceWebGL: true` は退避路にならなかった。**計画は「TSL で 1 度書けば両方で動く」と書いていたが、node 経路の WebGL2 バックエンドは大気の構造体を GLSL へ落とせない（`'AtmosphereParameters' : syntax error`） | 段 10 で `?gpu=1` に大気を入れて測った | `tests/e2e/node-path.spec.ts` が `?gpu=1` で `atmosphere === false` を見る。大気から先は `?gpu=2` だけ |
+| 読み戻しの向きと原点がバックエンドで違う。WebGL2 は行が下から・原点が左下、WebGPU は行が上から・原点が左上。しかも WebGPU は行を 256 バイトへ揃える（16 px 幅を 16 行で 3,904 バイト）。**算術は合っていて並びだけが違う**ので、気づかないと「WGSL がずれている」と読み違える | 段 11 でハッシュの格子の先頭が `hashTopByte(0, 15, 0)` に一致して分かった | `src/render/pipeline/node.ts` の `unpadRows` が詰め物と並びを揃え、原点も `side - readSide` へ寄せる。`tests/e2e/node-path.spec.ts` が 768 + 1,024 個をビットで突き合わせる |
+| TSL の `toVar()` と `assign()` は `Fn` の中にしか置けない。素の関数で使うと `THREE.TSL: No stack defined for assign operation.` が出る | 段 11 で `worley` を素の関数として書いて踏んだ | `worley` と `perlin` を `Fn(() => ...)()` で包んだ。`tests/e2e/node-path.spec.ts` がノイズの 1,024 個を突き合わせるので、壊れれば落ちる |
 
 ## まだ守るものがない穴
 

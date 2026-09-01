@@ -63,6 +63,8 @@ export interface SceneHandle {
   readonly noiseMs: number
   /** 雲ノイズが空でないことの確認用 */
   readonly noiseStats: { min: number; max: number; mean: number }
+  /** 形状ノイズの中央スライスの左下 16x16。`?noiseprobe=1` のときだけ読む */
+  readonly noiseSlice: Uint8Array
   /** GPU のフレーム時間 ms。拡張が無ければ 0 */
   readonly gpuFrameMs: number
   /** 直近しばらくの GPU フレーム時間の最大 ms。予算の判断はこちらで行う */
@@ -305,6 +307,10 @@ export async function createScene(
 
     get noiseStats() {
       return pipeline.noiseStats
+    },
+
+    get noiseSlice() {
+      return pipeline.noiseSlice
     },
 
     get gpuFrameMs() {

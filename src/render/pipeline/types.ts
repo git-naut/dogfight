@@ -226,6 +226,8 @@ export interface ScenePipeline {
   readonly noiseMs: number
   /** 雲ノイズが空でないことの確認用 */
   readonly noiseStats: { min: number; max: number; mean: number }
+  /** 形状ノイズの中央スライスの左下 16x16。TSL 版との突き合わせに使う */
+  readonly noiseSlice: Uint8Array
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
@@ -317,6 +319,20 @@ export interface NodeProbeResult {
   drawCalls: number
   triangles: number
   programs: number
+  /**
+   * TSL で焼いた形状ノイズの中央スライスの左下 16x16。RGBA8 の 1,024 個。
+   *
+   * **GLSL 版（`?gpu=0` の `hook.noiseSlice`）とビット一致しなければ、
+   * 以降の雲の絵はすべて別物になる。**
+   */
+  noiseSlice: number[]
+  /**
+   * ハッシュの上位 8 ビットを 16x16 の格子で焼いたもの。RGB の 768 個。
+   *
+   * CPU 参照（`hashReference.ts` の `hashProbeExpected`）と突き合わせる。
+   * **GLSL と WGSL と JS の 3 つが同じ整数を出すことの直接の証拠になる**
+   */
+  hashProbe: number[]
   /** 大気を node 経路で組んだか */
   atmosphere: boolean
   /**

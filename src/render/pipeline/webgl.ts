@@ -409,6 +409,10 @@ export async function createWebGLPipeline(
       return noise.stats
     },
 
+    get noiseSlice() {
+      return noise.slice
+    },
+
     get cloudHdrTarget() {
       return cloudsPass.isHdrTarget
     },

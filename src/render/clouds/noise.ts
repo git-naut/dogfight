@@ -45,6 +45,14 @@ export const DETAIL_SIZE = 32
 export const WEATHER_SIZE = 512
 
 /**
+ * 突き合わせに使うスライスの一辺。
+ *
+ * 中央スライスの左下から 16x16 を読む。RGBA8 なので 1,024 個の値になる。
+ * GLSL 版と TSL 版がここでビット一致しなければ、以降の雲はすべて別物
+ */
+export const NOISE_SLICE_SIDE = 16
+
+/**
  * 焼き上がったテクスチャの中身の統計。
  *
  * 3D レンダーターゲットへの描画が黙って失敗すると、雲が出ないだけで
@@ -64,6 +72,13 @@ export interface CloudNoise {
   readonly elapsedMs: number
   /** 形状ノイズの一部を読み戻した統計 */
   readonly stats: NoiseStats
+  /**
+   * 形状ノイズの中央スライスの左下 16x16。RGBA8 の生バイト 1,024 個。
+   *
+   * **TSL 版との突き合わせに使う。**統計だけでは 1 ビットのずれが埋もれる。
+   * 読めなかったときは長さ 0
+   */
+  readonly slice: Uint8Array
   dispose(): void
 }
 
@@ -152,7 +167,7 @@ export function generateCloudNoise(backend: RenderBackend): CloudNoise {
   backend.drain()
   const elapsedMs = performance.now() - started
 
-  const stats = sampleStats(renderer, shapeTarget, Math.floor(SHAPE_SIZE / 2))
+  const sample = sampleSlice(renderer, shapeTarget, Math.floor(SHAPE_SIZE / 2))
   renderer.setRenderTarget(previousTarget)
 
   return {
@@ -160,7 +175,8 @@ export function generateCloudNoise(backend: RenderBackend): CloudNoise {
     detail: detailTarget.texture,
     weather: weatherTarget.texture,
     elapsedMs,
-    stats,
+    stats: sample.stats,
+    slice: sample.slice,
     dispose() {
       shapeTarget.dispose()
       detailTarget.dispose()
@@ -175,18 +191,18 @@ export function generateCloudNoise(backend: RenderBackend): CloudNoise {
  * 全域を読むと重いので一部で足りる。min と max が同じなら塗り潰しか未描画で、
  * どちらにせよ雲は出ない。
  */
-function sampleStats(
+function sampleSlice(
   renderer: WebGLRenderer,
   target: WebGL3DRenderTarget,
   layer: number,
-): NoiseStats {
-  const side = 16
+): { stats: NoiseStats; slice: Uint8Array } {
+  const side = NOISE_SLICE_SIDE
   const buffer = new Uint8Array(side * side * 4)
   try {
     renderer.setRenderTarget(target, layer)
     renderer.readRenderTargetPixels(target, 0, 0, side, side, buffer)
   } catch {
-    return { min: 0, max: 0, mean: 0 }
+    return { stats: { min: 0, max: 0, mean: 0 }, slice: new Uint8Array(0) }
   }
 
   let min = 255
@@ -200,7 +216,10 @@ function sampleStats(
     sum += v
   }
   const count = buffer.length / 4
-  return { min: min / 255, max: max / 255, mean: sum / count / 255 }
+  return {
+    stats: { min: min / 255, max: max / 255, mean: sum / count / 255 },
+    slice: buffer,
+  }
 }
 
 function create3DTarget(size: number): WebGL3DRenderTarget {

@@ -11,6 +11,7 @@ import {
 } from '../../src/render/clouds/geometry'
 import { encodeShadowInputs } from '../../src/render/clouds/shadowInputs'
 import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
+import { MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT } from '../../src/render/clouds/marchProbe'
 
 /**
  * node 経路（`WebGPURenderer`）が立つことを確かめる。
@@ -162,7 +163,7 @@ test.describe('node 経路', () => {
 
   test('WGSL でも GLSL 版とビット一致する', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
-    const { result, errors } = await probe(page, 'gpu=2')
+    const { result, errors } = await probe(page, 'gpu=2&marchprobe=1')
     expect(errors).toEqual([])
 
     // ハッシュ
@@ -178,8 +179,9 @@ test.describe('node 経路', () => {
     }
     expect(actual, 'WGSL のハッシュが CPU 参照とずれた').toEqual([...expected])
 
-    // ノイズ
-    await page.goto('/dogfight/?capture=1&frame=0&noiseprobe=1')
+    // ノイズと気象マップとマーチ。**同じ 1 回に相乗りさせる。**大気付きの
+    // WebGPU 起動は重いので、基準を取る側も 1 回で済ませる
+    await page.goto('/dogfight/?capture=1&frame=0&noiseprobe=1&marchprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -189,6 +191,16 @@ test.describe('node 経路', () => {
     )
     expect(result.weatherSlice, 'WGSL の気象マップが GLSL 版とずれた').toEqual(
       hook?.weatherSlice,
+    )
+
+    // **歩き方は整数で比べられる。**WGSL でもループと分岐が同じなら
+    // 密度サンプル数が完全に一致するはず
+    expect(result.march, 'WGSL 側がマーチを焼いていない').toBeTruthy()
+    expect(result.march!.samples, 'WGSL のマーチの歩き方がずれた').toEqual(
+      hook?.marchProbe?.samples,
+    )
+    expect(result.march!.exhausted, 'WGSL の打ち切りの数がずれた').toBe(
+      hook?.marchProbe?.exhausted,
     )
   })
 
@@ -262,6 +274,42 @@ test.describe('node 経路', () => {
     expect(distance, `L1 距離 ${distance}`).toBeGreaterThan(0.01)
     const worst = maxAbsDifference(tiles, result.shadowTiles!)
     expect(worst, `区画ごとの平均の最大のずれ ${worst}`).toBeGreaterThan(0.02)
+  })
+
+  test('TSL のマーチが GLSL 版と同じ歩き方をする', async ({ page }) => {
+    // **段 13 の合格条件。**固定のカメラと固定の入力で焼く。密度サンプル数と
+    // 打ち切りの数は整数なので、ループと分岐が同じなら完全に一致するはず。
+    // 絵は浮動小数の演算順序で動くので区画平均で見る
+    await page.goto('/dogfight/?capture=1&frame=0&marchprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const glsl = hook?.marchProbe
+    expect(glsl, 'GLSL 側がマーチを焼いていない').toBeTruthy()
+
+    // **通っていない枝は検査されない。**最初に置いた構図（雲底の下から
+    // 見上げる、雲量 0.29）は区画平均 16 個のうち 14 個が 0.000 で、歩数を
+    // 使い切った画素も 0 だった。下限はすべて実測から取る
+    const pixels = MARCH_PROBE_WIDTH * MARCH_PROBE_HEIGHT
+    expect(glsl!.samples.hit, '歩いていない画素がある').toBe(pixels)
+    expect(glsl!.samples.max, '1 画素あたりの歩数が少なすぎる').toBeGreaterThan(100)
+    // 打ち切りの枝と、透過率で抜ける枝の両方を通っていること
+    expect(glsl!.exhausted, '歩数を使い切った画素が無い').toBeGreaterThan(10)
+    expect(glsl!.exhausted, '打ち切りだけになっている').toBeLessThan(pixels / 2)
+    // 雲が視野いっぱいにあること
+    expect(Math.min(...glsl!.tiles), '雲が映っていない区画がある').toBeGreaterThan(0.05)
+
+    const { result, errors } = await probe(page, 'gpu=1&marchprobe=1')
+    expect(errors).toEqual([])
+    expect(result.march, 'TSL 側がマーチを焼いていない').toBeTruthy()
+
+    // 整数どうし。1 でも違えば歩き方が違う
+    expect(result.march!.samples, '密度サンプル数がずれた').toEqual(glsl!.samples)
+    expect(result.march!.exhausted, '打ち切りの数がずれた').toBe(glsl!.exhausted)
+
+    const worst = maxAbsDifference(glsl!.tiles, result.march!.tiles)
+    expect(worst, `区画ごとの平均の最大のずれ ${worst}`).toBeLessThan(0.02)
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

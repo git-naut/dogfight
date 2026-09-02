@@ -94,6 +94,8 @@ export interface SceneHandle {
    * 一致しなかったときに移植の欠陥なのか入力の違いなのかが分からない
    */
   readShadowInputs(): ShadowInputs
+  /** 固定の入力で雲のマーチを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
+  readMarchProbe(mode: 0 | 1 | 2): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   /** 高さ場の生成にかかったミリ秒 */
@@ -455,6 +457,10 @@ export async function createScene(
 
     readShadowInputs() {
       return { ...lastShadowInputs }
+    },
+
+    readMarchProbe(mode: 0 | 1 | 2) {
+      return pipeline.readMarchProbe(mode)
     },
 
     get quality() {

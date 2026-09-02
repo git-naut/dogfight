@@ -98,6 +98,11 @@ export interface TestHook {
     hashProbe: number[]
     shadowHistogram: number[] | null
     shadowTiles: number[] | null
+    march: {
+      samples: { total: number; max: number; hit: number }
+      exhausted: number
+      tiles: number[]
+    } | null
     volumeMs: number
     atmosphere: boolean
     lutMs: number
@@ -117,6 +122,12 @@ export interface TestHook {
   shadowHistogram: number[] | null
   /** 雲影マップを 4x4 に区切った区画ごとの平均透過率。16 個 */
   shadowTiles: number[] | null
+  /** 固定の入力で焼いた雲のマーチ。`?marchprobe=1` のときだけ埋まる */
+  marchProbe: {
+    samples: { total: number; max: number; hit: number }
+    exhausted: number
+    tiles: number[]
+  } | null
   /** その分布を焼いた入力。TSL 版へ渡し直すために出す */
   shadowInputs: {
     cloudTime: number

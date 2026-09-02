@@ -254,6 +254,12 @@ export interface ScenePipeline {
    * TSL 版との突き合わせに使う。**生の 26 万バイトは持ち回らない**
    */
   readShadowHistogram(): { bins: number[]; tiles: number[] }
+  /**
+   * 固定の入力で雲のマーチを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用。
+   *
+   * 入力は `clouds/marchProbe.ts` が唯一の定義で、TSL 側も同じものを読む
+   */
+  readMarchProbe(mode: 0 | 1 | 2): number[]
 
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
@@ -377,6 +383,18 @@ export interface NodeProbeResult {
    * 16 ビンの分布は 0.01 の内側に収まることを実測した
    */
   shadowTiles: number[] | null
+  /**
+   * TSL で焼いたマーチの突き合わせ。`?marchprobe=1` のときだけ埋まる。
+   *
+   * **`samples` と `exhausted` は整数。**歩き方が同じなら GLSL 版と完全に
+   * 一致するはずで、ここが移植で一番壊れやすいループと分岐を直に見張る。
+   * `tiles` は絵を 4x4 に区切った平均で、浮動小数の演算順序の差には鈍い
+   */
+  march: {
+    samples: { total: number; max: number; hit: number }
+    exhausted: number
+    tiles: number[]
+  } | null
   /**
    * 形状 64³・ディテール 32³・気象 512² を焼くのにかかったミリ秒。
    *

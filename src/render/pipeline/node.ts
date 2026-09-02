@@ -12,9 +12,31 @@ import {
   SHADOW_SIZE,
   shadowHistogram,
   shadowTileMeans,
+  tileMeans,
 } from '../clouds/geometry'
 import { SHADOW_EXTENT } from '../clouds/cloudsPass'
 import type { ShadowInputs } from '../clouds/shadowInputs'
+import {
+  MARCH_PROBE_AMBIENT,
+  MARCH_PROBE_ASPECT,
+  MARCH_PROBE_CAMERA,
+  MARCH_PROBE_CLOUD_TIME,
+  MARCH_PROBE_COVERAGE,
+  MARCH_PROBE_HEIGHT,
+  MARCH_PROBE_LIGHT_GROWTH,
+  MARCH_PROBE_LIGHT_STEPS,
+  MARCH_PROBE_MAX_DISTANCE,
+  MARCH_PROBE_MAX_STEPS,
+  MARCH_PROBE_PIXEL_JITTER,
+  MARCH_PROBE_START_JITTER,
+  MARCH_PROBE_STEP_GROWTH,
+  MARCH_PROBE_SUN,
+  MARCH_PROBE_SUN_COLOR,
+  MARCH_PROBE_USE_DETAIL,
+  MARCH_PROBE_WIDTH,
+  marchExhaustedCount,
+  marchSampleStats,
+} from '../clouds/marchProbe'
 import { HASH_PROBE_SIDE } from '../hashReference'
 import { loadCarrier, placeCarrier, DECK_HEIGHT } from '../carrier'
 import {
@@ -68,6 +90,12 @@ export interface NodeProbeOptions {
    * 移植の欠陥に見える
    */
   shadowInputs: ShadowInputs | null
+  /**
+   * 雲のマーチを固定の入力で焼くか。`?marchprobe=1`。
+   *
+   * 入力は `clouds/marchProbe.ts` が唯一の定義で、GLSL 側も同じものを読む
+   */
+  marchProbe: boolean
 }
 
 export async function runNodeProbe(
@@ -123,6 +151,7 @@ export async function runNodeProbe(
     renderer,
     quad,
     WEATHER_SIZE,
+    WEATHER_SIZE,
     noiseNodes.weatherFragmentNode(),
   )
   const volumeMs = performance.now() - bakeStarted
@@ -151,11 +180,13 @@ export async function runNodeProbe(
     renderer,
     quad,
     HASH_PROBE_SIDE,
+    HASH_PROBE_SIDE,
     noiseNodes.hashProbeFragmentNode(HASH_PROBE_SIDE),
   )
   const hashProbe = await volume.readPlane(
     renderer,
     hashTarget,
+    HASH_PROBE_SIDE,
     HASH_PROBE_SIDE,
     isWebGPU,
   )
@@ -174,6 +205,7 @@ export async function runNodeProbe(
     const shadowTarget = volume.bakePlane(
       renderer,
       quad,
+      SHADOW_SIZE,
       SHADOW_SIZE,
       densityNodes.cloudShadowFragmentNode(
         {
@@ -194,12 +226,113 @@ export async function runNodeProbe(
       renderer,
       shadowTarget,
       SHADOW_SIZE,
+      SHADOW_SIZE,
       isWebGPU,
     )
     shadowBins = shadowHistogram(bytes)
     // **配置も出す。**分布だけでは影が同じ場所にあることを言えない
     shadowTiles = shadowTileMeans(bytes, SHADOW_SIZE)
     shadowTarget.dispose()
+  }
+
+  // ---- 雲のマーチ ----
+  //
+  // **段 13 の合格条件。**固定のカメラと固定の入力で 3 枚焼き、GLSL 版と
+  // 突き合わせる。密度サンプル数と打ち切りの数は整数なので、歩き方が
+  // 同じなら完全に一致するはず。絵は演算順序で動くので区画平均で見る
+  let march: NodeProbeResult['march'] = null
+  if (options.marchProbe) {
+    const marchNodes = await import('../clouds/marchNodes')
+
+    const marchCamera = new THREE.PerspectiveCamera(
+      MARCH_PROBE_CAMERA.fov,
+      MARCH_PROBE_ASPECT,
+      MARCH_PROBE_CAMERA.near,
+      MARCH_PROBE_CAMERA.far,
+    )
+    marchCamera.position.set(
+      MARCH_PROBE_CAMERA.positionX,
+      MARCH_PROBE_CAMERA.positionY,
+      MARCH_PROBE_CAMERA.positionZ,
+    )
+    marchCamera.lookAt(
+      MARCH_PROBE_CAMERA.targetX,
+      MARCH_PROBE_CAMERA.targetY,
+      MARCH_PROBE_CAMERA.targetZ,
+    )
+    marchCamera.updateMatrixWorld()
+    marchCamera.updateProjectionMatrix()
+
+    // `@types/three` は `uniform()` の戻りを TSL のノード型へ絞らないので、
+    // 逃げ口を 1 か所へ寄せる
+    const node = <T>(value: unknown): T => tsl.uniform(value as never) as unknown as T
+
+    const marchInputs = {
+      shapeNoise: shapeVolume.texture,
+      detailNoise: detailVolume.texture,
+      weatherMap: weatherPlane.texture,
+      cloudTime: tsl.float(MARCH_PROBE_CLOUD_TIME),
+      coverage: tsl.float(MARCH_PROBE_COVERAGE),
+      // 遮蔽物を置かないので深度は 1.0（空）で固定
+      sceneDepth: tsl.float(1),
+      inverseProjectionMatrix: node<Parameters<
+        typeof marchNodes.cloudMarchFragmentNode
+      >[0]['inverseProjectionMatrix']>(marchCamera.projectionMatrixInverse),
+      inverseViewMatrix: node<Parameters<
+        typeof marchNodes.cloudMarchFragmentNode
+      >[0]['inverseViewMatrix']>(marchCamera.matrixWorld),
+      cameraPositionWorld: tsl.vec3(
+        MARCH_PROBE_CAMERA.positionX,
+        MARCH_PROBE_CAMERA.positionY,
+        MARCH_PROBE_CAMERA.positionZ,
+      ),
+      cameraNear: tsl.float(MARCH_PROBE_CAMERA.near),
+      cameraFar: tsl.float(MARCH_PROBE_CAMERA.far),
+      sunDirection: tsl.vec3(MARCH_PROBE_SUN.x, MARCH_PROBE_SUN.y, MARCH_PROBE_SUN.z),
+      sunColor: tsl.vec3(
+        MARCH_PROBE_SUN_COLOR.x,
+        MARCH_PROBE_SUN_COLOR.y,
+        MARCH_PROBE_SUN_COLOR.z,
+      ),
+      ambientColor: tsl.vec3(
+        MARCH_PROBE_AMBIENT.x,
+        MARCH_PROBE_AMBIENT.y,
+        MARCH_PROBE_AMBIENT.z,
+      ),
+      maxSteps: tsl.int(MARCH_PROBE_MAX_STEPS),
+      lightSteps: tsl.int(MARCH_PROBE_LIGHT_STEPS),
+      lightGrowth: tsl.float(MARCH_PROBE_LIGHT_GROWTH),
+      maxMarchDistance: tsl.float(MARCH_PROBE_MAX_DISTANCE),
+      stepGrowthScale: tsl.float(MARCH_PROBE_STEP_GROWTH),
+      startJitter: tsl.float(MARCH_PROBE_START_JITTER),
+      pixelJitter: tsl.vec2(MARCH_PROBE_PIXEL_JITTER.x, MARCH_PROBE_PIXEL_JITTER.y),
+      useDetail: MARCH_PROBE_USE_DETAIL,
+    }
+
+    const bakeMarch = async (mode: 0 | 1 | 2): Promise<number[]> => {
+      const target = volume.bakePlane(
+        renderer,
+        quad,
+        MARCH_PROBE_WIDTH,
+        MARCH_PROBE_HEIGHT,
+        marchNodes.cloudMarchFragmentNode(marchInputs, mode),
+      )
+      const bytes = await volume.readPlane(
+        renderer,
+        target,
+        MARCH_PROBE_WIDTH,
+        MARCH_PROBE_HEIGHT,
+        isWebGPU,
+      )
+      target.dispose()
+      return bytes
+    }
+
+    march = {
+      samples: marchSampleStats(await bakeMarch(1)),
+      exhausted: marchExhaustedCount(await bakeMarch(2)),
+      tiles: tileMeans(await bakeMarch(0), MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
+    }
   }
 
   quad.dispose()
@@ -396,6 +529,7 @@ export async function runNodeProbe(
     hashProbe,
     shadowHistogram: shadowBins,
     shadowTiles,
+    march,
     volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',
     fellBack: options.gpu === 2 && !isWebGPU,

@@ -1,4 +1,5 @@
 import {
+  DataTexture,
   GLSL3,
   HalfFloatType,
   LinearFilter,
@@ -22,10 +23,30 @@ import { Pass } from 'postprocessing'
 import {
   SHADOW_HISTOGRAM_BINS,
   SHADOW_SIZE,
+  lightStepGrowth,
   shadowHistogram,
   shadowTileMeans,
   stepGrowthScale,
 } from './geometry'
+import {
+  MARCH_PROBE_AMBIENT,
+  MARCH_PROBE_ASPECT,
+  MARCH_PROBE_CAMERA,
+  MARCH_PROBE_CLOUD_TIME,
+  MARCH_PROBE_COVERAGE,
+  MARCH_PROBE_HEIGHT,
+  MARCH_PROBE_LIGHT_GROWTH,
+  MARCH_PROBE_LIGHT_STEPS,
+  MARCH_PROBE_MAX_DISTANCE,
+  MARCH_PROBE_MAX_STEPS,
+  MARCH_PROBE_PIXEL_JITTER,
+  MARCH_PROBE_START_JITTER,
+  MARCH_PROBE_STEP_GROWTH,
+  MARCH_PROBE_SUN,
+  MARCH_PROBE_SUN_COLOR,
+  MARCH_PROBE_USE_DETAIL,
+  MARCH_PROBE_WIDTH,
+} from './marchProbe'
 import cloudsFrag from './shaders/clouds.frag?raw'
 import cloudShadowFrag from './shaders/cloudShadow.frag?raw'
 import cloudResolveFrag from './shaders/cloudResolve.frag?raw'
@@ -58,32 +79,6 @@ const VERTEX_SHADER = /* glsl */ `
     gl_Position = vec4(position.xy, 0.0, 1.0);
   }
 `
-
-/**
- * 光マーチが太陽方向へ見る距離の、初歩に対する比。
- *
- * 初歩 40 m の 26.3 倍で約 1,050 m。積雲を横切るのに要る距離としてこの
- * あたりが妥当で、段数を変えてもここは保つ。
- */
-const LIGHT_REACH_RATIO = 26.3
-
-/**
- * 等比数列の和が LIGHT_REACH_RATIO になる公比を返す。
- *
- * 段数を減らしても太陽方向を見る距離が変わらないようにする。
- */
-export function lightStepGrowth(steps: number): number {
-  if (steps <= 1) return 1
-  let low = 1.001
-  let high = 64
-  for (let i = 0; i < 40; i++) {
-    const g = (low + high) / 2
-    const sum = (Math.pow(g, steps) - 1) / (g - 1)
-    if (sum < LIGHT_REACH_RATIO) low = g
-    else high = g
-  }
-  return (low + high) / 2
-}
 
 /**
  * 履歴に現フレームを混ぜる割合。
@@ -432,6 +427,126 @@ export class CloudsPass extends Pass {
       max,
       p99: counts[Math.floor((w * h - 1) * 0.99)] ?? 0,
     }
+  }
+
+  /**
+   * 固定の入力でマーチを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用。
+   *
+   * **本番の材質にも的にも触らない。**専用のものをその場で作って捨てる。
+   * 入力は `marchProbe.ts` が唯一の定義で、TSL 側も同じものを読む。
+   * 遮蔽物は置かず、深度は 1.0（空）を渡すので、場面の組み立ての差が入らない。
+   *
+   * @param mode 1 = 密度サンプル数、2 = 歩数を使い切ったか、0 = 絵
+   */
+  readMarchProbe(renderer: WebGLRenderer, mode: 0 | 1 | 2): number[] {
+    const width = MARCH_PROBE_WIDTH
+    const height = MARCH_PROBE_HEIGHT
+
+    const camera = new PerspectiveCamera(
+      MARCH_PROBE_CAMERA.fov,
+      MARCH_PROBE_ASPECT,
+      MARCH_PROBE_CAMERA.near,
+      MARCH_PROBE_CAMERA.far,
+    )
+    camera.position.set(
+      MARCH_PROBE_CAMERA.positionX,
+      MARCH_PROBE_CAMERA.positionY,
+      MARCH_PROBE_CAMERA.positionZ,
+    )
+    camera.lookAt(
+      MARCH_PROBE_CAMERA.targetX,
+      MARCH_PROBE_CAMERA.targetY,
+      MARCH_PROBE_CAMERA.targetZ,
+    )
+    camera.updateMatrixWorld()
+    camera.updateProjectionMatrix()
+
+    // 遮蔽物のない深度。`texture(sceneDepth, uv).r` が 1.0 を返す
+    const emptyDepth = new DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1)
+    emptyDepth.needsUpdate = true
+
+    const u = this.material.uniforms
+    const material = new ShaderMaterial({
+      glslVersion: GLSL3,
+      vertexShader: VERTEX_SHADER,
+      fragmentShader: cloudsFrag,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: {
+        // 密度のテクスチャは本番と同じものを指す
+        shapeNoise: { value: u['shapeNoise']!.value },
+        detailNoise: { value: u['detailNoise']!.value },
+        weatherMap: { value: u['weatherMap']!.value },
+        cloudTime: { value: MARCH_PROBE_CLOUD_TIME },
+        coverage: { value: MARCH_PROBE_COVERAGE },
+        sceneDepth: { value: emptyDepth },
+        inverseProjectionMatrix: { value: camera.projectionMatrixInverse },
+        inverseViewMatrix: { value: camera.matrixWorld },
+        cameraPositionWorld: {
+          value: new Vector3(
+            MARCH_PROBE_CAMERA.positionX,
+            MARCH_PROBE_CAMERA.positionY,
+            MARCH_PROBE_CAMERA.positionZ,
+          ),
+        },
+        cameraNear: { value: MARCH_PROBE_CAMERA.near },
+        cameraFar: { value: MARCH_PROBE_CAMERA.far },
+        sunDirection: {
+          value: new Vector3(MARCH_PROBE_SUN.x, MARCH_PROBE_SUN.y, MARCH_PROBE_SUN.z),
+        },
+        sunColor: {
+          value: new Vector3(
+            MARCH_PROBE_SUN_COLOR.x,
+            MARCH_PROBE_SUN_COLOR.y,
+            MARCH_PROBE_SUN_COLOR.z,
+          ),
+        },
+        ambientColor: {
+          value: new Vector3(
+            MARCH_PROBE_AMBIENT.x,
+            MARCH_PROBE_AMBIENT.y,
+            MARCH_PROBE_AMBIENT.z,
+          ),
+        },
+        maxSteps: { value: MARCH_PROBE_MAX_STEPS },
+        lightSteps: { value: MARCH_PROBE_LIGHT_STEPS },
+        lightGrowth: { value: MARCH_PROBE_LIGHT_GROWTH },
+        stepGrowthScale: { value: MARCH_PROBE_STEP_GROWTH },
+        maxMarchDistance: { value: MARCH_PROBE_MAX_DISTANCE },
+        useDetail: { value: MARCH_PROBE_USE_DETAIL },
+        probeMode: { value: mode },
+        startJitter: { value: MARCH_PROBE_START_JITTER },
+        pixelJitter: {
+          value: new Vector2(MARCH_PROBE_PIXEL_JITTER.x, MARCH_PROBE_PIXEL_JITTER.y),
+        },
+      },
+    })
+
+    const target = new WebGLRenderTarget(width, height, {
+      format: RGBAFormat,
+      // 整数を詰めるので 8bit。絵のモードでも階調はこれで足りる
+      type: UnsignedByteType,
+      minFilter: LinearFilter,
+      magFilter: LinearFilter,
+      depthBuffer: false,
+      stencilBuffer: false,
+    })
+    const quad = createQuad(material)
+
+    const previous = renderer.getRenderTarget()
+    const buffer = new Uint8Array(width * height * 4)
+    try {
+      renderer.setRenderTarget(target)
+      renderer.render(quad.scene, quad.camera)
+      renderer.readRenderTargetPixels(target, 0, 0, width, height, buffer)
+    } finally {
+      renderer.setRenderTarget(previous)
+      disposeQuad(quad)
+      material.dispose()
+      target.dispose()
+      emptyDepth.dispose()
+    }
+    return [...buffer]
   }
 
   /** 地面シェーダが参照する雲影マップ */

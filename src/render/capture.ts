@@ -150,6 +150,13 @@ export interface CaptureConfig {
    */
   shadowProbe: boolean
   /**
+   * 雲のマーチを固定の入力で焼いて出すか。`?marchprobe=1`。
+   *
+   * 密度サンプル数と打ち切りの数と区画平均を `hook.marchProbe` へ置く。
+   * TSL 版との突き合わせ専用で、3 枚焼くので頼まれたときだけ走らせる
+   */
+  marchProbe: boolean
+  /**
    * TSL 版の雲影を焼くときの入力。`?shadowinputs=t,cov,sx,sy,sz,cx,cz`。
    *
    * `?gpu=2` の自己診断だけが読む。**GLSL 側が実際に焼いた値を渡す。**
@@ -262,6 +269,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     gpu: clampInt(params.get('gpu'), 0, 2, 0),
     noiseProbe: params.get('noiseprobe') === '1',
     shadowProbe: params.get('shadowprobe') === '1',
+    marchProbe: params.get('marchprobe') === '1',
     shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
     cloudFar: params.has('cloudfar')
       ? clampNumber(params.get('cloudfar'), 500, 60_000, 26_000)
@@ -487,6 +495,16 @@ export interface TestHook {
    * TSL 版へ `?shadowinputs=` で渡し直すために出す
    */
   shadowInputs: ShadowInputs | null
+  /**
+   * 固定の入力で焼いた雲のマーチ。`?marchprobe=1` のときだけ埋まる。
+   *
+   * **`samples` と `exhausted` は整数。**TSL 版と完全に一致するはず
+   */
+  marchProbe: {
+    samples: { total: number; max: number; hit: number }
+    exhausted: number
+    tiles: number[]
+  } | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *

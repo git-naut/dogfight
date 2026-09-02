@@ -197,6 +197,32 @@ export function stepGrowthScale(maxSteps: number, maxDistance: number): number {
 }
 
 /**
+ * 光マーチが太陽方向へ見る距離の、初歩に対する比。
+ *
+ * 初歩 40 m の 26.3 倍で約 1,050 m。積雲を横切るのに要る距離としてこの
+ * あたりが妥当で、段数を変えてもここは保つ。
+ */
+const LIGHT_REACH_RATIO = 26.3
+
+/**
+ * 等比数列の和が LIGHT_REACH_RATIO になる公比を返す。
+ *
+ * 段数を減らしても太陽方向を見る距離が変わらないようにする。
+ */
+export function lightStepGrowth(steps: number): number {
+  if (steps <= 1) return 1
+  let low = 1.001
+  let high = 64
+  for (let i = 0; i < 40; i++) {
+    const g = (low + high) / 2
+    const sum = (Math.pow(g, steps) - 1) / (g - 1)
+    if (sum < LIGHT_REACH_RATIO) low = g
+    else high = g
+  }
+  return (low + high) / 2
+}
+
+/**
  * 密度の定数。`shaders/density.glsl` と同じ値を持つ。
  *
  * **GLSL は TS を import できないので写しになる。**段 12 で TSL へ移すあいだ、
@@ -227,6 +253,49 @@ export const SHADOW_STEPS = 10
  * ヒストグラムの比較が別の解像度どうしの比較になる
  */
 export const SHADOW_SIZE = 256
+
+/**
+ * マーチ本体の定数。`shaders/clouds.frag` と同じ値を持つ。
+ *
+ * 密度の定数と同じ理由で写しになる。**GLSL は TS を import できない。**
+ * `tests/render/densityConstants.test.ts` が `clouds.frag` の本文から読んで
+ * 突き合わせる
+ */
+
+/** 散乱アルベド。水滴はほとんど吸収せず散乱する */
+export const SCATTER_ALBEDO = 0.9
+/** 開始位置のずらし幅。1 歩に対する比 */
+export const START_AMP = 1.0
+/** ディテールノイズを効かせる距離 m */
+export const DETAIL_NEAR = 2500
+export const DETAIL_FAR = 7000
+/** 積むのをやめる透過率。0.01 が膝 */
+export const EXIT_TRANSMITTANCE = 0.01
+/** 光マーチの段数を落とし始める距離 m */
+export const LIGHT_FULL_DISTANCE = 4000
+export const LIGHT_HALF_DISTANCE = 10000
+/** 空振り区間の大股送りの倍率。8 が上限 */
+export const EMPTY_SKIP = 8.0
+/**
+ * 円周率。**`Math.PI` ではない。**
+ *
+ * GLSL 側が `3.14159265` と桁を切って書いてあるので、そのまま写す。
+ * `Math.PI` に置き換えると位相関数の値が下位ビットでずれる
+ */
+export const TAU_PI = 3.14159265
+/**
+ * 主マーチのループ上限。`maxSteps` より大きくしておく。
+ *
+ * 等しいと `i >= maxSteps` に達する前にループが終わり、打ち切りの検出が
+ * 働かない
+ */
+export const MARCH_LOOP_LIMIT = 512
+/** 光マーチのループ上限 */
+export const LIGHT_MARCH_LIMIT = 8
+/** 光マーチの最初の歩幅 m */
+export const LIGHT_STEP_BASE = 40
+/** 多重散乱を重ねるオクターブ数 */
+export const MULTI_SCATTER_OCTAVES = 3
 
 /** 雲影マップのヒストグラムのビン数 */
 export const SHADOW_HISTOGRAM_BINS = 16
@@ -280,15 +349,29 @@ export function shadowTileMeans(
   side: number,
   tiles = SHADOW_TILES,
 ): number[] {
-  if (bytes.length < side * side * 4) return []
+  return tileMeans(bytes, side, side, tiles)
+}
+
+/**
+ * 正方形でない絵にも使える版。雲のマーチ（128x72）の突き合わせに使う。
+ *
+ * 行の並びは「uv の v = 0 の側が先頭」で両側そろえること
+ */
+export function tileMeans(
+  bytes: ArrayLike<number>,
+  width: number,
+  height: number,
+  tiles = SHADOW_TILES,
+): number[] {
+  if (bytes.length < width * height * 4) return []
   const sums = new Array<number>(tiles * tiles).fill(0)
   const counts = new Array<number>(tiles * tiles).fill(0)
-  for (let y = 0; y < side; y++) {
-    const row = Math.min(tiles - 1, Math.floor((y / side) * tiles))
-    for (let x = 0; x < side; x++) {
-      const col = Math.min(tiles - 1, Math.floor((x / side) * tiles))
+  for (let y = 0; y < height; y++) {
+    const row = Math.min(tiles - 1, Math.floor((y / height) * tiles))
+    for (let x = 0; x < width; x++) {
+      const col = Math.min(tiles - 1, Math.floor((x / width) * tiles))
       const t = row * tiles + col
-      sums[t]! += bytes[(y * side + x) * 4]!
+      sums[t]! += bytes[(y * width + x) * 4]!
       counts[t]! += 1
     }
   }

@@ -8,6 +8,13 @@ import { getScript } from './sim/scripts'
 import { spawnFromSpec } from './sim/replay'
 import { createScene, createMissilePose, type MissilePose } from './render/scene'
 import { runNodeProbe } from './render/pipeline/node'
+import { tileMeans } from './render/clouds/geometry'
+import {
+  MARCH_PROBE_HEIGHT,
+  MARCH_PROBE_WIDTH,
+  marchExhaustedCount,
+  marchSampleStats,
+} from './render/clouds/marchProbe'
 import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/cloudsPass'
 import {
   readCaptureConfig,
@@ -174,6 +181,7 @@ const hook = installTestHook({
   shadowHistogram: null,
   shadowTiles: null,
   shadowInputs: null,
+  marchProbe: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -331,6 +339,7 @@ async function main(): Promise<void> {
       // ものをそのまま `?shadowinputs=` へ載せ替える。ここで導き直すと、
       // ヒストグラムの不一致が移植の欠陥なのか入力の違いなのか分からない
       shadowInputs: capture.shadowInputs,
+      marchProbe: capture.marchProbe,
     })
     hook.gpuProbe = probe
     hook.backend = probe.backend
@@ -663,6 +672,20 @@ async function main(): Promise<void> {
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
     // **影を焼いたあとに読む。**`renderShadow` は `view.render()` の中なので、
     // 収束のぶんを描き終えたここで読み戻す
+    if (capture.marchProbe) {
+      // **固定の入力で 3 枚焼く。**サンプル数と打ち切りは整数なので、
+      // TSL 版と完全に一致するはず。絵は区画平均で見る
+      hook.marchProbe = {
+        samples: marchSampleStats(view.readMarchProbe(1)),
+        exhausted: marchExhaustedCount(view.readMarchProbe(2)),
+        tiles: tileMeans(
+          view.readMarchProbe(0),
+          MARCH_PROBE_WIDTH,
+          MARCH_PROBE_HEIGHT,
+        ),
+      }
+    }
+
     if (capture.shadowProbe) {
       const shadow = view.readShadowHistogram()
       hook.shadowHistogram = shadow.bins

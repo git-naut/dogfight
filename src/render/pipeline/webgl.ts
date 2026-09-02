@@ -428,6 +428,10 @@ export async function createWebGLPipeline(
       return cloudsPass.readShadowHistogram(renderer)
     },
 
+    readMarchProbe(mode: 0 | 1 | 2) {
+      return cloudsPass.readMarchProbe(renderer, mode)
+    },
+
     updateAircraftShadow(position) {
       aircraftShadow.update(position, atmosphere.sunDirectionWorld)
     },

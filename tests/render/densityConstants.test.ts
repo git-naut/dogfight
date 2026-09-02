@@ -3,6 +3,20 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import {
   CLOUD_BOTTOM,
+  DETAIL_FAR,
+  DETAIL_NEAR,
+  EMPTY_SKIP,
+  EXIT_TRANSMITTANCE,
+  LIGHT_FULL_DISTANCE,
+  LIGHT_HALF_DISTANCE,
+  LIGHT_MARCH_LIMIT,
+  LIGHT_STEP_BASE,
+  MARCH_LOOP_LIMIT,
+  MULTI_SCATTER_OCTAVES,
+  NEAR_STEP,
+  SCATTER_ALBEDO,
+  START_AMP,
+  TAU_PI,
   CLOUD_TOP,
   COVER_BAND,
   DETAIL_SCALE,
@@ -27,6 +41,10 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const source = readFileSync(`${ROOT}src/render/clouds/shaders/density.glsl`, 'utf8')
 const shadowSource = readFileSync(
   `${ROOT}src/render/clouds/shaders/cloudShadow.frag`,
+  'utf8',
+)
+const marchSource = readFileSync(
+  `${ROOT}src/render/clouds/shaders/clouds.frag`,
   'utf8',
 )
 
@@ -85,5 +103,56 @@ describe('密度の定数', () => {
   it('検査そのものが働くことを、存在しない名前で確かめる', () => {
     const m = source.match(/const float NOT_A_CONSTANT = ([-0-9.]+)/)
     expect(m).toBeNull()
+  })
+})
+
+/**
+ * マーチ本体の定数。
+ *
+ * 段 13 で `clouds.frag` を TSL へ移すあいだ、同じ定義が 2 つ並ぶ。
+ * 密度と同じ理由で、片方だけ直しても絵ではほぼ気づけない
+ */
+describe('マーチの定数', () => {
+  it('名前の付いた定数が一致する', () => {
+    expect(glslFloat(marchSource, 'SCATTER_ALBEDO')).toBe(SCATTER_ALBEDO)
+    expect(glslFloat(marchSource, 'NEAR_STEP')).toBe(NEAR_STEP)
+    expect(glslFloat(marchSource, 'START_AMP')).toBe(START_AMP)
+    expect(glslFloat(marchSource, 'DETAIL_NEAR')).toBe(DETAIL_NEAR)
+    expect(glslFloat(marchSource, 'DETAIL_FAR')).toBe(DETAIL_FAR)
+    expect(glslFloat(marchSource, 'EXIT_TRANSMITTANCE')).toBe(EXIT_TRANSMITTANCE)
+    expect(glslFloat(marchSource, 'LIGHT_FULL_DISTANCE')).toBe(LIGHT_FULL_DISTANCE)
+    expect(glslFloat(marchSource, 'LIGHT_HALF_DISTANCE')).toBe(LIGHT_HALF_DISTANCE)
+    expect(glslFloat(marchSource, 'EMPTY_SKIP')).toBe(EMPTY_SKIP)
+  })
+
+  it('円周率の桁が一致する', () => {
+    // **`Math.PI` ではない。**GLSL が桁を切って書いてあるので、そのまま写す
+    expect(glslFloat(marchSource, 'TAU_PI')).toBe(TAU_PI)
+    expect(TAU_PI).not.toBe(Math.PI)
+  })
+
+  it('ループの上限が一致する', () => {
+    // GLSL は名前を付けずに書いてある。本文の形で読む
+    const main = marchSource.match(/for \(int i = 0; i < (\d+); i\+\+\) \{\n\s*if \(t >= end/)
+    expect(main, '主マーチのループが見つからない').not.toBeNull()
+    expect(Number(main![1])).toBe(MARCH_LOOP_LIMIT)
+
+    const light = marchSource.match(/for \(int i = 0; i < (\d+); i\+\+\) \{\n\s*if \(i >= steps\)/)
+    expect(light, '光マーチのループが見つからない').not.toBeNull()
+    expect(Number(light![1])).toBe(LIGHT_MARCH_LIMIT)
+
+    const octaves = marchSource.match(/for \(int n = 0; n < (\d+); n\+\+\)/)
+    expect(octaves, '多重散乱のループが見つからない').not.toBeNull()
+    expect(Number(octaves![1])).toBe(MULTI_SCATTER_OCTAVES)
+  })
+
+  it('光マーチの最初の歩幅が一致する', () => {
+    const m = marchSource.match(/float stepSize = ([0-9.]+);/)
+    expect(m, '光マーチの歩幅が見つからない').not.toBeNull()
+    expect(Number(m![1])).toBe(LIGHT_STEP_BASE)
+  })
+
+  it('検査そのものが働くことを、存在しない名前で確かめる', () => {
+    expect(marchSource.match(/const float NOT_A_MARCH_CONSTANT = /)).toBeNull()
   })
 })

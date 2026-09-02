@@ -147,14 +147,15 @@ export function bakeVolume(
   return target
 }
 
-/** 2D のテクスチャを 1 枚焼く。気象マップに使う */
+/** 2D のテクスチャを 1 枚焼く。気象マップと雲影とマーチに使う */
 export function bakePlane(
   renderer: Renderer,
   quad: BakeQuad,
-  side: number,
+  width: number,
+  height: number,
   fragment: Node<'vec4'>,
 ): RenderTarget {
-  const target = new RenderTarget(side, side, {
+  const target = new RenderTarget(width, height, {
     format: RGBAFormat,
     type: UnsignedByteType,
     depthBuffer: false,
@@ -185,17 +186,18 @@ export function bakePlane(
 export async function readPlane(
   renderer: Renderer,
   target: RenderTarget,
-  side: number,
+  width: number,
+  height: number,
   flipRows: boolean,
 ): Promise<number[]> {
   const pixels = (await renderer.readRenderTargetPixelsAsync(
     target,
     0,
     0,
-    side,
-    side,
+    width,
+    height,
   )) as unknown as ArrayLike<number>
-  return unpadRows(pixels, side, side, flipRows)
+  return unpadRows(pixels, width, height, flipRows)
 }
 
 /**

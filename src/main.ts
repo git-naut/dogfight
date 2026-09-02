@@ -170,7 +170,10 @@ const hook = installTestHook({
   audioProbe: null,
   gpuProbe: null,
   noiseSlice: null,
+  weatherSlice: null,
   shadowHistogram: null,
+  shadowTiles: null,
+  shadowInputs: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -324,6 +327,10 @@ async function main(): Promise<void> {
       lutScale: quality.atmosphereLutScale,
       skyEnvironmentSize: quality.skyEnvironmentSize,
       raymarchScattering: quality.aerialRaymarchScattering,
+      // **GLSL 側が実際に焼いた入力を渡す。**`?shadowprobe=1` で読み出した
+      // ものをそのまま `?shadowinputs=` へ載せ替える。ここで導き直すと、
+      // ヒストグラムの不一致が移植の欠陥なのか入力の違いなのか分からない
+      shadowInputs: capture.shadowInputs,
     })
     hook.gpuProbe = probe
     hook.backend = probe.backend
@@ -391,6 +398,7 @@ async function main(): Promise<void> {
   // **生バイトを出すのは頼まれたときだけ。**1,024 個をフックへ常時置くと
   // 読み出しの費用が全テストに乗る
   hook.noiseSlice = capture.noiseProbe ? [...view.noiseSlice] : null
+  hook.weatherSlice = capture.noiseProbe ? [...view.weatherSlice] : null
   hook.sunElevation = view.sunElevation
   hook.sunRadiance = view.sunRadiance.toArray()
   hook.skyRadiance = view.skyRadiance.toArray()
@@ -655,7 +663,14 @@ async function main(): Promise<void> {
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
     // **影を焼いたあとに読む。**`renderShadow` は `view.render()` の中なので、
     // 収束のぶんを描き終えたここで読み戻す
-    if (capture.shadowProbe) hook.shadowHistogram = view.readShadowHistogram()
+    if (capture.shadowProbe) {
+      const shadow = view.readShadowHistogram()
+      hook.shadowHistogram = shadow.bins
+      hook.shadowTiles = shadow.tiles
+      // **同じ入力を TSL 側へ渡すために出す。**分布だけ出しても、
+      // 突き合わせる相手が別の入力で焼いたものなら比較にならない
+      hook.shadowInputs = view.readShadowInputs()
+    }
 
     if (capture.sweep) {
       const samplesPerCase = capture.bench > 0 ? capture.bench : 40

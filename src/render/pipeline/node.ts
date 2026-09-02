@@ -2,7 +2,19 @@ import * as THREE from 'three'
 import { getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere'
 import { Geodetic } from '@takram/three-geospatial'
 import { loadAircraftModel } from '../aircraft/model'
-import { NOISE_SLICE_SIDE, SHAPE_SIZE } from '../clouds/noise'
+import {
+  DETAIL_SIZE,
+  NOISE_SLICE_SIDE,
+  SHAPE_SIZE,
+  WEATHER_SIZE,
+} from '../clouds/noise'
+import {
+  SHADOW_SIZE,
+  shadowHistogram,
+  shadowTileMeans,
+} from '../clouds/geometry'
+import { SHADOW_EXTENT } from '../clouds/cloudsPass'
+import type { ShadowInputs } from '../clouds/shadowInputs'
 import { HASH_PROBE_SIDE } from '../hashReference'
 import { loadCarrier, placeCarrier, DECK_HEIGHT } from '../carrier'
 import {
@@ -48,56 +60,14 @@ export interface NodeProbeOptions {
   skyEnvironmentSize: number
   /** 遠景の霞を光線行進で解くか */
   raymarchScattering: boolean
-}
-
-/**
- * 読み戻しの行の詰め物を外す。
- *
- * **WebGPU は行を 256 バイトへ揃える。**16 px 幅（64 バイト）を 16 行
- * 読むと 3,904 バイト戻った。15 行 x 256 + 64 で、最後の行だけ揃えられない。
- * WebGL2 バックエンドは詰まったまま 1,024 バイトを返す。
- *
- * 揃え幅を決め打ちにせず、戻ってきた長さから行の間隔を割り出す。
- * 詰まっていればそのまま返す
- */
-function unpadRows(
-  data: ArrayLike<number>,
-  width: number,
-  height: number,
-  flipRows: boolean,
-): number[] {
-  const rowBytes = width * 4
-  const total = data.length
-  const stride =
-    total === rowBytes * height
-      ? rowBytes
-      : height > 1
-        ? (total - rowBytes) / (height - 1)
-        : total
-
-  if (!Number.isInteger(stride) || stride < rowBytes) {
-    throw new Error(
-      `読み戻しの行の間隔が読めない: 長さ ${total}、幅 ${width}、高さ ${height}`,
-    )
-  }
-
-  const out: number[] = []
-  for (let row = 0; row < height; row++) {
-    const y = flipRows ? height - 1 - row : row
-    const base = y * stride
-    for (let i = 0; i < rowBytes; i++) out.push(data[base + i]!)
-  }
-  return out
-}
-
-/**
- * `NodeMaterial.fragmentNode` へ入れる。
- *
- * `@types/three` の `NodeMaterial` はこの枠を宣言していないので、逃げ口を
- * 1 か所へ寄せる。読む側は `NodeMaterial.setup()`
- */
-function assignFragment(material: object, node: unknown): void {
-  ;(material as { fragmentNode: unknown }).fragmentNode = node
+  /**
+   * 雲影を焼くときの入力。null なら焼かない。
+   *
+   * **GLSL 側が実際に焼いた値をそのまま受け取る。**`?shadowinputs=` で渡す。
+   * ここで導き直すと、導き方が食い違ったときにヒストグラムの不一致が
+   * 移植の欠陥に見える
+   */
+  shadowInputs: ShadowInputs | null
 }
 
 export async function runNodeProbe(
@@ -122,78 +92,120 @@ export async function runNodeProbe(
 
   const isWebGPU = 'isWebGPUBackend' in renderer.backend
 
-  // ---- 雲ノイズを TSL で焼く ----
+  // ---- 雲ノイズと気象マップを TSL で焼く ----
   //
-  // **1 スライスで足りる。**64 層すべてを焼かなくても、GLSL 版が読み戻して
-  // いるのと同じ中央スライスの同じ 16x16 を比べれば、式が一致しているかは
-  // 分かる。1 ビットずれれば以降の雲はすべて別物になるので、ここで止める
+  // **体積をそのまま焼く。**段 11 は 1 スライスを 2D のレンダーターゲットへ
+  // 焼いて比べていた。式の一致は見られるが、**層への焼き込みは見張られない。**
+  // 64³ を焼いて中央スライスを引き出せば、式と層の両方が 1 つの検査に乗る。
+  // 密度と雲影を走らせるにも体積そのものが要る
   const tsl = await import('three/tsl')
   const noiseNodes = await import('../clouds/noiseNodes')
+  const volume = await import('../clouds/volume')
 
-  const bake = async (
-    fragmentNode: Parameters<typeof assignFragment>[1],
-    side: number,
-    readSide: number,
-  ): Promise<number[]> => {
-    const target = new webgpu.RenderTarget(side, side, {
-      format: THREE.RGBAFormat,
-      type: THREE.UnsignedByteType,
-      depthBuffer: false,
-      stencilBuffer: false,
-    })
-    const material = new webgpu.NodeMaterial()
-    assignFragment(material, fragmentNode)
-    material.depthTest = false
-    material.depthWrite = false
+  const quad = volume.createBakeQuad()
+  const bakeStarted = performance.now()
 
-    const quad = new THREE.Scene()
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material)
-    quad.add(mesh)
-    const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+  // GLSL 版と同じ周波数の上限を使う。`noise.ts` の `bakeVolume` の式を写す。
+  // 1 セルに 4 テクセル確保できるところまで。超えると白色ノイズになる
+  const maxFreq = (size: number): number => Math.max(1, Math.floor(size / 4))
 
-    renderer.setRenderTarget(target)
-    renderer.render(quad, ortho)
-    // **原点の上下がバックエンドで違う。**WebGL2 は左下、WebGPU は左上。
-    // GLSL 版が読んでいるのは左下の `readSide` 角なので、WebGPU では
-    // `side - readSide` から読む。行の並びは `unpadRows` が返す側で揃える
-    const originY = isWebGPU ? side - readSide : 0
-    const pixels = await renderer.readRenderTargetPixelsAsync(
-      target,
-      0,
-      originY,
-      readSide,
-      readSide,
+  const shapeVolume = volume.bakeVolume(renderer, quad, {
+    side: SHAPE_SIZE,
+    fragment: (layer) =>
+      noiseNodes.noiseFragmentNode(0, maxFreq(SHAPE_SIZE), layer),
+  })
+  const detailVolume = volume.bakeVolume(renderer, quad, {
+    side: DETAIL_SIZE,
+    fragment: (layer) =>
+      noiseNodes.noiseFragmentNode(1, maxFreq(DETAIL_SIZE), layer),
+  })
+  const weatherPlane = volume.bakePlane(
+    renderer,
+    quad,
+    WEATHER_SIZE,
+    noiseNodes.weatherFragmentNode(),
+  )
+  const volumeMs = performance.now() - bakeStarted
+
+  // GLSL 版（`noise.ts` の `sampleSlice`）が読むのと同じ層の同じ左下 16x16
+  const noiseSlice = await volume.readVolumeSlice(
+    renderer,
+    quad,
+    shapeVolume.texture,
+    Math.floor(SHAPE_SIZE / 2),
+    NOISE_SLICE_SIDE,
+    isWebGPU,
+  )
+
+  // 気象マップも突き合わせる。**雲の配置を決めるのはこちら。**ずれると
+  // 雲の湧く場所が変わるが、雲影の分布では捕まらない
+  const weatherSlice = await volume.readPlaneSlice(
+    renderer,
+    quad,
+    weatherPlane.texture,
+    NOISE_SLICE_SIDE,
+    isWebGPU,
+  )
+
+  const hashTarget = volume.bakePlane(
+    renderer,
+    quad,
+    HASH_PROBE_SIDE,
+    noiseNodes.hashProbeFragmentNode(HASH_PROBE_SIDE),
+  )
+  const hashProbe = await volume.readPlane(
+    renderer,
+    hashTarget,
+    HASH_PROBE_SIDE,
+    isWebGPU,
+  )
+  hashTarget.dispose()
+
+  // ---- 雲影マップ ----
+  //
+  // **段 12 の合格条件。**GLSL 版が焼いた 256² と 16 ビンのヒストグラムで
+  // 比べ、L1 距離 0.01 未満を求める。入力は GLSL 側が実際に使った値をもらう
+  // ので、食い違えば移植の欠陥だと言い切れる
+  let shadowBins: number[] | null = null
+  let shadowTiles: number[] | null = null
+  if (options.shadowInputs !== null) {
+    const densityNodes = await import('../clouds/densityNodes')
+    const shadow = options.shadowInputs
+    const shadowTarget = volume.bakePlane(
+      renderer,
+      quad,
+      SHADOW_SIZE,
+      densityNodes.cloudShadowFragmentNode(
+        {
+          shapeNoise: shapeVolume.texture,
+          detailNoise: detailVolume.texture,
+          weatherMap: weatherPlane.texture,
+          cloudTime: tsl.float(shadow.cloudTime),
+          coverage: tsl.float(shadow.coverage),
+        },
+        tsl.uv(),
+        tsl.vec2(shadow.centerX, shadow.centerZ),
+        tsl.float(SHADOW_EXTENT),
+        tsl.vec3(shadow.sunX, shadow.sunY, shadow.sunZ),
+      ),
     )
-    renderer.setRenderTarget(null)
-    mesh.geometry.dispose()
-    material.dispose()
-    target.dispose()
-    // **行の向きがバックエンドで違う。**WebGL2 の読み戻しは下から、WebGPU は
-    // 上から返る。実測で確かめた。ハッシュの検査用の格子で、WebGPU の先頭が
-    // `hashTopByte(0, 15, 0)` に一致し、WebGL2 は `(0, 0, 0)` だった。
-    // **算術は一致していて、違うのは並びだけ。**気づかなければ「WGSL の
-    // ハッシュがずれている」と読み違える
-    return unpadRows(
-      pixels as unknown as ArrayLike<number>,
-      readSide,
-      readSide,
+    // ヒストグラムは並びを問わないが、読み戻しの道は 1 本にしておく
+    const bytes = await volume.readPlane(
+      renderer,
+      shadowTarget,
+      SHADOW_SIZE,
       isWebGPU,
     )
+    shadowBins = shadowHistogram(bytes)
+    // **配置も出す。**分布だけでは影が同じ場所にあることを言えない
+    shadowTiles = shadowTileMeans(bytes, SHADOW_SIZE)
+    shadowTarget.dispose()
   }
 
-  // GLSL 版と同じ層と同じ周波数の上限を使う。`bakeVolume` の式を写す
-  const centerLayer = (Math.floor(SHAPE_SIZE / 2) + 0.5) / SHAPE_SIZE
-  const maxFreqShape = Math.max(1, Math.floor(SHAPE_SIZE / 4))
-  const noiseSlice = await bake(
-    noiseNodes.noiseFragmentNode(0, maxFreqShape, tsl.float(centerLayer)),
-    SHAPE_SIZE,
-    NOISE_SLICE_SIDE,
-  )
-  const hashProbe = await bake(
-    noiseNodes.hashProbeFragmentNode(HASH_PROBE_SIDE),
-    HASH_PROBE_SIDE,
-    HASH_PROBE_SIDE,
-  )
+  quad.dispose()
+  shapeVolume.dispose()
+  detailVolume.dispose()
+  weatherPlane.dispose()
 
   renderer.setPixelRatio(1)
   renderer.setSize(options.width, options.height, false)
@@ -380,7 +392,11 @@ export async function runNodeProbe(
   return {
     requested: options.gpu,
     noiseSlice,
+    weatherSlice,
     hashProbe,
+    shadowHistogram: shadowBins,
+    shadowTiles,
+    volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',
     fellBack: options.gpu === 2 && !isWebGPU,
     sharedCore,

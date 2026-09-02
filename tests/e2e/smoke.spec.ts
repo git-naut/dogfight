@@ -2037,6 +2037,18 @@ test.describe('雲影の分布', () => {
     // **全部が 1 つのビンに寄っていたら、影が焼けていないか真っ白**
     const nonEmpty = bins!.filter((v) => v > 0).length
     expect(nonEmpty, `ビンが ${nonEmpty} 個しか埋まっていない`).toBeGreaterThan(1)
+
+    // **配置も返す。**分布だけでは影が同じ場所にあることを言えない。
+    // ノイズや気象マップを上下反転しても分布は動かないことを実測した
+    const tiles = hook.shadowTiles
+    expect(tiles, '配置が返っていない').not.toBeNull()
+    expect(tiles!.length).toBe(16)
+    for (const v of tiles!) {
+      expect(v).toBeGreaterThanOrEqual(0)
+      expect(v).toBeLessThanOrEqual(1)
+    }
+    const spread = Math.max(...tiles!) - Math.min(...tiles!)
+    expect(spread, `区画の差が ${spread} しかない`).toBeGreaterThan(0.01)
   })
 
   test('雲量 0 なら影は日向の側へ寄る', async ({ page }) => {
@@ -2052,5 +2064,8 @@ test.describe('雲影の分布', () => {
     expect(bins[15], '最後のビン（透過率 1 に近い側）が埋まっていない').toBeGreaterThan(
       0.99,
     )
+    // 区画平均も日向へ寄る。差が出ないので配置の検査は空回りする
+    const tiles = hook.shadowTiles!
+    expect(Math.min(...tiles), '区画の平均が日向へ寄っていない').toBeGreaterThan(0.99)
   })
 })

@@ -413,6 +413,9 @@ export async function createWebGLPipeline(
       return noise.slice
     },
 
+    get weatherSlice() {
+      return noise.weatherSlice
+    },
     get cloudHdrTarget() {
       return cloudsPass.isHdrTarget
     },

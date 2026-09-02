@@ -200,4 +200,46 @@ export const BITE_MARKS = [
     expect: 'tests/sim/aircraft.test.ts',
     why: '迎角制限器を常に切る。既定で効いていることを見張れているか。切れるようにしてある機能は、既定側も見張らないと片側しか通らない',
   },
+  {
+    id: 'shadow-tiles-drop-length-guard',
+    kind: '文の削除',
+    file: 'src/render/clouds/geometry.ts',
+    find: '  if (bytes.length < side * side * 4) return []\n',
+    replace: '',
+    expect: 'tests/render/shadowHistogram.test.ts',
+    why: '読み戻せていない絵を 0 で埋めて返すと、GLSL 版との突き合わせが「一致した」になる。長さが足りないときは空を返すこと',
+  },
+  {
+    id: 'shadow-tiles-single-cell',
+    kind: '定数の摂動',
+    file: 'src/render/clouds/geometry.ts',
+    find: 'export const SHADOW_TILES = 4',
+    replace: 'export const SHADOW_TILES = 1',
+    expect: 'tests/render/shadowHistogram.test.ts',
+    lesson: '分布は配置を見ない',
+  },
+  {
+    id: 'shadow-inputs-drop-empty-check',
+    kind: '文の削除',
+    file: 'src/render/clouds/shadowInputs.ts',
+    find: "  if (parts.some((p) => p.trim() === '')) return null\n",
+    replace: '',
+    expect: 'tests/render/shadowInputs.test.ts',
+    why: "`Number('')` は 0 を返すので、末尾の欠けた `?shadowinputs=` が「中心 Z が 0」として黙って通る。TSL 版と GLSL 版が別の入力で焼いたものを比べることになる",
+  },
+  {
+    id: 'readback-drop-stride-guard',
+    kind: '文の削除',
+    file: 'src/render/pipeline/readback.ts',
+    find: `  if (!Number.isInteger(stride) || stride < rowBytes) {
+    throw new Error(
+      \`読み戻しの行の間隔が読めない: 長さ \${total}、幅 \${width}、高さ \${height}\`,
+    )
+  }
+
+`,
+    replace: '',
+    expect: 'tests/render/readback.test.ts',
+    lesson: '読み戻しの向きと原点がバックエンドで違う',
+  },
 ]

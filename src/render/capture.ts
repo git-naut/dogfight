@@ -1,4 +1,8 @@
 import { DEFAULT_COVERAGE, type NodeProbeResult } from './pipeline/types'
+import {
+  decodeShadowInputs,
+  type ShadowInputs,
+} from './clouds/shadowInputs'
 import { resolvePreset, type PresetName } from './quality'
 import { DEFAULT_HOUR } from './atmosphere'
 
@@ -146,6 +150,14 @@ export interface CaptureConfig {
    */
   shadowProbe: boolean
   /**
+   * TSL 版の雲影を焼くときの入力。`?shadowinputs=t,cov,sx,sy,sz,cx,cz`。
+   *
+   * `?gpu=2` の自己診断だけが読む。**GLSL 側が実際に焼いた値を渡す。**
+   * 導き直すと、導き方が食い違ったときにヒストグラムの不一致が移植の欠陥に
+   * 見える。数が揃わなければ null で、雲影は焼かない
+   */
+  shadowInputs: ShadowInputs | null
+  /**
    * 雲のマーチを打ち切る距離 m。`?cloudfar=` で振る。
    *
    * 遠方の雲海をどこで切るかを絵と費用の両方で測るための口。
@@ -250,6 +262,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     gpu: clampInt(params.get('gpu'), 0, 2, 0),
     noiseProbe: params.get('noiseprobe') === '1',
     shadowProbe: params.get('shadowprobe') === '1',
+    shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
     cloudFar: params.has('cloudfar')
       ? clampNumber(params.get('cloudfar'), 500, 60_000, 26_000)
       : null,
@@ -453,8 +466,27 @@ export interface TestHook {
    * RGBA8 で 1,024 個。JSON で運ぶので素の配列にする
    */
   noiseSlice: number[] | null
+  /**
+   * 気象マップの左下 16x16 の生バイト。`?noiseprobe=1` のときだけ埋まる。
+   *
+   * **雲の配置を決めるのは 3D ノイズではなくこちら**
+   */
+  weatherSlice: number[] | null
   /** 雲影マップ 256² の分布。16 ビン。`?shadowprobe=1` のときだけ埋まる */
   shadowHistogram: number[] | null
+  /**
+   * 雲影マップを 4x4 に区切った区画ごとの平均透過率。16 個。
+   *
+   * **分布だけでは影の配置を見張れない。**ノイズや気象マップを上下反転
+   * しても 16 ビンの分布は動かないことを実測した
+   */
+  shadowTiles: number[] | null
+  /**
+   * その分布を焼いた入力。`?shadowprobe=1` のときだけ埋まる。
+   *
+   * TSL 版へ `?shadowinputs=` で渡し直すために出す
+   */
+  shadowInputs: ShadowInputs | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *

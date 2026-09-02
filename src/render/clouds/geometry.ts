@@ -220,8 +220,19 @@ export const COVER_BAND = 0.22
 /** 影マップのステップ数。本体のマーチより粗くてよい */
 export const SHADOW_STEPS = 10
 
+/**
+ * 雲影マップの一辺。地面に落ちる影なのでこの程度で足りる。
+ *
+ * **GLSL 版と TSL 版が同じ値を使う。**写しを持つと、片方だけ直したときに
+ * ヒストグラムの比較が別の解像度どうしの比較になる
+ */
+export const SHADOW_SIZE = 256
+
 /** 雲影マップのヒストグラムのビン数 */
 export const SHADOW_HISTOGRAM_BINS = 16
+
+/** 雲影マップを区切って平均を取る格子の一辺 */
+export const SHADOW_TILES = 4
 
 /**
  * 雲影マップの分布を数える。
@@ -249,6 +260,51 @@ export function shadowHistogram(
   }
   for (let i = 0; i < bins; i++) out[i]! /= count
   return out
+}
+
+/**
+ * 雲影マップを格子に区切って各区画の平均透過率を返す。
+ *
+ * **ヒストグラムは配置を見ない。**実測で、ノイズの体積を上下反転しても
+ * 気象マップを上下反転しても、16 ビンの分布は 0.01 の内側に収まった。
+ * 分布が合っていることは、影が同じ場所にあることを意味しない。
+ *
+ * 区画ごとの平均なら配置が効く。浮動小数の演算順序の違いには鈍いので、
+ * GLSL 版と TSL 版の突き合わせに使える。
+ *
+ * 行の並びは「uv の v = 0 の側が先頭」で両側そろえること。返すのは 0..1。
+ * 長さが合わなければ空を返す。**黙って 0 で埋めない**
+ */
+export function shadowTileMeans(
+  bytes: ArrayLike<number>,
+  side: number,
+  tiles = SHADOW_TILES,
+): number[] {
+  if (bytes.length < side * side * 4) return []
+  const sums = new Array<number>(tiles * tiles).fill(0)
+  const counts = new Array<number>(tiles * tiles).fill(0)
+  for (let y = 0; y < side; y++) {
+    const row = Math.min(tiles - 1, Math.floor((y / side) * tiles))
+    for (let x = 0; x < side; x++) {
+      const col = Math.min(tiles - 1, Math.floor((x / side) * tiles))
+      const t = row * tiles + col
+      sums[t]! += bytes[(y * side + x) * 4]!
+      counts[t]! += 1
+    }
+  }
+  return sums.map((v, i) => (counts[i] === 0 ? 0 : v / counts[i]! / 255))
+}
+
+/**
+ * 区画ごとの平均どうしの最大のずれ。
+ *
+ * L1 の総和だと区画の数で薄まる。1 区画でも動いたら見えるように最大で取る
+ */
+export function maxAbsDifference(a: readonly number[], b: readonly number[]): number {
+  if (a.length === 0 || a.length !== b.length) return Number.POSITIVE_INFINITY
+  let worst = 0
+  for (let i = 0; i < a.length; i++) worst = Math.max(worst, Math.abs(a[i]! - b[i]!))
+  return worst
 }
 
 /**

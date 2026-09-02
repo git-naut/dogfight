@@ -94,7 +94,11 @@ export interface TestHook {
     triangles: number
     programs: number
     noiseSlice: number[]
+    weatherSlice: number[]
     hashProbe: number[]
+    shadowHistogram: number[] | null
+    shadowTiles: number[] | null
+    volumeMs: number
     atmosphere: boolean
     lutMs: number
     lutScale: number
@@ -107,8 +111,22 @@ export interface TestHook {
   } | null
   /** 形状ノイズの中央スライスの生バイト。`?noiseprobe=1` のときだけ埋まる */
   noiseSlice: number[] | null
+  /** 気象マップの左下 16x16 の生バイト。`?noiseprobe=1` のときだけ埋まる */
+  weatherSlice: number[] | null
   /** 雲影マップ 256² の分布。16 ビン */
   shadowHistogram: number[] | null
+  /** 雲影マップを 4x4 に区切った区画ごとの平均透過率。16 個 */
+  shadowTiles: number[] | null
+  /** その分布を焼いた入力。TSL 版へ渡し直すために出す */
+  shadowInputs: {
+    cloudTime: number
+    coverage: number
+    sunX: number
+    sunY: number
+    sunZ: number
+    centerX: number
+    centerZ: number
+  } | null
   missionOutcome: string
   missionRemaining: number
   flaresBurning: number

@@ -4,6 +4,13 @@ import {
   hashProbeExpected,
   HASH_PROBE_SIDE,
 } from '../../src/render/hashReference'
+import {
+  histogramL1,
+  maxAbsDifference,
+  SHADOW_TILES,
+} from '../../src/render/clouds/geometry'
+import { encodeShadowInputs } from '../../src/render/clouds/shadowInputs'
+import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
 
 /**
  * node 経路（`WebGPURenderer`）が立つことを確かめる。
@@ -54,6 +61,8 @@ test.describe('node 経路', () => {
     // syntax error`）。計画が退避路として当てにしていた `forceWebGL` は、
     // 大気には効かない
     expect(result.atmosphere).toBe(false)
+    // 形状 64³・ディテール 32³・気象 512² を実際に焼いている
+    expect(result.volumeMs).toBeGreaterThan(0)
     expect(errors).toEqual([])
   })
 
@@ -134,6 +143,23 @@ test.describe('node 経路', () => {
     expect(result.noiseSlice).toEqual(hook?.noiseSlice)
   })
 
+  test('TSL の気象マップが GLSL 版とビット一致する', async ({ page }) => {
+    // **雲の配置を決めるのは 3D ノイズではなくこちら。**周期は 42 km で、
+    // 影マップの一辺 30 km より長い。ずれると雲の湧く場所がまるごと変わる。
+    // それでも雲影の分布（16 ビン）では捕まらないので、生バイトで比べる
+    const { result, errors } = await probe(page, 'gpu=1')
+    expect(errors).toEqual([])
+    expect(result.weatherSlice.length).toBe(16 * 16 * 4)
+
+    await page.goto('/dogfight/?capture=1&frame=0&noiseprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    expect(hook?.weatherSlice?.length, 'GLSL 側が読み戻せていない').toBe(16 * 16 * 4)
+    expect(result.weatherSlice).toEqual(hook?.weatherSlice)
+  })
+
   test('WGSL でも GLSL 版とビット一致する', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
     const { result, errors } = await probe(page, 'gpu=2')
@@ -161,6 +187,81 @@ test.describe('node 経路', () => {
     expect(result.noiseSlice, 'WGSL のノイズが GLSL 版とずれた').toEqual(
       hook?.noiseSlice,
     )
+    expect(result.weatherSlice, 'WGSL の気象マップが GLSL 版とずれた').toEqual(
+      hook?.weatherSlice,
+    )
+  })
+
+  /**
+   * GLSL 側で雲影を焼き、分布とその入力を取り出す。
+   *
+   * **入力ごと持ち帰る。**別の入力で焼いたものを比べると、一致しなかった
+   * ときに移植の欠陥なのか入力の違いなのかが分からない
+   */
+  async function bakeShadowWithGlsl(page: import('@playwright/test').Page) {
+    await page.goto(
+      `/dogfight/?capture=1&script=level&frame=240&hour=16&coverage=${DEFAULT_COVERAGE}&shadowprobe=1`,
+    )
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const bins = hook?.shadowHistogram
+    const tiles = hook?.shadowTiles
+    const inputs = hook?.shadowInputs
+    expect(bins, 'GLSL 側が影の分布を返していない').toBeTruthy()
+    expect(tiles, 'GLSL 側が影の配置を返していない').toBeTruthy()
+    expect(tiles!.length).toBe(SHADOW_TILES * SHADOW_TILES)
+    expect(inputs, 'GLSL 側が影の入力を返していない').toBeTruthy()
+    // **1 つのビンに寄っていたら比較が空回りする。**真っ白な影マップ
+    // どうしは何を移植し間違えても一致する
+    const nonEmpty = bins!.filter((v) => v > 0).length
+    expect(nonEmpty, `ビンが ${nonEmpty} 個しか埋まっていない`).toBeGreaterThan(1)
+    // 太陽が地平線の上にいないと影マップは全面 1 になる
+    expect(inputs!.sunY, '太陽が地平線より下にいる').toBeGreaterThan(0.02)
+    // 区画がすべて同じ値なら配置の検査が空回りする
+    const spread = Math.max(...tiles!) - Math.min(...tiles!)
+    expect(spread, `区画の差が ${spread} しかない`).toBeGreaterThan(0.01)
+    return { bins: bins!, tiles: tiles!, inputs: inputs! }
+  }
+
+  test('TSL の雲影が GLSL 版と分布で一致する', async ({ page }) => {
+    // **段 12 の合格条件。**16 ビンのヒストグラムで L1 距離 0.01 未満。
+    // 密度は形状 64³ とディテール 32³ と気象 512² を引くので、この検査は
+    // 3 つの体積が層まで正しく焼けていることも同時に見張る
+    const { bins, tiles, inputs } = await bakeShadowWithGlsl(page)
+
+    const { result, errors } = await probe(
+      page,
+      `gpu=1&shadowinputs=${encodeShadowInputs(inputs)}`,
+    )
+    expect(errors).toEqual([])
+    expect(result.shadowHistogram, 'TSL 側が影を焼いていない').toBeTruthy()
+
+    const distance = histogramL1(bins, result.shadowHistogram!)
+    expect(distance, `L1 距離 ${distance}`).toBeLessThan(0.01)
+
+    // **分布だけでは足りない。**ノイズの体積を上下反転しても、気象マップを
+    // 上下反転しても、16 ビンの分布は 0.01 の内側に収まった（どちらも実測）。
+    // 区画ごとの平均なら配置が効く
+    expect(result.shadowTiles, 'TSL 側が影の配置を返していない').toBeTruthy()
+    const worst = maxAbsDifference(tiles, result.shadowTiles!)
+    expect(worst, `区画ごとの平均の最大のずれ ${worst}`).toBeLessThan(0.02)
+  })
+
+  test('入力が違えば雲影の分布は一致しない', async ({ page }) => {
+    // **検査が働くことの確認。**同じ入力なら一致するという主張は、違う
+    // 入力なら一致しないことを見せて初めて意味を持つ。雲量だけを 0 にする
+    const { bins, tiles, inputs } = await bakeShadowWithGlsl(page)
+
+    const { result } = await probe(
+      page,
+      `gpu=1&shadowinputs=${encodeShadowInputs({ ...inputs, coverage: 0 })}`,
+    )
+    const distance = histogramL1(bins, result.shadowHistogram!)
+    expect(distance, `L1 距離 ${distance}`).toBeGreaterThan(0.01)
+    const worst = maxAbsDifference(tiles, result.shadowTiles!)
+    expect(worst, `区画ごとの平均の最大のずれ ${worst}`).toBeGreaterThan(0.02)
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

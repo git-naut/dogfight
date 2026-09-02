@@ -12,6 +12,7 @@ import type { SmokeSource } from '../sim/weapons/missile'
 import type { PresetName, QualitySettings } from './quality'
 import type { TerrainStats } from '../sim/terrain'
 import { cloudTime } from './clouds/geometry'
+import type { ShadowInputs } from './clouds/shadowInputs'
 import { FIXED_DT } from '../sim/loop'
 import { createWebGLPipeline } from './pipeline/webgl'
 import { DEFAULT_COVERAGE, type MeasureConfig, type SceneOptions } from './pipeline/types'
@@ -65,6 +66,8 @@ export interface SceneHandle {
   readonly noiseStats: { min: number; max: number; mean: number }
   /** 形状ノイズの中央スライスの左下 16x16。`?noiseprobe=1` のときだけ読む */
   readonly noiseSlice: Uint8Array
+  /** 気象マップの左下 16x16。`?noiseprobe=1` のときだけ読む */
+  readonly weatherSlice: Uint8Array
   /** GPU のフレーム時間 ms。拡張が無ければ 0 */
   readonly gpuFrameMs: number
   /** 直近しばらくの GPU フレーム時間の最大 ms。予算の判断はこちらで行う */
@@ -77,8 +80,20 @@ export interface SceneHandle {
   readonly gpuTimerSupported: boolean
   /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
   readCloudProbe(): { mean: number; max: number; p99: number }
-  /** 雲影マップ 256² の分布。16 ビンで合計 1。`?shadowprobe=1` で使う */
-  readShadowHistogram(): number[]
+  /**
+   * 雲影マップ 256² の分布と配置。`?shadowprobe=1` で使う。
+   *
+   * `bins` は 16 ビンで合計 1、`tiles` は 4x4 の区画ごとの平均透過率。
+   * **分布だけでは足りない。**影を上下反転しても分布は動かない
+   */
+  readShadowHistogram(): { bins: number[]; tiles: number[] }
+  /**
+   * 雲影マップを決めた入力。`?shadowprobe=1` で使う。
+   *
+   * TSL 版へ**同じ値を渡す**ための口。別の入力で焼いたものを比べると、
+   * 一致しなかったときに移植の欠陥なのか入力の違いなのかが分からない
+   */
+  readShadowInputs(): ShadowInputs
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   /** 高さ場の生成にかかったミリ秒 */
@@ -258,6 +273,21 @@ export async function createScene(
   } = pipeline
 
   const shadowCenter = new THREE.Vector2()
+  /**
+   * 直近に雲影を焼いた入力。`?shadowprobe=1` で読む。
+   *
+   * **`updateClouds` へ渡したものをそのまま写す。**別に導き直すと、
+   * 導き方が食い違ったときに気づけない
+   */
+  const lastShadowInputs: ShadowInputs = {
+    cloudTime: 0,
+    coverage: 0,
+    sunX: 0,
+    sunY: 0,
+    sunZ: 0,
+    centerX: 0,
+    centerZ: 0,
+  }
   /** 影の箱を合わせるのに使う。毎フレーム作らない */
   const aircraftPosition = new THREE.Vector3()
   /** 軌跡の履歴を読む先。main が World を作ったあとに渡す */
@@ -313,6 +343,10 @@ export async function createScene(
 
     get noiseSlice() {
       return pipeline.noiseSlice
+    },
+
+    get weatherSlice() {
+      return pipeline.weatherSlice
     },
 
     get gpuFrameMs() {
@@ -419,6 +453,10 @@ export async function createScene(
       return pipeline.readShadowHistogram()
     },
 
+    readShadowInputs() {
+      return { ...lastShadowInputs }
+    },
+
     get quality() {
       return pipeline.quality
     },
@@ -464,7 +502,7 @@ export async function createScene(
       // 雲の流れは実時間ではなく sim のフレーム番号から導く。
       // これでキャプチャモードの絵が固定される
       shadowCenter.set(sample.position.x, sample.position.z)
-      pipeline.updateClouds({
+      const cloudParams = {
         cloudTime: cloudTime(frame, FIXED_DT),
         sunDirection: pipeline.sunDirectionWorld,
         sunColor: pipeline.sunRadiance,
@@ -472,7 +510,16 @@ export async function createScene(
         coverage: options.coverage ?? DEFAULT_COVERAGE,
         shadowCenter,
         groundShadow: pipeline.quality.cloudGroundShadow,
-      })
+      }
+      pipeline.updateClouds(cloudParams)
+
+      lastShadowInputs.cloudTime = cloudParams.cloudTime
+      lastShadowInputs.coverage = cloudParams.coverage
+      lastShadowInputs.sunX = cloudParams.sunDirection.x
+      lastShadowInputs.sunY = cloudParams.sunDirection.y
+      lastShadowInputs.sunZ = cloudParams.sunDirection.z
+      lastShadowInputs.centerX = shadowCenter.x
+      lastShadowInputs.centerZ = shadowCenter.y
 
       // 地形と海面が参照する雲影の領域も合わせる
       terrainUniforms.cloudShadowCenter.value.copy(shadowCenter)

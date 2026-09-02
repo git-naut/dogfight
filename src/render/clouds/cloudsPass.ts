@@ -21,7 +21,9 @@ import {
 import { Pass } from 'postprocessing'
 import {
   SHADOW_HISTOGRAM_BINS,
+  SHADOW_SIZE,
   shadowHistogram,
+  shadowTileMeans,
   stepGrowthScale,
 } from './geometry'
 import cloudsFrag from './shaders/clouds.frag?raw'
@@ -122,8 +124,6 @@ function halton(index: number, base: number): number {
 }
 
 
-/** 雲影マップの一辺。地面に落ちる影なのでこの程度で足りる */
-const SHADOW_SIZE = 256
 /** 雲影マップが覆う世界の一辺 m */
 export const SHADOW_EXTENT = 30_000
 
@@ -514,7 +514,10 @@ export class CloudsPass extends Pass {
    * **`?shadowprobe=1` のときだけ呼ぶ。**256² の読み戻しは同期で、
    * 毎フレームやると計測が壊れる。TSL 版との突き合わせ専用
    */
-  readShadowHistogram(renderer: WebGLRenderer): number[] {
+  readShadowHistogram(renderer: WebGLRenderer): {
+    bins: number[]
+    tiles: number[]
+  } {
     const side = SHADOW_SIZE
     const buffer = new Uint8Array(side * side * 4)
     const previous = renderer.getRenderTarget()
@@ -522,11 +525,16 @@ export class CloudsPass extends Pass {
       renderer.setRenderTarget(this.shadowTarget)
       renderer.readRenderTargetPixels(this.shadowTarget, 0, 0, side, side, buffer)
     } catch {
-      return new Array<number>(SHADOW_HISTOGRAM_BINS).fill(0)
+      return { bins: new Array<number>(SHADOW_HISTOGRAM_BINS).fill(0), tiles: [] }
     } finally {
       renderer.setRenderTarget(previous)
     }
-    return shadowHistogram(buffer)
+    // **分布と配置の両方を出す。**分布だけでは影が同じ場所にあることを
+    // 言えない。上下反転を実測で見逃した
+    return {
+      bins: shadowHistogram(buffer),
+      tiles: shadowTileMeans(buffer, side),
+    }
   }
 
   override render(renderer: WebGLRenderer): void {

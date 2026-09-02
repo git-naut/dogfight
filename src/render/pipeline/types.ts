@@ -242,6 +242,8 @@ export interface ScenePipeline {
   readonly noiseStats: { min: number; max: number; mean: number }
   /** 形状ノイズの中央スライスの左下 16x16。TSL 版との突き合わせに使う */
   readonly noiseSlice: Uint8Array
+  /** 気象マップの左下 16x16。`?noiseprobe=1` のときだけ読む */
+  readonly weatherSlice: Uint8Array
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
@@ -251,7 +253,7 @@ export interface ScenePipeline {
    *
    * TSL 版との突き合わせに使う。**生の 26 万バイトは持ち回らない**
    */
-  readShadowHistogram(): number[]
+  readShadowHistogram(): { bins: number[]; tiles: number[] }
 
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
@@ -347,12 +349,40 @@ export interface NodeProbeResult {
    */
   noiseSlice: number[]
   /**
+   * TSL で焼いた気象マップの左下 16x16。RGBA8 の 1,024 個。
+   *
+   * **雲の配置を決めるのはこちら。**GLSL 版とずれると雲の湧く場所が
+   * 変わるが、雲影の分布では捕まらない
+   */
+  weatherSlice: number[]
+  /**
    * ハッシュの上位 8 ビットを 16x16 の格子で焼いたもの。RGB の 768 個。
    *
    * CPU 参照（`hashReference.ts` の `hashProbeExpected`）と突き合わせる。
    * **GLSL と WGSL と JS の 3 つが同じ整数を出すことの直接の証拠になる**
    */
   hashProbe: number[]
+  /**
+   * TSL で焼いた雲影マップ 256² の分布。16 ビンで合計 1。
+   *
+   * `?shadowinputs=` を渡したときだけ埋まる。**段 12 の合格条件**は、
+   * GLSL 版（`?shadowprobe=1` の `hook.shadowHistogram`）との L1 距離が
+   * 0.01 未満であること
+   */
+  shadowHistogram: number[] | null
+  /**
+   * TSL で焼いた雲影マップを 4x4 に区切った区画ごとの平均透過率。16 個。
+   *
+   * **分布だけでは配置を見張れない。**ノイズの体積を上下反転しても
+   * 16 ビンの分布は 0.01 の内側に収まることを実測した
+   */
+  shadowTiles: number[] | null
+  /**
+   * 形状 64³・ディテール 32³・気象 512² を焼くのにかかったミリ秒。
+   *
+   * GLSL 版の `hook.noiseMs` と並べる。node 経路でも起動時の費用になる
+   */
+  volumeMs: number
   /** 大気を node 経路で組んだか */
   atmosphere: boolean
   /**

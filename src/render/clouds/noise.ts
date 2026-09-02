@@ -79,6 +79,13 @@ export interface CloudNoise {
    * 読めなかったときは長さ 0
    */
   readonly slice: Uint8Array
+  /**
+   * 気象マップの左下 16x16。RGBA8 の生バイト 1,024 個。
+   *
+   * **雲の配置を決めるのは 3D ノイズではなくこちら。**ここがずれると
+   * 雲の湧く場所が変わる。雲影の分布では捕まらないので生バイトで比べる
+   */
+  readonly weatherSlice: Uint8Array
   dispose(): void
 }
 
@@ -168,6 +175,7 @@ export function generateCloudNoise(backend: RenderBackend): CloudNoise {
   const elapsedMs = performance.now() - started
 
   const sample = sampleSlice(renderer, shapeTarget, Math.floor(SHAPE_SIZE / 2))
+  const weatherSlice = sampleCorner(renderer, weatherTarget)
   renderer.setRenderTarget(previousTarget)
 
   return {
@@ -177,6 +185,7 @@ export function generateCloudNoise(backend: RenderBackend): CloudNoise {
     elapsedMs,
     stats: sample.stats,
     slice: sample.slice,
+    weatherSlice,
     dispose() {
       shapeTarget.dispose()
       detailTarget.dispose()
@@ -220,6 +229,26 @@ function sampleSlice(
     stats: { min: min / 255, max: max / 255, mean: sum / count / 255 },
     slice: buffer,
   }
+}
+
+/**
+ * 2D のレンダーターゲットの左下 16x16 を読み戻す。
+ *
+ * 気象マップの突き合わせ用。読めなかったときは長さ 0 を返す
+ */
+function sampleCorner(
+  renderer: WebGLRenderer,
+  target: WebGLRenderTarget,
+): Uint8Array {
+  const side = NOISE_SLICE_SIDE
+  const buffer = new Uint8Array(side * side * 4)
+  try {
+    renderer.setRenderTarget(target)
+    renderer.readRenderTargetPixels(target, 0, 0, side, side, buffer)
+  } catch {
+    return new Uint8Array(0)
+  }
+  return buffer
 }
 
 function create3DTarget(size: number): WebGL3DRenderTarget {

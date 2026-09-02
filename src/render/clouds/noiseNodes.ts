@@ -5,15 +5,19 @@ import {
   float,
   floor,
   int,
+  ivec2,
   ivec3,
   max,
   min,
   mix,
   normalize,
+  select,
   sqrt,
   uint,
   uv,
+  uvec2,
   uvec3,
+  vec2,
   vec3,
   vec4,
 } from 'three/tsl'
@@ -216,6 +220,31 @@ function perlinFbm(
 }
 
 /**
+ * 焼くときの uv。**v を反転する。**
+ *
+ * node 経路はレンダーターゲットのテクスチャを引くとき v を裏返す。
+ * `TextureNode.setupUV()` が `builder.isFlipY()` のときに
+ * `texture.isRenderTargetTexture` を見て入れる補正で、GLSL 側は
+ * `GLSLNodeBuilder.isFlipY()` が `true`、WGSL 側は `false`。**両方合わせると
+ * 「v = 0 は描いたときの NDC の上」**という同じ約束になり、バックエンドに
+ * よらず一貫している。
+ *
+ * 一方 `WebGLRenderer` の既定の経路は「v = 0 は NDC の下」で引く。だから
+ * 同じ式を同じ uv で焼くと、**node 経路の密度は GLSL 版と上下が逆のノイズを
+ * 引く。**絵は変わるが、分布（ヒストグラム）はほとんど動かないので
+ * 段 12 の合格条件だけでは捕まらない。実測でそうだった。
+ *
+ * 焼く側で v を裏返して打ち消す。`(j + 0.5) / size` は 1/128 の倍数なので
+ * `1 - v` は浮動小数でも正確に出る。ビット一致は保たれる。
+ *
+ * **読み戻しの検査には使わない。**`hashProbeFragmentNode` は
+ * `readRenderTargetPixelsAsync` で生バイトを取る先なので、素の `uv()` のまま
+ */
+function bakeUv(): Node<'vec2'> {
+  return vec2(uv().x, float(1).sub(uv().y))
+}
+
+/**
  * ノイズ 1 スライスの色を返すノード。
  *
  * `channelSet` と `maxFreq` は焼く前に決まるので JS の定数として畳む。
@@ -226,7 +255,7 @@ export function noiseFragmentNode(
   maxFreq: number,
   layer: Node<'float'>,
 ): Node<'vec4'> {
-  const p = vec3(uv(), layer)
+  const p = vec3(bakeUv(), layer)
 
   if (channelSet === 0) {
     // 形状ノイズ。R に Perlin と Worley を混ぜた基本形、GBA に細かさの階段
@@ -275,4 +304,109 @@ export function hashProbeFragmentNode(side: number): Node<'vec4'> {
     float(h.z.shiftRight(uint(24))),
   )
   return vec4(top.div(255), float(1))
+}
+
+/**
+ * PCG の 2D 版。気象マップが使う。
+ *
+ * `shaders/weather.frag` の写し。3D 版と乗数の入り方が違う。**`v.y` の行は
+ * 更新後の `v.x` を読む。**順序を入れ替えると別のハッシュになる。CPU 参照は
+ * `hashReference.ts` の `pcg2d`
+ */
+const pcg2d = Fn(([source]: [Node<'uvec2'>]) => {
+  const v = uvec2(source).toVar()
+  const m = uint(PCG_MULTIPLIER)
+  const a = uint(PCG_INCREMENT)
+
+  const vx = v.x.mul(m).add(a).toVar()
+  const vy = v.y.mul(m).add(a).toVar()
+
+  const x1 = vx.add(vy.mul(m)).toVar()
+  const y1 = vy.add(x1.mul(m)).toVar()
+
+  const x1s = x1.bitXor(x1.shiftRight(uint(16))).toVar()
+  const y1s = y1.bitXor(y1.shiftRight(uint(16))).toVar()
+
+  const x2 = x1s.add(y1s.mul(m)).toVar()
+  const y2 = y1s.add(x2.mul(m)).toVar()
+
+  return uvec2(x2, y2)
+}).setLayout({
+  name: 'dogfightPcg2d',
+  type: 'uvec2',
+  inputs: [{ name: 'v', type: 'uvec2' }],
+})
+
+/** 整数の格子座標から 0..1 の 2 成分を返す */
+const hash22 = Fn(([cell]: [Node<'ivec2'>]) => {
+  const o = int(HASH_CELL_OFFSET)
+  const u = uvec2(uint(cell.x.add(o)), uint(cell.y.add(o)))
+  return vec2(pcg2d(u)).mul(2 ** -32)
+}).setLayout({
+  name: 'dogfightHash22',
+  type: 'vec2',
+  inputs: [{ name: 'cell', type: 'ivec2' }],
+})
+
+/**
+ * 気象マップの格子を巻く。
+ *
+ * **周波数が 3・5・7 系なのでビット積は使えない。**ただし
+ * `id = floor(uv * freq)` は 0..freq-1 に収まり、足す近傍は 0 か +1 だけ
+ * なので、格子は 0..freq の範囲にしかならない。上端の 1 つを折り返すだけで
+ * `((cell % period) + period) % period` と同値になる。同値であることは
+ * `tests/render/noiseWrap.test.ts` が実際の範囲で確かめる
+ */
+function wrapCell2Node(cell: Node<'ivec2'>, period: number): Node<'ivec2'> {
+  const p = int(period)
+  const fold = (c: Node<'int'>): Node<'int'> =>
+    select(c.greaterThanEqual(p), c.sub(p), c)
+  return ivec2(fold(cell.x), fold(cell.y))
+}
+
+/** タイル化した 2D 勾配ノイズ。`weather.frag` の `perlin2` */
+function perlin2(point: Node<'vec2'>, freq: number): Node<'float'> {
+  // `toVar()` と `assign()` は `Fn` の中にしか置けない
+  return Fn(() => {
+    const scaled = point.mul(freq).toVar()
+    const id = ivec2(floor(scaled)).toVar()
+    const f = scaled.sub(vec2(id)).toVar()
+    const w = f.mul(f).mul(f).mul(f.mul(f.mul(6).sub(15)).add(10)).toVar()
+
+    const at = (dx: number, dy: number): Node<'float'> => {
+      const g = hash22(wrapCell2Node(id.add(ivec2(dx, dy)), freq)).mul(2).sub(1)
+      return dot(normalize(g), f.sub(vec2(dx, dy)))
+    }
+
+    const n00 = at(0, 0)
+    const n10 = at(1, 0)
+    const n01 = at(0, 1)
+    const n11 = at(1, 1)
+
+    return mix(mix(n00, n10, w.x), mix(n01, n11, w.x), w.y).mul(0.5).add(0.5)
+  })()
+}
+
+/** `weather.frag` の `fbm2`。重みは 0.5 / 0.25 / 0.15 / 0.1 */
+function fbm2(point: Node<'vec2'>, freq: number): Node<'float'> {
+  return perlin2(point, freq)
+    .mul(0.5)
+    .add(perlin2(point, freq * 2).mul(0.25))
+    .add(perlin2(point, freq * 4).mul(0.15))
+    .add(perlin2(point, freq * 8).mul(0.1))
+}
+
+/**
+ * 気象マップ 1 枚の色を返すノード。`shaders/weather.frag` の写し。
+ *
+ * R にカバレッジ、G に雲頂の高さ、B に雲底の持ち上がり。**しきい値はここで
+ * 掛けない。**焼く時点と実行時の両方で雲量を掛けると応答が急峻になる
+ */
+export function weatherFragmentNode(): Node<'vec4'> {
+  const p = bakeUv()
+  // FBM の実際の値域は 0.25 から 0.75 あたりに寄るので 0..1 へ引き伸ばす
+  const amount = clamp(fbm2(p, 3).sub(0.3).div(0.4), 0, 1)
+  const top = float(0.45).add(fbm2(p, 5).mul(0.55))
+  const bottom = fbm2(p, 7).mul(0.3)
+  return vec4(amount, top, bottom, float(1))
 }

@@ -183,9 +183,9 @@ export async function runNodeProbe(
 
   // GLSL 版と同じ層と同じ周波数の上限を使う。`bakeVolume` の式を写す
   const centerLayer = (Math.floor(SHAPE_SIZE / 2) + 0.5) / SHAPE_SIZE
-  const maxFreq = Math.max(1, Math.floor(SHAPE_SIZE / 4))
+  const maxFreqShape = Math.max(1, Math.floor(SHAPE_SIZE / 4))
   const noiseSlice = await bake(
-    noiseNodes.noiseFragmentNode(0, maxFreq, tsl.float(centerLayer)),
+    noiseNodes.noiseFragmentNode(0, maxFreqShape, tsl.float(centerLayer)),
     SHAPE_SIZE,
     NOISE_SLICE_SIDE,
   )

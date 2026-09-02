@@ -246,6 +246,12 @@ export interface ScenePipeline {
   readonly cloudHdrTarget: boolean
   /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
   readCloudProbe(): { mean: number; max: number; p99: number }
+  /**
+   * 雲影マップ 256² の分布。16 ビンで合計 1。
+   *
+   * TSL 版との突き合わせに使う。**生の 26 万バイトは持ち回らない**
+   */
+  readShadowHistogram(): number[]
 
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void

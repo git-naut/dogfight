@@ -107,6 +107,8 @@ export interface TestHook {
   } | null
   /** 形状ノイズの中央スライスの生バイト。`?noiseprobe=1` のときだけ埋まる */
   noiseSlice: number[] | null
+  /** 雲影マップ 256² の分布。16 ビン */
+  shadowHistogram: number[] | null
   missionOutcome: string
   missionRemaining: number
   flaresBurning: number

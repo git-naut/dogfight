@@ -32,6 +32,7 @@ export function captureParams(query = {}) {
     if (query[key] === false) params.set(name, '0')
   }
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
+  if (query.shadowProbe === true) params.set('shadowprobe', '1')
   return params
 }
 

@@ -19,7 +19,11 @@ import {
   type WebGLRenderer,
 } from 'three'
 import { Pass } from 'postprocessing'
-import { stepGrowthScale } from './geometry'
+import {
+  SHADOW_HISTOGRAM_BINS,
+  shadowHistogram,
+  stepGrowthScale,
+} from './geometry'
 import cloudsFrag from './shaders/clouds.frag?raw'
 import cloudShadowFrag from './shaders/cloudShadow.frag?raw'
 import cloudResolveFrag from './shaders/cloudResolve.frag?raw'
@@ -502,6 +506,27 @@ export class CloudsPass extends Pass {
     renderer.setRenderTarget(this.shadowTarget)
     renderer.render(this.shadowQuad.scene, this.shadowQuad.camera)
     renderer.setRenderTarget(previous)
+  }
+
+  /**
+   * 雲影マップの分布を読み戻す。
+   *
+   * **`?shadowprobe=1` のときだけ呼ぶ。**256² の読み戻しは同期で、
+   * 毎フレームやると計測が壊れる。TSL 版との突き合わせ専用
+   */
+  readShadowHistogram(renderer: WebGLRenderer): number[] {
+    const side = SHADOW_SIZE
+    const buffer = new Uint8Array(side * side * 4)
+    const previous = renderer.getRenderTarget()
+    try {
+      renderer.setRenderTarget(this.shadowTarget)
+      renderer.readRenderTargetPixels(this.shadowTarget, 0, 0, side, side, buffer)
+    } catch {
+      return new Array<number>(SHADOW_HISTOGRAM_BINS).fill(0)
+    } finally {
+      renderer.setRenderTarget(previous)
+    }
+    return shadowHistogram(buffer)
   }
 
   override render(renderer: WebGLRenderer): void {

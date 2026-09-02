@@ -170,6 +170,7 @@ const hook = installTestHook({
   audioProbe: null,
   gpuProbe: null,
   noiseSlice: null,
+  shadowHistogram: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -652,6 +653,9 @@ async function main(): Promise<void> {
     for (let i = 0; i < converge; i++) view.render()
 
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
+    // **影を焼いたあとに読む。**`renderShadow` は `view.render()` の中なので、
+    // 収束のぶんを描き終えたここで読み戻す
+    if (capture.shadowProbe) hook.shadowHistogram = view.readShadowHistogram()
 
     if (capture.sweep) {
       const samplesPerCase = capture.bench > 0 ? capture.bench : 40

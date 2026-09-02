@@ -195,3 +195,70 @@ export function stepGrowthScale(maxSteps: number, maxDistance: number): number {
   }
   return (low + high) / 2
 }
+
+/**
+ * 密度の定数。`shaders/density.glsl` と同じ値を持つ。
+ *
+ * **GLSL は TS を import できないので写しになる。**段 12 で TSL へ移すあいだ、
+ * 同じ密度の定義が GLSL と TSL の 2 つ並ぶ。どちらかだけ直すと影の形と
+ * 見えている雲の形がずれ、しかも誰も気づかない。
+ * `tests/render/densityConstants.test.ts` が GLSL の本文から読んで突き合わせる
+ */
+
+/** 形状ノイズが 1 周する世界の大きさ m。積雲の塊の大きさを決める */
+export const SHAPE_SCALE = 4200
+/** ディテールノイズの周期 m。最小の起伏を 22 m まで上げる値 */
+export const DETAIL_SCALE = 700
+/** 気象マップの周期 m。雲の配置が変わる間隔 */
+export const WEATHER_SCALE = 42000
+/** 消散係数 1/m */
+export const EXTINCTION = 0.016
+/** 風。ゆっくり流す */
+export const WIND = { x: 9, y: 0, z: 3 } as const
+/** 雲量のしきい値の幅。`smoothstep(threshold, threshold + この値, weather.r)` */
+export const COVER_BAND = 0.22
+/** 影マップのステップ数。本体のマーチより粗くてよい */
+export const SHADOW_STEPS = 10
+
+/** 雲影マップのヒストグラムのビン数 */
+export const SHADOW_HISTOGRAM_BINS = 16
+
+/**
+ * 雲影マップの分布を数える。
+ *
+ * **256² の生バイトをそのまま持ち回らない。**26 万個をフックへ載せると
+ * 読み出しだけで重くなる。透過率の分布が一致していれば、影の形が一致して
+ * いることの十分な証拠になる。
+ *
+ * R チャンネルだけ見る（雲影は灰色なので 3 成分とも同じ）。返すのは
+ * 合計 1 に正規化した割合。GLSL 版と TSL 版の突き合わせに使うので、
+ * **両方が同じこの関数を通ること**が要点
+ */
+export function shadowHistogram(
+  bytes: ArrayLike<number>,
+  bins = SHADOW_HISTOGRAM_BINS,
+): number[] {
+  const out = new Array<number>(bins).fill(0)
+  const count = Math.floor(bytes.length / 4)
+  if (count === 0) return out
+  for (let i = 0; i < count; i++) {
+    const v = bytes[i * 4]!
+    // 255 がちょうど最後のビンへ入るように上限を丸める
+    const bin = Math.min(bins - 1, Math.floor((v / 256) * bins))
+    out[bin]! += 1
+  }
+  for (let i = 0; i < bins; i++) out[i]! /= count
+  return out
+}
+
+/**
+ * ヒストグラムどうしの L1 距離。
+ *
+ * 合計 1 に正規化してあるので、値域は 0 から 2。段 12 の合格条件は 0.01 未満
+ */
+export function histogramL1(a: readonly number[], b: readonly number[]): number {
+  if (a.length !== b.length) return Number.POSITIVE_INFINITY
+  let sum = 0
+  for (let i = 0; i < a.length; i++) sum += Math.abs(a[i]! - b[i]!)
+  return sum
+}

@@ -641,3 +641,15 @@ ERROR: 0:76: 'AtmosphereParameters' : syntax error
 0.29 を採った。主役の積雲は残り、密度サンプルは 25%（`level-afternoon`）と 19%（`terrain-overlook`）減る。**「少し下げる」に使える刻みは 0.01 しかない。**
 
 既定値は `pipeline/types.ts` の 1 か所へ集めた。以前は `capture.ts` にも同じ値があり、道具ごとに違う雲量で撮っていた経緯がある。`tests/tools/scenes.test.ts` が、基準画像の雲ありのカットが本番の既定と揃っていることを縛る。
+
+## 段 12 は 3D テクスチャの層で止まった（2026-09-01 実測）
+
+雲の密度と雲影を TSL へ写した。合格条件は「雲影マップ 256² を読み戻して旧経路とヒストグラム 16 ビンで比較し、L1 距離 0.01 未満」。**その前段で止まっている。**
+
+密度は形状ノイズ 64³ とディテールノイズ 32³ と気象マップ 512² を引く。node 経路でそれらを焼くには 3D テクスチャの層ごとに描く必要がある。
+
+API は揃っている。`setRenderTarget(target, layer)` の第 2 引数が `activeCubeFace` として渡り、`WebGPUBackend.js:492` が 3D のときだけ `depthSlice` へ振り替える。読み戻しは `readRenderTargetPixelsAsync(..., faceIndex)` で、`WebGPUTextureUtils.js:663` が `origin: { x, y, z: faceIndex }` を組む。
+
+`RenderTarget3D` へ 64 層焼いて中央の層を読み戻すと、**1,024 バイトすべてが 0 で返った。**同じ層を 2D のレンダーターゲット 1 枚へ焼いたものは GLSL 版とビット一致するので、シェーダではなく層への焼き込みか層の読み戻しのどちらかが効いていない。WebGL2 バックエンドでも WebGPU でも同じ結果だった。
+
+切り分けはここまで。次に見るのは `setRenderTarget(target, layer)` が `RenderTarget3D` に対して層を選べているか（`renderContext.activeCubeFace` が届いているか）。

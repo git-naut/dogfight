@@ -139,6 +139,13 @@ export interface CaptureConfig {
    */
   noiseProbe: boolean
   /**
+   * 雲影マップの分布を出すか。`?shadowprobe=1`。
+   *
+   * 256² を読み戻して 16 ビンに数え、`hook.shadowHistogram` へ置く。
+   * 読み戻しは同期なので、頼まれたときだけ走らせる
+   */
+  shadowProbe: boolean
+  /**
    * 雲のマーチを打ち切る距離 m。`?cloudfar=` で振る。
    *
    * 遠方の雲海をどこで切るかを絵と費用の両方で測るための口。
@@ -242,6 +249,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     audioProbe: params.get('audioprobe') === '1',
     gpu: clampInt(params.get('gpu'), 0, 2, 0),
     noiseProbe: params.get('noiseprobe') === '1',
+    shadowProbe: params.get('shadowprobe') === '1',
     cloudFar: params.has('cloudfar')
       ? clampNumber(params.get('cloudfar'), 500, 60_000, 26_000)
       : null,
@@ -445,6 +453,8 @@ export interface TestHook {
    * RGBA8 で 1,024 個。JSON で運ぶので素の配列にする
    */
   noiseSlice: number[] | null
+  /** 雲影マップ 256² の分布。16 ビン。`?shadowprobe=1` のときだけ埋まる */
+  shadowHistogram: number[] | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *

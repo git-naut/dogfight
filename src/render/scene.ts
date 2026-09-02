@@ -77,6 +77,8 @@ export interface SceneHandle {
   readonly gpuTimerSupported: boolean
   /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
   readCloudProbe(): { mean: number; max: number; p99: number }
+  /** 雲影マップ 256² の分布。16 ビンで合計 1。`?shadowprobe=1` で使う */
+  readShadowHistogram(): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   /** 高さ場の生成にかかったミリ秒 */
@@ -411,6 +413,10 @@ export async function createScene(
 
     readCloudProbe() {
       return pipeline.readCloudProbe()
+    },
+
+    readShadowHistogram() {
+      return pipeline.readShadowHistogram()
     },
 
     get quality() {

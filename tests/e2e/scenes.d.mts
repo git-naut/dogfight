@@ -33,6 +33,8 @@ export declare const TOGGLES: readonly (readonly [ToggleKey, string])[]
 type ToggleQuery = { readonly [K in ToggleKey]?: boolean }
 
 export interface CaptureQuery extends ToggleQuery {
+  /** 雲影マップの分布を読み戻すか。`?shadowprobe=1` */
+  shadowProbe?: boolean
   readonly script?: string
   readonly frame?: number
   readonly hour?: number

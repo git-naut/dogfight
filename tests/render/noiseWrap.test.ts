@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
+import { wrapCell2 } from '@render/hashReference'
 
 /**
  * 格子座標の巻き方が GLSL と TSL で同値であることを縛る。
@@ -73,5 +74,32 @@ describe('格子座標の巻き方', () => {
     // 周期を跨ぐ側で取る
     expect(wrapBitAnd(3, 3), '3 & 2 = 2').toBe(2)
     expect(wrapModulo(3, 3), '((3 %% 3) + 3) %% 3 = 0').toBe(0)
+  })
+})
+
+describe('気象マップの格子の巻き方', () => {
+  // 周波数は 3, 5, 7 とその 2 / 4 / 8 倍。2 のべき乗ではない
+  const frequencies = [3, 5, 7].flatMap((f) => [f, f * 2, f * 4, f * 8])
+
+  it('周波数に 2 のべき乗でないものが含まれる', () => {
+    // ビット積の置き換えが使えないことを、前提として明示しておく
+    expect(frequencies.some((f) => !Number.isInteger(Math.log2(f)))).toBe(true)
+  })
+
+  it('実際に通る範囲で剰余と一致する', () => {
+    // `id = floor(uv * freq)` は 0..freq-1、足す近傍は 0 か +1 だけ
+    for (const period of frequencies) {
+      for (let cell = 0; cell <= period; cell++) {
+        expect(wrapCell2(cell, period), `period=${period} cell=${cell}`).toBe(
+          wrapModulo(cell, period),
+        )
+      }
+    }
+  })
+
+  it('範囲の外では一致しないことを確かめる', () => {
+    // 「0..period の範囲だから成り立つ」ことを、外れる例で見る
+    expect(wrapCell2(-1, 5)).toBe(-1)
+    expect(wrapModulo(-1, 5)).toBe(4)
   })
 })

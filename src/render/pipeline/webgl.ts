@@ -421,6 +421,10 @@ export async function createWebGLPipeline(
       return cloudsPass.readProbe(renderer)
     },
 
+    readShadowHistogram() {
+      return cloudsPass.readShadowHistogram(renderer)
+    },
+
     updateAircraftShadow(position) {
       aircraftShadow.update(position, atmosphere.sunDirectionWorld)
     },

@@ -126,3 +126,44 @@ export function hashProbeExpected(side = HASH_PROBE_SIDE): Uint8Array {
   }
   return out
 }
+
+/**
+ * PCG の 2D 版。気象マップが使う。
+ *
+ * `shaders/weather.frag` の `pcg2d` と同じ。3D 版と違って乗数が
+ * 各行に入る形なので、別関数として写す
+ */
+export function pcg2d(
+  x: number,
+  y: number,
+  out: Uint32Array = new Uint32Array(2),
+): Uint32Array {
+  let vx = (Math.imul(x, PCG_MULTIPLIER) + PCG_INCREMENT) >>> 0
+  let vy = (Math.imul(y, PCG_MULTIPLIER) + PCG_INCREMENT) >>> 0
+
+  vx = (vx + Math.imul(vy, PCG_MULTIPLIER)) >>> 0
+  vy = (vy + Math.imul(vx, PCG_MULTIPLIER)) >>> 0
+
+  vx = (vx ^ (vx >>> 16)) >>> 0
+  vy = (vy ^ (vy >>> 16)) >>> 0
+
+  vx = (vx + Math.imul(vy, PCG_MULTIPLIER)) >>> 0
+  vy = (vy + Math.imul(vx, PCG_MULTIPLIER)) >>> 0
+
+  out[0] = vx
+  out[1] = vy
+  return out
+}
+
+/**
+ * 気象マップの格子の巻き方。
+ *
+ * 周波数が 3・5・7 系で **2 のべき乗ではない**ので、ビット積では書けない。
+ * ただし `id = floor(uv * freq)` は 0..freq-1 に収まり、足す近傍は 0 か +1
+ * だけなので、格子は 0..freq の範囲にしかならない。**上端の 1 つを折り返す
+ * だけで足りる。**`((cell % period) + period) % period` と同値であることは
+ * `tests/render/noiseWrap.test.ts` が実際の範囲で確かめる
+ */
+export function wrapCell2(cell: number, period: number): number {
+  return cell >= period ? cell - period : cell
+}

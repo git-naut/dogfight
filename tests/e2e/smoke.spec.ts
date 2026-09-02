@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { SCENES } from './scenes.mjs'
 import { DEG, capture, openLive, readHook, type TestHook } from './harness'
+import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
 
 
 test.describe('起動', () => {
@@ -2011,3 +2012,45 @@ test.describe('通しの流れ', () => {
   })
 })
 
+/**
+ * 雲影マップの分布を読み戻せることを確かめる。
+ *
+ * 段 12 で TSL 版と突き合わせるための口。**先に WebGL 側が正しい形の値を
+ * 返すことを固めておく。**突き合わせる相手が壊れていると、比較そのものが
+ * 意味を失う。
+ */
+test.describe('雲影の分布', () => {
+  test('?shadowprobe=1 で 16 ビンの分布が返る', async ({ page }) => {
+    const hook = await capture(page, {
+      script: 'level',
+      frame: 240,
+      hour: 16,
+      coverage: DEFAULT_COVERAGE,
+      shadowProbe: true,
+    })
+
+    const bins = hook.shadowHistogram
+    expect(bins, '分布が返っていない').not.toBeNull()
+    expect(bins!.length).toBe(16)
+    const total = bins!.reduce((a, b) => a + b, 0)
+    expect(total, '合計が 1 にならない').toBeCloseTo(1, 6)
+    // **全部が 1 つのビンに寄っていたら、影が焼けていないか真っ白**
+    const nonEmpty = bins!.filter((v) => v > 0).length
+    expect(nonEmpty, `ビンが ${nonEmpty} 個しか埋まっていない`).toBeGreaterThan(1)
+  })
+
+  test('雲量 0 なら影は日向の側へ寄る', async ({ page }) => {
+    // 検査が働くことの確認。雲が無ければ透過率 1 の側だけが埋まる
+    const hook = await capture(page, {
+      script: 'level',
+      frame: 240,
+      hour: 16,
+      coverage: 0,
+      shadowProbe: true,
+    })
+    const bins = hook.shadowHistogram!
+    expect(bins[15], '最後のビン（透過率 1 に近い側）が埋まっていない').toBeGreaterThan(
+      0.99,
+    )
+  })
+})

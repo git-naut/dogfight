@@ -12,6 +12,7 @@ import { tileMeans } from './render/clouds/geometry'
 import {
   MARCH_PROBE_HEIGHT,
   MARCH_PROBE_WIDTH,
+  byteDifference,
   marchExhaustedCount,
   marchSampleStats,
 } from './render/clouds/marchProbe'
@@ -666,7 +667,12 @@ async function main(): Promise<void> {
     // 同じになり、8 枚描いても絵は変わらない。基準画像 36 枚のうち 30 枚が
     // `coverage=0` なので、ここが E2E の待ち時間に効く。
     // 等価であることは `exact.mjs` の画素単位の比較で確かめる
-    const converge = capture.coverage === 0 ? 2 : CAPTURE_CONVERGE_FRAMES
+    const converge =
+      capture.converge > 0
+        ? capture.converge
+        : capture.coverage === 0
+          ? 2
+          : CAPTURE_CONVERGE_FRAMES
     for (let i = 0; i < converge; i++) view.render()
 
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
@@ -675,14 +681,15 @@ async function main(): Promise<void> {
     if (capture.marchProbe) {
       // **固定の入力で 3 枚焼く。**サンプル数と打ち切りは整数なので、
       // TSL 版と完全に一致するはず。絵は区画平均で見る
+      const currentBytes = view.readMarchProbe(0)
+      const resolveBytes = view.readResolveProbe()
       hook.marchProbe = {
         samples: marchSampleStats(view.readMarchProbe(1)),
         exhausted: marchExhaustedCount(view.readMarchProbe(2)),
-        tiles: tileMeans(
-          view.readMarchProbe(0),
-          MARCH_PROBE_WIDTH,
-          MARCH_PROBE_HEIGHT,
-        ),
+        tiles: tileMeans(currentBytes, MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
+        resolve: resolveBytes,
+        // **履歴を読む枝を通ったか。**現フレームと同じなら通っていない
+        resolveChanged: byteDifference(resolveBytes, currentBytes).differing,
       }
     }
 

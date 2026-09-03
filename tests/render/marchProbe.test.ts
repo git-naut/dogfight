@@ -8,6 +8,7 @@ import {
   MARCH_PROBE_STEP_GROWTH,
   MARCH_PROBE_SUN,
   MARCH_PROBE_WIDTH,
+  byteDifference,
   marchExhaustedCount,
   marchSampleStats,
 } from '@render/clouds/marchProbe'
@@ -93,5 +94,30 @@ describe('マーチの固定入力', () => {
 
   it('焼く大きさが 16:9', () => {
     expect(MARCH_PROBE_WIDTH / MARCH_PROBE_HEIGHT).toBeCloseTo(16 / 9, 6)
+  })
+})
+
+describe('バイトの違い', () => {
+  it('同じものどうしは 0', () => {
+    const a = new Uint8Array([1, 2, 3, 4])
+    expect(byteDifference(a, a)).toEqual({ differing: 0, max: 0 })
+  })
+
+  it('違う数と最大の差を返す', () => {
+    const a = new Uint8Array([0, 10, 20, 30])
+    const b = new Uint8Array([0, 12, 20, 99])
+    expect(byteDifference(a, b)).toEqual({ differing: 2, max: 69 })
+  })
+
+  it('長さが違えば無限大', () => {
+    // **0 を返してはいけない。**読み戻せていない絵を「一致した」と読む
+    const d = byteDifference(new Uint8Array(4), new Uint8Array(8))
+    expect(d.differing).toBe(Number.POSITIVE_INFINITY)
+    expect(d.max).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it('符号によらず差の大きさを見る', () => {
+    expect(byteDifference(new Uint8Array([5]), new Uint8Array([1])).max).toBe(4)
+    expect(byteDifference(new Uint8Array([1]), new Uint8Array([5])).max).toBe(4)
   })
 })

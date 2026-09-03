@@ -297,6 +297,19 @@ export const LIGHT_STEP_BASE = 40
 /** 多重散乱を重ねるオクターブ数 */
 export const MULTI_SCATTER_OCTAVES = 3
 
+/**
+ * 時間方向の足し込みの定数。`shaders/cloudResolve.frag` と同じ値を持つ。
+ *
+ * 再投影の代表点を決める式に使う。密度やマーチと同じ理由で写しになる
+ */
+
+/** 雲層と交わらないときに使う代表距離 m */
+export const RESOLVE_FALLBACK_DISTANCE = 8000
+/** 代表点を取る区間の遠い側の上限 m */
+export const RESOLVE_FAR_CLAMP = 26_000
+/** 区間の手前寄りを代表点にする割合。雲は入り口の付近に濃さが集まる */
+export const RESOLVE_SLAB_MIX = 0.35
+
 /** 雲影マップのヒストグラムのビン数 */
 export const SHADOW_HISTOGRAM_BINS = 16
 

@@ -157,6 +157,14 @@ export interface CaptureConfig {
    */
   marchProbe: boolean
   /**
+   * キャプチャで雲を描き重ねる枚数。`?converge=N`。0 なら既定の規則に従う。
+   *
+   * 既定は雲量 0 なら 2 枚、そうでなければ `CAPTURE_CONVERGE_FRAMES`。
+   * **E2E 全体の待ち時間の 30/42 枚がここに乗っている**ので、規則が正しい
+   * ことを確かめられるようにしておく
+   */
+  converge: number
+  /**
    * TSL 版の雲影を焼くときの入力。`?shadowinputs=t,cov,sx,sy,sz,cx,cz`。
    *
    * `?gpu=2` の自己診断だけが読む。**GLSL 側が実際に焼いた値を渡す。**
@@ -270,6 +278,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     noiseProbe: params.get('noiseprobe') === '1',
     shadowProbe: params.get('shadowprobe') === '1',
     marchProbe: params.get('marchprobe') === '1',
+    converge: clampInt(params.get('converge'), 0, 16, 0),
     shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
     cloudFar: params.has('cloudfar')
       ? clampNumber(params.get('cloudfar'), 500, 60_000, 26_000)
@@ -504,6 +513,15 @@ export interface TestHook {
     samples: { total: number; max: number; hit: number }
     exhausted: number
     tiles: number[]
+    /** 時間方向の足し込みの生バイト */
+    resolve: number[]
+    /**
+     * 足し込みで現フレームから動いた画素の数。
+     *
+     * **0 なら履歴を読む枝を通っていない。**再投影が全部外れていても
+     * 「両側で一致」にはなるので、通っていることを別に見張る
+     */
+    resolveChanged: number
   } | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。

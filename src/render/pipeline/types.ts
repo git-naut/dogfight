@@ -260,6 +260,8 @@ export interface ScenePipeline {
    * 入力は `clouds/marchProbe.ts` が唯一の定義で、TSL 側も同じものを読む
    */
   readMarchProbe(mode: 0 | 1 | 2): number[]
+  /** 時間方向の足し込みを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
+  readResolveProbe(): number[]
 
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
@@ -394,6 +396,8 @@ export interface NodeProbeResult {
     samples: { total: number; max: number; hit: number }
     exhausted: number
     tiles: number[]
+    /** 時間方向の足し込みの生バイト。GLSL 版とバイトで比べる */
+    resolve: number[]
   } | null
   /**
    * 形状 64³・ディテール 32³・気象 512² を焼くのにかかったミリ秒。

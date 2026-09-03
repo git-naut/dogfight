@@ -432,6 +432,10 @@ export async function createWebGLPipeline(
       return cloudsPass.readMarchProbe(renderer, mode)
     },
 
+    readResolveProbe() {
+      return cloudsPass.readResolveProbe(renderer)
+    },
+
     updateAircraftShadow(position) {
       aircraftShadow.update(position, atmosphere.sunDirectionWorld)
     },

@@ -24,7 +24,6 @@ uniform mat4 inverseProjectionMatrix;
 uniform mat4 inverseViewMatrix;
 uniform mat4 previousViewProjection;
 uniform vec3 cameraPositionWorld;
-uniform vec3 previousCameraPosition;
 
 /** 現フレームを混ぜる割合。1 なら履歴を使わない */
 uniform float blendWeight;

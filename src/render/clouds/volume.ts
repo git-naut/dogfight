@@ -1,4 +1,5 @@
 import {
+  ClampToEdgeWrapping,
   type Data3DTexture,
   LinearFilter,
   Mesh,
@@ -147,13 +148,21 @@ export function bakeVolume(
   return target
 }
 
-/** 2D のテクスチャを 1 枚焼く。気象マップと雲影とマーチに使う */
+/**
+ * 2D のテクスチャを 1 枚焼く。気象マップと雲影とマーチに使う。
+ *
+ * @param repeat 端で折り返すか。**既定は折り返さない。**世界座標で引き回す
+ * 気象マップだけが折り返す。マーチの結果を近傍で舐めるときは、端の外を
+ * どう読むかが既定の経路（`WebGLRenderTarget` の既定は端で止める）と揃って
+ * いないと縁の画素だけ値が変わる。**実測で 36,864 バイト中 432 個が動いた**
+ */
 export function bakePlane(
   renderer: Renderer,
   quad: BakeQuad,
   width: number,
   height: number,
   fragment: Node<'vec4'>,
+  repeat = false,
 ): RenderTarget {
   const target = new RenderTarget(width, height, {
     format: RGBAFormat,
@@ -164,8 +173,8 @@ export function bakePlane(
   const texture = target.texture
   texture.minFilter = LinearFilter
   texture.magFilter = LinearFilter
-  texture.wrapS = RepeatWrapping
-  texture.wrapT = RepeatWrapping
+  texture.wrapS = repeat ? RepeatWrapping : ClampToEdgeWrapping
+  texture.wrapT = repeat ? RepeatWrapping : ClampToEdgeWrapping
   texture.generateMipmaps = false
 
   drawWith(quad, fragmentMaterial(fragment), () => {

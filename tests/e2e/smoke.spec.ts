@@ -2069,3 +2069,40 @@ test.describe('雲影の分布', () => {
     expect(Math.min(...tiles), '区画の平均が日向へ寄っていない').toBeGreaterThan(0.99)
   })
 })
+
+/**
+ * キャプチャで雲を描き重ねる枚数の規則を確かめる。
+ *
+ * `main.ts` は「雲量 0 なら 2 枚、そうでなければ 8 枚」で描き重ねている。
+ * **E2E 全体の待ち時間の 30/42 枚がここに乗っている**ので、外すと所要が
+ * 倍に戻る。段 13 で足し込みを TSL へ移したので、規則がまだ成り立つことを
+ * 画素で測り直す。
+ */
+test.describe('キャプチャの収束枚数', () => {
+  const shot = async (
+    page: import('@playwright/test').Page,
+    coverage: number,
+    converge: number,
+  ) => {
+    await page.goto(
+      `/dogfight/?capture=1&script=level&frame=240&hour=16&coverage=${coverage}&converge=${converge}`,
+    )
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    return page.screenshot()
+  }
+
+  test('雲量 0 なら 2 枚と 8 枚で絵が変わらない', async ({ page }) => {
+    // マーチが何も返さないので蓄積の中身が毎回同じになる
+    const two = await shot(page, 0, 2)
+    const eight = await shot(page, 0, 8)
+    expect(two.equals(eight), '雲量 0 で枚数を変えたら絵が動いた').toBe(true)
+  })
+
+  test('雲があれば枚数で絵が変わる', async ({ page }) => {
+    // **検査が働くことの確認。**雲量 0 で一致することは、雲があれば
+    // 一致しないことを見せて初めて意味を持つ
+    const two = await shot(page, DEFAULT_COVERAGE, 2)
+    const eight = await shot(page, DEFAULT_COVERAGE, 8)
+    expect(two.equals(eight), '雲があるのに枚数で絵が変わらない').toBe(false)
+  })
+})

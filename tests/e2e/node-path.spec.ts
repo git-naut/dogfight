@@ -11,7 +11,11 @@ import {
 } from '../../src/render/clouds/geometry'
 import { encodeShadowInputs } from '../../src/render/clouds/shadowInputs'
 import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
-import { MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT } from '../../src/render/clouds/marchProbe'
+import {
+  MARCH_PROBE_HEIGHT,
+  MARCH_PROBE_WIDTH,
+  byteDifference,
+} from '../../src/render/clouds/marchProbe'
 
 /**
  * node 経路（`WebGPURenderer`）が立つことを確かめる。
@@ -202,6 +206,19 @@ test.describe('node 経路', () => {
     expect(result.march!.exhausted, 'WGSL の打ち切りの数がずれた').toBe(
       hook?.marchProbe?.exhausted,
     )
+    // **ここだけバイト一致を求めない。**`?gpu=1` は node 経路でも GLSL を
+    // 吐くので既定の経路とバイトまで揃うが、WGSL は演算順序が変わる。
+    // 実測で 36,864 バイト中 60 個が **1 階調だけ**違った。段 18 が見込んで
+    // いる「浮動小数の演算順序」の差がこの大きさに収まることを記録しておく
+    const diff = byteDifference(
+      hook!.marchProbe!.resolve,
+      result.march!.resolve,
+    )
+    expect(diff.max, `WGSL の足し込みの最大差 ${diff.max}`).toBeLessThanOrEqual(1)
+    expect(
+      diff.differing,
+      `WGSL の足し込みで違うバイトが ${diff.differing} 個`,
+    ).toBeLessThan(hook!.marchProbe!.resolve.length * 0.01)
   })
 
   /**
@@ -310,6 +327,19 @@ test.describe('node 経路', () => {
 
     const worst = maxAbsDifference(glsl!.tiles, result.march!.tiles)
     expect(worst, `区画ごとの平均の最大のずれ ${worst}`).toBeLessThan(0.02)
+
+    // ---- 時間方向の足し込み ----
+    //
+    // 入力（ずらしを変えたマーチ 2 枚）は上で一致を確かめた経路そのもの。
+    // **履歴を読む枝を通っていること**を先に見張る。再投影が全部外れて
+    // いても「両側で一致」にはなってしまう
+    expect(glsl!.resolveChanged, '足し込みが現フレームを動かしていない')
+      .toBeGreaterThan(1000)
+    const diff = byteDifference(glsl!.resolve, result.march!.resolve)
+    expect(
+      diff.differing,
+      `足し込みで違うバイトが ${diff.differing} 個、最大 ${diff.max}`,
+    ).toBe(0)
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

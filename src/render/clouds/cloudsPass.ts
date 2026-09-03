@@ -46,6 +46,10 @@ import {
   MARCH_PROBE_SUN_COLOR,
   MARCH_PROBE_USE_DETAIL,
   MARCH_PROBE_WIDTH,
+  RESOLVE_PROBE_BLEND_WEIGHT,
+  RESOLVE_PROBE_CLAMP_SCALE,
+  RESOLVE_PROBE_JITTER_B,
+  RESOLVE_PROBE_PREVIOUS_CAMERA,
 } from './marchProbe'
 import cloudsFrag from './shaders/clouds.frag?raw'
 import cloudShadowFrag from './shaders/cloudShadow.frag?raw'
@@ -188,7 +192,6 @@ export class CloudsPass extends Pass {
   private readonly captureMode: boolean
   private resolveCount = 0
   private readonly previousViewProjection = new Matrix4()
-  private readonly previousCameraPosition = new Vector3()
   private readonly shadowTarget: WebGLRenderTarget
   private readonly material: ShaderMaterial
   private readonly shadowMaterial: ShaderMaterial
@@ -337,7 +340,6 @@ export class CloudsPass extends Pass {
         inverseViewMatrix: { value: new Matrix4() },
         previousViewProjection: { value: new Matrix4() },
         cameraPositionWorld: { value: new Vector3() },
-        previousCameraPosition: { value: new Vector3() },
         blendWeight: { value: 1 },
         texelSize: { value: new Vector2() },
         clampScale: { value: 0 },
@@ -429,44 +431,30 @@ export class CloudsPass extends Pass {
     }
   }
 
-  /**
-   * 固定の入力でマーチを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用。
-   *
-   * **本番の材質にも的にも触らない。**専用のものをその場で作って捨てる。
-   * 入力は `marchProbe.ts` が唯一の定義で、TSL 側も同じものを読む。
-   * 遮蔽物は置かず、深度は 1.0（空）を渡すので、場面の組み立ての差が入らない。
-   *
-   * @param mode 1 = 密度サンプル数、2 = 歩数を使い切ったか、0 = 絵
-   */
-  readMarchProbe(renderer: WebGLRenderer, mode: 0 | 1 | 2): number[] {
-    const width = MARCH_PROBE_WIDTH
-    const height = MARCH_PROBE_HEIGHT
-
-    const camera = new PerspectiveCamera(
-      MARCH_PROBE_CAMERA.fov,
+  /** 突き合わせ用の固定カメラ。両側が同じ引数から同じ行列を導く */
+  private marchProbeCamera(camera = MARCH_PROBE_CAMERA): PerspectiveCamera {
+    const c = new PerspectiveCamera(
+      camera.fov,
       MARCH_PROBE_ASPECT,
-      MARCH_PROBE_CAMERA.near,
-      MARCH_PROBE_CAMERA.far,
+      camera.near,
+      camera.far,
     )
-    camera.position.set(
-      MARCH_PROBE_CAMERA.positionX,
-      MARCH_PROBE_CAMERA.positionY,
-      MARCH_PROBE_CAMERA.positionZ,
-    )
-    camera.lookAt(
-      MARCH_PROBE_CAMERA.targetX,
-      MARCH_PROBE_CAMERA.targetY,
-      MARCH_PROBE_CAMERA.targetZ,
-    )
-    camera.updateMatrixWorld()
-    camera.updateProjectionMatrix()
+    c.position.set(camera.positionX, camera.positionY, camera.positionZ)
+    c.lookAt(camera.targetX, camera.targetY, camera.targetZ)
+    c.updateMatrixWorld()
+    c.updateProjectionMatrix()
+    return c
+  }
 
+  /** 固定の入力でマーチの材質を組む。本番の材質には触らない */
+  private marchProbeMaterial(mode: 0 | 1 | 2, startJitter: number): ShaderMaterial {
+    const camera = this.marchProbeCamera()
     // 遮蔽物のない深度。`texture(sceneDepth, uv).r` が 1.0 を返す
     const emptyDepth = new DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1)
     emptyDepth.needsUpdate = true
 
     const u = this.material.uniforms
-    const material = new ShaderMaterial({
+    return new ShaderMaterial({
       glslVersion: GLSL3,
       vertexShader: VERTEX_SHADER,
       fragmentShader: cloudsFrag,
@@ -515,36 +503,141 @@ export class CloudsPass extends Pass {
         maxMarchDistance: { value: MARCH_PROBE_MAX_DISTANCE },
         useDetail: { value: MARCH_PROBE_USE_DETAIL },
         probeMode: { value: mode },
-        startJitter: { value: MARCH_PROBE_START_JITTER },
+        startJitter: { value: startJitter },
         pixelJitter: {
           value: new Vector2(MARCH_PROBE_PIXEL_JITTER.x, MARCH_PROBE_PIXEL_JITTER.y),
         },
       },
     })
+  }
 
-    const target = new WebGLRenderTarget(width, height, {
+  /** 突き合わせ用の 8bit の的。整数を詰めるので階調はこれで足りる */
+  private marchProbeTarget(): WebGLRenderTarget {
+    return new WebGLRenderTarget(MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT, {
       format: RGBAFormat,
-      // 整数を詰めるので 8bit。絵のモードでも階調はこれで足りる
       type: UnsignedByteType,
       minFilter: LinearFilter,
       magFilter: LinearFilter,
       depthBuffer: false,
       stencilBuffer: false,
     })
-    const quad = createQuad(material)
+  }
 
+  /** 材質を 1 枚描く。的は呼び出し側が持つ */
+  private drawProbe(
+    renderer: WebGLRenderer,
+    material: ShaderMaterial,
+    target: WebGLRenderTarget,
+  ): void {
+    const quad = createQuad(material)
     const previous = renderer.getRenderTarget()
-    const buffer = new Uint8Array(width * height * 4)
     try {
       renderer.setRenderTarget(target)
       renderer.render(quad.scene, quad.camera)
-      renderer.readRenderTargetPixels(target, 0, 0, width, height, buffer)
     } finally {
       renderer.setRenderTarget(previous)
       disposeQuad(quad)
+    }
+  }
+
+  /**
+   * 固定の入力でマーチを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用。
+   *
+   * **本番の材質にも的にも触らない。**専用のものをその場で作って捨てる。
+   * 入力は `marchProbe.ts` が唯一の定義で、TSL 側も同じものを読む。
+   * 遮蔽物は置かず、深度は 1.0（空）を渡すので、場面の組み立ての差が入らない。
+   *
+   * @param mode 1 = 密度サンプル数、2 = 歩数を使い切ったか、0 = 絵
+   */
+  readMarchProbe(renderer: WebGLRenderer, mode: 0 | 1 | 2): number[] {
+    const material = this.marchProbeMaterial(mode, MARCH_PROBE_START_JITTER)
+    const target = this.marchProbeTarget()
+    const buffer = new Uint8Array(MARCH_PROBE_WIDTH * MARCH_PROBE_HEIGHT * 4)
+    try {
+      this.drawProbe(renderer, material, target)
+      renderer.readRenderTargetPixels(
+        target,
+        0,
+        0,
+        MARCH_PROBE_WIDTH,
+        MARCH_PROBE_HEIGHT,
+        buffer,
+      )
+    } finally {
       material.dispose()
       target.dispose()
-      emptyDepth.dispose()
+    }
+    return [...buffer]
+  }
+
+  /**
+   * 時間方向の足し込みを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用。
+   *
+   * **入力にマーチの出力そのものを使う。**ずらしを変えた 2 枚を現フレームと
+   * 履歴に見立てる。マーチは両側でバイトまで一致することを段 13 の前半で
+   * 確かめてあるので、入力が同じであることは言い切れる
+   */
+  readResolveProbe(renderer: WebGLRenderer): number[] {
+    const current = this.marchProbeTarget()
+    const history = this.marchProbeTarget()
+    const output = this.marchProbeTarget()
+    const materialA = this.marchProbeMaterial(0, MARCH_PROBE_START_JITTER)
+    const materialB = this.marchProbeMaterial(0, RESOLVE_PROBE_JITTER_B)
+
+    const camera = this.marchProbeCamera()
+    const previousCamera = this.marchProbeCamera(RESOLVE_PROBE_PREVIOUS_CAMERA)
+    const previousViewProjection = new Matrix4().multiplyMatrices(
+      previousCamera.projectionMatrix,
+      previousCamera.matrixWorldInverse,
+    )
+
+    const resolve = new ShaderMaterial({
+      glslVersion: GLSL3,
+      vertexShader: VERTEX_SHADER,
+      fragmentShader: cloudResolveFrag,
+      depthTest: false,
+      depthWrite: false,
+      uniforms: {
+        currentFrame: { value: current.texture },
+        historyFrame: { value: history.texture },
+        inverseProjectionMatrix: { value: camera.projectionMatrixInverse },
+        inverseViewMatrix: { value: camera.matrixWorld },
+        previousViewProjection: { value: previousViewProjection },
+        cameraPositionWorld: {
+          value: new Vector3(
+            MARCH_PROBE_CAMERA.positionX,
+            MARCH_PROBE_CAMERA.positionY,
+            MARCH_PROBE_CAMERA.positionZ,
+          ),
+        },
+        blendWeight: { value: RESOLVE_PROBE_BLEND_WEIGHT },
+        texelSize: {
+          value: new Vector2(1 / MARCH_PROBE_WIDTH, 1 / MARCH_PROBE_HEIGHT),
+        },
+        clampScale: { value: RESOLVE_PROBE_CLAMP_SCALE },
+      },
+    })
+
+    const buffer = new Uint8Array(MARCH_PROBE_WIDTH * MARCH_PROBE_HEIGHT * 4)
+    try {
+      this.drawProbe(renderer, materialA, current)
+      this.drawProbe(renderer, materialB, history)
+      this.drawProbe(renderer, resolve, output)
+      renderer.readRenderTargetPixels(
+        output,
+        0,
+        0,
+        MARCH_PROBE_WIDTH,
+        MARCH_PROBE_HEIGHT,
+        buffer,
+      )
+    } finally {
+      materialA.dispose()
+      materialB.dispose()
+      resolve.dispose()
+      current.dispose()
+      history.dispose()
+      output.dispose()
     }
     return [...buffer]
   }
@@ -702,7 +795,6 @@ export class CloudsPass extends Pass {
     r['cameraPositionWorld']!.value.copy(
       this.material.uniforms['cameraPositionWorld']!.value as Vector3,
     )
-    r['previousCameraPosition']!.value.copy(this.previousCameraPosition)
     // キャプチャは 1/(n+1) で真の平均を取る。通常のループは指数平均で、
     // 動きに追従しつつ十数フレームで入れ替わる
     const weight = this.captureMode ? 1 / (this.resolveCount + 1) : BLEND_WEIGHT
@@ -726,7 +818,6 @@ export class CloudsPass extends Pass {
     this.previousViewProjection
       .copy(camera.projectionMatrix)
       .multiply(camera.matrixWorldInverse)
-    camera.getWorldPosition(this.previousCameraPosition)
   }
 
   override dispose(): void {

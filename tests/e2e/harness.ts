@@ -102,6 +102,7 @@ export interface TestHook {
       samples: { total: number; max: number; hit: number }
       exhausted: number
       tiles: number[]
+      resolve: number[]
     } | null
     volumeMs: number
     atmosphere: boolean
@@ -127,6 +128,8 @@ export interface TestHook {
     samples: { total: number; max: number; hit: number }
     exhausted: number
     tiles: number[]
+    resolve: number[]
+    resolveChanged: number
   } | null
   /** その分布を焼いた入力。TSL 版へ渡し直すために出す */
   shadowInputs: {

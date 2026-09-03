@@ -255,9 +255,21 @@ export const BITE_MARKS = [
     id: 'march-camera-below-slab',
     kind: '定数の摂動',
     file: 'src/render/clouds/marchProbe.ts',
-    find: '  positionY: 2000,',
-    replace: '  positionY: 900,',
+    find: '  positionY: 2000,\n  positionZ: 0,',
+    replace: '  positionY: 900,\n  positionZ: 0,',
     expect: 'tests/render/marchProbe.test.ts',
     lesson: '通っていない枝は検査されない',
+  },
+  {
+    id: 'byte-difference-drop-length-guard',
+    kind: '文の削除',
+    file: 'src/render/clouds/marchProbe.ts',
+    find: `  if (a.length !== b.length) {
+    return { differing: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY }
+  }
+`,
+    replace: '',
+    expect: 'tests/render/marchProbe.test.ts',
+    why: '長さの違う 2 枚を先頭だけ比べると「違うバイト 0 個」になる。読み戻せていない絵を一致したと読む形を作らない',
   },
 ]

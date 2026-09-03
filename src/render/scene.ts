@@ -96,6 +96,8 @@ export interface SceneHandle {
   readShadowInputs(): ShadowInputs
   /** 固定の入力で雲のマーチを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
   readMarchProbe(mode: 0 | 1 | 2): number[]
+  /** 時間方向の足し込みを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
+  readResolveProbe(): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   /** 高さ場の生成にかかったミリ秒 */
@@ -461,6 +463,10 @@ export async function createScene(
 
     readMarchProbe(mode: 0 | 1 | 2) {
       return pipeline.readMarchProbe(mode)
+    },
+
+    readResolveProbe() {
+      return pipeline.readResolveProbe()
     },
 
     get quality() {

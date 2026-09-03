@@ -27,7 +27,19 @@ export const MARCH_PROBE_HEIGHT = 72
  * 通っていない枝の移植は検査されない。内側なら区間が上限距離まで伸び、
  * 空振りの大股送りと戻し、光マーチ、打ち切りの全部を通る
  */
-export const MARCH_PROBE_CAMERA = {
+export interface MarchProbeCamera {
+  readonly positionX: number
+  readonly positionY: number
+  readonly positionZ: number
+  readonly targetX: number
+  readonly targetY: number
+  readonly targetZ: number
+  readonly fov: number
+  readonly near: number
+  readonly far: number
+}
+
+export const MARCH_PROBE_CAMERA: MarchProbeCamera = {
   positionX: 0,
   positionY: 2000,
   positionZ: 0,
@@ -37,7 +49,7 @@ export const MARCH_PROBE_CAMERA = {
   fov: 60,
   near: 1,
   far: 30_000,
-} as const
+}
 
 /**
  * 太陽の向き。長さ 1 に近い値を直に置く。
@@ -142,4 +154,60 @@ export function marchExhaustedCount(bytes: ArrayLike<number>): number {
   let exhausted = 0
   for (let i = 0; i < count; i++) if (bytes[i * 4 + 1]! > 0) exhausted++
   return exhausted
+}
+
+/**
+ * 時間方向の足し込みの突き合わせに使う固定入力。
+ *
+ * 現フレームと履歴には、**ずらしだけを変えたマーチの出力そのもの**を使う。
+ * マーチは両側でバイトまで一致することを段 13 の前半で確かめたので、
+ * 入力が同じであることは言い切れる
+ */
+
+/** 履歴側のマーチに使うずらし。現フレーム側とは別の値にする */
+export const RESOLVE_PROBE_JITTER_B = 0.125
+/** 現フレームを混ぜる割合。1 未満でないと履歴を読む枝へ入らない */
+export const RESOLVE_PROBE_BLEND_WEIGHT = 0.5
+/** 近傍で挟む幅の倍率。0 だと 3x3 を舐める枝が通らない */
+export const RESOLVE_PROBE_CLAMP_SCALE = 1.0
+
+/**
+ * 前フレームのカメラ。**動かさないと再投影の枝が意味を持たない。**
+ *
+ * 向きは同じまま 300 m だけ後ろへ置く。機体が前へ進んだ 1 フレームぶんに
+ * 相当する。動かしすぎると再投影先が画面外へ出て、履歴を捨てる枝ばかりを
+ * 通る
+ */
+export const RESOLVE_PROBE_PREVIOUS_CAMERA: MarchProbeCamera = {
+  positionX: 0,
+  positionY: 2000,
+  positionZ: 300,
+  targetX: 0,
+  targetY: 2150,
+  targetZ: -4700,
+  fov: 60,
+  near: 1,
+  far: 30_000,
+}
+
+/**
+ * 2 枚の絵のバイトの違いを数える。
+ *
+ * 完全一致を期待するが、外れたときに「どれくらい」を出せるようにしておく
+ */
+export function byteDifference(
+  a: ArrayLike<number>,
+  b: ArrayLike<number>,
+): { differing: number; max: number } {
+  if (a.length !== b.length) {
+    return { differing: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY }
+  }
+  let differing = 0
+  let max = 0
+  for (let i = 0; i < a.length; i++) {
+    const d = Math.abs(a[i]! - b[i]!)
+    if (d > 0) differing++
+    if (d > max) max = d
+  }
+  return { differing, max }
 }

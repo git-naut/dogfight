@@ -34,6 +34,10 @@ import {
   MARCH_PROBE_SUN_COLOR,
   MARCH_PROBE_USE_DETAIL,
   MARCH_PROBE_WIDTH,
+  RESOLVE_PROBE_BLEND_WEIGHT,
+  RESOLVE_PROBE_CLAMP_SCALE,
+  RESOLVE_PROBE_JITTER_B,
+  RESOLVE_PROBE_PREVIOUS_CAMERA,
   marchExhaustedCount,
   marchSampleStats,
 } from '../clouds/marchProbe'
@@ -153,6 +157,8 @@ export async function runNodeProbe(
     WEATHER_SIZE,
     WEATHER_SIZE,
     noiseNodes.weatherFragmentNode(),
+    // 世界座標で引き回すので折り返す。GLSL 版と揃える
+    true,
   )
   const volumeMs = performance.now() - bakeStarted
 
@@ -328,10 +334,82 @@ export async function runNodeProbe(
       return bytes
     }
 
+    // ---- 時間方向の足し込み ----
+    //
+    // 現フレームと履歴には、**ずらしだけを変えたマーチの出力そのもの**を
+    // 使う。マーチが両側でバイトまで一致することは前半で確かめてあるので、
+    // 入力が同じであることは言い切れる
+    const resolveNodes = await import('../clouds/resolveNodes')
+    const bakeMarchTarget = (startJitter: number) =>
+      volume.bakePlane(
+        renderer,
+        quad,
+        MARCH_PROBE_WIDTH,
+        MARCH_PROBE_HEIGHT,
+        marchNodes.cloudMarchFragmentNode({ ...marchInputs, startJitter: tsl.float(startJitter) }, 0),
+      )
+
+    const currentTarget = bakeMarchTarget(MARCH_PROBE_START_JITTER)
+    const historyTarget = bakeMarchTarget(RESOLVE_PROBE_JITTER_B)
+
+    const previousCamera = new THREE.PerspectiveCamera(
+      RESOLVE_PROBE_PREVIOUS_CAMERA.fov,
+      MARCH_PROBE_ASPECT,
+      RESOLVE_PROBE_PREVIOUS_CAMERA.near,
+      RESOLVE_PROBE_PREVIOUS_CAMERA.far,
+    )
+    previousCamera.position.set(
+      RESOLVE_PROBE_PREVIOUS_CAMERA.positionX,
+      RESOLVE_PROBE_PREVIOUS_CAMERA.positionY,
+      RESOLVE_PROBE_PREVIOUS_CAMERA.positionZ,
+    )
+    previousCamera.lookAt(
+      RESOLVE_PROBE_PREVIOUS_CAMERA.targetX,
+      RESOLVE_PROBE_PREVIOUS_CAMERA.targetY,
+      RESOLVE_PROBE_PREVIOUS_CAMERA.targetZ,
+    )
+    previousCamera.updateMatrixWorld()
+    previousCamera.updateProjectionMatrix()
+    const previousViewProjection = new THREE.Matrix4().multiplyMatrices(
+      previousCamera.projectionMatrix,
+      previousCamera.matrixWorldInverse,
+    )
+
+    const resolveTarget = volume.bakePlane(
+      renderer,
+      quad,
+      MARCH_PROBE_WIDTH,
+      MARCH_PROBE_HEIGHT,
+      resolveNodes.cloudResolveFragmentNode({
+        currentFrame: currentTarget.texture,
+        historyFrame: historyTarget.texture,
+        inverseProjectionMatrix: marchInputs.inverseProjectionMatrix,
+        inverseViewMatrix: marchInputs.inverseViewMatrix,
+        previousViewProjection: node<
+          typeof marchInputs.inverseViewMatrix
+        >(previousViewProjection),
+        cameraPositionWorld: marchInputs.cameraPositionWorld,
+        blendWeight: tsl.float(RESOLVE_PROBE_BLEND_WEIGHT),
+        texelSize: tsl.vec2(1 / MARCH_PROBE_WIDTH, 1 / MARCH_PROBE_HEIGHT),
+        clampScale: RESOLVE_PROBE_CLAMP_SCALE,
+      }),
+    )
+    const resolveBytes = await volume.readPlane(
+      renderer,
+      resolveTarget,
+      MARCH_PROBE_WIDTH,
+      MARCH_PROBE_HEIGHT,
+      isWebGPU,
+    )
+    currentTarget.dispose()
+    historyTarget.dispose()
+    resolveTarget.dispose()
+
     march = {
       samples: marchSampleStats(await bakeMarch(1)),
       exhausted: marchExhaustedCount(await bakeMarch(2)),
       tiles: tileMeans(await bakeMarch(0), MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
+      resolve: resolveBytes,
     }
   }
 

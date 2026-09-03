@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import {
   CLOUD_BOTTOM,
+  RESOLVE_FALLBACK_DISTANCE,
+  RESOLVE_FAR_CLAMP,
+  RESOLVE_SLAB_MIX,
   DETAIL_FAR,
   DETAIL_NEAR,
   EMPTY_SKIP,
@@ -45,6 +48,10 @@ const shadowSource = readFileSync(
 )
 const marchSource = readFileSync(
   `${ROOT}src/render/clouds/shaders/clouds.frag`,
+  'utf8',
+)
+const resolveSource = readFileSync(
+  `${ROOT}src/render/clouds/shaders/cloudResolve.frag`,
   'utf8',
 )
 
@@ -154,5 +161,40 @@ describe('マーチの定数', () => {
 
   it('検査そのものが働くことを、存在しない名前で確かめる', () => {
     expect(marchSource.match(/const float NOT_A_MARCH_CONSTANT = /)).toBeNull()
+  })
+})
+
+/**
+ * 時間方向の足し込みの定数。
+ *
+ * `cloudResolve.frag` は雲層の高さを自分でもう一度書いている。**密度の
+ * 定義とは別の写し**なので、ここでも突き合わせる
+ */
+describe('足し込みの定数', () => {
+  it('雲層の高さが density.glsl と一致する', () => {
+    expect(glslFloat(resolveSource, 'CLOUD_BOTTOM')).toBe(CLOUD_BOTTOM)
+    expect(glslFloat(resolveSource, 'CLOUD_TOP')).toBe(CLOUD_TOP)
+  })
+
+  it('代表距離の式が一致する', () => {
+    // `if (abs(dirY) < 1e-5) return 8000.0;` と `if (far <= 0.0) return 8000.0;`
+    const fallback = [...resolveSource.matchAll(/return ([0-9.]+);/g)].map((m) =>
+      Number(m[1]),
+    )
+    expect(fallback.length, '代表距離の既定が見つからない').toBe(2)
+    for (const v of fallback) expect(v).toBe(RESOLVE_FALLBACK_DISTANCE)
+
+    const m = resolveSource.match(
+      /mix\(near, min\(far, ([0-9.]+)\), ([0-9.]+)\)/,
+    )
+    expect(m, '代表点の式が見つからない').not.toBeNull()
+    expect(Number(m![1])).toBe(RESOLVE_FAR_CLAMP)
+    expect(Number(m![2])).toBe(RESOLVE_SLAB_MIX)
+  })
+
+  it('死んだ uniform を戻していない', () => {
+    // 宣言されて毎フレーム代入されていたが本文が一度も読んでいなかった。
+    // 段 13 の後半で落とした
+    expect(resolveSource.includes('previousCameraPosition')).toBe(false)
   })
 })

@@ -406,6 +406,44 @@ export interface NodeProbeResult {
    */
   heightProbe: number[] | null
   /**
+   * node 経路の影の測り。`?nodeshadow=1` のときだけ埋まる。
+   *
+   * **`frameCallsWith` が `frameCallsWithout` の 1 つ多いだけのはず。**
+   * それより多ければ影マップを 1 フレームに 2 回以上焼いている
+   */
+  nodeShadow: {
+    filter: string
+    /** 影を投げるメッシュの数。**ドローコールとは一致しない** */
+    casters: number
+    /** 機体を消したときの差。影のパスが払うはずのドローコール */
+    aircraftDrawCalls: number
+    drawCallsWithout: number
+    drawCallsWith: number
+    /**
+     * 描いたパスの数。
+     *
+     * **影マップを 2 回焼けば 1 つ増える。**ドローコールでは視錐台の切り方の
+     * 違いが混ざって当てにならない（実測で機体の 31 回に対して影のパスは
+     * 47 回だった）
+     */
+    frameCallsWithout: number
+    frameCallsWith: number
+    frameCallsSecond: number
+    /**
+     * 影を有効にしたが投げ手を切った状態のパスの数。
+     *
+     * **ここで既に増えているなら、増えたぶんは影マップではない**
+     */
+    frameCallsEnabledNoCaster: number
+    /**
+     * 影を入れて動いたバイトの数と最大の差。
+     *
+     * **区画平均では鈍すぎる。**機体の影は画面のごく一部しか覆わない
+     */
+    changed: number
+    changedMax: number
+  } | null
+  /**
    * 形状 64³・ディテール 32³・気象 512² を焼くのにかかったミリ秒。
    *
    * GLSL 版の `hook.noiseMs` と並べる。node 経路でも起動時の費用になる

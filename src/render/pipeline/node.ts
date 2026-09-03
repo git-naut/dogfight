@@ -38,6 +38,7 @@ import {
   RESOLVE_PROBE_CLAMP_SCALE,
   RESOLVE_PROBE_JITTER_B,
   RESOLVE_PROBE_PREVIOUS_CAMERA,
+  byteDifference,
   marchExhaustedCount,
   marchSampleStats,
 } from '../clouds/marchProbe'
@@ -50,6 +51,7 @@ import {
   REFERENCE_LONGITUDE,
 } from '../atmosphere'
 import type { NodeProbeResult } from './types'
+import type { ShadowFilter } from '../quality'
 
 /**
  * node 経路を立てて glb を 1 枚描く。
@@ -86,6 +88,8 @@ export interface NodeProbeOptions {
   skyEnvironmentSize: number
   /** 遠景の霞を光線行進で解くか */
   raymarchScattering: boolean
+  /** 影マップのフィルタ。プリセットの `shadowFilter` */
+  shadowFilter: ShadowFilter
   /**
    * 雲影を焼くときの入力。null なら焼かない。
    *
@@ -100,6 +104,13 @@ export interface NodeProbeOptions {
    * 標本点は `terrain/heightProbe.ts` が唯一の定義で、CPU 側も同じ式で引く
    */
   heightProbe: boolean
+  /**
+   * 影を node 経路で立てて測るか。`?nodeshadow=1`。
+   *
+   * `shadow(light)` の経路が立つか、`PCFSoftShadowMap` が通るか、影マップが
+   * 1 フレームに 1 回しか焼かれないかを見る
+   */
+  nodeShadow: boolean
   /**
    * 雲のマーチを固定の入力で焼くか。`?marchprobe=1`。
    *
@@ -603,6 +614,126 @@ export async function runNodeProbe(
     }
   })
 
+  // ---- 影 ----
+  //
+  // **段 15。**`BasicShadowMap` を選んだ理由（比較モードが付くと自前 GLSL の
+  // `sampler2D` から読めない）は node 経路では消える。フィルタを上げても
+  // 通るか、影マップが 1 フレームに 1 回しか焼かれないかを測る
+  let nodeShadow: NodeProbeResult['nodeShadow'] = null
+  if (options.nodeShadow) {
+    // 機体だけを投げ手にする。数を数えて、焼き込みの回数と突き合わせる
+    let casters = 0
+    model.object.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        o.castShadow = true
+        casters++
+      }
+    })
+    carrier.object.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.receiveShadow = true
+    })
+
+    const shadowLight = new THREE.DirectionalLight(0xffffff, 2)
+    shadowLight.position.set(60, 120, 40)
+    shadowLight.target.position.set(0, DECK_HEIGHT, 0)
+    shadowLight.castShadow = true
+    shadowLight.shadow.mapSize.set(512, 512)
+    // 機体の周りだけを覆う正射影の箱。CSM は採らない
+    const cam = shadowLight.shadow.camera
+    cam.left = -40
+    cam.right = 40
+    cam.top = 40
+    cam.bottom = -40
+    cam.near = 1
+    cam.far = 400
+    cam.updateProjectionMatrix()
+    scene.add(shadowLight)
+    scene.add(shadowLight.target)
+
+    const probeTarget = new webgpu.RenderTarget(options.width, options.height)
+    const measure = async (): Promise<{
+      drawCalls: number
+      frameCalls: number
+      bytes: number[]
+    }> => {
+      renderer.info.reset()
+      renderer.setRenderTarget(probeTarget)
+      renderer.render(scene, camera)
+      const drawCalls = renderer.info.render.drawCalls
+      // **パスの数を数える。**影マップを 2 回焼けば 1 つ増える。
+      // ドローコールでは視錐台の切り方の違いが混ざって当てにならない
+      // （実測で機体の 31 回に対して影のパスは 47 回だった）
+      const frameCalls = renderer.info.render.frameCalls
+      const bytes = await volume.readPlane(
+        renderer,
+        probeTarget as unknown as Parameters<typeof volume.readPlane>[1],
+        options.width,
+        options.height,
+        isWebGPU,
+      )
+      renderer.setRenderTarget(null)
+      return { drawCalls, frameCalls, bytes }
+    }
+
+    renderer.shadowMap.enabled = false
+    // **1 枚目を捨てる。**`?gpu=2` は大気の LUT と環境反射を初回に焼くので、
+    // そのぶんがパスの数に乗る（実測で 50 回、2 枚目以降は 2 回）
+    renderer.setRenderTarget(probeTarget)
+    renderer.render(scene, camera)
+    renderer.setRenderTarget(null)
+
+    const without = await measure()
+
+    // **投げ手のドローコールを数で仮定しない。**メッシュ 1 枚が複数の材質を
+    // 持つと 1 回では描かれない。実測で 33 枚に対して 47 回だった。
+    // 機体を消したときの差が、影のパスが払うはずの回数になる
+    model.object.visible = false
+    const withoutAircraft = await measure()
+    model.object.visible = true
+    const aircraftDrawCalls = without.drawCalls - withoutAircraft.drawCalls
+
+    // **投げ手を切ったまま影を有効にしてみる。**ここで既にパスが増えるなら、
+    // 増えたぶんは影マップではなく別のもの（大気側が `shadowMap.enabled` を
+    // 見て何かを足している）ということになる
+    shadowLight.castShadow = false
+    renderer.shadowMap.enabled = true
+    const enabledNoCaster = await measure()
+    shadowLight.castShadow = true
+
+    // プリセットの列をそのまま使う。`pcfSoft` は WebGL 経路では廃止だが
+    // node 経路には生きている
+    renderer.shadowMap.type =
+      options.shadowFilter === 'pcfSoft'
+        ? THREE.PCFSoftShadowMap
+        : options.shadowFilter === 'pcf'
+          ? THREE.PCFShadowMap
+          : THREE.BasicShadowMap
+    const withShadow = await measure()
+
+    // 2 枚目。**焼き込みが 1 フレームに 1 回であることを 2 枚目でも見る**
+    const second = await measure()
+
+    renderer.shadowMap.enabled = false
+    probeTarget.dispose()
+
+    nodeShadow = {
+      filter: options.shadowFilter,
+      casters,
+      aircraftDrawCalls,
+      drawCallsWithout: without.drawCalls,
+      drawCallsWith: withShadow.drawCalls,
+      frameCallsWithout: without.frameCalls,
+      frameCallsWith: withShadow.frameCalls,
+      frameCallsSecond: second.frameCalls,
+      frameCallsEnabledNoCaster: enabledNoCaster.frameCalls,
+      // **区画平均では鈍すぎる。**機体の影は画面のごく一部しか覆わないので、
+      // 1280x720 を 4x4 に均すと 0.0003 しか動かなかった（実測）。
+      // バイトの違いを数えれば数百画素でも見える
+      changed: byteDifference(without.bytes, withShadow.bytes).differing,
+      changedMax: byteDifference(without.bytes, withShadow.bytes).max,
+    }
+  }
+
   // **`renderAsync()` は使わない。**r183 で非推奨になっていて、
   // 「`render()` を使い、レンダラを作るときに `await renderer.init()` を
   // すること」と警告が出る。`init()` は済ませてあるので `render()` でよい。
@@ -664,6 +795,7 @@ export async function runNodeProbe(
     shadowTiles,
     march,
     heightProbe,
+    nodeShadow,
     volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',
     fellBack: options.gpu === 2 && !isWebGPU,

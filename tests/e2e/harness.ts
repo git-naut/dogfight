@@ -105,6 +105,19 @@ export interface TestHook {
       resolve: number[]
     } | null
     heightProbe: number[] | null
+    nodeShadow: {
+      filter: string
+      casters: number
+      aircraftDrawCalls: number
+      drawCallsWithout: number
+      drawCallsWith: number
+      frameCallsWithout: number
+      frameCallsWith: number
+      frameCallsSecond: number
+      frameCallsEnabledNoCaster: number
+      changed: number
+      changedMax: number
+    } | null
     volumeMs: number
     atmosphere: boolean
     lutMs: number

@@ -137,7 +137,12 @@ describe('docs/lessons.md', () => {
     // 段 12 の前半で 9 へ増やし、後半で 8 へ戻した。3D のレンダーターゲット
     // から直に層を読み戻せない件は、整数フェッチで 2D へ落とす道に替えて
     // 塞いだ（`src/render/clouds/volume.ts`）。
+    //
+    // 段 15 で 9 へ。WebGPU 経路で `shadowMap.enabled` を立てると、投げ手が
+    // 無くても描くパスが 1 つ増える。影マップの回数は「投げ手あり」と
+    // 「投げ手なし」の差で数えて回避しているが、**増える 1 つの正体は
+    // 分かっていない。**段 17 で場面を組むときに追う。
     // **減らしたときは下げる。増やすときは理由を書く。**
-    expect(holes).toBeLessThanOrEqual(8)
+    expect(holes).toBeLessThanOrEqual(9)
   })
 })

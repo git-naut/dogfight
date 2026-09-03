@@ -10,6 +10,9 @@
 
 export type PresetName = 'low' | 'medium' | 'high' | 'ultra'
 
+/** 影マップのフィルタ。node 経路だけが読む */
+export type ShadowFilter = 'basic' | 'pcf' | 'pcfSoft'
+
 export interface QualitySettings {
   /** 描画解像度の倍率。1.0 が等倍 */
   renderScale: number
@@ -89,6 +92,22 @@ export interface QualitySettings {
    * 列は増えていない。
    */
   aircraftShadowMapSize: number
+  /**
+   * 影マップのフィルタ。
+   *
+   * **既定の経路は読まない。**`BasicShadowMap` を選んだのは、比較モードが
+   * 付くと自前 GLSL の `sampler2D` から `r` 成分を読めなくなるためで
+   * （`GL_INVALID_OPERATION: Mismatch between texture format and sampler
+   * type` で描画そのものが捨てられた）、node 経路ではその制約が消える。
+   * `shadow(light)` ノードが係数を返し、`ShadowNode` が `hasTextureCompare`
+   * を見て自動で切り替える。
+   *
+   * `pcfSoft` は WebGL 経路では廃止されたが node 経路には生きている。
+   *
+   * 段 15 の規約どおり、実装より先に列を作った（`CLAUDE.md`）。段 18 で
+   * 経路を切り替えたとき、影が映る 12 枚がここで動く
+   */
+  shadowFilter: ShadowFilter
   /**
    * 環境反射のキューブマップの一辺。0 で反射なし。
    *
@@ -201,6 +220,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     waterSpecular: false,
     lodDistanceScale: 0.5,
     aircraftShadowMapSize: 0,
+    shadowFilter: 'basic',
     environmentMapSize: 0,
     atmosphereLutScale: 0.5,
     aerialRaymarchScattering: false,
@@ -228,6 +248,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     waterSpecular: true,
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
+    shadowFilter: 'basic',
     environmentMapSize: 64,
     atmosphereLutScale: 0.75,
     aerialRaymarchScattering: false,
@@ -261,6 +282,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     waterSpecular: true,
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
+    shadowFilter: 'pcf',
     environmentMapSize: 128,
     atmosphereLutScale: 1,
     aerialRaymarchScattering: true,
@@ -294,6 +316,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // セル数を 48 へ上げたぶん、切り替え距離は控えめにする
     lodDistanceScale: 1.15,
     aircraftShadowMapSize: 2048,
+    shadowFilter: 'pcfSoft',
     environmentMapSize: 256,
     atmosphereLutScale: 1,
     aerialRaymarchScattering: true,

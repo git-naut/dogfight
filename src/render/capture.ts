@@ -164,6 +164,12 @@ export interface CaptureConfig {
    */
   heightProbe: boolean
   /**
+   * 影を node 経路で立てて測るか。`?nodeshadow=1`。
+   *
+   * `?gpu=1` か `?gpu=2` と併せて使う。既定の経路には効かない
+   */
+  nodeShadow: boolean
+  /**
    * キャプチャで雲を描き重ねる枚数。`?converge=N`。0 なら既定の規則に従う。
    *
    * 既定は雲量 0 なら 2 枚、そうでなければ `CAPTURE_CONVERGE_FRAMES`。
@@ -286,6 +292,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     shadowProbe: params.get('shadowprobe') === '1',
     marchProbe: params.get('marchprobe') === '1',
     heightProbe: params.get('heightprobe') === '1',
+    nodeShadow: params.get('nodeshadow') === '1',
     converge: clampInt(params.get('converge'), 0, 16, 0),
     shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
     cloudFar: params.has('cloudfar')

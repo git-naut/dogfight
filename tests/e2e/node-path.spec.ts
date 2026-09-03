@@ -404,6 +404,76 @@ test.describe('node 経路', () => {
     expect(worst, `最大のずれ ${worst} m`).toBeLessThan(1e-2)
   })
 
+  test('node 経路で影が立ち、影マップは 1 回しか焼かれない', async ({ page }) => {
+    // **段 15。**`BasicShadowMap` を選んだ理由（比較モードが付くと自前 GLSL の
+    // `sampler2D` から読めない）は node 経路では消える。プリセットの
+    // `shadowFilter` をそのまま渡して、立つことと回数を測る
+    const { result, errors } = await probe(page, 'gpu=1&nodeshadow=1&preset=high')
+    expect(errors).toEqual([])
+    const shadow = result.nodeShadow
+    expect(shadow, 'node 経路の影を測っていない').toBeTruthy()
+    expect(shadow!.filter, 'high のフィルタ').toBe('pcf')
+    expect(shadow!.casters, '影の投げ手が居ない').toBeGreaterThan(0)
+
+    // **焼き込みは 1 フレームに 1 回。**パスの数で見る。ドローコールでは
+    // 視錐台の切り方の違いが混ざって当てにならない（機体の 31 回に対して
+    // 影のパスは 47 回だった。実測）
+    // **影マップの回数は「投げ手あり」と「投げ手なし」の差で見る。**
+    // 有効にするだけでパスが 1 つ増える経路がある（WebGPU 側。実測）ので、
+    // 無効との差で数えると 2 回焼いていると読み違える
+    const bakes = shadow!.frameCallsWith - shadow!.frameCallsEnabledNoCaster
+    expect(
+      bakes,
+      `影マップのパスが ${bakes} 回（無効 ${shadow!.frameCallsWithout} / 投げ手なし ${shadow!.frameCallsEnabledNoCaster} / あり ${shadow!.frameCallsWith}）`,
+    ).toBe(1)
+    // node 経路の WebGL2 では、有効にするだけでは増えない
+    expect(
+      shadow!.frameCallsEnabledNoCaster - shadow!.frameCallsWithout,
+      '投げ手が無いのにパスが増えた',
+    ).toBe(0)
+    // 2 枚目でも同じ。積算していれば増える
+    expect(shadow!.frameCallsSecond, '2 枚目でパスの数が変わった').toBe(
+      shadow!.frameCallsWith,
+    )
+    // 影のパスがドローコールを払っていること
+    const added = shadow!.drawCallsWith - shadow!.drawCallsWithout
+    expect(added, `影で増えたドローコール ${added}`).toBeGreaterThan(0)
+
+    // **絵が変わっていること。**係数が常に 1 なら影は出ていない。
+    // 区画平均では鈍すぎる（1280x720 を 4x4 に均すと 0.0003 しか動かない）
+    expect(shadow!.changed, `影で動いたバイトが ${shadow!.changed} 個`)
+      .toBeGreaterThan(1000)
+    expect(shadow!.changedMax, `最大の差が ${shadow!.changedMax}`)
+      .toBeGreaterThan(20)
+  })
+
+  test('WebGPU なら pcfSoft でも通る', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
+    // `PCFSoftShadowFilter` は WebGL 経路では廃止されたが node 経路には
+    // 生きている。**通ることを実測で確かめる**
+    const { result, errors } = await probe(page, 'gpu=2&nodeshadow=1&preset=ultra')
+    expect(errors).toEqual([])
+    expect(result.nodeShadow!.filter).toBe('pcfSoft')
+    const n = result.nodeShadow!
+    // 影マップは 1 パス。投げ手なしとの差で数える
+    const bakes = n.frameCallsWith - n.frameCallsEnabledNoCaster
+    expect(
+      bakes,
+      `pcfSoft の影マップのパスが ${bakes} 回（なし ${n.frameCallsWithout} / 投げ手なし ${n.frameCallsEnabledNoCaster} / あり ${n.frameCallsWith}）`,
+    ).toBe(1)
+    // **WebGPU では有効にするだけでパスが 1 つ増える。**投げ手は無いので
+    // 影マップではない。何が足しているかは未特定。段 17 で場面を組むときに
+    // 追う。ここでは値を固定して、変わったら気づけるようにしておく
+    expect(
+      n.frameCallsEnabledNoCaster - n.frameCallsWithout,
+      '有効にするだけで増えるパスの数が変わった',
+    ).toBe(1)
+    expect(
+      result.nodeShadow!.changed,
+      `pcfSoft で動いたバイトが ${result.nodeShadow!.changed} 個`,
+    ).toBeGreaterThan(1000)
+  })
+
   test('既定の経路は node を立てない', async ({ page }) => {
     await page.goto('/dogfight/?capture=1&frame=0')
     await page.waitForSelector('body[data-capture-ready="1"]')

@@ -342,6 +342,8 @@ async function main(): Promise<void> {
       shadowInputs: capture.shadowInputs,
       marchProbe: capture.marchProbe,
       heightProbe: capture.heightProbe,
+      nodeShadow: capture.nodeShadow,
+      shadowFilter: quality.shadowFilter,
     })
     hook.gpuProbe = probe
     hook.backend = probe.backend

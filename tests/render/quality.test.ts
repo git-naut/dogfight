@@ -363,3 +363,42 @@ describe('自動降格', () => {
     expect(governor.update(frame(30), 'high')).toBeNull()
   })
 })
+
+/**
+ * 影マップのフィルタの列。
+ *
+ * **既定の経路は読まない。**段 15 の規約どおり実装より先に列を作った
+ * （`CLAUDE.md`）。段 18 で経路を切り替えたとき、影が映る 12 枚がここで動く。
+ */
+describe('影のフィルタ', () => {
+  const RANK: Record<string, number> = { basic: 0, pcf: 1, pcfSoft: 2 }
+
+  it('全プリセットが値を持つ', () => {
+    for (const name of PRESET_ORDER) {
+      const filter = QUALITY_PRESETS[name].shadowFilter
+      expect(RANK[filter], `${name} の shadowFilter: ${filter}`).toBeDefined()
+    }
+  })
+
+  it('プリセットが上がるほど強くなる（下がらない）', () => {
+    const ranks = PRESET_ORDER.map((n) => RANK[QUALITY_PRESETS[n].shadowFilter]!)
+    for (let i = 1; i < ranks.length; i++) {
+      expect(ranks[i]!, `${PRESET_ORDER[i]} が ${PRESET_ORDER[i - 1]} より弱い`)
+        .toBeGreaterThanOrEqual(ranks[i - 1]!)
+    }
+  })
+
+  it('影を焼かないプリセットは強いフィルタを名乗らない', () => {
+    // **払わない費用を宣言しない。**影マップが 0 なら係数は常に 1 になる
+    for (const name of PRESET_ORDER) {
+      const preset = QUALITY_PRESETS[name]
+      if (preset.aircraftShadowMapSize === 0) {
+        expect(preset.shadowFilter, `${name}`).toBe('basic')
+      }
+    }
+  })
+
+  it('検査そのものが働くことを、知らない値で確かめる', () => {
+    expect(RANK['notAFilter']).toBeUndefined()
+  })
+})

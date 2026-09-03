@@ -55,6 +55,16 @@ export interface TerrainSharedUniforms {
   sunDirectionWorld: { value: Vector3 }
   sunRadiance: { value: Vector3 }
   skyRadiance: { value: Vector3 }
+  /**
+   * パッチの格子を親へ寄せる量を決める基準の位置。
+   *
+   * **`cameraPosition` の組み込み uniform を使わない。**影を焼くパスでは
+   * three が光源のカメラを入れてくるので、そのままだとモーフの基準が
+   * 描くパスごとに変わる。Phase 9 でカスケード影を入れると地形が影の
+   * 投げ手になり、そこで裂け目が出る。**いまの絵は変わらない**（主カメラの
+   * 位置をそのまま入れる）
+   */
+  morphOrigin: { value: Vector3 }
 }
 
 export function createTerrainUniforms(
@@ -77,6 +87,7 @@ export function createTerrainUniforms(
     sunDirectionWorld: { value: new Vector3(0, 1, 0) },
     sunRadiance: { value: new Vector3(1, 1, 1) },
     skyRadiance: { value: new Vector3(0.1, 0.12, 0.15) },
+    morphOrigin: { value: new Vector3() },
   }
 }
 

@@ -548,6 +548,9 @@ export async function createScene(
       // LOD はカメラ位置で決める。機体位置ではない（追従カメラは後方にいる）。
       // chase の更新後に読むこと
       const cameraWorld = pipeline.updateCameraWorld()
+      // 地形のモーフの基準。**影を焼くパスでも主カメラの位置を使う**ため、
+      // 組み込みの `cameraPosition` ではなくこれを渡す
+      terrainUniforms.morphOrigin.value.copy(cameraWorld)
 
       // HUD へ渡す行列。カメラの位置と画角が決まったあとに組む。
       // Camera.updateMatrixWorld が matrixWorldInverse も作り直す

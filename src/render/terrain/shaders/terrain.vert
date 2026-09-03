@@ -15,6 +15,15 @@ in vec4 patchOrigin;
 /** 親の格子へ寄せ始める距離 m と、寄せ終わる距離 m */
 in vec2 patchMorph;
 
+/**
+ * 寄せる量を決める基準の位置。
+ *
+ * **組み込みの `cameraPosition` を使わない。**影を焼くパスでは three が
+ * 光源のカメラを入れてくるので、基準が描くパスごとに変わる。
+ * 主カメラの位置を明示的に渡す
+ */
+uniform vec3 morphOrigin;
+
 out vec3 vWorld;
 out float vMorph;
 
@@ -25,7 +34,7 @@ void main() {
   // 寄せる量は未モーフの位置から決める。モーフ後の位置から決めると
   // 循環参照になる。1 セル以内のずれなので寄せ量には影響しない
   vec2 unmorphed = patchOrigin.xy + unitGrid * patchOrigin.z;
-  float distance2D = distance(cameraPosition.xz, unmorphed);
+  float distance2D = distance(morphOrigin.xz, unmorphed);
   float morph = clamp(
     (distance2D - patchMorph.x) / max(patchMorph.y - patchMorph.x, 1e-4),
     0.0,

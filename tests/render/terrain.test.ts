@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath, URL } from 'node:url'
 import {
   selectPatches,
   distanceToBox,
@@ -186,3 +188,41 @@ function touches(a: TerrainPatch, b: TerrainPatch): boolean {
   const overlapZ = Math.min(a.z + a.size, b.z + b.size) - Math.max(a.z, b.z) > 1e-6
   return (shareX && overlapZ) || (shareZ && overlapX)
 }
+
+/**
+ * 頂点シェーダがモーフの基準に何を使っているか。
+ *
+ * **組み込みの `cameraPosition` を使ってはいけない。**影を焼くパスでは
+ * three が光源のカメラを入れてくるので、基準が描くパスごとに変わる。
+ * いまは地形が影を投げないので絵に出ないが、Phase 9 でカスケード影を
+ * 入れた瞬間に裂け目として出る。**出てから気づく形にしない。**
+ */
+describe('モーフの基準位置', () => {
+  const source = readFileSync(
+    fileURLToPath(new URL('../../src/render/terrain/shaders/terrain.vert', import.meta.url)),
+    'utf8',
+  )
+
+  /** コメントを外した本文。**注記に名前が出るだけで落ちる形にしない** */
+  const body = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+
+  it('頂点シェーダは組み込みの cameraPosition を使わない', () => {
+    expect(body.includes('cameraPosition')).toBe(false)
+  })
+
+  it('明示した uniform を宣言して使っている', () => {
+    expect(body).toContain('uniform vec3 morphOrigin;')
+    expect(body).toContain('distance(morphOrigin.xz, unmorphed)')
+  })
+
+  it('コメントを外す処理が本文を消していない', () => {
+    // 検査そのものが働くことの確認。全部消してしまえば上の 2 件は
+    // 「無いこと」を空振りで通す
+    expect(body).toContain('void main()')
+    expect(body.includes('uniform vec3 notAUniform;')).toBe(false)
+    // 注記のほうには名前が残っている（本文だけを見ていることの裏取り）
+    expect(source.includes('cameraPosition')).toBe(true)
+  })
+})

@@ -105,6 +105,7 @@ export interface TestHook {
       resolve: number[]
     } | null
     heightProbe: number[] | null
+    sprite: { soft: number[]; core: number[] } | null
     nodeShadow: {
       filter: string
       casters: number
@@ -138,6 +139,7 @@ export interface TestHook {
   /** 雲影マップを 4x4 に区切った区画ごとの平均透過率。16 個 */
   shadowTiles: number[] | null
   /** 固定の入力で焼いた雲のマーチ。`?marchprobe=1` のときだけ埋まる */
+  spriteProbe: { soft: number[]; core: number[] } | null
   marchProbe: {
     samples: { total: number; max: number; hit: number }
     exhausted: number

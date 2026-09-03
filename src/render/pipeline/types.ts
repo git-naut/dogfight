@@ -262,6 +262,8 @@ export interface ScenePipeline {
   readMarchProbe(mode: 0 | 1 | 2): number[]
   /** 時間方向の足し込みを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
   readResolveProbe(): number[]
+  /** 円形スプライトを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
+  readSpriteProbe(opaqueCore: boolean): number[]
 
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
@@ -405,6 +407,12 @@ export interface NodeProbeResult {
    * `src/sim/terrain.ts` の `heightAt` と 1e-3 m 以内で一致するはず
    */
   heightProbe: number[] | null
+  /**
+   * TSL で焼いた円形スプライトの生バイト。`?spriteprobe=1` のときだけ埋まる。
+   *
+   * `soft` は爆発と暈、`core` は不透明な芯（`OPAQUE_CORE`）
+   */
+  sprite: { soft: number[]; core: number[] } | null
   /**
    * node 経路の影の測り。`?nodeshadow=1` のときだけ埋まる。
    *

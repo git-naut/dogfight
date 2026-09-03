@@ -2,6 +2,11 @@ import * as THREE from 'three'
 import type { Flare } from '../../sim/weapons/flare'
 import { FLARE_BURN_SECONDS, flashIntensity } from '../../sim/weapons/flare'
 import { clampRadiusToNear } from './explosions'
+import {
+  CORE_CUT,
+  RADIAL_SPRITE_FRAGMENT,
+  RADIAL_SPRITE_VERTEX,
+} from './radialSprite'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -89,7 +94,6 @@ const SMOKE_COLOR = new THREE.Color(0.5, 0.5, 0.5)
  * 縁ごと深度を書くと外接いっぱいの暗い円が出た（赤み 76・彩度 95 は出るが
  * 絵が壊れる）。芯だけに絞ると副作用なしで赤み 89・彩度 121 になる。
  */
-const CORE_CUT = 0.5
 
 /**
  * 火の玉の濃さ。
@@ -222,34 +226,8 @@ export function createFlares(capacity: number, quality: QualitySettings): Flares
         uOpacity: { value: 0 },
         uFalloff: { value: falloff },
       },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 uColor;
-        uniform float uOpacity;
-        uniform float uFalloff;
-        varying vec2 vUv;
-        void main() {
-          float d = length(vUv - 0.5) * 2.0;
-          if (d > 1.0) discard;
-          float a = pow(max(0.0, 1.0 - d), uFalloff) * uOpacity;
-          if (a < 0.004) discard;
-          #ifdef OPAQUE_CORE
-          // 芯は不透明にして深度を書く。縁は捨てる。
-          // **背景が透ける画素で深度を書いてはいけない。**書くと、その画素の
-          // 背景が自分の距離の霞になって暗く沈み、縁のはっきりした暗い円が出る
-          if (a < CORE_CUT) discard;
-          gl_FragColor = vec4(uColor, 1.0);
-          #else
-          gl_FragColor = vec4(uColor, a);
-          #endif
-        }
-      `,
+      vertexShader: RADIAL_SPRITE_VERTEX,
+      fragmentShader: RADIAL_SPRITE_FRAGMENT,
       transparent: true,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       // 不透明な芯だけ深度を書く。理由は `CORE_CUT` の節（`docs/weapons.md`）

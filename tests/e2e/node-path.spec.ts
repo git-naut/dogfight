@@ -17,6 +17,11 @@ import {
   defaultTerrain,
 } from '../../src/sim/terrain'
 import {
+  SPRITE_PROBE_SIDE,
+  spriteDrawnPixels,
+  spriteProbeCrossesCoreCut,
+} from '../../src/render/weapons/spriteProbe'
+import {
   HEIGHT_PROBE_COUNT,
   heightMaxError,
   heightProbePoint,
@@ -179,7 +184,7 @@ test.describe('node 経路', () => {
     test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
     const { result, errors } = await probe(
       page,
-      'gpu=2&marchprobe=1&heightprobe=1',
+      'gpu=2&marchprobe=1&heightprobe=1&spriteprobe=1',
     )
     expect(errors).toEqual([])
 
@@ -245,6 +250,18 @@ test.describe('node 経路', () => {
       heightWorst,
       `WGSL の高さ場の最大のずれ ${heightWorst} m`,
     ).toBeLessThan(1e-2)
+
+    // 円形スプライト。**WGSL は演算順序が変わるのでバイト一致は求めない**
+    expect(result.sprite, 'WGSL 側がスプライトを焼いていない').toBeTruthy()
+    await page.goto('/dogfight/?capture=1&frame=0&spriteprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const spriteHook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    for (const key of ['soft', 'core'] as const) {
+      const d = byteDifference(spriteHook!.spriteProbe![key], result.sprite![key])
+      expect(d.max, `WGSL のスプライト（${key}）の最大差 ${d.max}`).toBeLessThanOrEqual(1)
+    }
   })
 
   /**
@@ -472,6 +489,38 @@ test.describe('node 経路', () => {
       result.nodeShadow!.changed,
       `pcfSoft で動いたバイトが ${result.nodeShadow!.changed} 個`,
     ).toBeGreaterThan(1000)
+  })
+
+  test('TSL の円形スプライトが GLSL 版とバイト一致する', async ({ page }) => {
+    // **段 16。**爆発とフレアの断片は `vUv` だけの関数なので、場面を組まずに
+    // 全画面のクアッドへ焼いて比べられる。`#ifdef OPAQUE_CORE` は
+    // リポジトリで唯一の `defines` で、TSL では JS の分岐になる
+    const { result, errors } = await probe(page, 'gpu=1&spriteprobe=1')
+    expect(errors).toEqual([])
+    expect(result.sprite, 'TSL 側がスプライトを焼いていない').toBeTruthy()
+
+    await page.goto('/dogfight/?capture=1&frame=0&spriteprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const glsl = hook?.spriteProbe
+    expect(glsl, 'GLSL 側がスプライトを焼いていない').toBeTruthy()
+
+    // **捨てられた画素ばかりでないこと。**全部 discard なら空どうしで一致する
+    const pixels = SPRITE_PROBE_SIDE * SPRITE_PROBE_SIDE
+    const drawnSoft = spriteDrawnPixels(glsl!.soft)
+    const drawnCore = spriteDrawnPixels(glsl!.core)
+    expect(drawnSoft, `暈の描かれた画素 ${drawnSoft}`).toBeGreaterThan(pixels / 4)
+    expect(drawnCore, `芯の描かれた画素 ${drawnCore}`).toBeGreaterThan(100)
+    // **芯は暈より狭いこと。**同じなら `OPAQUE_CORE` の枝が効いていない
+    expect(drawnCore, '芯が暈と同じ広さ').toBeLessThan(drawnSoft)
+    expect(spriteProbeCrossesCoreCut(), '濃さが CORE_CUT を跨いでいない').toBe(true)
+
+    const soft = byteDifference(glsl!.soft, result.sprite!.soft)
+    expect(soft.differing, `暈で違うバイトが ${soft.differing} 個`).toBe(0)
+    const core = byteDifference(glsl!.core, result.sprite!.core)
+    expect(core.differing, `芯で違うバイトが ${core.differing} 個`).toBe(0)
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

@@ -183,6 +183,7 @@ const hook = installTestHook({
   shadowTiles: null,
   shadowInputs: null,
   marchProbe: null,
+  spriteProbe: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -343,6 +344,7 @@ async function main(): Promise<void> {
       marchProbe: capture.marchProbe,
       heightProbe: capture.heightProbe,
       nodeShadow: capture.nodeShadow,
+      spriteProbe: capture.spriteProbe,
       shadowFilter: quality.shadowFilter,
     })
     hook.gpuProbe = probe
@@ -681,6 +683,13 @@ async function main(): Promise<void> {
     if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
     // **影を焼いたあとに読む。**`renderShadow` は `view.render()` の中なので、
     // 収束のぶんを描き終えたここで読み戻す
+    if (capture.spriteProbe) {
+      hook.spriteProbe = {
+        soft: view.readSpriteProbe(false),
+        core: view.readSpriteProbe(true),
+      }
+    }
+
     if (capture.marchProbe) {
       // **固定の入力で 3 枚焼く。**サンプル数と打ち切りは整数なので、
       // TSL 版と完全に一致するはず。絵は区画平均で見る

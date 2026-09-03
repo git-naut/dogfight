@@ -1,3 +1,4 @@
+import { renderSpriteProbe } from '../weapons/spriteProbe'
 import * as THREE from 'three'
 import { createChaseCamera } from '../camera'
 import { createWebGLBackend } from '../backend'
@@ -434,6 +435,10 @@ export async function createWebGLPipeline(
 
     readResolveProbe() {
       return cloudsPass.readResolveProbe(renderer)
+    },
+
+    readSpriteProbe(opaqueCore: boolean) {
+      return renderSpriteProbe(renderer, opaqueCore)
     },
 
     updateAircraftShadow(position) {

@@ -111,6 +111,8 @@ export interface NodeProbeOptions {
    * 1 フレームに 1 回しか焼かれないかを見る
    */
   nodeShadow: boolean
+  /** 円形スプライトを TSL で焼くか。`?spriteprobe=1` */
+  spriteProbe: boolean
   /**
    * 雲のマーチを固定の入力で焼くか。`?marchprobe=1`。
    *
@@ -428,6 +430,39 @@ export async function runNodeProbe(
       tiles: tileMeans(await bakeMarch(0), MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
       resolve: resolveBytes,
     }
+  }
+
+  // ---- 円形スプライト ----
+  //
+  // **段 16。**爆発とフレアの断片は `vUv` だけの関数なので、場面を組まずに
+  // 全画面のクアッドへ焼いて GLSL 版とバイトで比べられる
+  let sprite: NodeProbeResult['sprite'] = null
+  if (options.spriteProbe) {
+    const spriteNodes = await import('../weapons/spriteNodes')
+    const probe = await import('../weapons/spriteProbe')
+    const side = probe.SPRITE_PROBE_SIDE
+    const inputs = {
+      color: tsl.vec3(
+        probe.SPRITE_PROBE_COLOR.r,
+        probe.SPRITE_PROBE_COLOR.g,
+        probe.SPRITE_PROBE_COLOR.b,
+      ),
+      opacity: tsl.float(probe.SPRITE_PROBE_OPACITY),
+      falloff: tsl.float(probe.SPRITE_PROBE_FALLOFF),
+    }
+    const bakeSprite = async (opaqueCore: boolean): Promise<number[]> => {
+      const target = volume.bakePlane(
+        renderer,
+        quad,
+        side,
+        side,
+        spriteNodes.radialSpriteFragmentNode(inputs, opaqueCore),
+      )
+      const bytes = await volume.readPlane(renderer, target, side, side, isWebGPU)
+      target.dispose()
+      return bytes
+    }
+    sprite = { soft: await bakeSprite(false), core: await bakeSprite(true) }
   }
 
   // ---- 高さ場 ----
@@ -795,6 +830,7 @@ export async function runNodeProbe(
     shadowTiles,
     march,
     heightProbe,
+    sprite,
     nodeShadow,
     volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',

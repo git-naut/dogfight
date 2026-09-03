@@ -96,6 +96,8 @@ export interface SceneHandle {
   readShadowInputs(): ShadowInputs
   /** 固定の入力で雲のマーチを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
   readMarchProbe(mode: 0 | 1 | 2): number[]
+  /** 円形スプライトを 1 枚焼いて読み戻す。`?spriteprobe=1` で使う */
+  readSpriteProbe(opaqueCore: boolean): number[]
   /** 時間方向の足し込みを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
   readResolveProbe(): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
@@ -463,6 +465,10 @@ export async function createScene(
 
     readMarchProbe(mode: 0 | 1 | 2) {
       return pipeline.readMarchProbe(mode)
+    },
+
+    readSpriteProbe(opaqueCore: boolean) {
+      return pipeline.readSpriteProbe(opaqueCore)
     },
 
     readResolveProbe() {

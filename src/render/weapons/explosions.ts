@@ -9,6 +9,10 @@ import {
   type ExplosionSource,
 } from '../../sim/effects'
 import { RIBBON_NEAR_CLIP_DEPTH } from '../ribbon'
+import {
+  RADIAL_SPRITE_FRAGMENT,
+  RADIAL_SPRITE_VERTEX,
+} from './radialSprite'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -211,27 +215,8 @@ export function createExplosions(
         uOpacity: { value: 0 },
         uFalloff: { value: falloff },
       },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 uColor;
-        uniform float uOpacity;
-        uniform float uFalloff;
-        varying vec2 vUv;
-        void main() {
-          // 中心からの距離。0.5 で縁
-          float d = length(vUv - 0.5) * 2.0;
-          if (d > 1.0) discard;
-          float a = pow(max(0.0, 1.0 - d), uFalloff) * uOpacity;
-          if (a < 0.004) discard;
-          gl_FragColor = vec4(uColor, a);
-        }
-      `,
+      vertexShader: RADIAL_SPRITE_VERTEX,
+      fragmentShader: RADIAL_SPRITE_FRAGMENT,
       transparent: true,
       blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       depthWrite: false,

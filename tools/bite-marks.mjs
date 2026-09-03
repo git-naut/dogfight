@@ -290,4 +290,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/heightProbe.test.ts',
     why: 'NaN との差は比較が常に false になるので、最大のずれ 0 として通ってしまう。読み戻せていない点を一致したと読む形を作らない',
   },
+  {
+    id: 'sprite-probe-opacity-below-core-cut',
+    kind: '定数の摂動',
+    file: 'src/render/weapons/spriteProbe.ts',
+    find: 'export const SPRITE_PROBE_OPACITY = 0.8',
+    replace: 'export const SPRITE_PROBE_OPACITY = 0.4',
+    expect: 'tests/render/spriteProbe.test.ts',
+    lesson: '通っていない枝は検査されない',
+  },
 ]

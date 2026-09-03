@@ -264,6 +264,8 @@ export interface ScenePipeline {
   readResolveProbe(): number[]
   /** 円形スプライトを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
   readSpriteProbe(opaqueCore: boolean): number[]
+  /** トーンマッピングを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
+  readToneProbe(): number[]
 
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
@@ -413,6 +415,13 @@ export interface NodeProbeResult {
    * `soft` は爆発と暈、`core` は不透明な芯（`OPAQUE_CORE`）
    */
   sprite: { soft: number[]; core: number[] } | null
+  /**
+   * TSL で焼いたトーンマッピングの生バイト。`?toneprobe=1` のときだけ埋まる。
+   *
+   * **AgX の式が同じなら露出 6 をそのまま持ち越せる。**VFX の色定数を
+   * 測り直さずに済むかがここで決まる
+   */
+  tone: number[] | null
   /**
    * node 経路の影の測り。`?nodeshadow=1` のときだけ埋まる。
    *

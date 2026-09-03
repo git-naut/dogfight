@@ -113,6 +113,8 @@ export interface NodeProbeOptions {
   nodeShadow: boolean
   /** 円形スプライトを TSL で焼くか。`?spriteprobe=1` */
   spriteProbe: boolean
+  /** トーンマッピングを TSL で焼くか。`?toneprobe=1` */
+  toneProbe: boolean
   /**
    * 雲のマーチを固定の入力で焼くか。`?marchprobe=1`。
    *
@@ -430,6 +432,53 @@ export async function runNodeProbe(
       tiles: tileMeans(await bakeMarch(0), MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
       resolve: resolveBytes,
     }
+  }
+
+  // ---- トーンマッピング ----
+  //
+  // **段 17 の入口。**計画は「AgX は式が同じで露出 6 はそのまま持ち越せる」と
+  // 書いている。持ち越せるなら VFX の色定数を測り直さずに済む
+  let tone: NodeProbeResult['tone'] = null
+  if (options.toneProbe) {
+    const toneProbe = await import('../toneProbe')
+    const side = toneProbe.TONE_PROBE_SIDE
+    const count = toneProbe.TONE_PROBE_COUNT
+
+    // GLSL 側と同じ式で放射輝度を導く
+    const col = tsl.floor(tsl.uv().x.mul(side))
+    const row = tsl.floor(tsl.uv().y.mul(side))
+    const t = row.mul(side).add(col).div(count - 1)
+    const v = tsl.pow(
+      tsl.float(10),
+      tsl
+        .float(toneProbe.TONE_PROBE_MIN_LOG)
+        .add(t.mul(toneProbe.TONE_PROBE_MAX_LOG - toneProbe.TONE_PROBE_MIN_LOG)),
+    )
+    const hdr = v.mul(
+      tsl.vec3(
+        toneProbe.TONE_PROBE_RATIO.r,
+        toneProbe.TONE_PROBE_RATIO.g,
+        toneProbe.TONE_PROBE_RATIO.b,
+      ),
+    )
+    // **露出の渡し方だけが違う。**GLSL は uniform を関数の中で読み、
+    // TSL は引数で受ける
+    // `@types/three` の `agxToneMapping` は型引数の付かない `Node` を返す。
+    // 逃げ口を 1 か所へ寄せる
+    const mapped = tsl.agxToneMapping(
+      hdr,
+      tsl.float(toneProbe.TONE_PROBE_EXPOSURE),
+    ) as unknown as import('three/webgpu').Node<'vec3'>
+
+    const toneTarget = volume.bakePlane(
+      renderer,
+      quad,
+      side,
+      side,
+      tsl.vec4(mapped, 1),
+    )
+    tone = await volume.readPlane(renderer, toneTarget, side, side, isWebGPU)
+    toneTarget.dispose()
   }
 
   // ---- 円形スプライト ----
@@ -831,6 +880,7 @@ export async function runNodeProbe(
     march,
     heightProbe,
     sprite,
+    tone,
     nodeShadow,
     volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',

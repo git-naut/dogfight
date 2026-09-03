@@ -98,6 +98,8 @@ export interface SceneHandle {
   readMarchProbe(mode: 0 | 1 | 2): number[]
   /** 円形スプライトを 1 枚焼いて読み戻す。`?spriteprobe=1` で使う */
   readSpriteProbe(opaqueCore: boolean): number[]
+  /** トーンマッピングを 1 枚焼いて読み戻す。`?toneprobe=1` で使う */
+  readToneProbe(): number[]
   /** 時間方向の足し込みを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
   readResolveProbe(): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
@@ -469,6 +471,10 @@ export async function createScene(
 
     readSpriteProbe(opaqueCore: boolean) {
       return pipeline.readSpriteProbe(opaqueCore)
+    },
+
+    readToneProbe() {
+      return pipeline.readToneProbe()
     },
 
     readResolveProbe() {

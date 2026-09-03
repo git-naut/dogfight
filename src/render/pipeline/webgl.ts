@@ -1,3 +1,4 @@
+import { renderToneProbe } from '../toneProbe'
 import { renderSpriteProbe } from '../weapons/spriteProbe'
 import * as THREE from 'three'
 import { createChaseCamera } from '../camera'
@@ -439,6 +440,10 @@ export async function createWebGLPipeline(
 
     readSpriteProbe(opaqueCore: boolean) {
       return renderSpriteProbe(renderer, opaqueCore)
+    },
+
+    readToneProbe() {
+      return renderToneProbe(renderer)
     },
 
     updateAircraftShadow(position) {

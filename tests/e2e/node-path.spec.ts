@@ -16,6 +16,7 @@ import {
   TERRAIN_EXTENT,
   defaultTerrain,
 } from '../../src/sim/terrain'
+import { toneProbeLevels } from '../../src/render/toneProbe'
 import {
   SPRITE_PROBE_SIDE,
   spriteDrawnPixels,
@@ -521,6 +522,45 @@ test.describe('node 経路', () => {
     expect(soft.differing, `暈で違うバイトが ${soft.differing} 個`).toBe(0)
     const core = byteDifference(glsl!.core, result.sprite!.core)
     expect(core.differing, `芯で違うバイトが ${core.differing} 個`).toBe(0)
+  })
+
+  test('TSL の AgX が GLSL 版と一致し、露出 6 が持ち越せる', async ({ page }) => {
+    // **段 17 の入口。**計画は「AgX は式が同じで露出 6 はそのまま持ち越せる」と
+    // 書いている。持ち越せるなら VFX の色定数を測り直さずに済む。
+    // 既定の経路は `postprocessing` を通すが、AGX モードは three の GLSL
+    // チャンクの `AgXToneMapping` を呼ぶだけなので、比べるのは three の
+    // GLSL 版と TSL 版
+    const { result, errors } = await probe(page, 'gpu=1&toneprobe=1')
+    expect(errors).toEqual([])
+    expect(result.tone, 'TSL 側がトーンマッピングを焼いていない').toBeTruthy()
+
+    await page.goto('/dogfight/?capture=1&frame=0&toneprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const glsl = hook?.toneProbe
+    expect(glsl, 'GLSL 側がトーンマッピングを焼いていない').toBeTruthy()
+
+    // **階調を使い切っていること。**全部 0 か全部 255 なら曲線を
+    // 間違えても一致する
+    const levels = toneProbeLevels(glsl!)
+    expect(levels, `階調が ${levels} 段しかない`).toBeGreaterThan(100)
+    // **AgX は暗部を持ち上げる。**10^-3 に露出 6 を掛けても 0 にはならない
+    const reds = glsl!.filter((_, i) => i % 4 === 0)
+    const span = Math.max(...reds) - Math.min(...reds)
+    expect(span, `階調の幅が ${span} しかない`).toBeGreaterThan(200)
+    expect(Math.max(...reds), '白飛びまで届いていない').toBeGreaterThan(250)
+
+    // **式は同じ。**実測で 4,096 バイト中 1 バイトが 1 階調だけ違った。
+    // 1,024 段のうち 1 段で丸めが分かれただけで、曲線も定数も同じ。
+    // **露出 6 はそのまま持ち越せる**ので、VFX の色定数は測り直さなくてよい
+    const diff = byteDifference(glsl!, result.tone!)
+    expect(diff.max, `AgX の最大差 ${diff.max}`).toBeLessThanOrEqual(1)
+    expect(
+      diff.differing,
+      `AgX で違うバイトが ${diff.differing} 個`,
+    ).toBeLessThan(glsl!.length * 0.01)
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

@@ -272,4 +272,22 @@ export const BITE_MARKS = [
     expect: 'tests/render/marchProbe.test.ts',
     why: '長さの違う 2 枚を先頭だけ比べると「違うバイト 0 個」になる。読み戻せていない絵を一致したと読む形を作らない',
   },
+  {
+    id: 'height-probe-step-on-grid',
+    kind: '定数の摂動',
+    file: 'src/render/terrain/heightProbe.ts',
+    find: 'step: { x: 1237.3, z: 1511.7 }',
+    replace: 'step: { x: 1248, z: 1536 }',
+    expect: 'tests/render/heightProbe.test.ts',
+    why: '刻みをテクセル 48 m の倍数にすると双三次が t = 0 になり、焼いた値をそのまま返すだけの検査になる。補間の途中を通さないと写し間違いが見えない',
+  },
+  {
+    id: 'height-error-drop-nan-guard',
+    kind: '文の削除',
+    file: 'src/render/terrain/heightProbe.ts',
+    find: '    if (!Number.isFinite(d)) return Number.POSITIVE_INFINITY\n',
+    replace: '',
+    expect: 'tests/render/heightProbe.test.ts',
+    why: 'NaN との差は比較が常に false になるので、最大のずれ 0 として通ってしまう。読み戻せていない点を一致したと読む形を作らない',
+  },
 ]

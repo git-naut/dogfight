@@ -157,6 +157,13 @@ export interface CaptureConfig {
    */
   marchProbe: boolean
   /**
+   * 高さ場を TSL で引いて出すか。`?heightprobe=1`。
+   *
+   * 64 点を焼いて読み戻し、`src/sim/terrain.ts` の `heightAt` と突き合わせる。
+   * **「見えている山と当たる山が違う」を機械で止める**
+   */
+  heightProbe: boolean
+  /**
    * キャプチャで雲を描き重ねる枚数。`?converge=N`。0 なら既定の規則に従う。
    *
    * 既定は雲量 0 なら 2 枚、そうでなければ `CAPTURE_CONVERGE_FRAMES`。
@@ -278,6 +285,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     noiseProbe: params.get('noiseprobe') === '1',
     shadowProbe: params.get('shadowprobe') === '1',
     marchProbe: params.get('marchprobe') === '1',
+    heightProbe: params.get('heightprobe') === '1',
     converge: clampInt(params.get('converge'), 0, 16, 0),
     shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
     cloudFar: params.has('cloudfar')

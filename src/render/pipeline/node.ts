@@ -95,6 +95,12 @@ export interface NodeProbeOptions {
    */
   shadowInputs: ShadowInputs | null
   /**
+   * 高さ場を TSL で引いて出すか。`?heightprobe=1`。
+   *
+   * 標本点は `terrain/heightProbe.ts` が唯一の定義で、CPU 側も同じ式で引く
+   */
+  heightProbe: boolean
+  /**
    * 雲のマーチを固定の入力で焼くか。`?marchprobe=1`。
    *
    * 入力は `clouds/marchProbe.ts` が唯一の定義で、GLSL 側も同じものを読む
@@ -158,7 +164,7 @@ export async function runNodeProbe(
     WEATHER_SIZE,
     noiseNodes.weatherFragmentNode(),
     // 世界座標で引き回すので折り返す。GLSL 版と揃える
-    true,
+    { repeat: true },
   )
   const volumeMs = performance.now() - bakeStarted
 
@@ -413,6 +419,55 @@ export async function runNodeProbe(
     }
   }
 
+  // ---- 高さ場 ----
+  //
+  // **段 14 の合格条件。**64 点を焼いて読み戻し、`src/sim/terrain.ts` の
+  // `heightAt` と 1e-3 m 以内で一致することを見る。ずれると「見えている山と
+  // 当たる山が違う」状態になり、高さ場を sim に持たせた意味がなくなる
+  let heightProbe: number[] | null = null
+  if (options.heightProbe) {
+    const heightNodes = await import('../terrain/heightNodes')
+    const { defaultTerrain } = await import('../../sim/terrain')
+    const { createHeightTexture } = await import('../terrain/heightTexture')
+    const probe = await import('../terrain/heightProbe')
+
+    const terrain = defaultTerrain()
+    const heightMap = createHeightTexture(terrain)
+    const fieldInputs = {
+      heightMap,
+      extent: terrain.extent,
+      texels: terrain.size,
+    }
+
+    const side = probe.HEIGHT_PROBE_SIDE
+    heightProbe = []
+    for (const region of probe.HEIGHT_PROBE_REGIONS) {
+      // 画素の位置から標本点を導く。`heightProbePoint` と同じ式
+      const col = tsl.int(tsl.uv().x.mul(side))
+      const row = tsl.int(tsl.uv().y.mul(side))
+      const world = tsl.vec2(
+        tsl.float(col).mul(region.step.x).add(region.origin.x),
+        tsl.float(row).mul(region.step.z).add(region.origin.z),
+      )
+      const heightTarget = volume.bakePlane(
+        renderer,
+        quad,
+        side,
+        side,
+        tsl.vec4(heightNodes.terrainHeightNode(fieldInputs, world), 0, 0, 1),
+        // **8bit では mm の精度が出ない。**32bit 浮動小数で受ける
+        { float: true },
+      )
+      heightProbe.push(
+        ...probe.heightProbeValues(
+          await volume.readPlane(renderer, heightTarget, side, side, isWebGPU),
+        ),
+      )
+      heightTarget.dispose()
+    }
+    heightMap.dispose()
+  }
+
   quad.dispose()
   shapeVolume.dispose()
   detailVolume.dispose()
@@ -608,6 +663,7 @@ export async function runNodeProbe(
     shadowHistogram: shadowBins,
     shadowTiles,
     march,
+    heightProbe,
     volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',
     fellBack: options.gpu === 2 && !isWebGPU,

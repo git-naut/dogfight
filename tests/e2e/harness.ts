@@ -104,6 +104,7 @@ export interface TestHook {
       tiles: number[]
       resolve: number[]
     } | null
+    heightProbe: number[] | null
     volumeMs: number
     atmosphere: boolean
     lutMs: number

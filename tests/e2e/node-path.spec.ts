@@ -12,6 +12,16 @@ import {
 import { encodeShadowInputs } from '../../src/render/clouds/shadowInputs'
 import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
 import {
+  SEABED_HEIGHT,
+  TERRAIN_EXTENT,
+  defaultTerrain,
+} from '../../src/sim/terrain'
+import {
+  HEIGHT_PROBE_COUNT,
+  heightMaxError,
+  heightProbePoint,
+} from '../../src/render/terrain/heightProbe'
+import {
   MARCH_PROBE_HEIGHT,
   MARCH_PROBE_WIDTH,
   byteDifference,
@@ -167,7 +177,10 @@ test.describe('node 経路', () => {
 
   test('WGSL でも GLSL 版とビット一致する', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
-    const { result, errors } = await probe(page, 'gpu=2&marchprobe=1')
+    const { result, errors } = await probe(
+      page,
+      'gpu=2&marchprobe=1&heightprobe=1',
+    )
     expect(errors).toEqual([])
 
     // ハッシュ
@@ -219,6 +232,19 @@ test.describe('node 経路', () => {
       diff.differing,
       `WGSL の足し込みで違うバイトが ${diff.differing} 個`,
     ).toBeLessThan(hook!.marchProbe!.resolve.length * 0.01)
+
+    // 高さ場。突き合わせる相手は sim の `heightAt` そのもの
+    expect(result.heightProbe, 'WGSL 側が高さ場を引いていない').toBeTruthy()
+    const terrain = defaultTerrain()
+    const expectedHeights = Array.from({ length: HEIGHT_PROBE_COUNT }, (_, i) => {
+      const p = heightProbePoint(i)
+      return terrain.heightAt(p.x, p.z)
+    })
+    const heightWorst = heightMaxError(expectedHeights, result.heightProbe!)
+    expect(
+      heightWorst,
+      `WGSL の高さ場の最大のずれ ${heightWorst} m`,
+    ).toBeLessThan(1e-2)
   })
 
   /**
@@ -340,6 +366,42 @@ test.describe('node 経路', () => {
       diff.differing,
       `足し込みで違うバイトが ${diff.differing} 個、最大 ${diff.max}`,
     ).toBe(0)
+  })
+
+  test('TSL の高さ場が sim の高さと一致する', async ({ page }) => {
+    // **段 14 の合格条件。**「見えている山と当たる山が違う」を機械で止める。
+    // 突き合わせる相手は GLSL 版ではなく `src/sim/terrain.ts` そのもの
+    const { result, errors } = await probe(page, 'gpu=1&heightprobe=1')
+    expect(errors).toEqual([])
+    expect(result.heightProbe, 'TSL 側が高さ場を引いていない').toBeTruthy()
+    expect(result.heightProbe!.length).toBe(HEIGHT_PROBE_COUNT)
+
+    const terrain = defaultTerrain()
+    const expected = Array.from({ length: HEIGHT_PROBE_COUNT }, (_, i) => {
+      const p = heightProbePoint(i)
+      return terrain.heightAt(p.x, p.z)
+    })
+
+    // **平らな海底ばかりを引いていないこと。**双三次を間違えても一致する
+    const land = expected.filter((h) => h > 0).length
+    const varied = expected.filter((h) => Math.abs(h - SEABED_HEIGHT) > 0.5).length
+    expect(land, `陸地の標本が ${land} 点しかない`).toBeGreaterThan(20)
+    expect(varied, `平らでない標本が ${varied} 点しかない`).toBeGreaterThan(40)
+    expect(Math.max(...expected), '高い山を通っていない').toBeGreaterThan(1000)
+    // **縁の外を通っていること。**止める処理はここでしか通らない
+    const half = TERRAIN_EXTENT / 2
+    const outside = Array.from({ length: HEIGHT_PROBE_COUNT }, (_, i) =>
+      heightProbePoint(i),
+    ).filter((p) => Math.abs(p.x) > half || Math.abs(p.z) > half).length
+    expect(outside, `範囲の外の標本が ${outside} 点しかない`).toBeGreaterThan(4)
+
+    // **1e-3 m には収まらない。**計画はそこを合格条件に置いていたが、
+    // GPU は float32 で解く。CPU 側の式を `Math.fround` で float32 に丸める
+    // だけで最大 1.03 mm ずれることを測った。実測のずれは 4.5 mm で、
+    // 高さ 2,050 m に対して相対 2.2e-6（float32 の 18 ulp ぶん）。
+    // **移植を間違えれば m の単位で外れる**ので、1 cm を関門にする
+    const worst = heightMaxError(expected, result.heightProbe!)
+    expect(worst, `最大のずれ ${worst} m`).toBeLessThan(1e-2)
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

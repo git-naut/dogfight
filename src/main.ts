@@ -341,6 +341,7 @@ async function main(): Promise<void> {
       // ヒストグラムの不一致が移植の欠陥なのか入力の違いなのか分からない
       shadowInputs: capture.shadowInputs,
       marchProbe: capture.marchProbe,
+      heightProbe: capture.heightProbe,
     })
     hook.gpuProbe = probe
     hook.backend = probe.backend

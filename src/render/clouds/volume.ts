@@ -1,6 +1,7 @@
 import {
   ClampToEdgeWrapping,
   type Data3DTexture,
+  FloatType,
   LinearFilter,
   Mesh,
   OrthographicCamera,
@@ -151,10 +152,13 @@ export function bakeVolume(
 /**
  * 2D のテクスチャを 1 枚焼く。気象マップと雲影とマーチに使う。
  *
- * @param repeat 端で折り返すか。**既定は折り返さない。**世界座標で引き回す
+ * `repeat` は端で折り返すか。**既定は折り返さない。**世界座標で引き回す
  * 気象マップだけが折り返す。マーチの結果を近傍で舐めるときは、端の外を
  * どう読むかが既定の経路（`WebGLRenderTarget` の既定は端で止める）と揃って
  * いないと縁の画素だけ値が変わる。**実測で 36,864 バイト中 432 個が動いた**
+ *
+ * `float` は 32bit 浮動小数で受けるか。高さ場のように 1e-3 m の精度で
+ * 読み戻したいものに使う。8bit では階調が足りない
  */
 export function bakePlane(
   renderer: Renderer,
@@ -162,11 +166,12 @@ export function bakePlane(
   width: number,
   height: number,
   fragment: Node<'vec4'>,
-  repeat = false,
+  options: { repeat?: boolean; float?: boolean } = {},
 ): RenderTarget {
+  const repeat = options.repeat ?? false
   const target = new RenderTarget(width, height, {
     format: RGBAFormat,
-    type: UnsignedByteType,
+    type: options.float === true ? FloatType : UnsignedByteType,
     depthBuffer: false,
     stencilBuffer: false,
   })

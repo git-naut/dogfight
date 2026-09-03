@@ -400,6 +400,12 @@ export interface NodeProbeResult {
     resolve: number[]
   } | null
   /**
+   * TSL で引いた高さ場 64 点 m。`?heightprobe=1` のときだけ埋まる。
+   *
+   * `src/sim/terrain.ts` の `heightAt` と 1e-3 m 以内で一致するはず
+   */
+  heightProbe: number[] | null
+  /**
    * 形状 64³・ディテール 32³・気象 512² を焼くのにかかったミリ秒。
    *
    * GLSL 版の `hook.noiseMs` と並べる。node 経路でも起動時の費用になる

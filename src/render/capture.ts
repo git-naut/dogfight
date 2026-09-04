@@ -183,6 +183,13 @@ export interface CaptureConfig {
    */
   toneProbe: boolean
   /**
+   * 雲を大気へ差し込む合成を焼いて出すか。`?overlayprobe=1`。
+   *
+   * `AerialPerspectiveNode` に `overlay` が無いので自前で書く。式が
+   * GLSL 版と同じかを見る。**早期打ち切りの枝はマーカーで数える**
+   */
+  overlayProbe: boolean
+  /**
    * キャプチャで雲を描き重ねる枚数。`?converge=N`。0 なら既定の規則に従う。
    *
    * 既定は雲量 0 なら 2 枚、そうでなければ `CAPTURE_CONVERGE_FRAMES`。
@@ -308,6 +315,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     nodeShadow: params.get('nodeshadow') === '1',
     spriteProbe: params.get('spriteprobe') === '1',
     toneProbe: params.get('toneprobe') === '1',
+    overlayProbe: params.get('overlayprobe') === '1',
     converge: clampInt(params.get('converge'), 0, 16, 0),
     shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
     cloudFar: params.has('cloudfar')
@@ -542,6 +550,13 @@ export interface TestHook {
   spriteProbe: { soft: number[]; core: number[] } | null
   /** トーンマッピングの生バイト。`?toneprobe=1` のときだけ埋まる */
   toneProbe: number[] | null
+  /**
+   * 雲の合成の生バイト。`?overlayprobe=1` のときだけ埋まる。
+   *
+   * `composite` が合成の結果、`marker` が枝の色分け。**結果だけでは枝を
+   * 数えられない**ので 2 枚とも持つ
+   */
+  overlayProbe: { composite: number[]; marker: number[] } | null
   marchProbe: {
     samples: { total: number; max: number; hit: number }
     exhausted: number

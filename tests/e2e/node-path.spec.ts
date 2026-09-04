@@ -18,6 +18,15 @@ import {
 } from '../../src/sim/terrain'
 import { toneProbeLevels } from '../../src/render/toneProbe'
 import {
+  OVERLAY_PROBE_COUNT,
+  OVERLAY_PROBE_EARLY_COUNT,
+  OVERLAY_PROBE_BASE_RATIO,
+  OVERLAY_PROBE_LATE_COUNT,
+  OVERLAY_PROBE_SIDE,
+  overlayMarkerCounts,
+  overlayProbeExpected,
+} from '../../src/render/overlayProbe'
+import {
   SPRITE_PROBE_SIDE,
   spriteDrawnPixels,
   spriteProbeCrossesCoreCut,
@@ -561,6 +570,138 @@ test.describe('node 経路', () => {
       diff.differing,
       `AgX で違うバイトが ${diff.differing} 個`,
     ).toBeLessThan(glsl!.length * 0.01)
+  })
+
+  test('TSL の雲の合成が GLSL 版とバイト一致し、両方の枝を通る', async ({ page }) => {
+    // **段 17。**`AerialPerspectiveNode` に `overlay` が無いので、雲を大気へ
+    // 差し込む合成を自前で書く。式は takram の断片シェーダから写した
+    // （原本との照合は `tests/render/overlayProbe.test.ts`）
+    const { result, errors } = await probe(page, 'gpu=1&overlayprobe=1')
+    expect(errors).toEqual([])
+    expect(result.overlay, 'TSL 側が合成を焼いていない').toBeTruthy()
+
+    await page.goto('/dogfight/?capture=1&frame=0&overlayprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const glsl = hook?.overlayProbe
+    expect(glsl, 'GLSL 側が合成を焼いていない').toBeTruthy()
+
+    // **枝を数えるのが先。**通っていない枝は検査されない（段 13・14・16）。
+    // 早期打ち切りは値としては何も変えないので、合成の結果を比べても
+    // 枝を通ったかどうかは出てこない
+    const glslBranch = overlayMarkerCounts(glsl!.marker)
+    const tslBranch = overlayMarkerCounts(result.overlay!.marker)
+    expect(glslBranch.other, 'GLSL 側に枝の色でない画素がある').toBe(0)
+    expect(tslBranch.other, 'TSL 側に枝の色でない画素がある').toBe(0)
+    expect(glslBranch.early, 'GLSL 側が早期打ち切りを通っていない').toBe(
+      OVERLAY_PROBE_EARLY_COUNT,
+    )
+    expect(glslBranch.late, 'GLSL 側が合成を通っていない').toBe(
+      OVERLAY_PROBE_LATE_COUNT,
+    )
+    expect(tslBranch).toEqual(glslBranch)
+
+    // 階調を使い切っていること。片側が空の絵なら式を間違えても一致する
+    const reds = glsl!.composite.filter((_, i) => i % 4 === 0)
+    const span = Math.max(...reds) - Math.min(...reds)
+    expect(span, `階調の幅が ${span} しかない`).toBeGreaterThan(150)
+
+    // **バイトまで一致するはず。**掛けて足すだけの式で、順序も揃えてある
+    const diff = byteDifference(glsl!.composite, result.overlay!.composite)
+    expect(diff.max, `合成の最大差 ${diff.max}`).toBeLessThanOrEqual(1)
+    expect(
+      diff.differing,
+      `合成で違うバイトが ${diff.differing} 個`,
+    ).toBeLessThan(glsl!.composite.length * 0.01)
+
+    // **両側が同じ写し間違いをしていないか。**同じ原本から同じ人が写すので、
+    // バイト一致だけでは「2 つとも間違っている」を通してしまう
+    const cpu = overlayProbeExpected()
+    expect(cpu.length).toBe(OVERLAY_PROBE_COUNT * 4)
+    const vsCpu = byteDifference(cpu, glsl!.composite)
+    expect(vsCpu.max, `CPU 参照との最大差 ${vsCpu.max}`).toBeLessThanOrEqual(1)
+
+    // **レンダーターゲットから引き直しても同じ絵になるか。**本番の雲は
+    // レンダーターゲットから来る。node 経路は v を裏返して読むので、
+    // そこが合っていなければ上下の裏返った雲を合成することになる。
+    //
+    // **一致は階調 1 まで。**8 ビットのレンダーターゲットを経由するので、
+    // 雲の色と不透明度が 1/255 刻みへ丸められる（実測で 16,384 バイト中
+    // 2,279 個が 1 階調ずれた）。**向きの検査に量子化は関係ない**ので、
+    // 裏返した絵との差で歯があることを裏取りする
+    const sampled = byteDifference(
+      result.overlay!.composite,
+      result.overlay!.sampled,
+    )
+    expect(
+      sampled.max,
+      `引き直すと最大 ${sampled.max} 階調ずれる（上下が裏返っている疑い）`,
+    ).toBeLessThanOrEqual(1)
+
+    const flipped: number[] = []
+    for (let row = OVERLAY_PROBE_SIDE - 1; row >= 0; row--) {
+      const at = row * OVERLAY_PROBE_SIDE * 4
+      flipped.push(
+        ...result.overlay!.composite.slice(at, at + OVERLAY_PROBE_SIDE * 4),
+      )
+    }
+    const vsFlipped = byteDifference(flipped, result.overlay!.sampled)
+    expect(
+      vsFlipped.max,
+      '上下を裏返しても差が出ない。向きの検査に歯がない',
+    ).toBeGreaterThan(20)
+
+    // **早期打ち切りが効いているかは絵に出ない。**枝を通った数を数えても、
+    // 大気の組み立てが `else` の中にあるかは分からない。生成された本文を
+    // 読んで位置で確かめる。**外へ出た瞬間に稼ぎが消える**
+    const source = (result.overlaySource ?? '').replace(/\s+/g, ' ')
+    expect(source, '断片シェーダの本文が取れていない').toContain('void main()')
+    const elseAt = source.indexOf('} else {')
+    expect(elseAt, '生成された本文に else が無い').toBeGreaterThan(0)
+
+    const baseNeedle = `vec3( ${OVERLAY_PROBE_BASE_RATIO.r}, ${OVERLAY_PROBE_BASE_RATIO.g}, ${OVERLAY_PROBE_BASE_RATIO.b} )`
+    const occurrences = source.split(baseNeedle).length - 1
+    expect(occurrences, `下地の組み立てが本文に ${occurrences} 回現れる`).toBe(1)
+    expect(
+      source.indexOf(baseNeedle),
+      '下地の組み立てが else の外にある。早期打ち切りが稼がない',
+    ).toBeGreaterThan(elseAt)
+
+    // 早期打ち切りの条件そのものも本文にあること
+    expect(source, '不透明度 1 の判定が本文に無い').toMatch(/\.w == 1\.0/)
+  })
+
+  test('WebGPU でも雲の合成が GLSL 版と一致する', async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium-webgpu',
+      'WebGPU の起動引数が要る',
+    )
+    const { result, errors } = await probe(page, 'gpu=2&overlayprobe=1')
+    expect(errors).toEqual([])
+    expect(result.backend).toBe('node-webgpu')
+    expect(result.overlay, 'TSL 側が合成を焼いていない').toBeTruthy()
+
+    await page.goto('/dogfight/?capture=1&frame=0&overlayprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const glsl = hook?.overlayProbe
+    expect(glsl, 'GLSL 側が合成を焼いていない').toBeTruthy()
+
+    // **枝の数は WGSL でも同じはず。**整数なので丸めが効かない
+    const branch = overlayMarkerCounts(result.overlay!.marker)
+    expect(branch).toEqual({
+      early: OVERLAY_PROBE_EARLY_COUNT,
+      late: OVERLAY_PROBE_LATE_COUNT,
+      other: 0,
+    })
+
+    // WGSL は演算順序が動きうるので階調 1 まで許す（段 13・16 と同じ）
+    const diff = byteDifference(glsl!.composite, result.overlay!.composite)
+    expect(diff.max, `合成の最大差 ${diff.max}`).toBeLessThanOrEqual(1)
   })
 
   test('既定の経路は node を立てない', async ({ page }) => {

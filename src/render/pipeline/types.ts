@@ -266,6 +266,12 @@ export interface ScenePipeline {
   readSpriteProbe(opaqueCore: boolean): number[]
   /** トーンマッピングを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
   readToneProbe(): number[]
+  /**
+   * 雲の合成を 1 枚焼いて読み戻す。TSL 版との突き合わせ専用。
+   *
+   * @param marker 枝のマーカーを出すか。false なら合成の結果
+   */
+  readOverlayProbe(marker: boolean): number[]
 
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
@@ -422,6 +428,22 @@ export interface NodeProbeResult {
    * 測り直さずに済むかがここで決まる
    */
   tone: number[] | null
+  /**
+   * TSL で焼いた雲の合成。`?overlayprobe=1` のときだけ埋まる。
+   *
+   * `composite` が合成の結果、`marker` が枝の色分け、`sampled` が
+   * レンダーターゲットから引き直した合成。**`sampled` は `composite` と
+   * バイトまで一致するはず。**node 経路はレンダーターゲットのテクスチャを
+   * 引くとき v を裏返すので、そこが合っていなければここで出る
+   */
+  overlay: { composite: number[]; marker: number[]; sampled: number[] } | null
+  /**
+   * 生成された断片シェーダのうち、雲の合成を含む部分。
+   *
+   * **早期打ち切りが効いているかは絵に出ない。**大気の呼び出しが
+   * `else` の中にあることを本文で確かめるために持ち帰る
+   */
+  overlaySource: string | null
   /**
    * node 経路の影の測り。`?nodeshadow=1` のときだけ埋まる。
    *

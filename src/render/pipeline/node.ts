@@ -115,6 +115,8 @@ export interface NodeProbeOptions {
   spriteProbe: boolean
   /** トーンマッピングを TSL で焼くか。`?toneprobe=1` */
   toneProbe: boolean
+  /** 雲の合成を焼くか。`?overlayprobe=1` */
+  overlayProbe: boolean
   /**
    * 雲のマーチを固定の入力で焼くか。`?marchprobe=1`。
    *
@@ -479,6 +481,89 @@ export async function runNodeProbe(
     )
     tone = await volume.readPlane(renderer, toneTarget, side, side, isWebGPU)
     toneTarget.dispose()
+  }
+
+  // ---- 雲の合成 ----
+  //
+  // **段 17。**`AerialPerspectiveNode` に `overlay` が無いので、雲を大気へ
+  // 差し込む合成を自前で書く。式は GLSL 版から写した
+  let overlay: NodeProbeResult['overlay'] = null
+  let overlaySource: NodeProbeResult['overlaySource'] = null
+  if (options.overlayProbe) {
+    const probe = await import('../overlayProbe')
+    const overlayNodes = await import('../overlayNodes')
+    const side = probe.OVERLAY_PROBE_SIDE
+
+    // GLSL 側と同じ式で入力を導く。**写しを 2 つ持たないよう定数は
+    // `overlayProbe.ts` から読む**
+    const col = tsl.floor(tsl.uv().x.mul(side))
+    const row = tsl.floor(tsl.uv().y.mul(side))
+    // **除算で 1 を作らない。**GLSL 側と同じ理由（`overlayProbe.ts` の注記）
+    const alpha = tsl.select(
+      col.greaterThanEqual(probe.OVERLAY_PROBE_FULL_COLUMN),
+      tsl.float(1),
+      col.div(probe.OVERLAY_PROBE_FULL_COLUMN),
+    )
+    const bright = row.div(side - 1)
+
+    const cloudNode = tsl.vec4(
+      tsl
+        .vec3(
+          probe.OVERLAY_PROBE_CLOUD_RATIO.r,
+          probe.OVERLAY_PROBE_CLOUD_RATIO.g,
+          probe.OVERLAY_PROBE_CLOUD_RATIO.b,
+        )
+        .mul(alpha)
+        .mul(tsl.float(1).sub(bright)),
+      alpha,
+    )
+    // 大気の結果の代わり。**関数で渡す。**呼ばれるのは `Else` の中だけ
+    const baseNode = (): import('three/webgpu').Node<'vec4'> =>
+      tsl.vec4(
+        tsl
+          .vec3(
+            probe.OVERLAY_PROBE_BASE_RATIO.r,
+            probe.OVERLAY_PROBE_BASE_RATIO.g,
+            probe.OVERLAY_PROBE_BASE_RATIO.b,
+          )
+          .mul(bright),
+        probe.OVERLAY_PROBE_BASE_ALPHA,
+      )
+
+    const bake = async (fragment: import('three/webgpu').Node<'vec4'>): Promise<number[]> => {
+      const target = volume.bakePlane(renderer, quad, side, side, fragment)
+      const bytes = await volume.readPlane(renderer, target, side, side, isWebGPU)
+      target.dispose()
+      return bytes
+    }
+
+    const composite = await bake(overlayNodes.overlayCompositeNode(cloudNode, baseNode))
+    const marker = await bake(
+      overlayNodes.overlayCompositeNode(cloudNode, baseNode, { marker: true }),
+    )
+
+    // **引き直しても同じ絵になるか。**雲は本番ではレンダーターゲットから
+    // 来る。node 経路は `isRenderTargetTexture` のとき v を裏返して読むので
+    // （`resolveNodes.ts` の `sampleTarget`）、そこが合っていなければ
+    // 上下の裏返った雲を合成することになる。**絵は出るが上下が逆になる**
+    const cloudTarget = volume.bakePlane(renderer, quad, side, side, cloudNode)
+    const sampledCloud = tsl.texture(
+      cloudTarget.texture,
+      tsl.vec2(tsl.uv().x, tsl.float(1).sub(tsl.uv().y)),
+    ) as unknown as import('three/webgpu').Node<'vec4'>
+    const sampled = await bake(
+      overlayNodes.overlayCompositeNode(sampledCloud, baseNode),
+    )
+    cloudTarget.dispose()
+
+    overlay = { composite, marker, sampled }
+
+    // 早期打ち切りが効いているかは絵に出ない。本文で位置を確かめる
+    overlaySource = await volume.bakeShaderSource(
+      renderer,
+      quad,
+      overlayNodes.overlayCompositeNode(cloudNode, baseNode),
+    )
   }
 
   // ---- 円形スプライト ----
@@ -881,6 +966,8 @@ export async function runNodeProbe(
     heightProbe,
     sprite,
     tone,
+    overlay,
+    overlaySource,
     nodeShadow,
     volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',

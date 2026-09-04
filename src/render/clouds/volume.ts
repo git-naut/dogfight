@@ -92,6 +92,34 @@ function drawWith(
   material.dispose()
 }
 
+/**
+ * 生成された断片シェーダの本文を取り出す。
+ *
+ * **枝がどこにあるかは絵に出ない。**早期打ち切りは値としては何も変えない
+ * ので、バイトを比べても「大気の呼び出しが `else` の中にあるか」は
+ * 分からない。本文を読んで位置で確かめる
+ */
+export async function bakeShaderSource(
+  renderer: Renderer,
+  quad: BakeQuad,
+  fragment: Node<'vec4'>,
+): Promise<string> {
+  const material = fragmentMaterial(fragment)
+  const previous = quad.mesh.material
+  quad.mesh.material = material
+  try {
+    const shader = await renderer.debug.getShaderAsync(
+      quad.scene,
+      quad.camera,
+      quad.mesh,
+    )
+    return shader.fragmentShader ?? ''
+  } finally {
+    quad.mesh.material = previous
+    material.dispose()
+  }
+}
+
 export interface VolumeOptions {
   /** 一辺のテクセル数。深さも同じ */
   side: number

@@ -107,6 +107,8 @@ export interface TestHook {
     heightProbe: number[] | null
     sprite: { soft: number[]; core: number[] } | null
     tone: number[] | null
+    overlay: { composite: number[]; marker: number[]; sampled: number[] } | null
+    overlaySource: string | null
     nodeShadow: {
       filter: string
       casters: number
@@ -142,6 +144,7 @@ export interface TestHook {
   /** 固定の入力で焼いた雲のマーチ。`?marchprobe=1` のときだけ埋まる */
   spriteProbe: { soft: number[]; core: number[] } | null
   toneProbe: number[] | null
+  overlayProbe: { composite: number[]; marker: number[] } | null
   marchProbe: {
     samples: { total: number; max: number; hit: number }
     exhausted: number

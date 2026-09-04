@@ -291,6 +291,35 @@ export const BITE_MARKS = [
     why: 'NaN との差は比較が常に false になるので、最大のずれ 0 として通ってしまう。読み戻せていない点を一致したと読む形を作らない',
   },
   {
+    id: 'overlay-probe-never-opaque',
+    kind: '定数の摂動',
+    file: 'src/render/overlayProbe.ts',
+    find: 'export const OVERLAY_PROBE_FULL_COLUMN = 47',
+    replace: 'export const OVERLAY_PROBE_FULL_COLUMN = 64',
+    expect: 'tests/render/overlayProbe.test.ts',
+    lesson: '通っていない枝は検査されない',
+  },
+  {
+    id: 'overlay-composite-line-drift',
+    kind: '定数の摂動',
+    file: 'src/render/overlayProbe.ts',
+    find: `export const OVERLAY_COMPOSITE_GLSL =
+  'outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;'`,
+    replace: `export const OVERLAY_COMPOSITE_GLSL =
+  'outputColor.rgb = outputColor.rgb * (1.0 - overlay.r) + overlay.rgb;'`,
+    expect: 'tests/render/overlayProbe.test.ts',
+    why: '合成の式は takram の断片シェーダから写したもの。写しが原本から離れても、GLSL 版と TSL 版が同じ写し間違いをしていればバイトは一致する。原本との照合が働かなくなる形を作らない',
+  },
+  {
+    id: 'overlay-marker-drop-other',
+    kind: '文の削除',
+    file: 'src/render/overlayProbe.ts',
+    find: '    else other++\n',
+    replace: '',
+    expect: 'tests/render/overlayProbe.test.ts',
+    why: 'どちらの枝の色でもない画素を数えないと、枝の書き分けが壊れていても片方の数が合っているだけで通る',
+  },
+  {
     id: 'sprite-probe-opacity-below-core-cut',
     kind: '定数の摂動',
     file: 'src/render/weapons/spriteProbe.ts',

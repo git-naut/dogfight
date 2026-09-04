@@ -100,6 +100,8 @@ export interface SceneHandle {
   readSpriteProbe(opaqueCore: boolean): number[]
   /** トーンマッピングを 1 枚焼いて読み戻す。`?toneprobe=1` で使う */
   readToneProbe(): number[]
+  /** 雲の合成を 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
+  readOverlayProbe(marker: boolean): number[]
   /** 時間方向の足し込みを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
   readResolveProbe(): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
@@ -475,6 +477,10 @@ export async function createScene(
 
     readToneProbe() {
       return pipeline.readToneProbe()
+    },
+
+    readOverlayProbe(marker: boolean) {
+      return pipeline.readOverlayProbe(marker)
     },
 
     readResolveProbe() {

@@ -1123,6 +1123,7 @@ export async function runNodeProbe(
 
     pipelineTarget.dispose()
     pipeline.dispose()
+    clouds.dispose()
     // **この先の素の `render()` に露出を持ち越さない。**鎖の外の測りが
     // 変わると、同じ結果の中で条件の違うものが並ぶ
     renderer.toneMapping = THREE.NoToneMapping

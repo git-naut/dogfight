@@ -90,10 +90,10 @@ const VERTEX_SHADER = /* glsl */ `
  * 小さいほど時間方向に長く均されて誤差が消えるが、動きに対する追従が遅れる。
  * 1/8 なら 8 フレーム、60fps で 0.13 秒で入れ替わる。
  */
-const BLEND_WEIGHT = 0.125
+export const BLEND_WEIGHT = 0.125
 
 /** ずらしの周期。この本数ぶんで一巡する */
-const JITTER_PERIOD = 16
+export const JITTER_PERIOD = 16
 
 /**
  * キャプチャモードで収束させる本数。
@@ -110,7 +110,7 @@ export const CAPTURE_CONVERGE_FRAMES = 8
  *
  * 乱数でずらすと粗密ができて収束が遅い。等間隔だと格子が残る。
  */
-function halton(index: number, base: number): number {
+export function halton(index: number, base: number): number {
   let result = 0
   let f = 1 / base
   let i = index

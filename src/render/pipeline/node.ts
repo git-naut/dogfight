@@ -50,8 +50,8 @@ import {
   REFERENCE_LATITUDE,
   REFERENCE_LONGITUDE,
 } from '../atmosphere'
-import type { NodeProbeResult } from './types'
-import type { ShadowFilter } from '../quality'
+import { DEFAULT_EXPOSURE, type NodeProbeResult } from './types'
+import type { QualitySettings } from '../quality'
 
 /**
  * node 経路を立てて glb を 1 枚描く。
@@ -82,14 +82,13 @@ export interface NodeProbeOptions {
   frames?: number
   /** 時刻 0〜24。WebGL 経路と同じ太陽が出ることを確かめるのに使う */
   hour: number
-  /** 大気の LUT の解像度の倍率。プリセットの `atmosphereLutScale` */
-  lutScale: number
-  /** 空から焼く環境反射の一辺。0 で焼かない */
-  skyEnvironmentSize: number
-  /** 遠景の霞を光線行進で解くか */
-  raymarchScattering: boolean
-  /** 影マップのフィルタ。プリセットの `shadowFilter` */
-  shadowFilter: ShadowFilter
+  /**
+   * 品質プリセット。
+   *
+   * **項目ごとに受け取らない。**LUT の倍率も影のフィルタも雲の歩数も同じ
+   * 表から来るので、写しを作ると片方だけ古くなる。`?preset=` で振れる
+   */
+  quality: QualitySettings
   /**
    * 雲影を焼くときの入力。null なら焼かない。
    *
@@ -117,6 +116,13 @@ export interface NodeProbeOptions {
   toneProbe: boolean
   /** 雲の合成を焼くか。`?overlayprobe=1` */
   overlayProbe: boolean
+  /**
+   * ポストの鎖を `RenderPipeline` で組むか。`?nodepipeline=1`。
+   *
+   * `pass(scene, camera)` → 雲の合成 → `smaa` → `renderOutput`。
+   * **WebGPU バックエンドでだけ組む。**大気が要るため
+   */
+  nodePipeline: boolean
   /**
    * 雲のマーチを固定の入力で焼くか。`?marchprobe=1`。
    *
@@ -686,6 +692,7 @@ export async function runNodeProbe(
     typeof import('@takram/three-atmosphere/webgpu').AtmosphereContext
   > | null = null
   let sunElevationDeg = 0
+  const sunDirectionWorld = new THREE.Vector3(0, 1, 0)
 
   if (isWebGPU) {
     // ---- 大気を node 経路で組む ----
@@ -711,24 +718,29 @@ export async function runNodeProbe(
       (Math.asin(Math.max(-1, Math.min(1, sunDirectionECEF.dot(localUpECEF)))) * 180) /
       Math.PI
 
+    // 雲のライティングはワールド座標の太陽の向きで要る。ECEF から戻す
+    sunDirectionWorld
+      .copy(sunDirectionECEF)
+      .transformDirection(worldToECEF.clone().invert())
+
     atmosphereContext = new atmos.AtmosphereContext()
     atmosphereContext.camera = camera
-    atmosphereContext.raymarchScattering = options.raymarchScattering
+    atmosphereContext.raymarchScattering = options.quality.aerialRaymarchScattering
     // `matrixECEFToWorld` と `cameraPositionECEF` は `onRenderUpdate` で
     // ここから導かれる。入れるのは元になる 3 つだけでよい
     atmosphereContext.matrixWorldToECEF.value.copy(worldToECEF)
     atmosphereContext.sunDirectionECEF.value.copy(sunDirectionECEF)
     atmosphereContext.moonDirectionECEF.value.copy(moonDirectionECEF)
 
-    if (options.lutScale !== 1) {
+    if (options.quality.atmosphereLutScale !== 1) {
       // **面積で効く。**倍率を半分にすると計算量は 4 分の 1 になる
       const p = atmosphereContext.parameters
       const one2 = new THREE.Vector2(1, 1)
       const one3 = new THREE.Vector3(1, 1, 1)
-      p.transmittanceTextureSize.multiplyScalar(options.lutScale).round().max(one2)
-      p.irradianceTextureSize.multiplyScalar(options.lutScale).round().max(one2)
-      p.multipleScatteringTextureSize.multiplyScalar(options.lutScale).round().max(one2)
-      p.scatteringTextureSize.multiplyScalar(options.lutScale).round().max(one3)
+      p.transmittanceTextureSize.multiplyScalar(options.quality.atmosphereLutScale).round().max(one2)
+      p.irradianceTextureSize.multiplyScalar(options.quality.atmosphereLutScale).round().max(one2)
+      p.multipleScatteringTextureSize.multiplyScalar(options.quality.atmosphereLutScale).round().max(one2)
+      p.scatteringTextureSize.multiplyScalar(options.quality.atmosphereLutScale).round().max(one3)
     }
 
     // **既存の `contextNode.value` を潰さない。**`renderer.highPrecision = true`
@@ -757,9 +769,12 @@ export async function runNodeProbe(
       backgroundNode: unknown
       environmentNode: unknown
     }
-    sceneNodes.backgroundNode = atmos.skyBackground()
-    if (options.skyEnvironmentSize > 0) {
-      sceneNodes.environmentNode = atmos.skyEnvironment(options.skyEnvironmentSize)
+    // **鎖を組むときは空クアッドを置かない。**`AerialPerspectiveNode` が
+    // `depth >= 1` の画素で `skyNode` を評価するので、背景にも空を入れると
+    // 二重に描くことになる（計画の段 15 の注記）
+    if (!options.nodePipeline) sceneNodes.backgroundNode = atmos.skyBackground()
+    if (options.quality.skyEnvironmentSize > 0) {
+      sceneNodes.environmentNode = atmos.skyEnvironment(options.quality.skyEnvironmentSize)
     }
 
   } else {
@@ -872,9 +887,9 @@ export async function runNodeProbe(
     // プリセットの列をそのまま使う。`pcfSoft` は WebGL 経路では廃止だが
     // node 経路には生きている
     renderer.shadowMap.type =
-      options.shadowFilter === 'pcfSoft'
+      options.quality.shadowFilter === 'pcfSoft'
         ? THREE.PCFSoftShadowMap
-        : options.shadowFilter === 'pcf'
+        : options.quality.shadowFilter === 'pcf'
           ? THREE.PCFShadowMap
           : THREE.BasicShadowMap
     const withShadow = await measure()
@@ -886,7 +901,7 @@ export async function runNodeProbe(
     probeTarget.dispose()
 
     nodeShadow = {
-      filter: options.shadowFilter,
+      filter: options.quality.shadowFilter,
       casters,
       aircraftDrawCalls,
       drawCallsWithout: without.drawCalls,
@@ -901,6 +916,216 @@ export async function runNodeProbe(
       changed: byteDifference(without.bytes, withShadow.bytes).differing,
       changedMax: byteDifference(without.bytes, withShadow.bytes).max,
     }
+  }
+
+  // ---- ポストの鎖 ----
+  //
+  // **段 17 の後半。**`RenderPipeline` + `pass(scene, camera)` + 雲の合成 +
+  // `smaa` + `renderOutput`。ここで初めて node 経路がポスト付きの絵を出す。
+  //
+  // 露出とトーンマッピングはレンダラの値から入る。`RenderPipeline._update`
+  // が `renderOutput(outputNode, renderer.toneMapping, ...)` を足し、
+  // `ToneMappingNode` の露出は `rendererReference('toneMappingExposure')` な
+  // ので、**GLSL 経路と同じ「レンダラに 6 を置く」形になる。**
+  let pipelineResult: NodeProbeResult['pipeline'] = null
+  let clouds: import('../clouds/cloudsNodePass').CloudsNodePass | null = null
+  if (options.nodePipeline && isWebGPU && atmosphereContext !== null) {
+    const atmos = await import('@takram/three-atmosphere/webgpu')
+    const overlayNodes = await import('../overlayNodes')
+    const cloudsNodePass = await import('../clouds/cloudsNodePass')
+    // SMAA は `three/tsl` ではなく addons 側にある。面積テクスチャと探索
+    // テクスチャを data URI で内包する
+    const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
+
+    const scenePass = tsl.pass(scene, camera)
+    // 深度は `pass` が持つテクスチャを直に引く。**パスのテクスチャノードを
+    // 雲の材質へ渡してはいけない**（その材質を焼くたびに場面がもう 1 度
+    // 描かれる）
+    const sceneDepthTexture = (
+      scenePass as unknown as { renderTarget: { depthTexture: THREE.Texture } }
+    ).renderTarget.depthTexture
+
+    clouds = cloudsNodePass.createCloudsNodePass({
+      camera,
+      noise: {
+        shape: shapeVolume.texture,
+        detail: detailVolume.texture,
+        weather: weatherPlane.texture,
+      },
+      quality: options.quality,
+      coverage: MARCH_PROBE_COVERAGE,
+      sceneDepth: sceneDepthTexture,
+      captureMode: true,
+      clampScale: 0,
+    })
+    clouds.setSize(options.width, options.height)
+    // **太陽の向きだけが実物。**色は段 13 で突き合わせた固定入力を使う。
+    // 大気の LUT から放射輝度を取り出すのは段 17c（ライティングの置き換え）
+    // の仕事で、node 経路では CPU 側に値が無い（`AtmosphereLight` は GPU で
+    // 決める）
+    clouds.update({
+      cloudTime: MARCH_PROBE_CLOUD_TIME,
+      sunDirection: sunDirectionWorld,
+      sunColor: new THREE.Vector3(
+        MARCH_PROBE_SUN_COLOR.x,
+        MARCH_PROBE_SUN_COLOR.y,
+        MARCH_PROBE_SUN_COLOR.z,
+      ),
+      ambientColor: new THREE.Vector3(
+        MARCH_PROBE_AMBIENT.x,
+        MARCH_PROBE_AMBIENT.y,
+        MARCH_PROBE_AMBIENT.z,
+      ),
+      coverage: MARCH_PROBE_COVERAGE,
+      shadowCenter: new THREE.Vector2(0, 0),
+      groundShadow: true,
+    })
+    const cloudNode = clouds.node
+    const composite = tsl.Fn(() => {
+      // **場面のパスを雲より先に触る。**`updateBefore` の呼ばれる順は
+      // ノードを辿った順で決まるので、ここで順が決まる。順が入れ替われば
+      // 雲が 1 フレーム前の深度を読む。`cloudFrameCallsAtRun` で数を見る
+      const sceneColor = scenePass.getTextureNode().toVar()
+      const sceneDepth = scenePass.getTextureNode('depth')
+      return overlayNodes.overlayCompositeNode(
+        cloudNode,
+        () =>
+          atmos.aerialPerspective(
+            sceneColor as unknown as Parameters<typeof atmos.aerialPerspective>[0],
+            sceneDepth as unknown as Parameters<typeof atmos.aerialPerspective>[1],
+          ) as unknown as import('three/webgpu').Node<'vec4'>,
+      )
+    })()
+
+    // 露出とトーンマッピングは GLSL 経路と同じ値をレンダラへ置く
+    renderer.toneMapping = THREE.AgXToneMapping
+    renderer.toneMappingExposure = DEFAULT_EXPOSURE
+
+    const outputNode = smaa(
+      composite as unknown as Parameters<typeof smaa>[0],
+    ) as unknown as import('three/webgpu').Node
+
+    const pipeline = new webgpu.RenderPipeline(renderer, outputNode)
+
+    // **`setMRT()` と `getTextureNode()` は事前コンパイルより前に済ませる**
+    // （`PassNode.setup` の注記）。上で組み終えているので順は満たしている
+    const pipelineBuildStarted = performance.now()
+    await renderer.compileAsync(scene, camera)
+    await atmosphereContext.lutNode.updateTextures(renderer)
+    const pipelineBuildMs = performance.now() - pipelineBuildStarted
+
+    const pipelineTarget = new webgpu.RenderTarget(options.width, options.height)
+    /**
+     * 1 枚描いて排出する。
+     *
+     * **排出は 1 画素で足りる。**全画面を読み戻すと 92 万画素の転送が
+     * フレーム時間に乗る（`bench.ts` と同じ作法で最小値を代表にする）
+     */
+    const drawOnce = async (): Promise<{
+      frameCalls: number
+      drawCalls: number
+    }> => {
+      renderer.info.reset()
+      clouds!.renderShadow(renderer)
+      renderer.setRenderTarget(pipelineTarget)
+      pipeline.render()
+      const frameCalls = renderer.info.render.frameCalls
+      const drawCalls = renderer.info.render.drawCalls
+      await renderer.readRenderTargetPixelsAsync(pipelineTarget, 0, 0, 1, 1)
+      renderer.setRenderTarget(null)
+      return { frameCalls, drawCalls }
+    }
+
+    const firstPipelineStarted = performance.now()
+    await drawOnce()
+    const firstPipelineMs = performance.now() - firstPipelineStarted
+
+    let steadyMs = Infinity
+    let last = { frameCalls: 0, drawCalls: 0 }
+    for (let i = 0; i < 3; i++) {
+      const started = performance.now()
+      last = await drawOnce()
+      steadyMs = Math.min(steadyMs, performance.now() - started)
+    }
+
+    // 絵は最後に 1 度だけ読み戻す
+    const readPicture = async (): Promise<number[]> => {
+      renderer.setRenderTarget(pipelineTarget)
+      clouds!.renderShadow(renderer)
+      renderer.info.reset()
+      pipeline.render()
+      const frameCalls = renderer.info.render.frameCalls
+      const bytes = await volume.readPlane(
+        renderer,
+        pipelineTarget as unknown as Parameters<typeof volume.readPlane>[1],
+        options.width,
+        options.height,
+        isWebGPU,
+      )
+      renderer.setRenderTarget(null)
+      lastPictureFrameCalls = frameCalls
+      return bytes
+    }
+    let lastPictureFrameCalls = 0
+
+    const pipelineBytes = await readPicture()
+    const smaaFrameCalls = lastPictureFrameCalls
+
+    // **SMAA が効いているかは数で見る。**鎖に入れただけでは、辺を拾って
+    // いるかどうかは分からない。外して撮り直し、パスの数と絵の両方が
+    // 動くことを確かめる
+    pipeline.outputNode = composite as unknown as import('three/webgpu').Node
+    pipeline.needsUpdate = true
+    const plainBytes = await readPicture()
+    const plainFrameCalls = lastPictureFrameCalls
+    pipeline.outputNode = outputNode
+    pipeline.needsUpdate = true
+
+    // **プリセットを当て直しても同じ材質が出ること。**`useDetail` は生成時に
+    // 畳まれるので、切り替えには材質の組み直しが要る。
+    //
+    // **1 枚の絵では確かめられない。**足し込みの状態を揃えても 328 バイト
+    // ずれる。ずらし（Halton）がフレームごとに動くので、同じ材質でも 2 枚は
+    // 一致しない。**組み直しが忠実かどうかは生成された本文で見る**
+    // **同じ本文が出るだけでは足りない。**組み直しが何もしていなくても
+    // 一致する。違うプリセットを当てて本文が変わることも見る
+    const marchSourceBefore = await clouds.marchShaderSource(renderer)
+    const { getQuality } = await import('../quality')
+    const other = getQuality(options.quality.cloudDetail ? 'low' : 'high')
+    clouds.setQuality(other)
+    const marchSourceOther = await clouds.marchShaderSource(renderer)
+    clouds.setQuality(options.quality)
+    const marchSourceAfter = await clouds.marchShaderSource(renderer)
+
+    pipelineResult = {
+      frameCalls: last.frameCalls,
+      drawCalls: last.drawCalls,
+      buildMs: pipelineBuildMs,
+      firstFrameMs: firstPipelineMs,
+      steadyMs,
+      cloudFrameCallsAtRun: clouds.frameCallsAtRun,
+      cloudDrawCallsAtRun: clouds.drawCallsAtRun,
+      cloudRenderCount: clouds.renderCount,
+      tiles: tileMeans(
+        new Uint8Array(pipelineBytes),
+        options.width,
+        options.height,
+      ),
+      smaaFrameCalls,
+      plainFrameCalls,
+      // SMAA を外すと辺の画素が変わる。0 なら鎖に入っていない
+      smaaChanged: byteDifference(pipelineBytes, plainBytes).differing,
+      smaaChangedMax: byteDifference(pipelineBytes, plainBytes).max,
+      marchSourceLength: marchSourceBefore.length,
+      requiltSameSource: marchSourceBefore === marchSourceAfter,
+      requiltOtherDiffers: marchSourceBefore !== marchSourceOther,
+    }
+
+    pipelineTarget.dispose()
+    pipeline.dispose()
+    // **この先の素の `render()` に露出を持ち越さない。**鎖の外の測りが
+    // 変わると、同じ結果の中で条件の違うものが並ぶ
+    renderer.toneMapping = THREE.NoToneMapping
   }
 
   // **`renderAsync()` は使わない。**r183 で非推奨になっていて、
@@ -968,6 +1193,7 @@ export async function runNodeProbe(
     tone,
     overlay,
     overlaySource,
+    pipeline: pipelineResult,
     nodeShadow,
     volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',
@@ -980,7 +1206,7 @@ export async function runNodeProbe(
     programs: renderer.info.memory.programs,
     atmosphere: atmosphereContext !== null,
     lutMs,
-    lutScale: options.lutScale,
+    lutScale: options.quality.atmosphereLutScale,
     buildMs,
     sunElevationDeg,
     initMs,

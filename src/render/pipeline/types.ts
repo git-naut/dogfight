@@ -445,6 +445,63 @@ export interface NodeProbeResult {
    */
   overlaySource: string | null
   /**
+   * `RenderPipeline` で組んだポストの鎖の測り。`?nodepipeline=1` のときだけ。
+   *
+   * **`cloudFrameCallsAtRun` が要。**雲は場面のパスより後に走らなければ
+   * 1 フレーム前の深度を読む。順はノードを辿った順で決まるので、式の順を
+   * 入れ替えた瞬間にここが 0 に落ちる
+   */
+  pipeline: {
+    /** 1 枚描くのに投げたパスの数 */
+    frameCalls: number
+    drawCalls: number
+    /** 事前コンパイルと LUT にかかったミリ秒 */
+    buildMs: number
+    firstFrameMs: number
+    /** 定常のフレーム時間。最小値 */
+    steadyMs: number
+    /** 雲を焼いた時点の `frameCalls`。場面のパスが先なら 1 以上 */
+    cloudFrameCallsAtRun: number
+    /**
+     * 雲を焼いた時点の `drawCalls`。
+     *
+     * **こちらが本命。**全画面クアッドのパスも `frameCalls` を 1 増やすので、
+     * 場面のパスが走ったかどうかは描画呼び出しの数で見る
+     */
+    cloudDrawCallsAtRun: number
+    cloudRenderCount: number
+    /** 4x4 の区画平均。絵が真っ黒でないことを見る */
+    tiles: number[]
+    /** SMAA 入りで投げたパスの数 */
+    smaaFrameCalls: number
+    /** SMAA を外して投げたパスの数 */
+    plainFrameCalls: number
+    /**
+     * SMAA の有無で違う画素の数。
+     *
+     * **鎖に入れただけでは辺を拾っているか分からない。**0 なら効いていない
+     */
+    smaaChanged: number
+    smaaChangedMax: number
+    /** マーチの断片シェーダの文字数。本文が取れていなければ 0 */
+    marchSourceLength: number
+    /**
+     * 同じプリセットを当て直したときに同じ本文が出るか。
+     *
+     * **1 枚の絵では確かめられない。**ずらしがフレームごとに動くので、
+     * 同じ材質でも 2 枚は一致しない（実測で 328 バイト）。`useDetail` が
+     * 生成時に畳まれる以上、組み直しの忠実さは本文で見るしかない
+     */
+    requiltSameSource: boolean
+    /**
+     * 違うプリセットを当てると本文が変わるか。
+     *
+     * **同じ本文が出るだけでは足りない。**組み直しが何もしていなくても
+     * 一致するので、変わる側も見る
+     */
+    requiltOtherDiffers: boolean
+  } | null
+  /**
    * node 経路の影の測り。`?nodeshadow=1` のときだけ埋まる。
    *
    * **`frameCallsWith` が `frameCallsWithout` の 1 つ多いだけのはず。**

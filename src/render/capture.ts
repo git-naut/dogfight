@@ -190,6 +190,12 @@ export interface CaptureConfig {
    */
   overlayProbe: boolean
   /**
+   * ポストの鎖を `RenderPipeline` で組むか。`?nodepipeline=1`。
+   *
+   * `?gpu=2` と併せて使う。既定の経路には効かない
+   */
+  nodePipeline: boolean
+  /**
    * キャプチャで雲を描き重ねる枚数。`?converge=N`。0 なら既定の規則に従う。
    *
    * 既定は雲量 0 なら 2 枚、そうでなければ `CAPTURE_CONVERGE_FRAMES`。
@@ -316,6 +322,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     spriteProbe: params.get('spriteprobe') === '1',
     toneProbe: params.get('toneprobe') === '1',
     overlayProbe: params.get('overlayprobe') === '1',
+    nodePipeline: params.get('nodepipeline') === '1',
     converge: clampInt(params.get('converge'), 0, 16, 0),
     shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
     cloudFar: params.has('cloudfar')

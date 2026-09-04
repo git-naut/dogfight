@@ -336,9 +336,7 @@ async function main(): Promise<void> {
       width: window.innerWidth,
       height: window.innerHeight,
       hour: initialSettings.hour,
-      lutScale: quality.atmosphereLutScale,
-      skyEnvironmentSize: quality.skyEnvironmentSize,
-      raymarchScattering: quality.aerialRaymarchScattering,
+      quality,
       // **GLSL 側が実際に焼いた入力を渡す。**`?shadowprobe=1` で読み出した
       // ものをそのまま `?shadowinputs=` へ載せ替える。ここで導き直すと、
       // ヒストグラムの不一致が移植の欠陥なのか入力の違いなのか分からない
@@ -349,7 +347,7 @@ async function main(): Promise<void> {
       spriteProbe: capture.spriteProbe,
       toneProbe: capture.toneProbe,
       overlayProbe: capture.overlayProbe,
-      shadowFilter: quality.shadowFilter,
+      nodePipeline: capture.nodePipeline,
     })
     hook.gpuProbe = probe
     hook.backend = probe.backend

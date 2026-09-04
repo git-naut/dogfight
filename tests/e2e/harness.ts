@@ -109,6 +109,24 @@ export interface TestHook {
     tone: number[] | null
     overlay: { composite: number[]; marker: number[]; sampled: number[] } | null
     overlaySource: string | null
+    pipeline: {
+      frameCalls: number
+      drawCalls: number
+      buildMs: number
+      firstFrameMs: number
+      steadyMs: number
+      cloudFrameCallsAtRun: number
+      cloudDrawCallsAtRun: number
+      cloudRenderCount: number
+      tiles: number[]
+      smaaFrameCalls: number
+      plainFrameCalls: number
+      smaaChanged: number
+      smaaChangedMax: number
+      marchSourceLength: number
+      requiltSameSource: boolean
+      requiltOtherDiffers: boolean
+    } | null
     nodeShadow: {
       filter: string
       casters: number

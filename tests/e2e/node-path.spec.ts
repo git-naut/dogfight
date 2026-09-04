@@ -704,6 +704,70 @@ test.describe('node 経路', () => {
     expect(diff.max, `合成の最大差 ${diff.max}`).toBeLessThanOrEqual(1)
   })
 
+  test('RenderPipeline でポストの鎖が立つ', async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium-webgpu',
+      'WebGPU の起動引数が要る',
+    )
+    const { result, errors } = await probe(page, 'gpu=2&nodepipeline=1')
+    expect(errors).toEqual([])
+    expect(result.pipeline, '鎖が組めていない').toBeTruthy()
+    const p = result.pipeline!
+
+    // **雲は場面のパスより後に走ること。**先に走ると 1 フレーム前の深度を
+    // 読む。順はノードを辿った順で決まるので、式の順を入れ替えると落ちる。
+    //
+    // **描画呼び出しの数で見る。**`frameCalls` は全画面クアッドのパス
+    // （雲影や SMAA）も 1 つずつ数えるので、場面が描かれたかどうかは出て
+    // こない。場面は機体と空母のメッシュぶんを投げる
+    expect(
+      p.cloudDrawCallsAtRun,
+      `雲を焼いた時点の描画呼び出しが ${p.cloudDrawCallsAtRun}。場面のパスより先に走っている疑い`,
+    ).toBeGreaterThan(20)
+
+    // 絵が出ていること。真っ黒なら鎖のどこかで落ちている
+    const bright = p.tiles.filter((t) => t > 0.02).length
+    expect(bright, `明るい区画が ${bright} しかない`).toBeGreaterThan(8)
+
+    // **SMAA が鎖に入っているだけでは足りない。**外すとパスの数が減り、
+    // 辺の画素が動くことを見る
+    expect(
+      p.smaaFrameCalls,
+      `SMAA 入り ${p.smaaFrameCalls} 対 外し ${p.plainFrameCalls}`,
+    ).toBeGreaterThan(p.plainFrameCalls)
+    expect(
+      p.smaaChanged,
+      'SMAA を外しても画素が動かない。辺を拾っていない',
+    ).toBeGreaterThan(0)
+
+    // 同じプリセットを当て直すと同じ材質が出る。`useDetail` が生成時に
+    // 畳まれるので、切り替えには材質の組み直しが要る。
+    //
+    // **1 枚の絵では確かめられない。**ずらしがフレームごとに動くので、
+    // 同じ材質でも 2 枚は一致しない（実測で 328 バイト）
+    expect(
+      p.marchSourceLength,
+      'マーチの本文が取れていない',
+    ).toBeGreaterThan(1000)
+    expect(
+      p.requiltSameSource,
+      'プリセットを当て直すと別の材質が出る',
+    ).toBe(true)
+    // 組み直しが何もしていなくても上は通る。変わる側も見る
+    expect(
+      p.requiltOtherDiffers,
+      '違うプリセットを当てても材質が変わらない。組み直しが働いていない',
+    ).toBe(true)
+  })
+
+  test('`?gpu=1` では鎖を組まない', async ({ page }) => {
+    // 大気の構造体が GLSL へ落ちないので、鎖は WebGPU だけ（ADR 0010）
+    const { result, errors } = await probe(page, 'gpu=1&nodepipeline=1')
+    expect(errors).toEqual([])
+    expect(result.atmosphere).toBe(false)
+    expect(result.pipeline).toBeNull()
+  })
+
   test('既定の経路は node を立てない', async ({ page }) => {
     await page.goto('/dogfight/?capture=1&frame=0')
     await page.waitForSelector('body[data-capture-ready="1"]')

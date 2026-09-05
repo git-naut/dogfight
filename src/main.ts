@@ -186,6 +186,7 @@ const hook = installTestHook({
   spriteProbe: null,
   toneProbe: null,
   overlayProbe: null,
+  surfaceProbe: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -348,6 +349,7 @@ async function main(): Promise<void> {
       toneProbe: capture.toneProbe,
       overlayProbe: capture.overlayProbe,
       nodePipeline: capture.nodePipeline,
+      surfaceProbe: capture.surfaceProbe,
     })
     hook.gpuProbe = probe
     hook.backend = probe.backend
@@ -686,6 +688,8 @@ async function main(): Promise<void> {
     // **影を焼いたあとに読む。**`renderShadow` は `view.render()` の中なので、
     // 収束のぶんを描き終えたここで読み戻す
     if (capture.toneProbe) hook.toneProbe = view.readToneProbe()
+
+    if (capture.surfaceProbe) hook.surfaceProbe = view.readSurfaceProbe()
 
     if (capture.overlayProbe) {
       hook.overlayProbe = {

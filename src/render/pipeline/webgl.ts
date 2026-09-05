@@ -1,5 +1,11 @@
 import { renderToneProbe } from '../toneProbe'
 import { renderOverlayProbe } from '../overlayProbe'
+import {
+  createSurfaceProbeShadowTexture,
+  renderTerrainSurfaceProbe,
+  renderWaterSurfaceProbe,
+} from '../terrain/surfaceProbeGl'
+import { WATER_PROBE_REGIONS } from '../terrain/surfaceProbe'
 import { renderSpriteProbe } from '../weapons/spriteProbe'
 import * as THREE from 'three'
 import { createChaseCamera } from '../camera'
@@ -449,6 +455,35 @@ export async function createWebGLPipeline(
 
     readOverlayProbe(marker: boolean) {
       return renderOverlayProbe(renderer, marker)
+    },
+
+    readSurfaceProbe() {
+      // 雲影の代わりは固定の `DataTexture`。**本番の雲影マップは使わない。**
+      // 雲量とカメラで中身が変わるので、突き合わせの入力にならない
+      const cloudShadowMap = createSurfaceProbeShadowTexture()
+      const inputs = {
+        heightMap: heightTexture,
+        terrainNormalMap: normalTexture,
+        terrainExtent: terrain.extent,
+        terrainTexels: terrain.size,
+        cloudShadowMap,
+      }
+      try {
+        const water: number[][] = []
+        const waterBranches: number[][] = []
+        for (let i = 0; i < WATER_PROBE_REGIONS.length; i++) {
+          water.push(renderWaterSurfaceProbe(renderer, inputs, i, false))
+          waterBranches.push(renderWaterSurfaceProbe(renderer, inputs, i, true))
+        }
+        return {
+          terrain: renderTerrainSurfaceProbe(renderer, inputs, false),
+          terrainBranches: renderTerrainSurfaceProbe(renderer, inputs, true),
+          water,
+          waterBranches,
+        }
+      } finally {
+        cloudShadowMap.dispose()
+      }
     },
 
     updateAircraftShadow(position) {

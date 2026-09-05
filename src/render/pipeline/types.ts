@@ -272,6 +272,17 @@ export interface ScenePipeline {
    * @param marker 枝のマーカーを出すか。false なら合成の結果
    */
   readOverlayProbe(marker: boolean): number[]
+  /**
+   * 地表と海面を固定の矩形で焼いて読み戻す。TSL 版との突き合わせ専用。
+   *
+   * 矩形もカメラも放射輝度も `terrain/surfaceProbe.ts` が唯一の定義
+   */
+  readSurfaceProbe(): {
+    terrain: number[]
+    terrainBranches: number[]
+    water: number[][]
+    waterBranches: number[][]
+  }
 
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
@@ -444,6 +455,18 @@ export interface NodeProbeResult {
    * `else` の中にあることを本文で確かめるために持ち帰る
    */
   overlaySource: string | null
+  /**
+   * 固定の矩形で焼いた地表と海面。`?surfaceprobe=1` のときだけ。
+   *
+   * `terrain` と `water` が色、`*Branches` が通った枝。**色だけでは枝を
+   * 数えられない**ので両方持つ
+   */
+  surface: {
+    terrain: number[]
+    terrainBranches: number[]
+    water: number[][]
+    waterBranches: number[][]
+  } | null
   /**
    * `RenderPipeline` で組んだポストの鎖の測り。`?nodepipeline=1` のときだけ。
    *

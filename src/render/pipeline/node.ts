@@ -117,6 +117,13 @@ export interface NodeProbeOptions {
   /** 雲の合成を焼くか。`?overlayprobe=1` */
   overlayProbe: boolean
   /**
+   * 地表と海面を固定の矩形で焼くか。`?surfaceprobe=1`。
+   *
+   * 矩形とカメラと放射輝度は `terrain/surfaceProbe.ts` が唯一の定義で、
+   * GLSL 側も同じものを読む
+   */
+  surfaceProbe: boolean
+  /**
    * ポストの鎖を `RenderPipeline` で組むか。`?nodepipeline=1`。
    *
    * `pass(scene, camera)` → 雲の合成 → `smaa` → `renderOutput`。
@@ -652,6 +659,128 @@ export async function runNodeProbe(
       heightTarget.dispose()
     }
     heightMap.dispose()
+  }
+
+  // ---- 地表と海面 ----
+  //
+  // **段 17b。**`terrain.frag` と `water.frag` の色の本体を TSL へ移した。
+  // 固定の矩形を両側へ渡してバイトで比べる。**大気に触らせない**ので
+  // `?gpu=1` でも走り、そこでは丸めまで一致するはず
+  let surface: NodeProbeResult['surface'] = null
+  if (options.surfaceProbe) {
+    const surfaceNodes = await import('../terrain/surfaceNodes')
+    const heightNodesRef = await import('../terrain/heightNodes')
+    const { defaultTerrain } = await import('../../sim/terrain')
+    const { createHeightTexture, createNormalTexture } = await import(
+      '../terrain/heightTexture'
+    )
+    const probe = await import('../terrain/surfaceProbe')
+
+    const terrain = defaultTerrain()
+    const heightMap = createHeightTexture(terrain)
+    const normalMap = createNormalTexture(terrain)
+    const probeGl = await import('../terrain/surfaceProbeGl')
+    const shadowMap = probeGl.createSurfaceProbeShadowTexture()
+    const side = probe.SURFACE_PROBE_SIDE
+
+    const inputs: import('../terrain/surfaceNodes').SurfaceInputs = {
+      heightMap,
+      extent: terrain.extent,
+      texels: terrain.size,
+      terrainNormalMap: normalMap,
+      cloudShadowMap: shadowMap,
+      cloudShadowCenter: tsl.vec2(
+        probe.SURFACE_PROBE_SHADOW_CENTER.x,
+        probe.SURFACE_PROBE_SHADOW_CENTER.z,
+      ),
+      cloudShadowExtent: tsl.float(probe.SURFACE_PROBE_SHADOW_EXTENT),
+      cloudShadowEnabled: tsl.float(1),
+      sunDirectionWorld: tsl.vec3(
+        probe.SURFACE_PROBE_SUN_DIRECTION.x,
+        probe.SURFACE_PROBE_SUN_DIRECTION.y,
+        probe.SURFACE_PROBE_SUN_DIRECTION.z,
+      ),
+      sunRadiance: tsl.vec3(
+        probe.SURFACE_PROBE_SUN_RADIANCE.x,
+        probe.SURFACE_PROBE_SUN_RADIANCE.y,
+        probe.SURFACE_PROBE_SUN_RADIANCE.z,
+      ),
+      skyRadiance: tsl.vec3(
+        probe.SURFACE_PROBE_SKY_RADIANCE.x,
+        probe.SURFACE_PROBE_SKY_RADIANCE.y,
+        probe.SURFACE_PROBE_SKY_RADIANCE.z,
+      ),
+    }
+
+    /** 画素の位置から矩形の中のワールド座標を出す。GLSL 側と同じ式 */
+    const worldXZ = (region: import('../terrain/surfaceProbe').SurfaceRegion) => {
+      const col = tsl.floor(tsl.uv().x.mul(side))
+      const row = tsl.floor(tsl.uv().y.mul(side))
+      return tsl.vec2(
+        col.add(0.5).div(side).mul(region.span).add(region.origin.x),
+        row.add(0.5).div(side).mul(region.span).add(region.origin.z),
+      )
+    }
+
+    const bake = async (
+      fragment: import('three/webgpu').Node<'vec4'>,
+    ): Promise<number[]> => {
+      const target = volume.bakePlane(renderer, quad, side, side, fragment)
+      const bytes = await volume.readPlane(renderer, target, side, side, isWebGPU)
+      target.dispose()
+      return bytes
+    }
+
+    const terrainFragment = (branchMode: boolean) =>
+      tsl.Fn(() => {
+        const region = probe.TERRAIN_PROBE_REGION
+        const xz = worldXZ(region).toVar()
+        const world = tsl.vec3(
+          xz.x,
+          heightNodesRef.terrainHeightNode(inputs, xz),
+          xz.y,
+        ).toVar()
+        return surfaceNodes.terrainSurfaceNode(
+          inputs,
+          world,
+          tsl.vec3(region.camera.x, region.camera.y, region.camera.z),
+          tsl.float(1),
+          tsl.float(1),
+          branchMode,
+        )
+      })() as import('three/webgpu').Node<'vec4'>
+
+    const waterFragment = (regionIndex: number, branchMode: boolean) =>
+      tsl.Fn(() => {
+        const region = probe.WATER_PROBE_REGIONS[regionIndex]!
+        const xz = worldXZ(region).toVar()
+        // 海面は高度 0 の平らな板
+        const world = tsl.vec3(xz.x, 0, xz.y).toVar()
+        return surfaceNodes.waterSurfaceNode(
+          inputs,
+          world,
+          tsl.vec3(region.camera.x, region.camera.y, region.camera.z),
+          tsl.float(probe.SURFACE_PROBE_WAVE_TIME),
+          tsl.float(1),
+          tsl.float(1),
+          branchMode,
+        )
+      })() as import('three/webgpu').Node<'vec4'>
+
+    surface = {
+      terrain: await bake(terrainFragment(false)),
+      terrainBranches: await bake(terrainFragment(true)),
+      water: [],
+      waterBranches: [],
+    }
+    for (let i = 0; i < probe.WATER_PROBE_REGIONS.length; i++) {
+      surface.water.push(await bake(waterFragment(i, false)))
+      surface.waterBranches.push(await bake(waterFragment(i, true)))
+    }
+
+    heightMap.dispose()
+    normalMap.dispose()
+    shadowMap.dispose()
   }
 
   quad.dispose()
@@ -1195,6 +1324,7 @@ export async function runNodeProbe(
     overlay,
     overlaySource,
     pipeline: pipelineResult,
+    surface,
     nodeShadow,
     volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',

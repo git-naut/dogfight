@@ -109,6 +109,12 @@ export interface TestHook {
     tone: number[] | null
     overlay: { composite: number[]; marker: number[]; sampled: number[] } | null
     overlaySource: string | null
+    surface: {
+      terrain: number[]
+      terrainBranches: number[]
+      water: number[][]
+      waterBranches: number[][]
+    } | null
     pipeline: {
       frameCalls: number
       drawCalls: number
@@ -163,6 +169,12 @@ export interface TestHook {
   spriteProbe: { soft: number[]; core: number[] } | null
   toneProbe: number[] | null
   overlayProbe: { composite: number[]; marker: number[] } | null
+  surfaceProbe: {
+    terrain: number[]
+    terrainBranches: number[]
+    water: number[][]
+    waterBranches: number[][]
+  } | null
   marchProbe: {
     samples: { total: number; max: number; hit: number }
     exhausted: number

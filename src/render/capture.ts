@@ -196,6 +196,12 @@ export interface CaptureConfig {
    */
   nodePipeline: boolean
   /**
+   * 地表と海面を固定の矩形で焼いて出すか。`?surfaceprobe=1`。
+   *
+   * 既定の経路と `?gpu=1|2` の両方で意味を持つ
+   */
+  surfaceProbe: boolean
+  /**
    * キャプチャで雲を描き重ねる枚数。`?converge=N`。0 なら既定の規則に従う。
    *
    * 既定は雲量 0 なら 2 枚、そうでなければ `CAPTURE_CONVERGE_FRAMES`。
@@ -323,6 +329,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     toneProbe: params.get('toneprobe') === '1',
     overlayProbe: params.get('overlayprobe') === '1',
     nodePipeline: params.get('nodepipeline') === '1',
+    surfaceProbe: params.get('surfaceprobe') === '1',
     converge: clampInt(params.get('converge'), 0, 16, 0),
     shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
     cloudFar: params.has('cloudfar')
@@ -564,6 +571,13 @@ export interface TestHook {
    * 数えられない**ので 2 枚とも持つ
    */
   overlayProbe: { composite: number[]; marker: number[] } | null
+  /** 地表と海面の生バイト。`?surfaceprobe=1` のときだけ埋まる */
+  surfaceProbe: {
+    terrain: number[]
+    terrainBranches: number[]
+    water: number[][]
+    waterBranches: number[][]
+  } | null
   marchProbe: {
     samples: { total: number; max: number; hit: number }
     exhausted: number

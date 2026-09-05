@@ -18,6 +18,12 @@ import {
 } from '../../src/sim/terrain'
 import { toneProbeLevels } from '../../src/render/toneProbe'
 import {
+  SURFACE_PROBE_SIDE,
+  WATER_PROBE_REGIONS,
+  surfaceBranchCounts,
+  surfaceLevels,
+} from '../../src/render/terrain/surfaceProbe'
+import {
   OVERLAY_PROBE_COUNT,
   OVERLAY_PROBE_EARLY_COUNT,
   OVERLAY_PROBE_BASE_RATIO,
@@ -758,6 +764,124 @@ test.describe('node 経路', () => {
       p.requiltOtherDiffers,
       '違うプリセットを当てても材質が変わらない。組み直しが働いていない',
     ).toBe(true)
+  })
+
+  test('TSL の地表と海面が GLSL 版とバイト一致し、枝をすべて通る', async ({
+    page,
+  }) => {
+    // **段 17b。**`terrain.frag` と `water.frag` の色の本体を TSL へ移した。
+    // 大気に触らせていないので `?gpu=1` でも走る
+    const { result, errors } = await probe(page, 'gpu=1&surfaceprobe=1')
+    expect(errors).toEqual([])
+    expect(result.surface, 'TSL 側が地表を焼いていない').toBeTruthy()
+
+    await page.goto('/dogfight/?capture=1&frame=0&surfaceprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const glsl = hook?.surfaceProbe
+    expect(glsl, 'GLSL 側が地表を焼いていない').toBeTruthy()
+
+    const pixels = SURFACE_PROBE_SIDE * SURFACE_PROBE_SIDE
+    expect(glsl!.terrain.length).toBe(pixels * 4)
+    expect(glsl!.water.length).toBe(WATER_PROBE_REGIONS.length)
+
+    // **枝を数えるのが先。**通っていない枝は検査されない（段 13・14・16）
+    const tb = surfaceBranchCounts(glsl!.terrainBranches)
+    expect(tb.other, '地表の枝に 0 でも 255 でもない値がある').toBe(0)
+    expect(tb.r, `摂動の枝が ${tb.r} 画素`).toBeGreaterThan(pixels / 10)
+    expect(tb.r, `摂動の枝が ${tb.r} 画素（全部通っている）`).toBeLessThan(pixels)
+    expect(tb.g, `雪の枝が ${tb.g} 画素`).toBeGreaterThan(50)
+    expect(tb.b, `急斜面の岩の枝が ${tb.b} 画素`).toBeGreaterThan(pixels / 10)
+    expect(surfaceBranchCounts(result.surface!.terrainBranches)).toEqual(tb)
+
+    // 海面は矩形ごとに数える。1 タップと双三次の両方、白波、波の遠近
+    let tap = 0
+    let bicubic = 0
+    let foam = 0
+    let wave = 0
+    let far = 0
+    for (let i = 0; i < WATER_PROBE_REGIONS.length; i++) {
+      const wb = surfaceBranchCounts(glsl!.waterBranches[i]!)
+      expect(wb.other, `海面 ${i} の枝に中間の値がある`).toBe(0)
+      expect(
+        surfaceBranchCounts(result.surface!.waterBranches[i]!),
+        `海面 ${i} の枝が両側で違う`,
+      ).toEqual(wb)
+      tap += wb.r
+      bicubic += wb.g
+      foam += wb.b
+      wave += wb.a
+      far += pixels - wb.a
+    }
+    expect(tap, `1 タップの枝が ${tap} 画素`).toBeGreaterThan(pixels / 10)
+    expect(bicubic, `双三次の枝が ${bicubic} 画素`).toBeGreaterThan(pixels / 10)
+    expect(foam, `白波の枝が ${foam} 画素`).toBeGreaterThan(pixels / 10)
+    expect(wave, `波を掛けた画素が ${wave}`).toBeGreaterThan(pixels / 10)
+    expect(far, `波を落とした画素が ${far}`).toBeGreaterThan(pixels / 10)
+
+    // 階調を使い切っていること。片側が空の絵なら式を間違えても一致する
+    expect(surfaceLevels(glsl!.terrain), '地表の階調が足りない').toBeGreaterThan(32)
+    for (let i = 0; i < WATER_PROBE_REGIONS.length; i++) {
+      expect(
+        surfaceLevels(glsl!.water[i]!),
+        `海面 ${i} の階調が足りない`,
+      ).toBeGreaterThan(16)
+    }
+
+    // **バイトまで一致するはず。**`?gpu=1` は GLSL どうしの比較になる
+    const terrainDiff = byteDifference(glsl!.terrain, result.surface!.terrain)
+    expect(
+      terrainDiff.max,
+      `地表の最大差 ${terrainDiff.max}（違うバイト ${terrainDiff.differing}）`,
+    ).toBeLessThanOrEqual(1)
+    for (let i = 0; i < WATER_PROBE_REGIONS.length; i++) {
+      const d = byteDifference(glsl!.water[i]!, result.surface!.water[i]!)
+      expect(
+        d.max,
+        `海面 ${i} の最大差 ${d.max}（違うバイト ${d.differing}）`,
+      ).toBeLessThanOrEqual(1)
+    }
+  })
+
+  test('WebGPU でも地表と海面が GLSL 版と一致する', async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium-webgpu',
+      'WebGPU の起動引数が要る',
+    )
+    const { result, errors } = await probe(page, 'gpu=2&surfaceprobe=1')
+    expect(errors).toEqual([])
+    expect(result.backend).toBe('node-webgpu')
+    expect(result.surface, 'TSL 側が地表を焼いていない').toBeTruthy()
+
+    await page.goto('/dogfight/?capture=1&frame=0&surfaceprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const glsl = hook?.surfaceProbe
+    expect(glsl, 'GLSL 側が地表を焼いていない').toBeTruthy()
+
+    // **枝の数は WGSL でも同じはず。**通ったか通らないかの整数なので
+    // 丸めが効かない
+    expect(surfaceBranchCounts(result.surface!.terrainBranches)).toEqual(
+      surfaceBranchCounts(glsl!.terrainBranches),
+    )
+    for (let i = 0; i < WATER_PROBE_REGIONS.length; i++) {
+      expect(
+        surfaceBranchCounts(result.surface!.waterBranches[i]!),
+        `海面 ${i} の枝が WGSL で違う`,
+      ).toEqual(surfaceBranchCounts(glsl!.waterBranches[i]!))
+    }
+
+    // WGSL は演算順序が動きうるので階調 1 まで許す（段 13・16 と同じ）
+    const terrainDiff = byteDifference(glsl!.terrain, result.surface!.terrain)
+    expect(terrainDiff.max, `地表の最大差 ${terrainDiff.max}`).toBeLessThanOrEqual(1)
+    for (let i = 0; i < WATER_PROBE_REGIONS.length; i++) {
+      const d = byteDifference(glsl!.water[i]!, result.surface!.water[i]!)
+      expect(d.max, `海面 ${i} の最大差 ${d.max}`).toBeLessThanOrEqual(1)
+    }
   })
 
   test('`?gpu=1` では鎖を組まない', async ({ page }) => {

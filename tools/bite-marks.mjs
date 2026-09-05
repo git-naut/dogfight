@@ -291,6 +291,15 @@ export const BITE_MARKS = [
     why: 'NaN との差は比較が常に false になるので、最大のずれ 0 として通ってしまう。読み戻せていない点を一致したと読む形を作らない',
   },
   {
+    id: 'shader-reserved-word',
+    kind: '定数の摂動',
+    file: 'src/render/terrain/shaders/waterSurface.glsl',
+    find: 'out float applied) {',
+    replace: 'out float active) {',
+    expect: 'tests/render/shaderReserved.test.ts',
+    lesson: 'GLSL の予約語を識別子に使うとコンパイルが黙って落ちる',
+  },
+  {
     id: 'overlay-probe-never-opaque',
     kind: '定数の摂動',
     file: 'src/render/overlayProbe.ts',

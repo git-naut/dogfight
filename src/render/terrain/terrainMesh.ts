@@ -15,6 +15,8 @@ import {
 import terrainVert from './shaders/terrain.vert?raw'
 import terrainFrag from './shaders/terrain.frag?raw'
 import heightfieldGlsl from './shaders/heightfield.glsl?raw'
+import terrainSurfaceGlsl from './shaders/terrainSurface.glsl?raw'
+import waterSurfaceGlsl from './shaders/waterSurface.glsl?raw'
 import { selectPatches, type SelectOptions, type TerrainPatch } from './layout'
 import type { QualitySettings } from '../quality'
 import type { Terrain } from '../../sim/terrain'
@@ -27,8 +29,13 @@ import type { Terrain } from '../../sim/terrain'
  * 双三次で引くので、CPU 側は原点と大きさを渡すだけ。
  */
 
-// 高さ場のサンプルと雲影を地形と海面で共有する。three の include 解決に載せる
-;(ShaderChunk as unknown as Record<string, string>)['terrain_heightfield'] = heightfieldGlsl
+// 高さ場のサンプルと雲影、そして色の本体を地形と海面で共有する。
+// three の include 解決に載せる。**登録はここ 1 か所。**node 経路では
+// ShaderChunk のグローバル登録そのものが消えて ES module の import になる
+const chunks = ShaderChunk as unknown as Record<string, string>
+chunks['terrain_heightfield'] = heightfieldGlsl
+chunks['terrain_surface'] = terrainSurfaceGlsl
+chunks['water_surface'] = waterSurfaceGlsl
 
 /**
  * インスタンスの上限。

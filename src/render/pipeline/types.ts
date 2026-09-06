@@ -454,6 +454,15 @@ export interface NodeProbeResult {
    */
   overlaySource: string | null
   /**
+   * `resolveTimestampsAsync()` から回収できた件数。
+   *
+   * **0 なら `timestamp-query` が無い。**`trackTimestamp` は静かに false に
+   * なり、例外も出ないので件数で判定する（段 18）
+   */
+  timestampSamples: number
+  /** 定常のフレームの GPU 時間 ms。最小値。測れていなければ null */
+  gpuFrameMs: number | null
+  /**
    * 固定の矩形で焼いた地表と海面。`?surfaceprobe=1` のときだけ。
    *
    * `terrain` と `water` が色、`*Branches` が通った枝。**色だけでは枝を

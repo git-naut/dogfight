@@ -1007,6 +1007,49 @@ test.describe('node 経路', () => {
     expect(result.pipeline).toBeNull()
   })
 
+  test('node/WebGL2 で GPU 時間が取れる', async ({ page }) => {
+    // **段 18。**WebGL2 の `EXT_disjoint_timer_query_webgl2` は node 経路に
+    // 無い。`trackTimestamp` は `timestamp-query` が無いと静かに false に
+    // なり、例外も出ずに `undefined` が返る。**回収できた件数で判定する。**
+    //
+    // 実測（SwiftShader）で GPU 11.0 ms 対 CPU 16.2 ms。差は読み戻しの排出ぶん
+    const { result, errors } = await probe(page, 'gpu=1')
+    expect(errors).toEqual([])
+    expect(result.backend).toBe('node-webgl')
+    expect(
+      result.timestampSamples,
+      `回収できたのが ${result.timestampSamples} 件`,
+    ).toBeGreaterThanOrEqual(4)
+    expect(result.gpuFrameMs).not.toBeNull()
+    expect(result.gpuFrameMs!).toBeGreaterThan(0)
+    // GPU 時間は CPU 側の経過を超えない。超えるなら別の枠を測っている
+    expect(
+      result.gpuFrameMs!,
+      `GPU ${result.gpuFrameMs} 対 CPU ${result.renderMs}`,
+    ).toBeLessThanOrEqual(result.renderMs * 1.1)
+  })
+
+  test('WebGPU でも GPU 時間が取れる', async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium-webgpu',
+      'WebGPU の起動引数が要る',
+    )
+    // 実測で GPU 229.9 ms 対 CPU 231.9 ms
+    const { result, errors } = await probe(page, 'gpu=2')
+    expect(errors).toEqual([])
+    expect(result.backend).toBe('node-webgpu')
+    expect(
+      result.timestampSamples,
+      `回収できたのが ${result.timestampSamples} 件`,
+    ).toBeGreaterThanOrEqual(4)
+    expect(result.gpuFrameMs).not.toBeNull()
+    expect(result.gpuFrameMs!).toBeGreaterThan(0)
+    expect(
+      result.gpuFrameMs!,
+      `GPU ${result.gpuFrameMs} 対 CPU ${result.renderMs}`,
+    ).toBeLessThanOrEqual(result.renderMs * 1.1)
+  })
+
   test('既定の経路は node を立てない', async ({ page }) => {
     await page.goto('/dogfight/?capture=1&frame=0')
     await page.waitForSelector('body[data-capture-ready="1"]')

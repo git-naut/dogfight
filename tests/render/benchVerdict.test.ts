@@ -34,6 +34,8 @@ function row(
     cpuMinMs: gpuMinMs,
     cpuMedianMs: gpuMedianMs,
     cpuMaxMs: gpuMedianMs * 2,
+    // 既定は排出できる側。WebGPU の表は別に組む
+    cpuSynchronous: true,
     triangles,
   }
 }
@@ -54,6 +56,7 @@ describe('ばらつきの目安', () => {
         cpuMinMs: 10,
         cpuMedianMs: 12,
         cpuMaxMs: 20,
+        cpuSynchronous: true,
         triangles: 0,
       },
     ]
@@ -132,6 +135,34 @@ describe('読めない計測の判定', () => {
     )
     expect(benchNoiseFloor(rows)).toBeCloseTo(3.84, 2)
     expect(benchBestGain(rows)).toBeCloseTo(-4.01, 2)
+    expect(benchUnreadable(rows)).toBe(false)
+  })
+
+  it('排出も GPU タイマーも無い表は読めない', () => {
+    // **WebGPU バックエンドでは `gl.finish()` + `readPixels` が使えない。**
+    // CPU 側は投入までの時間しか測っていないので、GPU 値も無ければ
+    // 表そのものが意味を持たない。差が大きく出ていても読めない
+    const rows: BenchRow[] = [
+      { ...row('基準', 10, 11), gpuMinMs: null, gpuMedianMs: null, cpuSynchronous: false },
+      { ...row('切った', 2, 3), gpuMinMs: null, gpuMedianMs: null, cpuSynchronous: false },
+    ]
+    expect(benchUnreadable(rows)).toBe(true)
+  })
+
+  it('排出できなくても GPU タイマーがあれば読める', () => {
+    const rows: BenchRow[] = [
+      { ...row('基準', 10, 11), cpuSynchronous: false },
+      { ...row('切った', 2, 3), cpuSynchronous: false },
+    ]
+    expect(benchUnreadable(rows)).toBe(false)
+  })
+
+  it('排出できるなら GPU タイマーが無くても差で読む', () => {
+    // WebGL2 で拡張だけ無い場合。CPU 側は排出まで含んでいるので読める
+    const rows: BenchRow[] = [
+      { ...row('基準', 10, 11), gpuMinMs: null, gpuMedianMs: null },
+      { ...row('切った', 2, 3), gpuMinMs: null, gpuMedianMs: null },
+    ]
     expect(benchUnreadable(rows)).toBe(false)
   })
 

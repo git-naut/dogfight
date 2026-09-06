@@ -1437,3 +1437,43 @@ GPU 時間が取れることを確かめた。
 
 SwiftShader は CPU 律速なので GPU と CPU がほぼ並ぶ。**寄せ替えが効いて
 いることの確認**で、値そのものは実機で測り直す。
+
+## 段 18 の後半: node 経路の GPU 時間が取れた（2026-09-06 実測）
+
+WebGL2 の `EXT_disjoint_timer_query_webgl2` は node 経路に無い。
+`renderer.resolveTimestampsAsync()` が返す ms を使う。レンダラは
+`{ trackTimestamp: true }` で作る。
+
+| 経路 | 回収できた件数 | GPU 最小 | CPU（排出込み） |
+|---|---|---|---|
+| `?gpu=1`（node/WebGL2） | 8 / 8 | **11.0 ms** | 16.2 ms |
+| `?gpu=2`（WebGPU） | 8 / 8 | **229.9 ms** | 231.9 ms |
+
+`?gpu=1` は glb だけ、`?gpu=2` は大気まで組んだ場面なので、値は比べない。
+**どちらの経路でも数が返ることが確かめられた**のがこの段の要点。
+
+`?gpu=1` の GPU と CPU の差（11.0 対 16.2）は読み戻しの排出ぶん。
+`?gpu=2` は SwiftShader が CPU 律速なのでほぼ並ぶ。
+
+### 測れないことは件数で判定する
+
+**`trackTimestamp` は静かに false になる。**`device.features` に
+`timestamp-query` が無い環境では、`{ trackTimestamp: true }` で作っても
+有効にならず、`resolveTimestampsAsync()` が `undefined` を返す。例外は
+出ない。これを知らずに「GPU 時間が 0」を不具合として追うと時間を溶かす
+（ADR 0010 の段 0 の注記）。
+
+数を作らずに捨てる形にしたので、**回収できた件数がそのまま「測れたか」**
+になる。`tests/e2e/node-path.spec.ts` が両経路で 4 件以上を要求する。
+
+### 排出できない表は読めない
+
+`BenchRow` に `cpuSynchronous` を足した。**WebGPU バックエンドでは
+`getContext()` が `undefined`** なので `gl.finish()` + `readPixels` の排出が
+できない。排出できないと CPU 側は投入までの時間しか測っていない
+（`bench.ts` が記録している罠。実測で 0.7 ms が出た）。
+
+`benchUnreadable` に「GPU 値が全部 null で、排出もできない表は読めない」を
+足した。**差が大きく出ていても読めない。**値そのものが意味を持たないため。
+排出できれば GPU タイマーが無くても差で読めるし、排出できなくても GPU
+タイマーがあれば読める。3 通りとも単体テストで固定した。

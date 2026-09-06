@@ -82,6 +82,15 @@ export interface RenderBackend {
   drain(): void
 
   /**
+   * `drain()` が実際に排出できるか。
+   *
+   * **WebGPU バックエンドでは `getContext()` が `undefined`** なので
+   * `gl.finish()` + `readPixels` の手が使えない。false のとき CPU 側の
+   * 経過は投入までの時間しか測っていないので、掃引の判定がそれを見る
+   */
+  readonly cpuSynchronous: boolean
+
+  /**
    * GPU の時間を測る道具を作る。
    *
    * **バックエンドごとに実体が違う。**WebGL2 は
@@ -233,6 +242,9 @@ export function createWebGLBackend(renderer: WebGLRenderer): RenderBackend {
       gl.finish()
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
     },
+
+    // WebGL2 は排出できる。node/WebGPU では false になる
+    cpuSynchronous: true,
 
     createTimer() {
       return createWebGLTimer(gl)

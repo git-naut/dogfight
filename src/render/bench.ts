@@ -41,6 +41,17 @@ export interface BenchRow {
   cpuMinMs: number
   cpuMedianMs: number
   cpuMaxMs: number
+  /**
+   * CPU 側の経過が排出まで含んでいるか。
+   *
+   * **WebGPU バックエンドでは `getContext()` が `undefined`** なので
+   * `gl.finish()` + `readPixels` で投入を排出できない。排出できないと
+   * CPU 側は投入までの時間しか測っていない（`bench.ts` が記録している罠。
+   * 実測で 0.7 ms が出た）。
+   *
+   * false の表で GPU 値も全部 null なら、その表は読めていない
+   */
+  cpuSynchronous: boolean
   triangles: number
 }
 
@@ -136,6 +147,15 @@ export function benchBestGain(rows: readonly BenchRow[]): number {
  */
 export function benchUnreadable(rows: readonly BenchRow[]): boolean {
   if (rows.length < 2) return false
+  // **排出も GPU タイマーも無い表は、値そのものが意味を持たない。**
+  // WebGPU バックエンドでは `gl.finish()` + `readPixels` の排出ができず、
+  // CPU 側は投入までの時間しか測らない。GPU 値も無ければ読む物が無い
+  if (
+    rows.every((r) => r.gpuMinMs === null) &&
+    rows.some((r) => !r.cpuSynchronous)
+  ) {
+    return true
+  }
   return Math.abs(benchBestGain(rows)) < benchNoiseFloor(rows)
 }
 
@@ -319,6 +339,7 @@ export async function runBenchSweep(
       cpuMinMs: cpu[0] ?? 0,
       cpuMedianMs: cpu[Math.floor(cpu.length / 2)] ?? 0,
       cpuMaxMs: cpu[cpu.length - 1] ?? 0,
+      cpuSynchronous: view.backend.cpuSynchronous,
       triangles: triangles[c] ?? 0,
     }
   })

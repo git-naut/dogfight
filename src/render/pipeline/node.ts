@@ -152,6 +152,10 @@ export async function runNodeProbe(
     canvas,
     antialias: false,
     forceWebGL: options.gpu === 1,
+    // **`timestamp-query` が無いと静かに false になる。**有効にならなくても
+    // 例外は出ず、`resolveTimestampsAsync()` が `undefined` を返すだけ
+    // （段 18）
+    trackTimestamp: true,
   })
   // **これを忘れると描けない。**`WebGLRenderer` と違ってバックエンドの
   // 取得が非同期なので、起動列へ入れる必要がある
@@ -1775,13 +1779,30 @@ export async function runNodeProbe(
   const target = new webgpu.RenderTarget(options.width, options.height)
   const frames = options.frames ?? 8
   let renderMs = Infinity
+
+  // **段 18。**GPU 時間は `resolveTimestampsAsync()` で取る。拡張は無い
+  const { createNodeTimer } = await import('./nodeTimer')
+  const nodeTimer = createNodeTimer(renderer)
+  const gpuSamples: number[] = []
+
   for (let i = 0; i < frames; i++) {
     const started = performance.now()
+    nodeTimer.begin(i)
     renderer.setRenderTarget(target)
     renderer.render(scene, camera)
+    nodeTimer.end()
     await renderer.readRenderTargetPixelsAsync(target, 0, 0, 1, 1)
     renderMs = Math.min(renderMs, performance.now() - started)
+    for (const result of nodeTimer.collect()) gpuSamples.push(result.ms)
   }
+  // 残りを拾う。解決は非同期なので最後の数枚は後から届く
+  for (let i = 0; i < 30 && nodeTimer.inflight > 0; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 4))
+    for (const result of nodeTimer.collect()) gpuSamples.push(result.ms)
+  }
+  for (const result of nodeTimer.collect()) gpuSamples.push(result.ms)
+  nodeTimer.dispose()
+
   renderer.setRenderTarget(null)
   target.dispose()
 
@@ -1806,6 +1827,9 @@ export async function runNodeProbe(
     overlay,
     overlaySource,
     pipeline: pipelineResult,
+    // **`undefined` しか返らないなら測れていない。**件数がそのまま判定になる
+    timestampSamples: gpuSamples.length,
+    gpuFrameMs: gpuSamples.length > 0 ? Math.min(...gpuSamples) : null,
     surface,
     nodeShadow,
     volumeMs,

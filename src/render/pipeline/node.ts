@@ -1825,6 +1825,12 @@ export async function runNodeProbe(
     nodeTimer.end()
     await renderer.readRenderTargetPixelsAsync(target, 0, 0, 1, 1)
     renderMs = Math.min(renderMs, performance.now() - started)
+    // **次の枚へ進む前に決着させる。**解決の器は 1 つしかないので、
+    // 重ねると前の値が返る（`nodeTimer.ts` の注記）。待ちは `renderMs` の
+    // 外側なので、測った時間には入らない
+    for (let w = 0; w < 120 && nodeTimer.inflight > 0; w++) {
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    }
     for (const result of nodeTimer.collect()) gpuSamples.push(result.ms)
   }
   // 残りを拾う。解決は非同期なので最後の数枚は後から届く
@@ -1833,6 +1839,7 @@ export async function runNodeProbe(
     for (const result of nodeTimer.collect()) gpuSamples.push(result.ms)
   }
   for (const result of nodeTimer.collect()) gpuSamples.push(result.ms)
+  const timestampDropped = nodeTimer.dropped
   nodeTimer.dispose()
 
   renderer.setRenderTarget(null)
@@ -1861,6 +1868,7 @@ export async function runNodeProbe(
     pipeline: pipelineResult,
     // **`undefined` しか返らないなら測れていない。**件数がそのまま判定になる
     timestampSamples: gpuSamples.length,
+    timestampDropped,
     gpuFrameMs: gpuSamples.length > 0 ? Math.min(...gpuSamples) : null,
     surface,
     nodeShadow,

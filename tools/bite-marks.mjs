@@ -356,6 +356,29 @@ export const BITE_MARKS = [
     why: 'どちらの枝の色でもない画素を数えないと、枝の書き分けが壊れていても片方の数が合っているだけで通る',
   },
   {
+    id: 'node-timer-keep-zero',
+    kind: '条件の固定',
+    file: 'src/render/pipeline/nodeTimer.ts',
+    find: "if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {",
+    replace: "if (typeof ms === 'number' && Number.isFinite(ms)) {",
+    expect: 'tests/render/nodeTimer.test.ts',
+    lesson: '0 を数に混ぜると最小値が 0 になる',
+  },
+  {
+    id: 'node-timer-overlap-resolve',
+    kind: '文の削除',
+    file: 'src/render/pipeline/nodeTimer.ts',
+    find: `      if (waiting > 0) {
+        dropped++
+        return
+      }
+
+`,
+    replace: '',
+    expect: 'tests/render/nodeTimer.test.ts',
+    lesson: '解決を決着前に重ねると前の回の値が返る',
+  },
+  {
     id: 'sprite-probe-opacity-below-core-cut',
     kind: '定数の摂動',
     file: 'src/render/weapons/spriteProbe.ts',

@@ -114,6 +114,13 @@ export interface GpuFrameTimer {
   readonly supported: boolean
   /** 回収待ちの数。0 でなければ次の計測を重ねない */
   readonly inflight: number
+  /**
+   * 捨てた計測の数。
+   *
+   * **測れなかった回を 0 として数に混ぜない。**代表値は最小値で取るので、
+   * 0 が 1 つ混ざると「GPU 0 ms」がそのまま出る。捨てた回はここで数える
+   */
+  readonly dropped: number
   /** 1 枚の描画を挟む。`id` は回収の照合に使う */
   begin(id: number): void
   end(): void
@@ -131,6 +138,7 @@ interface TimerExtension {
 export const NO_GPU_TIMER: GpuFrameTimer = {
   supported: false,
   inflight: 0,
+  dropped: 0,
   begin() {},
   end() {},
   collect() {
@@ -145,12 +153,17 @@ function createWebGLTimer(gl: WebGL2RenderingContext): GpuFrameTimer {
 
   const pending: { query: WebGLQuery; id: number }[] = []
   let measuring = false
+  let dropped = 0
 
   return {
     supported: true,
 
     get inflight() {
       return pending.length
+    },
+
+    get dropped() {
+      return dropped
     },
 
     begin(id) {
@@ -178,6 +191,7 @@ function createWebGLTimer(gl: WebGL2RenderingContext): GpuFrameTimer {
         if (disjoint) {
           gl.deleteQuery(item.query)
           pending.splice(i, 1)
+          dropped++
           continue
         }
         const ready = gl.getQueryParameter(

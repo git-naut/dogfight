@@ -460,6 +460,13 @@ export interface NodeProbeResult {
    * なり、例外も出ないので件数で判定する（段 18）
    */
   timestampSamples: number
+  /**
+   * 測れずに捨てた回数。
+   *
+   * **0 を数に混ぜないための見張り。**解決を重ねると three は前の値を
+   * 返すので、重なった回はここへ入る（`nodeTimer.ts` の注記）
+   */
+  timestampDropped: number
   /** 定常のフレームの GPU 時間 ms。最小値。測れていなければ null */
   gpuFrameMs: number | null
   /**

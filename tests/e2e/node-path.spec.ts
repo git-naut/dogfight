@@ -1045,10 +1045,15 @@ test.describe('node 経路', () => {
     expect(result.backend).toBe('node-webgl')
     expect(
       result.timestampSamples,
-      `回収できたのが ${result.timestampSamples} 件`,
+      `回収 ${result.timestampSamples} 件・破棄 ${result.timestampDropped} 件`,
     ).toBeGreaterThanOrEqual(4)
     expect(result.gpuFrameMs).not.toBeNull()
-    expect(result.gpuFrameMs!).toBeGreaterThan(0)
+    // **0 が混ざると最小値がそのまま 0 になる。**解決を重ねたときに
+    // three が返す前の値を数に入れていた（段 19 の後で踏んだ）
+    expect(
+      result.gpuFrameMs!,
+      `GPU ${result.gpuFrameMs}・破棄 ${result.timestampDropped} 件`,
+    ).toBeGreaterThan(0)
     // GPU 時間は CPU 側の経過を超えない。超えるなら別の枠を測っている
     expect(
       result.gpuFrameMs!,
@@ -1067,10 +1072,13 @@ test.describe('node 経路', () => {
     expect(result.backend).toBe('node-webgpu')
     expect(
       result.timestampSamples,
-      `回収できたのが ${result.timestampSamples} 件`,
+      `回収 ${result.timestampSamples} 件・破棄 ${result.timestampDropped} 件`,
     ).toBeGreaterThanOrEqual(4)
     expect(result.gpuFrameMs).not.toBeNull()
-    expect(result.gpuFrameMs!).toBeGreaterThan(0)
+    expect(
+      result.gpuFrameMs!,
+      `GPU ${result.gpuFrameMs}・破棄 ${result.timestampDropped} 件`,
+    ).toBeGreaterThan(0)
     expect(
       result.gpuFrameMs!,
       `GPU ${result.gpuFrameMs} 対 CPU ${result.renderMs}`,

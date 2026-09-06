@@ -15,6 +15,14 @@ import { NO_GPU_TIMER, type GpuFrameTimer } from '../backend'
  *
  * 回収は非同期になる。WebGL2 のクエリと同じく「投げて数フレーム後に拾う」
  * 形なので、`GpuFrameTimer` の口はそのまま使える。
+ *
+ * **解決を重ねてはいけない。**WebGL2 のクエリは 1 本ずつ独立した物なので
+ * 何本でも同時に飛ばせるが、こちらの解決は器が 1 つしかない。走っている
+ * 最中にもう一度呼ぶと、three は解決を走らせずに前の値を返す
+ * （`WebGLTimestampQueryPool.js:187` は `lastValue`、
+ * `WebGPUTimestampQueryPool.js` は走っている promise そのもの）。
+ * `lastValue` の初期値は 0 なので、重ねた回は 0 か「前の回の値」になる。
+ * どちらもこの回の値ではない。**重なったら測らない。**
  */
 
 interface TimestampRenderer {
@@ -28,6 +36,7 @@ export function createNodeTimer(renderer: Renderer): GpuFrameTimer {
 
   const resolved: { id: number; ms: number }[] = []
   let waiting = 0
+  let dropped = 0
   let pendingId: number | null = null
 
   return {
@@ -35,6 +44,10 @@ export function createNodeTimer(renderer: Renderer): GpuFrameTimer {
 
     get inflight() {
       return waiting
+    },
+
+    get dropped() {
+      return dropped
     },
 
     begin(id) {
@@ -45,18 +58,29 @@ export function createNodeTimer(renderer: Renderer): GpuFrameTimer {
       if (pendingId === null) return
       const id = pendingId
       pendingId = null
+
+      // 前の解決が決着するまで次を投げない。理由は本文の注記
+      if (waiting > 0) {
+        dropped++
+        return
+      }
+
       waiting++
       void target
         .resolveTimestampsAsync('render')
         .then((ms) => {
-          // **`undefined` は `timestamp-query` が無いということ。**
-          // 数を作らないので、回収できた件数がそのまま「測れたか」になる
-          if (typeof ms === 'number' && Number.isFinite(ms)) {
+          // **`undefined` も 0 も「測れていない」。**`timestamp-query` が
+          // 無ければ `undefined`、解決する物が無いか GPU の状態が乱れて
+          // いれば初期値の 0 が返る。0 を数に混ぜると最小値が 0 になる
+          if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
             resolved.push({ id, ms })
+          } else {
+            dropped++
           }
         })
         .catch(() => {
           // 解決に失敗した回は捨てる。次の回で拾い直す
+          dropped++
         })
         .finally(() => {
           waiting--

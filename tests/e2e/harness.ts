@@ -109,6 +109,7 @@ export interface TestHook {
     overlay: { composite: number[]; marker: number[]; sampled: number[] } | null
     overlaySource: string | null
     timestampSamples: number
+    timestampDropped: number
     gpuFrameMs: number | null
     surface: {
       patch: number[]

@@ -198,29 +198,45 @@ function touches(a: TerrainPatch, b: TerrainPatch): boolean {
  * 入れた瞬間に裂け目として出る。**出てから気づく形にしない。**
  */
 describe('モーフの基準位置', () => {
-  const source = readFileSync(
-    fileURLToPath(new URL('../../src/render/terrain/shaders/terrain.vert', import.meta.url)),
-    'utf8',
-  )
+  const read = (name: string): string =>
+    readFileSync(
+      fileURLToPath(
+        new URL(`../../src/render/terrain/shaders/${name}`, import.meta.url),
+      ),
+      'utf8',
+    )
+  /** 変位の式は `terrain_vertex` のチャンクが正本。頂点シェーダは呼ぶだけ */
+  const source = read('terrain.vert')
+  const chunk = read('terrainVertex.glsl')
 
   /** コメントを外した本文。**注記に名前が出るだけで落ちる形にしない** */
-  const body = source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/[^\n]*/g, '')
+  const strip = (text: string): string =>
+    text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const body = strip(source)
+  const chunkBody = strip(chunk)
 
   it('頂点シェーダは組み込みの cameraPosition を使わない', () => {
     expect(body.includes('cameraPosition')).toBe(false)
+    expect(chunkBody.includes('cameraPosition')).toBe(false)
   })
 
-  it('明示した uniform を宣言して使っている', () => {
+  it('明示した uniform を宣言して基準として渡している', () => {
     expect(body).toContain('uniform vec3 morphOrigin;')
-    expect(body).toContain('distance(morphOrigin.xz, unmorphed)')
+    expect(body).toContain('morphOrigin,')
+    expect(body).toContain('terrainPatchWorldXZ(')
+  })
+
+  it('チャンクが基準からの距離で寄せ量を決めている', () => {
+    expect(chunkBody).toContain('distance(basis.xz, unmorphed)')
+    // 親の格子へ寄せる本体。消すと T 字の裂け目が出る
+    expect(chunkBody).toContain('mix(grid, parent, morph)')
   })
 
   it('コメントを外す処理が本文を消していない', () => {
-    // 検査そのものが働くことの確認。全部消してしまえば上の 2 件は
+    // 検査そのものが働くことの確認。全部消してしまえば上の 3 件は
     // 「無いこと」を空振りで通す
     expect(body).toContain('void main()')
+    expect(chunkBody).toContain('vec2 terrainPatchWorldXZ(')
     expect(body.includes('uniform vec3 notAUniform;')).toBe(false)
     // 注記のほうには名前が残っている（本文だけを見ていることの裏取り）
     expect(source.includes('cameraPosition')).toBe(true)

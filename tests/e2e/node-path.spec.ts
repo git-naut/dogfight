@@ -22,6 +22,8 @@ import {
   WATER_PROBE_REGIONS,
   surfaceBranchCounts,
   surfaceLevels,
+  terrainPatchProbePoint,
+  terrainPatchProbeValues,
 } from '../../src/render/terrain/surfaceProbe'
 import {
   OVERLAY_PROBE_COUNT,
@@ -735,6 +737,16 @@ test.describe('node 経路', () => {
     const bright = p.tiles.filter((t) => t > 0.02).length
     expect(bright, `明るい区画が ${bright} しかない`).toBeGreaterThan(8)
 
+    // 地形が場面に入っていること。**材質が非互換だと黙って描かれない**
+    // （段 9 の記録）ので、パッチ枚数と三角形の数で見る
+    expect(p.terrainPatches, `パッチが ${p.terrainPatches} 枚`).toBeGreaterThan(50)
+    expect(
+      p.terrainTriangles,
+      `地形の三角形が ${p.terrainTriangles}`,
+    ).toBeGreaterThan(10_000)
+    // 地形と海面のぶん、描画呼び出しが増える
+    expect(p.drawCalls, `描画呼び出しが ${p.drawCalls}`).toBeGreaterThan(60)
+
     // **SMAA が鎖に入っているだけでは足りない。**外すとパスの数が減り、
     // 辺の画素が動くことを見る
     expect(
@@ -829,6 +841,33 @@ test.describe('node 経路', () => {
         `海面 ${i} の階調が足りない`,
       ).toBeGreaterThan(16)
     }
+
+    // 頂点変位は CPU 参照と突き合わせる（高さ場と同じ作法）
+    const patch = terrainPatchProbeValues(result.surface!.patch)
+    expect(patch.length).toBe(pixels)
+    let worstXZ = 0
+    let worstMorph = 0
+    let clampedLow = 0
+    let clampedHigh = 0
+    let ramp = 0
+    for (let row = 0; row < SURFACE_PROBE_SIDE; row++) {
+      for (let col = 0; col < SURFACE_PROBE_SIDE; col++) {
+        const want = terrainPatchProbePoint(col, row)
+        const got = patch[row * SURFACE_PROBE_SIDE + col]!
+        worstXZ = Math.max(worstXZ, Math.abs(want.x - got.x), Math.abs(want.z - got.z))
+        worstMorph = Math.max(worstMorph, Math.abs(want.morph - got.morph))
+        if (want.morph === 0) clampedLow++
+        else if (want.morph === 1) clampedHigh++
+        else ramp++
+      }
+    }
+    // **寄せ量が片側で頭打ちするだけでは `clamp` を外しても気づけない。**
+    // 3 つの領域をすべて通す
+    expect(clampedLow, `寄せ量 0 が ${clampedLow} 画素`).toBeGreaterThan(0)
+    expect(clampedHigh, `寄せ量 1 が ${clampedHigh} 画素`).toBeGreaterThan(0)
+    expect(ramp, `途中の寄せ量が ${ramp} 画素`).toBeGreaterThan(pixels / 10)
+    expect(worstXZ, `頂点位置のずれ ${worstXZ} m`).toBeLessThan(0.01)
+    expect(worstMorph, `寄せ量のずれ ${worstMorph}`).toBeLessThan(1e-5)
 
     // **バイトまで一致するはず。**`?gpu=1` は GLSL どうしの比較になる
     const terrainDiff = byteDifference(glsl!.terrain, result.surface!.terrain)

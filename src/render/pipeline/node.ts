@@ -767,7 +767,45 @@ export async function runNodeProbe(
         )
       })() as import('three/webgpu').Node<'vec4'>
 
+    // 頂点変位。**高さ場と同じく CPU 参照と突き合わせる**（`heightProbe.ts`
+    // の作法）。GLSL 側は `tests/render/terrain.test.ts` が本文で縛る
+    const patch = probe.TERRAIN_PATCH_PROBE
+    const patchFragment = tsl.Fn(() => {
+      const cells = patch.cells
+      // 実際の格子点だけを通す。連続にすると段差の境目に乗る
+      const unit = (axis: import('three/webgpu').Node<'float'>) =>
+        tsl.min(tsl.floor(axis.mul(cells + 1)), cells).div(cells)
+      const unitGrid = tsl.vec2(unit(tsl.uv().x), unit(tsl.uv().y)).toVar()
+      const world = surfaceNodes
+        .terrainPatchWorldNode(
+          unitGrid,
+          tsl.vec4(patch.origin.x, patch.origin.z, patch.size, patch.size / cells),
+          tsl.vec2(patch.morphStart, patch.morphEnd),
+          tsl.vec3(patch.basis.x, patch.basis.y, patch.basis.z),
+        )
+        .toVar()
+      const height = heightNodesRef.terrainHeightNode(
+        inputs,
+        tsl.vec2(world.x, world.y),
+      )
+      return tsl.vec4(world.x, world.y, world.z, height)
+    })() as import('three/webgpu').Node<'vec4'>
+
+    const patchTarget = volume.bakePlane(renderer, quad, side, side, patchFragment, {
+      // **8bit では m の精度が出ない。**32bit 浮動小数で受ける
+      float: true,
+    })
+    const patchBytes = await volume.readPlane(
+      renderer,
+      patchTarget,
+      side,
+      side,
+      isWebGPU,
+    )
+    patchTarget.dispose()
+
     surface = {
+      patch: patchBytes,
       terrain: await bake(terrainFragment(false)),
       terrainBranches: await bake(terrainFragment(true)),
       water: [],
@@ -1109,6 +1147,79 @@ export async function runNodeProbe(
       shadowCenter: new THREE.Vector2(0, 0),
       groundShadow: true,
     })
+    // ---- 地形と海面を場面へ入れる ----
+    //
+    // **格子もパッチの選び方も GLSL 経路と同じものを使う。**差し替わるのは
+    // 材質だけで、`createTerrainMesh` と `createWater` が工場を受け取る
+    const nodeMaterials = await import('../terrain/nodeMaterials')
+    const terrainMeshMod = await import('../terrain/terrainMesh')
+    const waterMod = await import('../terrain/water')
+    const { defaultTerrain: makeTerrain } = await import('../../sim/terrain')
+    const heightTex = await import('../terrain/heightTexture')
+
+    const sceneTerrain = makeTerrain()
+    const sceneHeightMap = heightTex.createHeightTexture(sceneTerrain)
+    const sceneNormalMap = heightTex.createNormalTexture(sceneTerrain)
+
+    const surfaceState = nodeMaterials.createNodeSurfaceState(
+      {
+        heightMap: sceneHeightMap,
+        terrainNormalMap: sceneNormalMap,
+        cloudShadowMap: clouds.shadowTexture,
+        extent: sceneTerrain.extent,
+        texels: sceneTerrain.size,
+        cloudShadowExtent: SHADOW_EXTENT,
+      },
+      options.quality,
+    )
+    // **太陽の向きだけが実物。**放射輝度は段 13 の固定入力で、LUT から
+    // 取り出すのは段 17c（`getSplitIlluminance`）の仕事
+    surfaceState.setSunDirection(
+      sunDirectionWorld.x,
+      sunDirectionWorld.y,
+      sunDirectionWorld.z,
+    )
+    surfaceState.setSunRadiance(
+      MARCH_PROBE_SUN_COLOR.x,
+      MARCH_PROBE_SUN_COLOR.y,
+      MARCH_PROBE_SUN_COLOR.z,
+    )
+    surfaceState.setSkyRadiance(
+      MARCH_PROBE_AMBIENT.x,
+      MARCH_PROBE_AMBIENT.y,
+      MARCH_PROBE_AMBIENT.z,
+    )
+    surfaceState.setCloudShadowCenter(0, 0)
+
+    // 機体の影はまだ繋いでいない。**`shadow(light)` を地形へ引き込むのは
+    // ライティングと同じ段（段 17c）でやる。**ここで別に繋ぐと、絵の差の
+    // 帰属が切り分けられなくなる
+    const noAircraftShade = tsl.float(1) as unknown as import('three/webgpu').Node<'float'>
+
+    const sharedUniforms = terrainMeshMod.createTerrainUniforms(
+      sceneTerrain,
+      SHADOW_EXTENT,
+    )
+    const nodeTerrainMesh = terrainMeshMod.createTerrainMesh(
+      sceneTerrain,
+      options.quality,
+      sharedUniforms,
+      () => nodeMaterials.createTerrainNodeMaterial(surfaceState, noAircraftShade),
+    )
+    const nodeWater = waterMod.createWater(
+      options.quality,
+      sharedUniforms,
+      () => nodeMaterials.createWaterNodeMaterial(surfaceState, noAircraftShade),
+    )
+    scene.add(nodeTerrainMesh.mesh)
+    scene.add(nodeWater.mesh)
+
+    // カメラの位置からパッチを選び、寄せる基準と海面の位置を合わせる
+    const cameraWorld = camera.getWorldPosition(new THREE.Vector3())
+    nodeTerrainMesh.update(cameraWorld.x, cameraWorld.z)
+    nodeWater.follow(cameraWorld.x, cameraWorld.z)
+    surfaceState.setMorphOrigin(cameraWorld.x, cameraWorld.y, cameraWorld.z)
+
     const cloudNode = clouds.node
     const composite = tsl.Fn(() => {
       // **場面のパスを雲より先に触る。**`updateBefore` の呼ばれる順は
@@ -1243,6 +1354,8 @@ export async function runNodeProbe(
       smaaFrameCalls,
       plainFrameCalls,
       // SMAA を外すと辺の画素が変わる。0 なら鎖に入っていない
+      terrainPatches: nodeTerrainMesh.patchCount,
+      terrainTriangles: nodeTerrainMesh.triangleCount,
       smaaChanged: byteDifference(pipelineBytes, plainBytes).differing,
       smaaChangedMax: byteDifference(pipelineBytes, plainBytes).max,
       marchSourceLength: marchSourceBefore.length,

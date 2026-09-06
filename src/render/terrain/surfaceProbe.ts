@@ -1,3 +1,5 @@
+import { morphFactor } from './layout'
+
 /**
  * 地表と海面の突き合わせに使う固定入力。
  *
@@ -184,3 +186,89 @@ export function surfaceLevels(bytes: ArrayLike<number>): number {
   return seen.size
 }
 
+
+/**
+ * 頂点変位の突き合わせに使うパッチ。
+ *
+ * 寄せ量が 0（近い側で頭打ち）と 1（遠い側で頭打ち）と、その間のどれも
+ * 通る値にしてある。実測で基準からの距離は 635〜4,924 m に広がるので、
+ * 1,000〜4,000 m の範囲を跨ぐ。**片側で頭打ちしかしない配置では、
+ * `clamp` を外しても気づけない。**
+ */
+export const TERRAIN_PATCH_PROBE = {
+  origin: { x: 1000, z: -12000 },
+  /** パッチの一辺 m */
+  size: 3072,
+  /** 1 辺のセル数。`patchOrigin.w` は size / cells */
+  cells: 16,
+  morphStart: 1000,
+  morphEnd: 4000,
+  /** 寄せる基準の位置。主カメラのワールド位置にあたる */
+  basis: { x: 792, y: 3000, z: -12600 },
+} as const
+
+/**
+ * 画素の位置から格子座標を出す。
+ *
+ * **実際の格子点だけを通す。**`unitGrid` を連続にすると
+ * `floor(grid * 0.5) * 2` の段差の境目に乗る画素ができ、わずかな丸めの差が
+ * 2 セルぶんの位置の差に化ける。頂点シェーダが実際に受け取るのは
+ * `k / cells`（k は 0..cells）だけなので、そこへ量子化する
+ */
+export function terrainPatchProbeUnit(index: number): number {
+  const cells = TERRAIN_PATCH_PROBE.cells
+  const step = Math.floor(((index + 0.5) / SURFACE_PROBE_SIDE) * (cells + 1))
+  return Math.min(step, cells) / cells
+}
+
+/**
+ * CPU 側の参照。`shaders/terrainVertex.glsl` と同じ式で寄せる。
+ *
+ * 高さ場と同じ作法（`heightProbe.ts`）で、GLSL ではなく CPU と突き合わせる。
+ * GLSL 側は `tests/render/terrain.test.ts` が本文で縛り、基準画像 42 枚が
+ * 絵で見張っている
+ */
+export function terrainPatchProbePoint(
+  col: number,
+  row: number,
+): { x: number; z: number; morph: number } {
+  const p = TERRAIN_PATCH_PROBE
+  const cell = p.size / p.cells
+  const ux = terrainPatchProbeUnit(col)
+  const uy = terrainPatchProbeUnit(row)
+
+  // 寄せる量は未モーフの位置から決める
+  const unmorphedX = p.origin.x + ux * p.size
+  const unmorphedZ = p.origin.z + uy * p.size
+  const distance2D = Math.hypot(p.basis.x - unmorphedX, p.basis.z - unmorphedZ)
+  const morph = morphFactor(distance2D, p.morphStart, p.morphEnd)
+
+  // 親の格子は偶数番の頂点
+  const gridX = ux * p.cells
+  const gridY = uy * p.cells
+  const parentX = Math.floor(gridX * 0.5) * 2
+  const parentY = Math.floor(gridY * 0.5) * 2
+  const mix = (a: number, b: number, t: number): number => a * (1 - t) + b * t
+
+  return {
+    x: p.origin.x + mix(gridX, parentX, morph) * cell,
+    z: p.origin.z + mix(gridY, parentY, morph) * cell,
+    morph,
+  }
+}
+
+/** 読み戻した RGBA の float から (x, z, morph, height) を取り出す */
+export function terrainPatchProbeValues(
+  pixels: ArrayLike<number>,
+): { x: number; z: number; morph: number; height: number }[] {
+  const out: { x: number; z: number; morph: number; height: number }[] = []
+  for (let i = 0; i < pixels.length / 4; i++) {
+    out.push({
+      x: pixels[i * 4] ?? Number.NaN,
+      z: pixels[i * 4 + 1] ?? Number.NaN,
+      morph: pixels[i * 4 + 2] ?? Number.NaN,
+      height: pixels[i * 4 + 3] ?? Number.NaN,
+    })
+  }
+  return out
+}

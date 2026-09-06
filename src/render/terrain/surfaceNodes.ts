@@ -448,3 +448,45 @@ export function waterSurfaceNode(
     aircraftShade,
   ) as unknown as Node<'vec4'>
 }
+
+/**
+ * パッチの中の格子位置からワールドの XZ と寄せ量を出す。
+ *
+ * `shaders/terrainVertex.glsl` の写し。**戻り値は `vec3(x, z, morph)`。**
+ * GLSL は `out float morph` で返すが、TSL の `out` 引数は書き戻らない
+ * （`terrainSurfaceNode` の注記）。3 成分にまとめれば済む。
+ *
+ * @param unitGrid   0..1 の格子座標
+ * @param patchInfo  パッチの原点 xz、一辺 m、セル 1 つの大きさ m
+ * @param morphRange 寄せ始める距離 m と、寄せ終わる距離 m
+ * @param basis      寄せる量を決める基準の位置。主カメラのワールド位置
+ */
+export function terrainPatchWorldNode(
+  unitGrid: Node<'vec2'>,
+  patchInfo: Node<'vec4'>,
+  morphRange: Node<'vec2'>,
+  basis: Node<'vec3'>,
+): Node<'vec3'> {
+  return Fn(() => {
+    const cells = patchInfo.z.div(patchInfo.w).toVar()
+
+    // 寄せる量は未モーフの位置から決める。モーフ後の位置から決めると
+    // 循環参照になる
+    const unmorphed = patchInfo.xy.add(unitGrid.mul(patchInfo.z)).toVar()
+    const distance2D = basis.xz.distance(unmorphed).toVar()
+    const morph = clamp(
+      distance2D
+        .sub(morphRange.x)
+        .div(max(morphRange.y.sub(morphRange.x), 1e-4)),
+      0,
+      1,
+    ).toVar()
+
+    // 親の格子は偶数番の頂点。奇数番をそこへ寄せると 1 段粗い隣と辺が繋がる
+    const grid = unitGrid.mul(cells).toVar()
+    const parent = floor(grid.mul(0.5)).mul(2).toVar()
+    const worldXZ = patchInfo.xy.add(mix(grid, parent, morph).mul(patchInfo.w)).toVar()
+
+    return vec3(worldXZ.x, worldXZ.y, morph)
+  })() as Node<'vec3'>
+}

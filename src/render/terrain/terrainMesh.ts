@@ -5,6 +5,7 @@ import {
   InstancedBufferAttribute,
   InstancedBufferGeometry,
   Matrix4,
+  type Material,
   Mesh,
   ShaderChunk,
   ShaderMaterial,
@@ -15,6 +16,7 @@ import {
 import terrainVert from './shaders/terrain.vert?raw'
 import terrainFrag from './shaders/terrain.frag?raw'
 import heightfieldGlsl from './shaders/heightfield.glsl?raw'
+import terrainVertexGlsl from './shaders/terrainVertex.glsl?raw'
 import terrainSurfaceGlsl from './shaders/terrainSurface.glsl?raw'
 import waterSurfaceGlsl from './shaders/waterSurface.glsl?raw'
 import { selectPatches, type SelectOptions, type TerrainPatch } from './layout'
@@ -34,6 +36,7 @@ import type { Terrain } from '../../sim/terrain'
 // ShaderChunk のグローバル登録そのものが消えて ES module の import になる
 const chunks = ShaderChunk as unknown as Record<string, string>
 chunks['terrain_heightfield'] = heightfieldGlsl
+chunks['terrain_vertex'] = terrainVertexGlsl
 chunks['terrain_surface'] = terrainSurfaceGlsl
 chunks['water_surface'] = waterSurfaceGlsl
 
@@ -98,6 +101,50 @@ export function createTerrainUniforms(
   }
 }
 
+/**
+ * 地形の材質。
+ *
+ * **バックエンドで差し替わるのは材質だけ。**格子もインスタンスの属性も
+ * パッチの選び方も同じものを使う。node 経路は `nodeMaterials.ts` が
+ * `NodeMaterial` を返す
+ */
+export interface TerrainMaterial {
+  readonly material: Material
+  /** 法線の摂動を切り替える。計測とプリセットの両方から呼ばれる */
+  setDetailNormals(enabled: boolean): void
+  dispose(): void
+}
+
+export type TerrainMaterialFactory = (
+  uniforms: TerrainSharedUniforms,
+  quality: QualitySettings,
+) => TerrainMaterial
+
+/** 既定の GLSL 材質 */
+export function createTerrainShaderMaterial(
+  uniforms: TerrainSharedUniforms,
+  quality: QualitySettings,
+): TerrainMaterial {
+  const material = new ShaderMaterial({
+    glslVersion: GLSL3,
+    vertexShader: terrainVert,
+    fragmentShader: terrainFrag,
+    uniforms: {
+      ...uniforms,
+      detailNormals: { value: quality.terrainDetailNormals },
+    },
+  })
+  return {
+    material,
+    setDetailNormals(enabled) {
+      material.uniforms['detailNormals']!.value = enabled
+    },
+    dispose() {
+      material.dispose()
+    },
+  }
+}
+
 export interface TerrainMesh {
   readonly mesh: Mesh
   /** 描いているパッチ枚数。デバッグ表示と予算の確認に使う */
@@ -156,21 +203,14 @@ export function createTerrainMesh(
   terrain: Terrain,
   quality: QualitySettings,
   uniforms: TerrainSharedUniforms,
+  createMaterial: TerrainMaterialFactory = createTerrainShaderMaterial,
 ): TerrainMesh {
   let cells = quality.terrainPatchCells
   let geometry = buildGeometry(cells)
 
-  const material = new ShaderMaterial({
-    glslVersion: GLSL3,
-    vertexShader: terrainVert,
-    fragmentShader: terrainFrag,
-    uniforms: {
-      ...uniforms,
-      detailNormals: { value: quality.terrainDetailNormals },
-    },
-  })
+  const material = createMaterial(uniforms, quality)
 
-  const mesh = new Mesh(geometry, material)
+  const mesh = new Mesh(geometry, material.material)
   // パッチは定義域を覆うので、メッシュ全体を視錐台で捨ててはいけない
   mesh.frustumCulled = false
 
@@ -232,7 +272,7 @@ export function createTerrainMesh(
 
     setQuality(next) {
       options = selectOptions(terrain, next)
-      material.uniforms['detailNormals']!.value = next.terrainDetailNormals
+      material.setDetailNormals(next.terrainDetailNormals)
 
       const nextCells = next.terrainPatchCells
       if (nextCells === cells) return
@@ -249,7 +289,7 @@ export function createTerrainMesh(
     },
 
     setDetailNormals(enabled) {
-      material.uniforms['detailNormals']!.value = enabled
+      material.setDetailNormals(enabled)
     },
 
     dispose() {

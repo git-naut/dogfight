@@ -295,10 +295,13 @@ export function createCloudsNodePass(
   )
   const copyQuad = createQuad(copyMaterial)
 
+  // **焼く側で v を打ち消す。**node 経路はレンダーターゲットを引くとき v を
+  // 裏返すので、ここで裏返しておけば地形と海面は GLSL と同じ uv で読める
+  // （`noiseNodes.ts` の `bakeUv` と同じ手）
   const shadowMaterial = fragmentMaterial(
     cloudShadowFragmentNode(
       density,
-      uv(),
+      vec2(uv().x, float(1).sub(uv().y)),
       shadowCenter as unknown as Node<'vec2'>,
       float(SHADOW_EXTENT) as unknown as Node<'float'>,
       sunDirection as unknown as Node<'vec3'>,

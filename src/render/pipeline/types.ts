@@ -462,6 +462,8 @@ export interface NodeProbeResult {
    * 数えられない**ので両方持つ
    */
   surface: {
+    /** 頂点変位。(x, z, morph, height) を 32bit 浮動小数で持つ */
+    patch: number[]
     terrain: number[]
     terrainBranches: number[]
     water: number[][]
@@ -495,6 +497,9 @@ export interface NodeProbeResult {
     cloudRenderCount: number
     /** 4x4 の区画平均。絵が真っ黒でないことを見る */
     tiles: number[]
+    /** 地形が選んだパッチ枚数。0 なら場面に入っていない */
+    terrainPatches: number
+    terrainTriangles: number
     /** SMAA 入りで投げたパスの数 */
     smaaFrameCalls: number
     /** SMAA を外して投げたパスの数 */

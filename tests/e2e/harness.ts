@@ -110,6 +110,7 @@ export interface TestHook {
     overlay: { composite: number[]; marker: number[]; sampled: number[] } | null
     overlaySource: string | null
     surface: {
+      patch: number[]
       terrain: number[]
       terrainBranches: number[]
       water: number[][]
@@ -125,6 +126,8 @@ export interface TestHook {
       cloudDrawCallsAtRun: number
       cloudRenderCount: number
       tiles: number[]
+      terrainPatches: number
+      terrainTriangles: number
       smaaFrameCalls: number
       plainFrameCalls: number
       smaaChanged: number

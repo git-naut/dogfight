@@ -104,6 +104,27 @@ export type IlluminanceProvider = (
   normal: Node<'vec3'>,
 ) => SurfaceIlluminance
 
+/**
+ * 海面が読む放射輝度の差し替え。
+ *
+ * **海面は照度ではなく放射輝度で書いてある。**係数（反射の 3 倍、body の
+ * 0.12、白波の 0.30、スペキュラの 0.9）はどれも放射輝度に対して調整して
+ * あるので、値の出どころだけを差し替えて式は動かさない。
+ *
+ * 太陽は余弦を含まない側を使う（`getSplitScalarIlluminance`）。スペキュラは
+ * 太陽の見かけの明るさで決まるので、面の傾きで暗くしてはいけない。
+ * 天空は半球の重みが要るので `getSplitIlluminance` の間接を pi で割る。
+ */
+export interface WaterRadiance {
+  sun: Node<'vec3'>
+  sky: Node<'vec3'>
+}
+
+export type WaterRadianceProvider = (
+  world: Node<'vec3'>,
+  normal: Node<'vec3'>,
+) => WaterRadiance
+
 export interface SurfaceOptions {
   /** 枝を返すか。色の代わりに通った枝を出す */
   branchMode?: boolean
@@ -402,7 +423,7 @@ const waterWaveNormalNode = Fn(
  * 出すものを JS の分岐で選ぶ理由は `terrainSurfaceNode` の注記と同じ。
  *
  * @param waterSpecular 0 か 1。太陽のスペキュラを乗せるか
- * @param branchMode    枝を返すか。R が 1 タップ、G が双三次、B が白波、A が波
+ * @param options       枝を返すか、放射輝度をどこから取るか
  */
 export function waterSurfaceNode(
   inputs: SurfaceInputs,
@@ -411,8 +432,9 @@ export function waterSurfaceNode(
   waveTime: Node<'float'>,
   waterSpecular: Node<'float'>,
   aircraftShade: Node<'float'>,
-  branchMode = false,
+  options: { branchMode?: boolean; radiance?: WaterRadianceProvider } = {},
 ): Node<'vec4'> {
+  const branchMode = options.branchMode ?? false
   const impl = Fn(
     ([w, camera, time, useSpecular, shadeIn]: [
       Node<'vec3'>,
@@ -454,11 +476,16 @@ export function waterSurfaceNode(
 
       const shade = terrainCloudShadeNode(inputs, w).mul(shadeIn).toVar()
 
+      // **放射輝度の出どころだけを差し替える。**係数は動かさない
+      const radiance = options.radiance?.(w, normal)
+      const sunR = radiance?.sun ?? inputs.sunRadiance
+      const skyR = radiance?.sky ?? inputs.skyRadiance
+
       // 空の反射。天空光をそのまま使う
-      const reflected = inputs.skyRadiance.mul(3).toVar()
+      const reflected = skyR.mul(3).toVar()
 
       const color = mix(
-        body.mul(inputs.skyRadiance.add(inputs.sunRadiance.mul(0.12).mul(shade))),
+        body.mul(skyR.add(sunR.mul(0.12).mul(shade))),
         reflected,
         fresnel,
       ).toVar()
@@ -471,11 +498,7 @@ export function waterSurfaceNode(
           .add(sin(dot(w.xz, vec2(0.86, 0.51)).div(23).add(time.mul(1.7))).mul(0.5))
           .toVar()
         const amount = foam.mul(foam).mul(float(0.3).add(band.mul(0.7))).toVar()
-        const foamColor = inputs.sunRadiance
-          .mul(0.3)
-          .mul(shade)
-          .add(inputs.skyRadiance.mul(3))
-          .toVar()
+        const foamColor = sunR.mul(0.3).mul(shade).add(skyR.mul(3)).toVar()
         color.assign(mix(color, foamColor, amount.mul(0.85)))
       })
 
@@ -484,7 +507,7 @@ export function waterSurfaceNode(
         const halfway = normalize(view.add(inputs.sunDirectionWorld)).toVar()
         const specular = pow(max(dot(normal, halfway), 0), 900).toVar()
         // 2.5 だと低空で真下が白く飛んだ
-        color.addAssign(inputs.sunRadiance.mul(specular).mul(0.9).mul(shade))
+        color.addAssign(sunR.mul(specular).mul(0.9).mul(shade))
       })
 
       if (branchMode) return vec4(tapFlag, bicubicFlag, foamFlag, waveFlag)

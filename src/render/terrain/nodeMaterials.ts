@@ -14,6 +14,7 @@ import {
   waterSurfaceNode,
   type IlluminanceProvider,
   type SurfaceInputs,
+  type WaterRadianceProvider,
 } from './surfaceNodes'
 import { terrainHeightNode } from './heightNodes'
 import type { TerrainMaterial } from './terrainMesh'
@@ -199,6 +200,7 @@ export function createTerrainNodeMaterial(
 export function createWaterNodeMaterial(
   state: NodeSurfaceState,
   aircraftShade: Node<'float'>,
+  radiance?: WaterRadianceProvider,
 ): WaterMaterial {
   const material = new MeshBasicNodeMaterial()
   ;(material as unknown as { fragmentNode: unknown }).fragmentNode =
@@ -209,6 +211,7 @@ export function createWaterNodeMaterial(
       state.waveTime,
       state.waterSpecular,
       aircraftShade,
+      radiance !== undefined ? { radiance } : {},
     )
 
   return {

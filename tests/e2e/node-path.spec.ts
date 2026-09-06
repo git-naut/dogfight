@@ -780,6 +780,21 @@ test.describe('node 経路', () => {
       expect(ratio).toBeLessThan(6)
     }
 
+    // ---- 機体の影（段 17c の後半）----
+    //
+    // **投げ手を切って数える。**光の `castShadow` は触らない（組み立ての
+    // 時点で立っていると three の光の系が影のノードをもう 1 つ作って落ちる）
+    expect(
+      p.shadowChangedMax,
+      `投げ手を切っても最大 ${p.shadowChangedMax} 階調しか動かない`,
+    ).toBeGreaterThan(10)
+    expect(
+      p.shadowChanged,
+      `投げ手を切って動いたのが ${p.shadowChanged} バイト`,
+    ).toBeGreaterThan(500)
+    // **パスの数では分からない。**投げ手が無くても影のパスは走る（段 15）
+    expect(p.shadowFrameCalls).toBe(p.noShadowFrameCalls)
+
     // 置き換えで地表が動くこと。**0 なら効いていない**
     expect(
       p.lightingProbeChanged,

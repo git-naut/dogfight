@@ -781,7 +781,7 @@ export async function runNodeProbe(
           tsl.float(probe.SURFACE_PROBE_WAVE_TIME),
           tsl.float(1),
           tsl.float(1),
-          branchMode,
+          { branchMode },
         )
       })() as import('three/webgpu').Node<'vec4'>
 
@@ -879,6 +879,8 @@ export async function runNodeProbe(
   > | null = null
   let sunElevationDeg = 0
   const sunDirectionWorld = new THREE.Vector3(0, 1, 0)
+  /** 大気の太陽光。鎖の側が影の投げ手として使う */
+  let atmosphereSunLight: THREE.DirectionalLight | null = null
 
   if (isWebGPU) {
     // ---- 大気を node 経路で組む ----
@@ -948,6 +950,7 @@ export async function runNodeProbe(
     const sunLight = new atmos.AtmosphereLight()
     scene.add(sunLight)
     scene.add(sunLight.target)
+    atmosphereSunLight = sunLight as unknown as THREE.DirectionalLight
 
     // `Scene.backgroundNode` と `environmentNode` も `@types/three` に無い。
     // 読む側は `NodeManager.getBackgroundNode()` と `NodeManager.js:513`
@@ -1123,6 +1126,73 @@ export async function runNodeProbe(
     // テクスチャを data URI で内包する
     const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
 
+    /**
+     * 大気の LUT が決める照度。
+     *
+     * **機体と同じ式になる。**`AtmosphereLightNode` は間接に
+     * `getIndirectIlluminance` を使い、直達は太陽放射照度に透過率と
+     * `max(N・L, 0)` を掛ける。`getSplitIlluminance` はその 2 つを
+     * 1 度に返す（`getSplitIrradiance` が同じ式で組んでいる）
+     */
+    const atmosphereIlluminance: import('../terrain/surfaceNodes').IlluminanceProvider =
+      (world, normal) => {
+        const ctx = atmosphereContext!
+        const params = ctx.parametersNode as unknown as {
+          worldToUnit: import('three/webgpu').Node<'float'>
+        }
+        const toECEF = ctx.matrixWorldToECEF as unknown as import('three/webgpu').Node<'mat4'>
+        let positionECEF = toECEF.mul(tsl.vec4(world, 1)).xyz
+        if (ctx.correctAltitude) {
+          positionECEF = positionECEF.add(
+            ctx.altitudeCorrectionECEF as unknown as import('three/webgpu').Node<'vec3'>,
+          )
+        }
+        const positionUnit = positionECEF.mul(params.worldToUnit)
+        const normalECEF = toECEF.mul(tsl.vec4(normal, 0)).xyz
+        const split = atmos.getSplitIlluminance(
+          positionUnit,
+          normalECEF,
+          ctx.sunDirectionECEF,
+        ) as unknown as {
+          get(name: string): import('three/webgpu').Node<'vec3'>
+        }
+        return { direct: split.get('direct'), indirect: split.get('indirect') }
+      }
+
+    /** ワールドの点を大気の単位空間へ写す */
+    const toUnit = (world: import('three/webgpu').Node<'vec3'>) => {
+      const ctx = atmosphereContext!
+      const params = ctx.parametersNode as unknown as {
+        worldToUnit: import('three/webgpu').Node<'float'>
+      }
+      const toECEF = ctx.matrixWorldToECEF as unknown as import('three/webgpu').Node<'mat4'>
+      let positionECEF = toECEF.mul(tsl.vec4(world, 1)).xyz
+      if (ctx.correctAltitude) {
+        positionECEF = positionECEF.add(
+          ctx.altitudeCorrectionECEF as unknown as import('three/webgpu').Node<'vec3'>,
+        )
+      }
+      return positionECEF.mul(params.worldToUnit)
+    }
+
+    /** 余弦を含まない側の照度。太陽の見かけの明るさに使う */
+    const scalarIlluminance = (world: import('three/webgpu').Node<'vec3'>) =>
+      atmos.getSplitScalarIlluminance(
+        toUnit(world),
+        atmosphereContext!.sunDirectionECEF,
+      ) as unknown as { get(name: string): import('three/webgpu').Node<'vec3'> }
+
+    // **雲の太陽光と天空光も LUT から取る。**GLSL 経路は CPU で出した値を
+    // uniform で渡していたが、node 経路は CPU 側に値が無い。大気は緩やかに
+    // しか変わらないので、原点の海面高度で 1 度だけ引く（GLSL 経路も
+    // フレームに 1 つの値を使っていた）
+    const cloudOrigin = tsl.vec3(0, 0, 0)
+    const cloudUp = tsl.vec3(0, 1, 0)
+    const cloudSunColor = scalarIlluminance(cloudOrigin).get('direct')
+    const cloudAmbientColor = atmosphereIlluminance(cloudOrigin, cloudUp).indirect.mul(
+      1 / Math.PI,
+    )
+
     const scenePass = tsl.pass(scene, camera)
     // 深度は `pass` が持つテクスチャを直に引く。**パスのテクスチャノードを
     // 雲の材質へ渡してはいけない**（その材質を焼くたびに場面がもう 1 度
@@ -1143,12 +1213,12 @@ export async function runNodeProbe(
       sceneDepth: sceneDepthTexture,
       captureMode: true,
       clampScale: 0,
+      sunColorNode: cloudSunColor,
+      ambientColorNode: cloudAmbientColor,
     })
     clouds.setSize(options.width, options.height)
-    // **太陽の向きだけが実物。**色は段 13 で突き合わせた固定入力を使う。
-    // 大気の LUT から放射輝度を取り出すのは段 17c（ライティングの置き換え）
-    // の仕事で、node 経路では CPU 側に値が無い（`AtmosphereLight` は GPU で
-    // 決める）
+    // 色は `sunColorNode` と `ambientColorNode` で上書きしてある（段 17c）。
+    // ここへ渡す固定入力は、ノードを外したときの控え
     clouds.update({
       cloudTime: MARCH_PROBE_CLOUD_TIME,
       sunDirection: sunDirectionWorld,
@@ -1210,41 +1280,62 @@ export async function runNodeProbe(
     )
     surfaceState.setCloudShadowCenter(0, 0)
 
-    // 機体の影はまだ繋いでいない。段 17c の後半で `shadow(light)` を引き込む
-    const noAircraftShade = tsl.float(1) as unknown as import('three/webgpu').Node<'float'>
+    // ---- 機体の影 ----
+    //
+    // **`AtmosphereLight` は自分の位置を更新しない。**`directionECEF` を
+    // 持つだけなので、影の箱を向けるにはワールド座標の太陽の向きから
+    // 位置を入れる（`docs/decisions/0010-webgpu-tsl.md` の段 15 の続き）。
+    //
+    // GLSL 経路の `terrainAircraftShade` にあった 0.35 の下限は入れない。
+    // 照度の形では間接がそのまま残るので、直達を 0 にしても真っ暗に
+    // ならない。**下限は自前ライティングの都合だった**
+    const shadowCaster = model.object
+    shadowCaster.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.castShadow = true
+    })
+    const casterCenter = new THREE.Vector3()
+    new THREE.Box3().setFromObject(shadowCaster).getCenter(casterCenter)
 
-    /**
-     * 大気の LUT が決める照度。
-     *
-     * **機体と同じ式になる。**`AtmosphereLightNode` は間接に
-     * `getIndirectIlluminance` を使い、直達は太陽放射照度に透過率と
-     * `max(N・L, 0)` を掛ける。`getSplitIlluminance` はその 2 つを
-     * 1 度に返す（`getSplitIrradiance` が同じ式で組んでいる）
-     */
-    const atmosphereIlluminance: import('../terrain/surfaceNodes').IlluminanceProvider =
-      (world, normal) => {
-        const ctx = atmosphereContext!
-        const params = ctx.parametersNode as unknown as {
-          worldToUnit: import('three/webgpu').Node<'float'>
-        }
-        const toECEF = ctx.matrixWorldToECEF as unknown as import('three/webgpu').Node<'mat4'>
-        let positionECEF = toECEF.mul(tsl.vec4(world, 1)).xyz
-        if (ctx.correctAltitude) {
-          positionECEF = positionECEF.add(
-            ctx.altitudeCorrectionECEF as unknown as import('three/webgpu').Node<'vec3'>,
-          )
-        }
-        const positionUnit = positionECEF.mul(params.worldToUnit)
-        const normalECEF = toECEF.mul(tsl.vec4(normal, 0)).xyz
-        const split = atmos.getSplitIlluminance(
-          positionUnit,
-          normalECEF,
-          ctx.sunDirectionECEF,
-        ) as unknown as {
-          get(name: string): import('three/webgpu').Node<'vec3'>
-        }
-        return { direct: split.get('direct'), indirect: split.get('indirect') }
-      }
+    // **光の側に `castShadow` を立てない。**立てると three の光の系が
+    // 影のノードをもう 1 つ作る。その本体は光の寄与が畳まれると生成
+    // されないまま `updateBefore` だけが残り、`compileAsync` の中で
+    // `shadowMap` が null のまま触られて落ちる（実測。`AtmosphereLight`
+    // でも明るさ 0 の指向光でも同じ）。
+    //
+    // 影は `shadow(light)` を明示的に呼んで自分で持つ。`ShadowNode` は
+    // `light.castShadow` を見ないので、これで影マップは焼かれる
+    const shadowLight = atmosphereSunLight
+    let aircraftShade = tsl.float(1) as unknown as import('three/webgpu').Node<'float'>
+    if (shadowLight !== null) {
+      shadowLight.castShadow = false
+      shadowLight.position
+        .copy(sunDirectionWorld)
+        .multiplyScalar(200)
+        .add(casterCenter)
+      shadowLight.target.position.copy(casterCenter)
+      const size = options.quality.aircraftShadowMapSize
+      shadowLight.shadow.mapSize.set(size, size)
+      // 機体を囲む 28 m 角。CSM は採らない（ADR 0010）
+      const box = shadowLight.shadow.camera
+      box.left = -14
+      box.right = 14
+      box.top = 14
+      box.bottom = -14
+      box.near = 1
+      box.far = 400
+      box.updateProjectionMatrix()
+      renderer.shadowMap.enabled = true
+      renderer.shadowMap.type =
+        options.quality.shadowFilter === 'pcfSoft'
+          ? THREE.PCFSoftShadowMap
+          : options.quality.shadowFilter === 'pcf'
+            ? THREE.PCFShadowMap
+            : THREE.BasicShadowMap
+      aircraftShade = tsl.shadow(
+        shadowLight,
+      ) as unknown as import('three/webgpu').Node<'float'>
+    }
+    const noAircraftShade = aircraftShade
 
     const sharedUniforms = terrainMeshMod.createTerrainUniforms(
       sceneTerrain,
@@ -1266,10 +1357,29 @@ export async function runNodeProbe(
       surfaceState,
       noAircraftShade,
     )
+    /**
+     * 海面が読む放射輝度。
+     *
+     * **太陽は余弦を含まない側を使う。**スペキュラは太陽の見かけの明るさで
+     * 決まるので、面の傾きで暗くしてはいけない。天空は半球の重みが要るので
+     * `getSplitIlluminance` の間接を pi で割る。LUT を 2 度引くぶんの費用は
+     * `steadyMs` で測る
+     */
+    const waterRadiance: import('../terrain/surfaceNodes').WaterRadianceProvider =
+      (world, normal) => ({
+        sun: scalarIlluminance(world).get('direct'),
+        sky: atmosphereIlluminance(world, normal).indirect.mul(1 / Math.PI),
+      })
+
     const nodeWater = waterMod.createWater(
       options.quality,
       sharedUniforms,
-      () => nodeMaterials.createWaterNodeMaterial(surfaceState, noAircraftShade),
+      () =>
+        nodeMaterials.createWaterNodeMaterial(
+          surfaceState,
+          noAircraftShade,
+          waterRadiance,
+        ),
     )
     scene.add(nodeTerrainMesh.mesh)
     scene.add(nodeWater.mesh)
@@ -1367,7 +1477,22 @@ export async function runNodeProbe(
     // **`setMRT()` と `getTextureNode()` は事前コンパイルより前に済ませる**
     // （`PassNode.setup` の注記）。上で組み終えているので順は満たしている
     const pipelineBuildStarted = performance.now()
+    // **影マップは組み立てのときにできる。**`ShadowNode.setup()` は
+    // `Fn` の中で `setupShadow` を呼ぶので、材質を組むまで `shadowMap` は
+    // null のまま。`updateBefore` が先に走ると null を触って落ちる
+    // **`castShadow` は組み立てのあとで立てる。**組み立ての時点で立っていると
+    // three の光の系が影のノードをもう 1 つ作り、その本体が生成されないまま
+    // `updateBefore` だけが残って落ちる。立てるのを後にすれば光の系の
+    // 組み立てはもう終わっているので、作られるのは自前の 1 つだけ。
+    // **影マップは光の `castShadow` がないと焼かれない**ので、立てないと
+    // `shadow(light)` は空の影マップを引く（実測で最大差 1 階調しか出ない）
+    if (shadowLight !== null) shadowLight.shadow.autoUpdate = false
     await renderer.compileAsync(scene, camera)
+    if (shadowLight !== null) {
+      shadowLight.castShadow = true
+      shadowLight.shadow.autoUpdate = true
+      shadowLight.shadow.needsUpdate = true
+    }
     await atmosphereContext.lutNode.updateTextures(renderer)
     const pipelineBuildMs = performance.now() - pipelineBuildStarted
 
@@ -1502,6 +1627,33 @@ export async function runNodeProbe(
     const legacyBytes = await readPicture()
     nodeTerrainMesh.mesh.material = litMaterial
 
+    // **影が絵に出ているかを数で見る。**投げ手を切って撮り直す。
+    // 段 15 と同じ形で、区画平均では見えないのでバイトの違いを数える
+    let shadowChanged = 0
+    let shadowChangedMax = 0
+    let shadowFrameCalls = 0
+    let noShadowFrameCalls = 0
+    if (shadowLight !== null) {
+      // **投げ手の側で切る。**光の `castShadow` は触らない（立てると
+      // 光の系が影のノードをもう 1 つ作って落ちる）。段 15 も
+      // 「投げ手あり」と「投げ手なし」の差で数えている
+      const withShadow = await readPicture()
+      shadowFrameCalls = lastPictureFrameCalls
+      shadowCaster.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.castShadow = false
+      })
+      shadowLight.shadow.needsUpdate = true
+      const noShadowBytes = await readPicture()
+      noShadowFrameCalls = lastPictureFrameCalls
+      shadowCaster.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.castShadow = true
+      })
+      shadowLight.shadow.needsUpdate = true
+      const diff = byteDifference(withShadow, noShadowBytes)
+      shadowChanged = diff.differing
+      shadowChangedMax = diff.max
+    }
+
     // **SMAA が効いているかは数で見る。**鎖に入れただけでは、辺を拾って
     // いるかどうかは分からない。外して撮り直し、パスの数と絵の両方が
     // 動くことを確かめる
@@ -1552,6 +1704,10 @@ export async function runNodeProbe(
         options.width,
         options.height,
       ),
+      shadowChanged,
+      shadowChangedMax,
+      shadowFrameCalls,
+      noShadowFrameCalls,
       lightingProbeChanged: byteDifference(lightBefore, lightAfter).differing,
       lightingProbeMax: byteDifference(lightBefore, lightAfter).max,
       lightingProbeTilesBefore: tileMeans(

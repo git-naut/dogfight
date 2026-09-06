@@ -130,6 +130,10 @@ export interface TestHook {
       lightingChanged: number
       lightingChangedMax: number
       lightingTiles: number[]
+      shadowChanged: number
+      shadowChangedMax: number
+      shadowFrameCalls: number
+      noShadowFrameCalls: number
       lightingProbeChanged: number
       lightingProbeMax: number
       lightingProbeTilesBefore: number[]

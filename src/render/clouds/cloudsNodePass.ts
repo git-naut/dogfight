@@ -82,6 +82,16 @@ export interface CloudsNodePassOptions {
   captureMode: boolean
   /** 近傍で挟む幅の倍率。0 なら挟まない。**生成時に畳まれる** */
   clampScale: number
+  /**
+   * 太陽光と天空光を差し替えるノード。
+   *
+   * **渡すと `update` の色を読まなくなる。**段 17c で大気の LUT が決める
+   * 値を入れる。GLSL 経路は `SunDirectionalLight` と `SkyLightProbe` が
+   * CPU で出していたが、node 経路の `AtmosphereLight` は GPU で決めるので
+   * CPU 側に値が無い
+   */
+  sunColorNode?: Node<'vec3'>
+  ambientColorNode?: Node<'vec3'>
 }
 
 export interface CloudsNodePass {
@@ -254,8 +264,9 @@ export function createCloudsNodePass(
       cameraNear: cameraNear as unknown as Node<'float'>,
       cameraFar: cameraFar as unknown as Node<'float'>,
       sunDirection: sunDirection as unknown as Node<'vec3'>,
-      sunColor: sunColor as unknown as Node<'vec3'>,
-      ambientColor: ambientColor as unknown as Node<'vec3'>,
+      sunColor: options.sunColorNode ?? (sunColor as unknown as Node<'vec3'>),
+      ambientColor:
+        options.ambientColorNode ?? (ambientColor as unknown as Node<'vec3'>),
       maxSteps: int(q.cloudMaxSteps) as unknown as Node<'int'>,
       lightSteps: int(q.cloudLightSteps) as unknown as Node<'int'>,
       lightGrowth: float(lightStepGrowth(q.cloudLightSteps)) as unknown as Node<'float'>,

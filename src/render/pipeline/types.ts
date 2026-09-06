@@ -519,6 +519,17 @@ export interface NodeProbeResult {
      * **場面のカメラでは地表がほとんど映らない。**段 17b の突き合わせに
      * 使った 5 km 角で測り直す
      */
+    /**
+     * 影の投げ手を切ると動く画素の数。
+     *
+     * **0 なら `shadow(light)` が絵に出ていない。**区画平均では見えないので
+     * バイトの違いを数える（段 15 と同じ）
+     */
+    shadowChanged: number
+    shadowChangedMax: number
+    /** 影あり／なしで投げるパスの数 */
+    shadowFrameCalls: number
+    noShadowFrameCalls: number
     lightingProbeChanged: number
     lightingProbeMax: number
     lightingProbeTilesBefore: number[]

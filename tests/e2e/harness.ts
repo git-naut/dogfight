@@ -122,7 +122,13 @@ export interface TestHook {
       frameCalls: number
       drawCalls: number
       buildMs: number
+      compileSceneMs: number
+      compileCloudsMs: number
+      warmupMs: number
+      startupMs: number
+      lutMs: number
       firstFrameMs: number
+      secondFrameMs: number
       steadyMs: number
       cloudFrameCallsAtRun: number
       cloudDrawCallsAtRun: number

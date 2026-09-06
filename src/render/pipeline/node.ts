@@ -1497,7 +1497,15 @@ export async function runNodeProbe(
       shadowLight.shadow.autoUpdate = true
       shadowLight.shadow.needsUpdate = true
     }
+    const compileSceneMs = performance.now() - pipelineBuildStarted
+
+    // **雲のクアッドは場面に入っていない。**別に組む（段 19）
+    const compileCloudsStarted = performance.now()
+    await clouds.compile(renderer)
+    const compileCloudsMs = performance.now() - compileCloudsStarted
+    const lutStarted = performance.now()
     await atmosphereContext.lutNode.updateTextures(renderer)
+    const pipelineLutMs = performance.now() - lutStarted
     const pipelineBuildMs = performance.now() - pipelineBuildStarted
 
     // LUT ができたので、ライティングの差をここで焼く
@@ -1589,9 +1597,24 @@ export async function runNodeProbe(
       return { frameCalls, drawCalls }
     }
 
+    // **暖機を 1 枚入れる。**`compileAsync` は場面の物しか組まない。
+    // 鎖の全画面クアッドは場面に入っていないので、実描画が要る（段 19）。
+    //
+    // 私物の `_quadMesh` へ手を伸ばして組む道も測った。描き先・トーン
+    // マッピング・出力の色空間まで揃えても 1 枚目の差が 1,578 ms 残った
+    // ので採らない。**支えられていない口に頼っても覆い切れない。**
+    const warmupStarted = performance.now()
+    await drawOnce()
+    const warmupMs = performance.now() - warmupStarted
+
+    // 1 枚目と 2 枚目を分けて測る。暖機のあとなら差は出ないはず
     const firstPipelineStarted = performance.now()
     await drawOnce()
     const firstPipelineMs = performance.now() - firstPipelineStarted
+
+    const secondStarted = performance.now()
+    await drawOnce()
+    const secondFrameMs = performance.now() - secondStarted
 
     let steadyMs = Infinity
     let last = { frameCalls: 0, drawCalls: 0 }
@@ -1688,7 +1711,16 @@ export async function runNodeProbe(
       frameCalls: last.frameCalls,
       drawCalls: last.drawCalls,
       buildMs: pipelineBuildMs,
+      compileSceneMs,
+      compileCloudsMs,
+      warmupMs,
+      // **起動の総和。**節ごとに測った値を足す。合格条件は 15 秒以内で、
+      // 超えるなら `atmosphereLutScale` を下げる（計画の段 17）
+      startupMs:
+        initMs + volumeMs + pipelineBuildMs + compileCloudsMs + warmupMs,
+      lutMs: pipelineLutMs,
       firstFrameMs: firstPipelineMs,
+      secondFrameMs,
       steadyMs,
       cloudFrameCallsAtRun: clouds.frameCallsAtRun,
       cloudDrawCallsAtRun: clouds.drawCallsAtRun,

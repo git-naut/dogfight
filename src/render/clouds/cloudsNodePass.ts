@@ -117,6 +117,14 @@ export interface CloudsNodePass {
   renderShadow(renderer: Renderer): void
   setSize(width: number, height: number): void
   /**
+   * 自分の全画面クアッドを事前に組む。
+   *
+   * **`compileAsync(scene, camera)` では組まれない。**雲の材質は場面に
+   * 入っておらず、自前のクアッドに載っている。組まずに描くと 1 枚目に
+   * シェーダの生成が乗る（段 19）
+   */
+  compile(renderer: Renderer): Promise<void>
+  /**
    * プリセットを当てる。
    *
    * **`cloudDetail` が変わると材質を組み直す。**`useDetail` は生成時に
@@ -462,6 +470,12 @@ export function createCloudsNodePass(
     },
 
     setSize,
+
+    async compile(renderer: Renderer) {
+      for (const quad of [marchQuad!, resolveQuad, copyQuad, shadowQuad]) {
+        await renderer.compileAsync(quad.scene, quad.camera)
+      }
+    },
 
     async marchShaderSource(renderer: Renderer) {
       const shader = await renderer.debug.getShaderAsync(

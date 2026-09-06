@@ -496,7 +496,35 @@ export interface NodeProbeResult {
     drawCalls: number
     /** 事前コンパイルと LUT にかかったミリ秒 */
     buildMs: number
+    /** そのうち `compileAsync(scene, camera)` のぶん */
+    compileSceneMs: number
+    /** そのうち雲の全画面クアッドを組むぶん */
+    compileCloudsMs: number
+    /**
+     * 暖機の 1 枚にかかったミリ秒。
+     *
+     * **鎖の全画面クアッドは場面に入っていない。**`compileAsync` では
+     * 組まれないので実描画が要る（段 19）
+     */
+    warmupMs: number
+    /**
+     * 起動の総和 ms。
+     *
+     * レンダラの生成、雲ノイズの焼き込み、事前コンパイル、LUT、暖機の
+     * 1 枚まで。**合格条件は 15 秒以内**（計画の段 17）
+     */
+    startupMs: number
+    /** そのうち LUT の実行時計算のぶん */
+    lutMs: number
+    /**
+     * 1 枚目のミリ秒。
+     *
+     * **2 枚目と差が出るなら、事前コンパイルが鎖まで覆えていない。**
+     * `RenderPipeline` の全画面クアッドは場面に入っていないので、
+     * `compileAsync(scene, camera)` では組まれない（段 19 の問い）
+     */
     firstFrameMs: number
+    secondFrameMs: number
     /** 定常のフレーム時間。最小値 */
     steadyMs: number
     /** 雲を焼いた時点の `frameCalls`。場面のパスが先なら 1 以上 */

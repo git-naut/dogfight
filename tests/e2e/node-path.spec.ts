@@ -801,6 +801,33 @@ test.describe('node 経路', () => {
       `矩形で動いた ${p.lightingProbeChanged} バイト`,
     ).toBeGreaterThan(1000)
 
+    // ---- 事前コンパイルと起動時間（段 19）----
+    //
+    // **`compileAsync` は場面の物しか組まない。**鎖の全画面クアッドは
+    // 場面に入っていないので、暖機の 1 枚で実描画が要る。私物の
+    // `_quadMesh` へ手を伸ばして組む道も測ったが、描き先・トーンマッピング・
+    // 出力の色空間まで揃えても 1 枚目の差が 1,578 ms 残った
+    expect(
+      p.warmupMs,
+      `暖機 ${p.warmupMs} ms が 2 枚目 ${p.secondFrameMs} ms と変わらない`,
+    ).toBeGreaterThan(p.secondFrameMs * 1.5)
+    // 暖機のあとは 1 枚目も定常と変わらない
+    expect(
+      p.firstFrameMs,
+      `暖機のあとの 1 枚目が ${p.firstFrameMs} ms（暖機は ${p.warmupMs} ms）`,
+    ).toBeLessThan(p.warmupMs * 0.6)
+    // **起動は壁時計で縛らない。**SwiftShader は CPU 律速なので、ワーカーが
+    // 同時に描くと伸びる（`docs/lessons.md` の記録）。単独で回すと 5,952 ms
+    // だったものが、spec を丸ごと回すと 31,702 ms になった。**競合を
+    // 測っているだけ。**計画の 15 秒は直列の実測で見る（`docs/measuring.md`）。
+    //
+    // 検査は比で縛る。定常の 1 枚に対して起動が何倍かなら、機械の負荷が
+    // 上がっても両方が伸びるので形が残る。単独の実測で 5.9 倍
+    expect(
+      p.startupMs / p.steadyMs,
+      `起動 ${p.startupMs} ms が定常 ${p.steadyMs} ms の何倍か`,
+    ).toBeLessThan(25)
+
     // 地形が場面に入っていること。**材質が非互換だと黙って描かれない**
     // （段 9 の記録）ので、パッチ枚数と三角形の数で見る
     expect(p.terrainPatches, `パッチが ${p.terrainPatches} 枚`).toBeGreaterThan(50)

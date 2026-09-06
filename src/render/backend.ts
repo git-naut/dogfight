@@ -18,6 +18,9 @@ import type { WebGLRenderer } from 'three'
  * | `gl.finish()` + `gl.readPixels()` | `await resolveTimestampsAsync()` |
  * | `renderer.getContext()` | **WebGPU では `undefined`** |
  *
+ * 計測の口は `createTimer()` に寄せた（段 18）。生のコンテキストを借りる
+ * `webglContext()` は消えている。
+ *
  * `renderer.getContext()` が空になるのが効く。`Backend.getContext()` は
  * three の WebGPU 側では空実装で、計測の排出も GPU タイマーもそこに
  * ぶら下がっている。
@@ -79,13 +82,113 @@ export interface RenderBackend {
   drain(): void
 
   /**
-   * WebGL の生のコンテキスト。**逃げ口。**
+   * GPU の時間を測る道具を作る。
    *
-   * GPU タイマー（`EXT_disjoint_timer_query_webgl2`）だけがこれを使う。
-   * WebGPU 経路では null を返すので、呼ぶ側は必ず null を見る。
-   * 段 16 で計測系を作り直すときに消す。
+   * **バックエンドごとに実体が違う。**WebGL2 は
+   * `EXT_disjoint_timer_query_webgl2`、node 経路は
+   * `renderer.resolveTimestampsAsync()`。呼ぶ側はどちらかを知らない。
+   *
+   * 段 18 でここへ寄せた。それまでは `webglContext()` で生のコンテキストを
+   * 借りていて、**WebGPU 経路では null が返るという逃げ口**になっていた
    */
-  webglContext(): WebGL2RenderingContext | null
+  createTimer(): GpuFrameTimer
+}
+
+/**
+ * GPU の時間を測る。
+ *
+ * 1 枚の描画を `begin` と `end` で挟み、結果は数フレーム後に `collect` で
+ * 回収する。**同じタスクの中では結果が揃わない**（`gl.finish()` を挟んでも
+ * 揃わなかった）。札を付けて回収するのは、掃引が条件ごとに測るため。
+ */
+export interface GpuFrameTimer {
+  readonly supported: boolean
+  /** 回収待ちの数。0 でなければ次の計測を重ねない */
+  readonly inflight: number
+  /** 1 枚の描画を挟む。`id` は回収の照合に使う */
+  begin(id: number): void
+  end(): void
+  /** 揃った結果を回収する。**揃った分だけ返す** */
+  collect(): readonly { readonly id: number; readonly ms: number }[]
+  dispose(): void
+}
+
+interface TimerExtension {
+  TIME_ELAPSED_EXT: number
+  GPU_DISJOINT_EXT: number
+}
+
+/** 測れないときの実体。呼ぶ側で分岐を書かずに済む */
+export const NO_GPU_TIMER: GpuFrameTimer = {
+  supported: false,
+  inflight: 0,
+  begin() {},
+  end() {},
+  collect() {
+    return []
+  },
+  dispose() {},
+}
+
+function createWebGLTimer(gl: WebGL2RenderingContext): GpuFrameTimer {
+  const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as TimerExtension | null
+  if (ext === null) return NO_GPU_TIMER
+
+  const pending: { query: WebGLQuery; id: number }[] = []
+  let measuring = false
+
+  return {
+    supported: true,
+
+    get inflight() {
+      return pending.length
+    },
+
+    begin(id) {
+      // クエリは入れ子にできない。走っている最中は重ねない
+      if (measuring) return
+      const query = gl.createQuery()
+      if (query === null) return
+      pending.push({ query, id })
+      measuring = true
+      gl.beginQuery(ext.TIME_ELAPSED_EXT, query)
+    },
+
+    end() {
+      if (!measuring) return
+      gl.endQuery(ext.TIME_ELAPSED_EXT)
+      measuring = false
+    },
+
+    collect() {
+      const out: { id: number; ms: number }[] = []
+      // GPU の状態が乱れた区間の値は信用できない。まとめて捨てる
+      const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT) as boolean
+      for (let i = pending.length - 1; i >= 0; i--) {
+        const item = pending[i]!
+        if (disjoint) {
+          gl.deleteQuery(item.query)
+          pending.splice(i, 1)
+          continue
+        }
+        const ready = gl.getQueryParameter(
+          item.query,
+          gl.QUERY_RESULT_AVAILABLE,
+        ) as boolean
+        if (!ready) continue
+        const nanoseconds = gl.getQueryParameter(item.query, gl.QUERY_RESULT) as number
+        out.push({ id: item.id, ms: nanoseconds / 1e6 })
+        gl.deleteQuery(item.query)
+        pending.splice(i, 1)
+      }
+      return out
+    },
+
+    dispose() {
+      for (const item of pending) gl.deleteQuery(item.query)
+      pending.length = 0
+    },
+  }
 }
 
 export function createWebGLBackend(renderer: WebGLRenderer): RenderBackend {
@@ -131,8 +234,8 @@ export function createWebGLBackend(renderer: WebGLRenderer): RenderBackend {
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
     },
 
-    webglContext() {
-      return gl
+    createTimer() {
+      return createWebGLTimer(gl)
     },
   }
 }

@@ -73,9 +73,7 @@ export interface SceneHandle {
   /** 直近しばらくの GPU フレーム時間の最大 ms。予算の判断はこちらで行う */
   readonly gpuFrameMaxMs: number
   /** そのうち雲のパスが占める ms */
-  readonly gpuCloudMs: number
   /** 雲のパスの直近の最大 ms */
-  readonly gpuCloudMaxMs: number
   /** GPU 時間の計測が使えるか */
   readonly gpuTimerSupported: boolean
   /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
@@ -372,14 +370,6 @@ export async function createScene(
 
     get gpuFrameMaxMs() {
       return pipeline.gpuFrameMaxMs
-    },
-
-    get gpuCloudMs() {
-      return pipeline.gpuCloudMs
-    },
-
-    get gpuCloudMaxMs() {
-      return pipeline.gpuCloudMaxMs
     },
 
     get gpuTimerSupported() {

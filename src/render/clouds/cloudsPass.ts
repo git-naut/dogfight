@@ -57,8 +57,6 @@ import cloudResolveFrag from './shaders/cloudResolve.frag?raw'
 import densityChunk from './shaders/density.glsl?raw'
 import type { CloudNoise } from './noise'
 import type { QualitySettings } from '../quality'
-import { createGpuTimer, type GpuTimer } from '../gpuTimer'
-import type { RenderBackend } from '../backend'
 
 /**
  * 雲のレイマーチを低解像度で走らせ、結果を大気エフェクトの overlay へ渡す。
@@ -128,13 +126,6 @@ export const SHADOW_EXTENT = 30_000
 
 export interface CloudsPassOptions {
   camera: PerspectiveCamera
-  /**
-   * 描画バックエンド。GPU タイマーの取得だけに使う。
-   *
-   * `Pass.render` は `WebGLRenderer` を受け取るが、WebGPU 経路では
-   * `getContext()` が空になる。計測の口はバックエンド側へ寄せてある
-   */
-  backend: RenderBackend
   noise: CloudNoise
   quality: QualitySettings
   /** 雲量 0..1 */
@@ -163,7 +154,6 @@ export interface CloudsUpdate {
 }
 
 export class CloudsPass extends Pass {
-  private readonly backend: RenderBackend
   private readonly cloudCamera: PerspectiveCamera
   private readonly target: WebGLRenderTarget
   /**
@@ -203,19 +193,10 @@ export class CloudsPass extends Pass {
   private height = 1
   private groundShadow = true
 
-  /**
-   * このパスだけの GPU 時間。
-   *
-   * WebGL2 の TIME_ELAPSED クエリは入れ子にできないので、フレーム全体の
-   * 計測とは交互に走らせる。どちらも定常状態なので交互でも値は使える。
-   */
-  private timer: GpuTimer | null = null
-  private timingEnabled = false
 
   constructor(options: CloudsPassOptions) {
     super('CloudsPass')
 
-    this.backend = options.backend
     this.cloudCamera = options.camera
     this.quality = options.quality
 
@@ -367,20 +348,10 @@ export class CloudsPass extends Pass {
     this.copyQuad = createQuad(this.copyMaterial)
   }
 
-  /** このパスの GPU 時間 ms。計測できていなければ 0 */
-  get gpuMs(): number {
-    return this.timer?.lastMs ?? 0
-  }
 
   /** 直近しばらくの最大 ms。重い視点の費用はこちらで見る */
-  get gpuMaxMs(): number {
-    return this.timer?.maxMs ?? 0
-  }
 
   /** フレーム全体の計測と交互に切り替える */
-  setTimingEnabled(enabled: boolean): void {
-    this.timingEnabled = enabled
-  }
 
   /**
    * 大気エフェクトへ渡すテクスチャ。overlay.map に入れる。
@@ -746,10 +717,6 @@ export class CloudsPass extends Pass {
   }
 
   override render(renderer: WebGLRenderer): void {
-    if (this.timer === null) this.timer = createGpuTimer(this.backend)
-    const timing = this.timingEnabled && this.timer.supported
-    if (timing) this.timer.begin()
-
     const camera = this.cloudCamera
     const u = this.material.uniforms
 
@@ -774,8 +741,6 @@ export class CloudsPass extends Pass {
     renderer.render(this.quad.scene, this.quad.camera)
 
     if (!this.probeMode) this.resolve(renderer, camera)
-
-    if (timing) this.timer.end()
   }
 
   /**
@@ -821,7 +786,6 @@ export class CloudsPass extends Pass {
   }
 
   override dispose(): void {
-    this.timer?.dispose()
     this.target.dispose()
     this.output.dispose()
     this.history.dispose()

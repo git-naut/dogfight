@@ -48,8 +48,8 @@ export interface BenchTarget {
   /**
    * 描画バックエンド。排出と GPU タイマーの取得に使う。
    *
-   * **WebGPU 経路では `getContext()` が空になる。**計測の口をここへ寄せて
-   * あるので、段 16 で作り直すときに触るのはこのファイルとバックエンドだけ
+   * **測り方はバックエンドが持つ。**拡張の有無も API の違いもここには
+   * 出てこない（段 18）
    */
   readonly backend: RenderBackend
   readonly terrainTriangles: number
@@ -58,16 +58,6 @@ export interface BenchTarget {
   readonly quality: { lodDistanceScale: number; terrainPatchCells: number }
   setMeasureConfig(config: MeasureConfig): void
   renderPlain(): void
-}
-
-interface TimerExtension {
-  TIME_ELAPSED_EXT: number
-  GPU_DISJOINT_EXT: number
-}
-
-interface Inflight {
-  query: WebGLQuery
-  caseIndex: number
 }
 
 /** 最初に捨てる回数。シェーダのコンパイルとテクスチャの常駐化が混ざる */
@@ -175,17 +165,9 @@ export async function runBenchSweep(
   samplesPerCase: number,
   only = '',
 ): Promise<BenchRow[]> {
-  // **`ext` があるなら `gl` もある、を型で表す。**別々の変数にすると
-  // 片方だけ null 検査した経路が通ってしまう。WebGPU 経路では
-  // `webglContext()` が null を返し、GPU 時間は測らず CPU 時間だけ残る
-  const timer = ((): { gl: WebGL2RenderingContext; ext: TimerExtension } | null => {
-    const gl = view.backend.webglContext()
-    if (gl === null) return null
-    const ext = gl.getExtension(
-      'EXT_disjoint_timer_query_webgl2',
-    ) as TimerExtension | null
-    return ext === null ? null : { gl, ext }
-  })()
+  // **測り方はバックエンドが持つ。**拡張の有無も API の違いもここには出ない。
+  // 測れないバックエンドでは GPU 時間を残さず CPU 時間だけになる（段 18）
+  const timer = view.backend.createTimer()
 
   // 排出はバックエンドが持つ。`gl.finish()` では足りない理由もそちらに書いた
   const drain = (): void => view.backend.drain()
@@ -275,29 +257,11 @@ export async function runBenchSweep(
   const cpuSamples: number[][] = cases.map(() => [])
   const gpuSamples: number[][] = cases.map(() => [])
   const triangles: number[] = cases.map(() => 0)
-  const inflight: Inflight[] = []
 
+  /** 揃った結果を条件ごとの標本へ振り分ける。札は条件の番号 */
   function collect(): void {
-    if (timer === null) return
-    const { gl, ext } = timer
-    // 乱れた区間の値は信用できない。読むとフラグは落ちる
-    const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT) as boolean
-    for (let i = inflight.length - 1; i >= 0; i--) {
-      const item = inflight[i]!
-      if (disjoint) {
-        gl.deleteQuery(item.query)
-        inflight.splice(i, 1)
-        continue
-      }
-      const ready = gl.getQueryParameter(
-        item.query,
-        gl.QUERY_RESULT_AVAILABLE,
-      ) as boolean
-      if (!ready) continue
-      const nanoseconds = gl.getQueryParameter(item.query, gl.QUERY_RESULT) as number
-      gpuSamples[item.caseIndex]!.push(nanoseconds / 1e6)
-      gl.deleteQuery(item.query)
-      inflight.splice(i, 1)
+    for (const result of timer.collect()) {
+      gpuSamples[result.id]?.push(result.ms)
     }
   }
 
@@ -322,18 +286,12 @@ export async function runBenchSweep(
       view.renderPlain()
       drain()
 
-      const query = timer?.gl.createQuery() ?? null
-      if (timer !== null && query !== null) {
-        timer.gl.beginQuery(timer.ext.TIME_ELAPSED_EXT, query)
-      }
+      timer.begin(c)
       const started = performance.now()
       view.renderPlain()
-      if (timer !== null && query !== null) {
-        timer.gl.endQuery(timer.ext.TIME_ELAPSED_EXT)
-      }
+      timer.end()
       drain()
       cpuSamples[c]!.push(performance.now() - started)
-      if (query !== null) inflight.push({ query, caseIndex: c })
 
       // **地形だけでなく実際に描いた総数を記録する。**`terrainTriangles` は
       // 地形の集計なので、機体や武装を切っても動かない。実機の計測で全条件が
@@ -342,11 +300,11 @@ export async function runBenchSweep(
     }
   }
 
-  for (let i = 0; i < DRAIN_FRAMES && inflight.length > 0; i++) {
+  for (let i = 0; i < DRAIN_FRAMES && timer.inflight > 0; i++) {
     await nextFrame()
     collect()
   }
-  for (const item of inflight) timer?.gl.deleteQuery(item.query)
+  timer.dispose()
 
   // 測り終えたら元に戻す。以降の描画が設定違いにならないように
   view.setMeasureConfig(base)

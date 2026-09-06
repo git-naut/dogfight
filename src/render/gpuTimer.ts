@@ -1,25 +1,17 @@
 import type { RenderBackend } from './backend'
 
 /**
- * GPU のフレーム時間を測る。
+ * GPU のフレーム時間を計器へ出す。
  *
  * 実機は vsync で 60fps に張り付くので、CPU 側の経過時間を見ても余裕が
  * 分からない。16.7 ms のうち実際に 5 ms しか使っていないのか 16 ms なのかで、
  * 雲のレイマーチ解像度をどこまで上げられるかの判断が変わる。
  *
- * WebGL2 の EXT_disjoint_timer_query_webgl2 で GPU 側の経過を直接測る。
- * 拡張が無い環境（多くのソフトウェアレンダラ）では supported が false になり、
- * 表示側で伏せる。
- *
- * **WebGPU にはこの拡張がない。**`renderer.resolveTimestampsAsync()` という
- * 別の API になるので、ここは段 16 で作り直す。それまでは
- * `RenderBackend.webglContext()` の逃げ口を通す。null が返れば伏せる。
+ * **測り方はバックエンドが持つ。**WebGL2 は
+ * `EXT_disjoint_timer_query_webgl2`、node 経路は
+ * `renderer.resolveTimestampsAsync()`。ここはどちらかを知らず、
+ * 計器が読む「直近の値」と「直近しばらくの最大値」だけを作る（段 18）。
  */
-
-interface TimerExtension {
-  TIME_ELAPSED_EXT: number
-  GPU_DISJOINT_EXT: number
-}
 
 export interface GpuTimer {
   readonly supported: boolean
@@ -50,42 +42,11 @@ const NOT_SUPPORTED: GpuTimer = {
 }
 
 export function createGpuTimer(backend: RenderBackend): GpuTimer {
-  const gl = backend.webglContext()
-  // WebGPU 経路では null。**その場合は計測を伏せる。**段 16 で作り直す
-  if (gl === null) return NOT_SUPPORTED
-  return createWebGLTimer(gl)
-}
+  const timer = backend.createTimer()
+  if (!timer.supported) return NOT_SUPPORTED
 
-function createWebGLTimer(gl: WebGL2RenderingContext): GpuTimer {
-  const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as TimerExtension | null
-  if (ext === null) return NOT_SUPPORTED
-
-  let pending: WebGLQuery | null = null
-  let measuring = false
   let lastMs = 0
   let maxMs = 0
-
-  /** 結果が揃っていれば取り込む。揃うまで数フレームかかる */
-  function collect(): void {
-    if (pending === null) return
-    const available = gl.getQueryParameter(pending, gl.QUERY_RESULT_AVAILABLE) as boolean
-    const disjoint = gl.getParameter(ext!.GPU_DISJOINT_EXT) as boolean
-
-    if (disjoint) {
-      // GPU の状態が乱れた区間の値は信用できない。捨てる
-      gl.deleteQuery(pending)
-      pending = null
-      return
-    }
-    if (!available) return
-
-    const nanoseconds = gl.getQueryParameter(pending, gl.QUERY_RESULT) as number
-    lastMs = nanoseconds / 1e6
-    // ゆっくり減衰させる。1 回の外れ値に張り付かず、直近の重さは残る
-    maxMs = Math.max(lastMs, maxMs * 0.995)
-    gl.deleteQuery(pending)
-    pending = null
-  }
 
   return {
     supported: true,
@@ -99,27 +60,22 @@ function createWebGLTimer(gl: WebGL2RenderingContext): GpuTimer {
     },
 
     begin() {
-      collect()
+      for (const result of timer.collect()) {
+        lastMs = result.ms
+        // ゆっくり減衰させる。1 回の外れ値に張り付かず、直近の重さは残る
+        maxMs = Math.max(lastMs, maxMs * 0.995)
+      }
       // 前の計測がまだ回収できていないなら重ねない
-      if (pending !== null || measuring) return
-      const query = gl.createQuery()
-      if (query === null) return
-      pending = query
-      measuring = true
-      gl.beginQuery(ext.TIME_ELAPSED_EXT, query)
+      if (timer.inflight > 0) return
+      timer.begin(0)
     },
 
     end() {
-      if (!measuring) return
-      gl.endQuery(ext.TIME_ELAPSED_EXT)
-      measuring = false
+      timer.end()
     },
 
     dispose() {
-      if (pending !== null) {
-        gl.deleteQuery(pending)
-        pending = null
-      }
+      timer.dispose()
     },
   }
 }

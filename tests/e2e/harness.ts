@@ -30,7 +30,6 @@ export interface TestHook {
   noiseMs: number
   noiseStats: { min: number; max: number; mean: number }
   gpuFrameMs: number
-  gpuCloudMs: number
   gpuTimerSupported: boolean
   cloudHdrTarget: boolean
   benchMs: number

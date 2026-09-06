@@ -27,8 +27,6 @@ export interface RenderInfo {
   /** 直近しばらくの最大。現在値だけでは重い視点を見落とす */
   gpuFrameMaxMs: number
   /** そのうち雲のパスが占める ms */
-  gpuCloudMs: number
-  gpuCloudMaxMs: number
   gpuTimerSupported: boolean
   /**
    * フレームの CPU 内訳 ms。
@@ -99,7 +97,6 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['frame', 'フレーム'],
     ['fps', 'FPS'],
     ['gpu', 'GPU 時間'],
-    ['gpuClouds', 'うち雲'],
     ['cpu', 'CPU 時間'],
     ['terrain', '地形'],
     ['aircraft', '機体'],
@@ -170,12 +167,6 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
         'gpu',
         render.gpuTimerSupported
           ? `${render.gpuFrameMs.toFixed(1)} / 最大 ${render.gpuFrameMaxMs.toFixed(1)} ms (16.7)`
-          : '計測不可',
-      )
-      set(
-        'gpuClouds',
-        render.gpuTimerSupported
-          ? `${render.gpuCloudMs.toFixed(1)} / 最大 ${render.gpuCloudMaxMs.toFixed(1)} ms`
           : '計測不可',
       )
 

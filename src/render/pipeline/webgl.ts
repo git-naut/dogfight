@@ -260,7 +260,6 @@ export async function createWebGLPipeline(
   scene.environment = (options.showEnvironment ?? true) ? environment.texture : null
 
   const cloudsPass = new CloudsPass({
-    backend,
     camera,
     noise,
     quality,
@@ -288,7 +287,6 @@ export async function createWebGLPipeline(
 
   /** 雲のパスを描いているか。計測で切ったときは影の焼き込みも止める */
   let cloudsEnabled = true
-  let measureClouds = false
   const shadowAllowed = options.showAircraftShadow ?? true
   /** 計測で影を切っているか。setMeasureConfig から動かす */
   let measureShadow = true
@@ -330,7 +328,6 @@ export async function createWebGLPipeline(
   function renderPlainImpl(): void {
     backend.resetInfo()
     updateShadowUniforms()
-    cloudsPass.setTimingEnabled(false)
     // 雲を切っているときは影も焼かない。切った意味がなくなる
     if (cloudsEnabled) cloudsPass.renderShadow(renderer)
     composer.render()
@@ -506,14 +503,6 @@ export async function createWebGLPipeline(
       return gpuTimer.maxMs
     },
 
-    get gpuCloudMs() {
-      return cloudsPass.gpuMs
-    },
-
-    get gpuCloudMaxMs() {
-      return cloudsPass.gpuMaxMs
-    },
-
     get gpuTimerSupported() {
       return gpuTimer.supported
     },
@@ -591,16 +580,13 @@ export async function createWebGLPipeline(
       // 描画は 8 回）では影がまったく出ない。毎フレームここで入れ直す
       updateShadowUniforms()
 
-      // TIME_ELAPSED クエリは入れ子にできない。フレーム全体と雲のパスを
-      // 1 フレームおきに交互で測る。どちらも定常状態なので値は使える
-      measureClouds = !measureClouds
-      cloudsPass.setTimingEnabled(measureClouds)
-
-      if (!measureClouds) gpuTimer.begin()
+      // **交互計測はやめた。**内訳は `?sweep=1` の差分に一本化してある
+      // （段 18）。フレーム全体を毎枚測る
+      gpuTimer.begin()
       // 雲影は地面を描く前に焼く。composer の中では手遅れになる
       cloudsPass.renderShadow(renderer)
       composer.render()
-      if (!measureClouds) gpuTimer.end()
+      gpuTimer.end()
     },
 
     setMeasureConfig(config) {

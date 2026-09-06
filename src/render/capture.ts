@@ -407,8 +407,6 @@ export interface TestHook {
   noiseStats: { min: number; max: number; mean: number }
   /** GPU のフレーム時間 ms。計測できていなければ 0 */
   gpuFrameMs: number
-  /** そのうち雲のパスが占める ms */
-  gpuCloudMs: number
   gpuTimerSupported: boolean
   /** 雲のバッファが 16bit 浮動小数か。8bit だと等高線状の横線が出る */
   cloudHdrTarget: boolean

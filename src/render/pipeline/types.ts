@@ -291,8 +291,6 @@ export interface ScenePipeline {
 
   readonly gpuFrameMs: number
   readonly gpuFrameMaxMs: number
-  readonly gpuCloudMs: number
-  readonly gpuCloudMaxMs: number
   readonly gpuTimerSupported: boolean
   readonly drawCalls: number
   readonly drawnTriangles: number

@@ -36,11 +36,11 @@ function assignedFields(): Set<string> {
 /**
  * 毎フレーム更新しなくてよい項目。
  *
- * `hour` は起動時のクエリで決まり動かない。GPU 時間の 2 つは
+ * `hour` は起動時のクエリで決まり動かない。GPU のフレーム時間は
  * `?debug=1` の計器が `view` から直接読んでいて、フックの側は使われていない
  * （Phase 3 から残っている枠）。
  */
-const STATIC_ALLOWED = new Set(['hour', 'gpuFrameMs', 'gpuCloudMs'])
+const STATIC_ALLOWED = new Set(['hour', 'gpuFrameMs'])
 
 describe('TestHook', () => {
   const fields = hookFields()

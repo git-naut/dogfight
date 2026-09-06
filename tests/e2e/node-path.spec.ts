@@ -737,6 +737,55 @@ test.describe('node 経路', () => {
     const bright = p.tiles.filter((t) => t > 0.02).length
     expect(bright, `明るい区画が ${bright} しかない`).toBeGreaterThan(8)
 
+    // ---- ライティングの置き換え（段 17c）----
+    //
+    // **直達は同じ物理なので近いはず。**`getSplitIrradiance` の直達は
+    // 太陽放射照度に透過率と `max(N・L, 0)` を掛けたもので、WebGL 経路の
+    // `SunDirectionalLight` が CPU で出しているものと同じ式
+    expect(p.directAwayFromSun, '太陽に背けた面の直達が 0 でない').toEqual([
+      0, 0, 0,
+    ])
+    for (const v of p.indirectFacingSun) {
+      expect(v, '間接照度が 0。LUT ができる前に焼いている疑い').toBeGreaterThan(0)
+    }
+
+    await page.goto('/dogfight/?capture=1&frame=0')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const glslHook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    const glslSun = glslHook!.sunRadiance
+    const glslSky = glslHook!.skyRadiance
+
+    // 実測で 1.705 対 1.751（2.6% 違い）。**π を掛け違えれば 3.14 倍ずれる**
+    for (let c = 0; c < 3; c++) {
+      const ratio = p.directFacingSun[c]! / glslSun[c]!
+      expect(
+        ratio,
+        `直達の比 ${ratio}（node ${p.directFacingSun[c]} 対 GLSL ${glslSun[c]}）`,
+      ).toBeGreaterThan(0.8)
+      expect(ratio).toBeLessThan(1.2)
+    }
+
+    // **間接は式が違うので離れる。**実測 2.7〜3.5 倍。内訳は 2 つで、
+    // 式で 1.64 倍（WebGL 経路は SH の L0 だけを読んで 0.28 を掛ける。
+    // node は `(1 + N・up) / 2` を 1/pi で割る）、LUT そのもので 1.7〜2.1 倍
+    // （実行時計算と同梱の EXR）。**段 20 の差分の台帳へ入れる数**
+    for (let c = 0; c < 3; c++) {
+      const ratio = p.indirectFacingSun[c]! / Math.PI / glslSky[c]!
+      expect(
+        ratio,
+        `間接の比 ${ratio}（node ${p.indirectFacingSun[c]! / Math.PI} 対 GLSL ${glslSky[c]}）`,
+      ).toBeGreaterThan(1.5)
+      expect(ratio).toBeLessThan(6)
+    }
+
+    // 置き換えで地表が動くこと。**0 なら効いていない**
+    expect(
+      p.lightingProbeChanged,
+      `矩形で動いた ${p.lightingProbeChanged} バイト`,
+    ).toBeGreaterThan(1000)
+
     // 地形が場面に入っていること。**材質が非互換だと黙って描かれない**
     // （段 9 の記録）ので、パッチ枚数と三角形の数で見る
     expect(p.terrainPatches, `パッチが ${p.terrainPatches} 枚`).toBeGreaterThan(50)
@@ -868,6 +917,18 @@ test.describe('node 経路', () => {
     expect(ramp, `途中の寄せ量が ${ramp} 画素`).toBeGreaterThan(pixels / 10)
     expect(worstXZ, `頂点位置のずれ ${worstXZ} m`).toBeLessThan(0.01)
     expect(worstMorph, `寄せ量のずれ ${worstMorph}`).toBeLessThan(1e-5)
+
+    // **照度の形が同じ絵を出すこと。**段 17c で地表のライティングを
+    // `getSplitIlluminance` へ移す。1/pi の掛け忘れや二重掛けがあれば
+    // 3.14 倍ずれるので、同じ値を流し込んで突き合わせる
+    const matched = byteDifference(
+      result.surface!.terrain,
+      result.surface!.terrainMatched,
+    )
+    expect(
+      matched.max,
+      `照度の形との差 ${matched.max} 階調（違うバイト ${matched.differing}）`,
+    ).toBeLessThanOrEqual(1)
 
     // **バイトまで一致するはず。**`?gpu=1` は GLSL どうしの比較になる
     const terrainDiff = byteDifference(glsl!.terrain, result.surface!.terrain)

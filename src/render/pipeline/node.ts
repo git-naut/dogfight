@@ -731,7 +731,25 @@ export async function runNodeProbe(
       return bytes
     }
 
-    const terrainFragment = (branchMode: boolean) =>
+    /**
+     * 照度の口へ、段 17b までと同じ値を流し込む差し替え。
+     *
+     * **1/pi がちょうど 1 回だけ掛かることを縛る。**`skyRadiance` は
+     * 放射輝度なので pi を掛けて照度へ戻す。掛け忘れや二重掛けがあれば
+     * 3.14 倍ずれて出る
+     */
+    const matchedIlluminance: import('../terrain/surfaceNodes').IlluminanceProvider =
+      (_world, normal) => ({
+        direct: inputs.sunRadiance.mul(
+          tsl.max(tsl.dot(normal, inputs.sunDirectionWorld), 0),
+        ),
+        indirect: inputs.skyRadiance.mul(Math.PI),
+      })
+
+    const terrainFragment = (
+      branchMode: boolean,
+      illuminance?: import('../terrain/surfaceNodes').IlluminanceProvider,
+    ) =>
       tsl.Fn(() => {
         const region = probe.TERRAIN_PROBE_REGION
         const xz = worldXZ(region).toVar()
@@ -746,7 +764,7 @@ export async function runNodeProbe(
           tsl.vec3(region.camera.x, region.camera.y, region.camera.z),
           tsl.float(1),
           tsl.float(1),
-          branchMode,
+          illuminance !== undefined ? { illuminance } : { branchMode },
         )
       })() as import('three/webgpu').Node<'vec4'>
 
@@ -808,6 +826,7 @@ export async function runNodeProbe(
       patch: patchBytes,
       terrain: await bake(terrainFragment(false)),
       terrainBranches: await bake(terrainFragment(true)),
+      terrainMatched: await bake(terrainFragment(false, matchedIlluminance)),
       water: [],
       waterBranches: [],
     }
@@ -1191,10 +1210,41 @@ export async function runNodeProbe(
     )
     surfaceState.setCloudShadowCenter(0, 0)
 
-    // 機体の影はまだ繋いでいない。**`shadow(light)` を地形へ引き込むのは
-    // ライティングと同じ段（段 17c）でやる。**ここで別に繋ぐと、絵の差の
-    // 帰属が切り分けられなくなる
+    // 機体の影はまだ繋いでいない。段 17c の後半で `shadow(light)` を引き込む
     const noAircraftShade = tsl.float(1) as unknown as import('three/webgpu').Node<'float'>
+
+    /**
+     * 大気の LUT が決める照度。
+     *
+     * **機体と同じ式になる。**`AtmosphereLightNode` は間接に
+     * `getIndirectIlluminance` を使い、直達は太陽放射照度に透過率と
+     * `max(N・L, 0)` を掛ける。`getSplitIlluminance` はその 2 つを
+     * 1 度に返す（`getSplitIrradiance` が同じ式で組んでいる）
+     */
+    const atmosphereIlluminance: import('../terrain/surfaceNodes').IlluminanceProvider =
+      (world, normal) => {
+        const ctx = atmosphereContext!
+        const params = ctx.parametersNode as unknown as {
+          worldToUnit: import('three/webgpu').Node<'float'>
+        }
+        const toECEF = ctx.matrixWorldToECEF as unknown as import('three/webgpu').Node<'mat4'>
+        let positionECEF = toECEF.mul(tsl.vec4(world, 1)).xyz
+        if (ctx.correctAltitude) {
+          positionECEF = positionECEF.add(
+            ctx.altitudeCorrectionECEF as unknown as import('three/webgpu').Node<'vec3'>,
+          )
+        }
+        const positionUnit = positionECEF.mul(params.worldToUnit)
+        const normalECEF = toECEF.mul(tsl.vec4(normal, 0)).xyz
+        const split = atmos.getSplitIlluminance(
+          positionUnit,
+          normalECEF,
+          ctx.sunDirectionECEF,
+        ) as unknown as {
+          get(name: string): import('three/webgpu').Node<'vec3'>
+        }
+        return { direct: split.get('direct'), indirect: split.get('indirect') }
+      }
 
     const sharedUniforms = terrainMeshMod.createTerrainUniforms(
       sceneTerrain,
@@ -1204,7 +1254,17 @@ export async function runNodeProbe(
       sceneTerrain,
       options.quality,
       sharedUniforms,
-      () => nodeMaterials.createTerrainNodeMaterial(surfaceState, noAircraftShade),
+      () =>
+        nodeMaterials.createTerrainNodeMaterial(
+          surfaceState,
+          noAircraftShade,
+          atmosphereIlluminance,
+        ),
+    )
+    // 差分の帰属を測るために、段 17b までの形も 1 つ組んでおく
+    const legacyTerrainMaterial = nodeMaterials.createTerrainNodeMaterial(
+      surfaceState,
+      noAircraftShade,
     )
     const nodeWater = waterMod.createWater(
       options.quality,
@@ -1213,6 +1273,63 @@ export async function runNodeProbe(
     )
     scene.add(nodeTerrainMesh.mesh)
     scene.add(nodeWater.mesh)
+
+    // **場面のカメラでは地表がほとんど映らない。**矩形で密に測り直す。
+    // 段 17b の突き合わせに使ったのと同じ 5 km 角と同じカメラを使う
+    const lightProbe = await import('../terrain/surfaceProbe')
+    const heightNodesForLight = await import('../terrain/heightNodes')
+    const lightQuad = volume.createBakeQuad()
+    const lightRegion = lightProbe.TERRAIN_PROBE_REGION
+    const lightSide = lightProbe.SURFACE_PROBE_SIDE
+    const lightFragment = (
+      illum?: import('../terrain/surfaceNodes').IlluminanceProvider,
+    ) =>
+      tsl.Fn(() => {
+        const col = tsl.floor(tsl.uv().x.mul(lightSide))
+        const row = tsl.floor(tsl.uv().y.mul(lightSide))
+        const xz = tsl
+          .vec2(
+            col.add(0.5).div(lightSide).mul(lightRegion.span).add(lightRegion.origin.x),
+            row.add(0.5).div(lightSide).mul(lightRegion.span).add(lightRegion.origin.z),
+          )
+          .toVar()
+        const world = tsl.vec3(
+          xz.x,
+          heightNodesForLight.terrainHeightNode(surfaceState.inputs, xz),
+          xz.y,
+        ).toVar()
+        return nodeMaterials.terrainSurfaceForProbe(
+          surfaceState,
+          world,
+          tsl.vec3(lightRegion.camera.x, lightRegion.camera.y, lightRegion.camera.z),
+          illum,
+        )
+      })() as import('three/webgpu').Node<'vec4'>
+
+    const bakeLight = async (
+      illum?: import('../terrain/surfaceNodes').IlluminanceProvider,
+    ): Promise<number[]> => {
+      const target = volume.bakePlane(
+        renderer,
+        lightQuad,
+        lightSide,
+        lightSide,
+        lightFragment(illum),
+      )
+      const bytes = await volume.readPlane(
+        renderer,
+        target,
+        lightSide,
+        lightSide,
+        isWebGPU,
+      )
+      target.dispose()
+      return bytes
+    }
+
+    // **焼くのは LUT ができてから。**`compileAsync` が
+    // `AtmosphereLUTNode.setup()` を走らせ、`updateTextures` が中身を作る。
+    // その前に焼くと照度が 0 になり、地表が真っ黒になる（実測でそうなった）
 
     // カメラの位置からパッチを選び、寄せる基準と海面の位置を合わせる
     const cameraWorld = camera.getWorldPosition(new THREE.Vector3())
@@ -1253,6 +1370,73 @@ export async function runNodeProbe(
     await renderer.compileAsync(scene, camera)
     await atmosphereContext.lutNode.updateTextures(renderer)
     const pipelineBuildMs = performance.now() - pipelineBuildStarted
+
+    // LUT ができたので、ライティングの差をここで焼く
+    const lightBefore = await bakeLight()
+    const lightAfter = await bakeLight(atmosphereIlluminance)
+
+    // **照度そのものを数で見る。**同じ点で法線だけを太陽へ向けたものと
+    // 背けたものを焼く。直達には `max(N・L, 0)` が入っているので、
+    // 背けた側はちょうど 0 になるはず
+    const illumSide = 8
+    const illumWorld = tsl.vec3(
+      lightRegion.origin.x + lightRegion.span * 0.5,
+      0,
+      lightRegion.origin.z + lightRegion.span * 0.5,
+    )
+    const illumFragment = (indirectMode: boolean) =>
+      tsl.Fn(() => {
+        const sun = surfaceState.inputs.sunDirectionWorld
+        const facing = tsl.uv().x.lessThan(0.5)
+        const normal = facing.select(sun, sun.negate())
+        const light = atmosphereIlluminance(illumWorld, normal)
+        return tsl.vec4(indirectMode ? light.indirect : light.direct, 1)
+      })() as import('three/webgpu').Node<'vec4'>
+
+    const bakeIllum = async (indirectMode: boolean): Promise<number[]> => {
+      const target = volume.bakePlane(
+        renderer,
+        lightQuad,
+        illumSide,
+        illumSide,
+        illumFragment(indirectMode),
+        { float: true },
+      )
+      const bytes = await volume.readPlane(
+        renderer,
+        target,
+        illumSide,
+        illumSide,
+        isWebGPU,
+      )
+      target.dispose()
+      return bytes
+    }
+
+    const directBytes = await bakeIllum(false)
+    const indirectBytes = await bakeIllum(true)
+    lightQuad.dispose()
+
+    /** 左半分（太陽へ向けた面）と右半分（背けた面）の平均を 3 成分で出す */
+    const illumMean = (
+      bytes: number[],
+      facing: boolean,
+    ): [number, number, number] => {
+      const sum = [0, 0, 0]
+      let n = 0
+      for (let row = 0; row < illumSide; row++) {
+        for (let col = 0; col < illumSide; col++) {
+          if (col < illumSide / 2 !== facing) continue
+          for (let c = 0; c < 3; c++) {
+            sum[c]! += bytes[(row * illumSide + col) * 4 + c] ?? 0
+          }
+          n++
+        }
+      }
+      return n > 0
+        ? [sum[0]! / n, sum[1]! / n, sum[2]! / n]
+        : [Number.NaN, Number.NaN, Number.NaN]
+    }
 
     const pipelineTarget = new webgpu.RenderTarget(options.width, options.height)
     /**
@@ -1311,6 +1495,13 @@ export async function runNodeProbe(
     const pipelineBytes = await readPicture()
     const smaaFrameCalls = lastPictureFrameCalls
 
+    // **ライティングの置き換えでどれだけ動くか。**段 20 の差分の台帳へ
+    // 入れる数。地表は画面の大半を覆うので区画平均でも見える
+    const litMaterial = nodeTerrainMesh.mesh.material
+    nodeTerrainMesh.mesh.material = legacyTerrainMaterial.material
+    const legacyBytes = await readPicture()
+    nodeTerrainMesh.mesh.material = litMaterial
+
     // **SMAA が効いているかは数で見る。**鎖に入れただけでは、辺を拾って
     // いるかどうかは分からない。外して撮り直し、パスの数と絵の両方が
     // 動くことを確かめる
@@ -1354,6 +1545,28 @@ export async function runNodeProbe(
       smaaFrameCalls,
       plainFrameCalls,
       // SMAA を外すと辺の画素が変わる。0 なら鎖に入っていない
+      lightingChanged: byteDifference(pipelineBytes, legacyBytes).differing,
+      lightingChangedMax: byteDifference(pipelineBytes, legacyBytes).max,
+      lightingTiles: tileMeans(
+        new Uint8Array(legacyBytes),
+        options.width,
+        options.height,
+      ),
+      lightingProbeChanged: byteDifference(lightBefore, lightAfter).differing,
+      lightingProbeMax: byteDifference(lightBefore, lightAfter).max,
+      lightingProbeTilesBefore: tileMeans(
+        new Uint8Array(lightBefore),
+        lightSide,
+        lightSide,
+      ),
+      lightingProbeTilesAfter: tileMeans(
+        new Uint8Array(lightAfter),
+        lightSide,
+        lightSide,
+      ),
+      directFacingSun: illumMean(directBytes, true),
+      directAwayFromSun: illumMean(directBytes, false),
+      indirectFacingSun: illumMean(indirectBytes, true),
       terrainPatches: nodeTerrainMesh.patchCount,
       terrainTriangles: nodeTerrainMesh.triangleCount,
       smaaChanged: byteDifference(pipelineBytes, plainBytes).differing,

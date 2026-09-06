@@ -12,6 +12,7 @@ import {
   terrainPatchWorldNode,
   terrainSurfaceNode,
   waterSurfaceNode,
+  type IlluminanceProvider,
   type SurfaceInputs,
 } from './surfaceNodes'
 import { terrainHeightNode } from './heightNodes'
@@ -147,6 +148,7 @@ export function createNodeSurfaceState(
 export function createTerrainNodeMaterial(
   state: NodeSurfaceState,
   aircraftShade: Node<'float'>,
+  illuminance?: IlluminanceProvider,
 ): TerrainMaterial {
   const material = new MeshBasicNodeMaterial()
 
@@ -179,6 +181,7 @@ export function createTerrainNodeMaterial(
       state.morphOrigin,
       state.detailNormals,
       aircraftShade,
+      illuminance !== undefined ? { illuminance } : {},
     )
 
   return {
@@ -220,4 +223,29 @@ export function createWaterNodeMaterial(
       material.dispose()
     },
   }
+}
+
+/**
+ * 地表の色を矩形のプローブ用に組む。
+ *
+ * 場面の材質と同じ状態（同じテクスチャ・同じ放射輝度・同じ雲影）を使い、
+ * 照度の出どころだけを差し替えられるようにする。**ライティングの置き換えで
+ * 何が動くかは、場面のカメラではなく矩形で測る**（地表が画面をほとんど
+ * 覆わない構図では差が出てこない）
+ */
+export function terrainSurfaceForProbe(
+  state: NodeSurfaceState,
+  world: Node<'vec3'>,
+  cameraPos: Node<'vec3'>,
+  illuminance?: IlluminanceProvider,
+): Node<'vec4'> {
+  return terrainSurfaceNode(
+    state.inputs,
+    world,
+    cameraPos,
+    state.detailNormals,
+    // 機体の影は入れない。ライティングの差だけを見る
+    uniform(1) as unknown as Node<'float'>,
+    illuminance !== undefined ? { illuminance } : {},
+  )
 }

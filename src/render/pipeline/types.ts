@@ -466,6 +466,13 @@ export interface NodeProbeResult {
     patch: number[]
     terrain: number[]
     terrainBranches: number[]
+    /**
+     * 照度の口へ段 17b までと同じ値を流し込んだ絵。
+     *
+     * **`terrain` と一致するはず。**1/pi の掛け忘れや二重掛けがあれば
+     * 3.14 倍ずれて出る
+     */
+    terrainMatched: number[]
     water: number[][]
     waterBranches: number[][]
   } | null
@@ -497,6 +504,34 @@ export interface NodeProbeResult {
     cloudRenderCount: number
     /** 4x4 の区画平均。絵が真っ黒でないことを見る */
     tiles: number[]
+    /**
+     * ライティングを置き換えると動く画素の数。
+     *
+     * 段 17c の差分。**0 なら `getSplitIlluminance` が効いていない**
+     */
+    lightingChanged: number
+    lightingChangedMax: number
+    /** 置き換える前の 4x4 区画平均。3.14 倍に飛んでいないかを見る */
+    lightingTiles: number[]
+    /**
+     * 地表の矩形で密に測った差。
+     *
+     * **場面のカメラでは地表がほとんど映らない。**段 17b の突き合わせに
+     * 使った 5 km 角で測り直す
+     */
+    lightingProbeChanged: number
+    lightingProbeMax: number
+    lightingProbeTilesBefore: number[]
+    lightingProbeTilesAfter: number[]
+    /**
+     * 太陽へ向けた面の直達照度。
+     *
+     * **背けた面は 0 になるはず。**直達には `max(N・L, 0)` が入っている
+     */
+    directFacingSun: [number, number, number]
+    directAwayFromSun: [number, number, number]
+    /** 太陽へ向けた面の間接照度 */
+    indirectFacingSun: [number, number, number]
     /** 地形が選んだパッチ枚数。0 なら場面に入っていない */
     terrainPatches: number
     terrainTriangles: number

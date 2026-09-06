@@ -82,6 +82,41 @@ const FOAM_DEPTH = 16
 const RECIPROCAL_PI = 0.3183098861837907
 
 /**
+ * 面へ届く照度。直達と間接に分かれる。
+ *
+ * 直達には `max(N・L, 0)` が既に入っている（takram の `getSplitIrradiance`）。
+ * 間接は水平からの傾きで近似した天空の寄与
+ */
+export interface SurfaceIlluminance {
+  direct: Node<'vec3'>
+  indirect: Node<'vec3'>
+}
+
+/**
+ * 位置と法線から照度を返す。
+ *
+ * 段 17c で `getSplitIlluminance(positionUnit, normalECEF, sunDirectionECEF)`
+ * を渡す。**渡さないときは自前の放射輝度を使う**（段 17b までの形で、
+ * GLSL 版とバイトで一致する。突き合わせのプローブはこちらを使う）
+ */
+export type IlluminanceProvider = (
+  world: Node<'vec3'>,
+  normal: Node<'vec3'>,
+) => SurfaceIlluminance
+
+export interface SurfaceOptions {
+  /** 枝を返すか。色の代わりに通った枝を出す */
+  branchMode?: boolean
+  /**
+   * 照度の出どころ。
+   *
+   * **渡すと `sunRadiance` と `skyRadiance` を読まなくなる。**大気の LUT が
+   * 決める値になり、地形と機体の光が同じ式で決まる（段 17c）
+   */
+  illuminance?: IlluminanceProvider
+}
+
+/**
  * 座標から引ける整数ハッシュ。
  *
  * `sin` は使わない（実装ごとに結果が変わる）。成分ごとにスカラで書くのは
@@ -182,7 +217,7 @@ export function terrainCloudShadeNode(
  *
  * @param detailNormals 0 か 1。近距離の凹凸を法線の摂動で出すか
  * @param aircraftShade 機体の影の明るさ 0..1。node 経路は `shadow(light)`
- * @param branchMode    枝を返すか。R が摂動、G が雪、B が急斜面の岩
+ * @param options       枝を返すか、照度をどこから取るか
  */
 export function terrainSurfaceNode(
   inputs: SurfaceInputs,
@@ -190,8 +225,9 @@ export function terrainSurfaceNode(
   cameraPos: Node<'vec3'>,
   detailNormals: Node<'float'>,
   aircraftShade: Node<'float'>,
-  branchMode = false,
+  options: SurfaceOptions = {},
 ): Node<'vec4'> {
+  const branchMode = options.branchMode ?? false
   const impl = Fn(
     ([w, camera, useDetail, shadeIn]: [
       Node<'vec3'>,
@@ -280,10 +316,25 @@ export function terrainSurfaceNode(
       )
 
       const shade = terrainCloudShadeNode(inputs, w).mul(shadeIn).toVar()
-      const lambert = max(dot(normal, inputs.sunDirectionWorld), 0).toVar()
 
       if (branchMode) return vec4(detailFlag, snowFlag, rockFlag, 1)
 
+      // 照度で書くと、`albedo * (直達 * 陰 + 間接) / pi` の 1 本になる。
+      // **1/pi はここでちょうど 1 回だけ掛かる。**掛け忘れると 3.14 倍
+      // 明るくなり、AgX を通しても地表が白く飛ぶ（実測の記録がある）
+      if (options.illuminance !== undefined) {
+        const light = options.illuminance(w, normal)
+        return vec4(
+          albedo.mul(
+            light.direct.mul(shade).add(light.indirect).mul(RECIPROCAL_PI),
+          ),
+          1,
+        )
+      }
+
+      // 段 17b までの形。`skyRadiance` は 0.28 倍済みで 1/pi 相当が
+      // 入っているので二重に掛けない
+      const lambert = max(dot(normal, inputs.sunDirectionWorld), 0).toVar()
       return vec4(
         albedo.mul(
           inputs.sunRadiance

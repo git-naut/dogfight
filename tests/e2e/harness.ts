@@ -113,6 +113,7 @@ export interface TestHook {
       patch: number[]
       terrain: number[]
       terrainBranches: number[]
+      terrainMatched: number[]
       water: number[][]
       waterBranches: number[][]
     } | null
@@ -126,6 +127,16 @@ export interface TestHook {
       cloudDrawCallsAtRun: number
       cloudRenderCount: number
       tiles: number[]
+      lightingChanged: number
+      lightingChangedMax: number
+      lightingTiles: number[]
+      lightingProbeChanged: number
+      lightingProbeMax: number
+      lightingProbeTilesBefore: number[]
+      lightingProbeTilesAfter: number[]
+      directFacingSun: [number, number, number]
+      directAwayFromSun: [number, number, number]
+      indirectFacingSun: [number, number, number]
       terrainPatches: number
       terrainTriangles: number
       smaaFrameCalls: number

@@ -142,7 +142,11 @@ describe('docs/lessons.md', () => {
     // 無くても描くパスが 1 つ増える。影マップの回数は「投げ手あり」と
     // 「投げ手なし」の差で数えて回避しているが、**増える 1 つの正体は
     // 分かっていない。**段 17 で場面を組むときに追う。
+    //
+    // 段 19 のあとで 8 へ。`--shard` が本数で割る件は
+    // `PWTEST_SHARD_WEIGHTS` で所要から分配して塞いだ（重みの計算は
+    // `tools/shard-weights.mjs`）。**競合そのものはまだ穴のまま。**
     // **減らしたときは下げる。増やすときは理由を書く。**
-    expect(holes).toBeLessThanOrEqual(9)
+    expect(holes).toBeLessThanOrEqual(8)
   })
 })

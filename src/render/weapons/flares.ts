@@ -3,9 +3,11 @@ import type { Flare } from '../../sim/weapons/flare'
 import { FLARE_BURN_SECONDS, flashIntensity } from '../../sim/weapons/flare'
 import { clampRadiusToNear } from './explosions'
 import {
-  CORE_CUT,
-  RADIAL_SPRITE_FRAGMENT,
-  RADIAL_SPRITE_VERTEX,
+  createGlRadialSprite,
+  makeRadialSprite,
+  radialSpriteHandle,
+  type RadialSpriteFactory,
+  type RadialSpriteMaterial,
 } from './radialSprite'
 import type { QualitySettings } from '../quality'
 
@@ -198,11 +200,15 @@ const flashColor = new THREE.Color()
  * このため（`createFlares` の `slots`）
  */
 function setColor(mesh: THREE.Mesh, color: THREE.Color): void {
-  const material = mesh.material as THREE.ShaderMaterial
-  ;(material.uniforms['uColor']!.value as THREE.Color).copy(color)
+  radialSpriteHandle(mesh.material as THREE.Material)!.setColor(color)
 }
 
-export function createFlares(capacity: number, quality: QualitySettings): Flares {
+export function createFlares(
+  capacity: number,
+  quality: QualitySettings,
+  // **材質の作り手を外から差す。**理由は `explosions.ts` の同じ引数
+  sprite: RadialSpriteFactory = createGlRadialSprite,
+): Flares {
   let enabled = quality.flareSprites > 0
   if (quality.flareSprites === 0) return NOT_ENABLED
 
@@ -217,26 +223,8 @@ export function createFlares(capacity: number, quality: QualitySettings): Flares
     falloff: number,
     additive: boolean,
     opaqueCore = false,
-  ): THREE.ShaderMaterial =>
-    new THREE.ShaderMaterial({
-      uniforms: {
-        // **複製する。**参照のまま入れるとスロット全部が同じ器を指し、
-        // 1 つの色を書き換えた瞬間に全部のフレアが同じ色になる
-        uColor: { value: color.clone() },
-        uOpacity: { value: 0 },
-        uFalloff: { value: falloff },
-      },
-      vertexShader: RADIAL_SPRITE_VERTEX,
-      fragmentShader: RADIAL_SPRITE_FRAGMENT,
-      transparent: true,
-      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      // 不透明な芯だけ深度を書く。理由は `CORE_CUT` の節（`docs/weapons.md`）
-      depthWrite: opaqueCore,
-      ...(opaqueCore
-        ? { defines: { OPAQUE_CORE: '1', CORE_CUT: CORE_CUT.toFixed(2) } }
-        : {}),
-      side: THREE.DoubleSide,
-    })
+  ): RadialSpriteMaterial =>
+    makeRadialSprite(sprite, { color, falloff, additive, opaqueCore })
 
   interface Slot {
     /** 不透明な芯。深度を書くので大気のパスが自分の距離で霞を掛ける */
@@ -253,11 +241,11 @@ export function createFlares(capacity: number, quality: QualitySettings): Flares
     const coreMaterial = radial(FLARE_COLOR, 1.8, false, true)
     const fireMaterial = radial(FLARE_COLOR, 1.8, false)
     const smokeMaterial = radial(SMOKE_COLOR, 0.9, false)
-    materials.push(coreMaterial, fireMaterial, smokeMaterial)
+    materials.push(coreMaterial.material, fireMaterial.material, smokeMaterial.material)
 
-    const core = new THREE.Mesh(quad, coreMaterial)
-    const fire = new THREE.Mesh(quad, fireMaterial)
-    const smoke = new THREE.Mesh(quad, smokeMaterial)
+    const core = new THREE.Mesh(quad, coreMaterial.material)
+    const fire = new THREE.Mesh(quad, fireMaterial.material)
+    const smoke = new THREE.Mesh(quad, smokeMaterial.material)
     for (const mesh of [core, fire, smoke]) {
       mesh.frustumCulled = false
       mesh.visible = false
@@ -312,8 +300,7 @@ export function createFlares(capacity: number, quality: QualitySettings): Flares
       lookMatrix.lookAt(cameraPosition, position, THREE.Object3D.DEFAULT_UP),
     )
     mesh.scale.setScalar(clamped * 2)
-    const material = mesh.material as THREE.ShaderMaterial
-    material.uniforms['uOpacity']!.value = opacity
+    radialSpriteHandle(mesh.material as THREE.Material)!.setOpacity(opacity)
     mesh.visible = true
     return true
   }

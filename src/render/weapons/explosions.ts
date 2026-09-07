@@ -10,8 +10,11 @@ import {
 } from '../../sim/effects'
 import { RIBBON_NEAR_CLIP_DEPTH } from '../ribbon'
 import {
-  RADIAL_SPRITE_FRAGMENT,
-  RADIAL_SPRITE_VERTEX,
+  createGlRadialSprite,
+  makeRadialSprite,
+  radialSpriteHandle,
+  type RadialSpriteFactory,
+  type RadialSpriteMaterial,
 } from './radialSprite'
 import type { QualitySettings } from '../quality'
 
@@ -186,6 +189,10 @@ export function clampRadiusToNear(depth: number, radius: number): number {
 export function createExplosions(
   capacity: number,
   quality: QualitySettings,
+  // **材質の作り手を外から差す。**node 経路では `ShaderMaterial` が黙って
+  // 描かれない（例外は出ない）ので、TSL 版を差し替えられる口が要る。
+  // 段 17b で地形と海面に入れたのと同じ形
+  sprite: RadialSpriteFactory = createGlRadialSprite,
 ): Explosions {
   let sprites = quality.explosionSprites
   if (sprites === 0) return NOT_ENABLED
@@ -203,25 +210,15 @@ export function createExplosions(
    * `falloff` が大きいほど縁が締まる。火球は芯が明るいので大きく、煙は
    * ふわりと広がるので小さくする。UV の中心からの距離で切るだけなので、
    * テクスチャは要らない。
+   *
+   * **材質から不透明度の setter を引けるようにしておく。**`place()` は
+   * メッシュしか持たないので、材質から作り手へ戻る道が要る
    */
   const radial = (
     color: THREE.Color,
     falloff: number,
     additive: boolean,
-  ): THREE.ShaderMaterial =>
-    new THREE.ShaderMaterial({
-      uniforms: {
-        uColor: { value: color },
-        uOpacity: { value: 0 },
-        uFalloff: { value: falloff },
-      },
-      vertexShader: RADIAL_SPRITE_VERTEX,
-      fragmentShader: RADIAL_SPRITE_FRAGMENT,
-      transparent: true,
-      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    })
+  ): RadialSpriteMaterial => makeRadialSprite(sprite, { color, falloff, additive })
 
   interface Slot {
     /** 不透明な芯。通常合成なので色が残る */
@@ -245,14 +242,19 @@ export function createExplosions(
     const fireballMaterial = radial(FIREBALL_COLOR, 1.6, false)
     const smokeMaterial = radial(SMOKE_COLOR, 0.9, false)
     const shardMaterial = radial(SHARD_COLOR, 2.4, true)
-    materials.push(coreMaterial, fireballMaterial, smokeMaterial, shardMaterial)
+    materials.push(
+      coreMaterial.material,
+      fireballMaterial.material,
+      smokeMaterial.material,
+      shardMaterial.material,
+    )
 
-    const core = new THREE.Mesh(quad, coreMaterial)
-    const fireball = new THREE.Mesh(quad, fireballMaterial)
-    const smoke = new THREE.Mesh(quad, smokeMaterial)
+    const core = new THREE.Mesh(quad, coreMaterial.material)
+    const fireball = new THREE.Mesh(quad, fireballMaterial.material)
+    const smoke = new THREE.Mesh(quad, smokeMaterial.material)
     // 破片は 1 個ずつ位置が違うので個別のメッシュ。数は品質で決まる
     const shards = Array.from({ length: sprites }, () => {
-      const mesh = new THREE.Mesh(quad, shardMaterial)
+      const mesh = new THREE.Mesh(quad, shardMaterial.material)
       mesh.frustumCulled = false
       mesh.visible = false
       group.add(mesh)
@@ -301,8 +303,7 @@ export function createExplosions(
       new THREE.Matrix4().lookAt(cameraPosition, position, THREE.Object3D.DEFAULT_UP),
     )
     mesh.scale.setScalar(clamped * 2)
-    const material = mesh.material as THREE.ShaderMaterial
-    material.uniforms['uOpacity']!.value = opacity
+    radialSpriteHandle(mesh.material as THREE.Material)!.setOpacity(opacity)
     mesh.visible = true
   }
 

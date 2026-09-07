@@ -1,3 +1,5 @@
+import * as THREE from 'three'
+
 /**
  * 中心から縁へ落ちる円形のスプライト。
  *
@@ -57,3 +59,90 @@ export const RADIAL_SPRITE_FRAGMENT = /* glsl */ `
     #endif
   }
 `
+
+/**
+ * 円形スプライトの材質。
+ *
+ * **GLSL 版と node 版で口を揃える。**GLSL 版は `uniforms` の器へ書き、
+ * node 版は `uniform()` のノードへ書くので、値の入れ方が違う。呼ぶ側
+ * （爆発とフレア）がどちらかを知らずに済むように、色と不透明度の setter を
+ * 材質と一緒に返す。段 17b で地形と海面に入れた材質ファクトリと同じ形。
+ */
+export interface RadialSpriteMaterial {
+  readonly material: THREE.Material
+  setColor(color: THREE.Color): void
+  setOpacity(value: number): void
+}
+
+export interface RadialSpriteOptions {
+  color: THREE.Color
+  /** 大きいほど縁が締まる。火球は芯が明るいので大きく、煙は小さく */
+  falloff: number
+  additive: boolean
+  /** 芯を不透明にして深度を書く。フレアの芯だけ true */
+  opaqueCore?: boolean
+}
+
+export type RadialSpriteFactory = (options: RadialSpriteOptions) => RadialSpriteMaterial
+
+/**
+ * GLSL 版。既定はこちら。
+ *
+ * **色は複製して入れる。**参照のまま入れるとスロット全部が同じ器を指し、
+ * 1 つの色を書き換えた瞬間に全部が同じ色になる（`flares.ts` が踏んだ形）。
+ */
+export function createGlRadialSprite(options: RadialSpriteOptions): RadialSpriteMaterial {
+  const opaqueCore = options.opaqueCore ?? false
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: options.color.clone() },
+      uOpacity: { value: 0 },
+      uFalloff: { value: options.falloff },
+    },
+    vertexShader: RADIAL_SPRITE_VERTEX,
+    fragmentShader: RADIAL_SPRITE_FRAGMENT,
+    transparent: true,
+    blending: options.additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    // 不透明な芯だけ深度を書く。理由は `CORE_CUT` の節（`docs/weapons.md`）
+    depthWrite: opaqueCore,
+    ...(opaqueCore
+      ? { defines: { OPAQUE_CORE: '1', CORE_CUT: CORE_CUT.toFixed(2) } }
+      : {}),
+    side: THREE.DoubleSide,
+  })
+  return {
+    material,
+    setColor(color) {
+      ;(material.uniforms['uColor']!.value as THREE.Color).copy(color)
+    },
+    setOpacity(value) {
+      material.uniforms['uOpacity']!.value = value
+    },
+  }
+}
+
+/**
+ * 材質から作り手へ戻る道。
+ *
+ * **ビルボードを置く側はメッシュしか持たない。**`mesh.material` から色と
+ * 不透明度の setter を引けるようにしておく。GLSL 版は `uniforms` を直に
+ * 触れたが、node 版には `uniforms` が無いので、この道が要る。
+ */
+const handles = new WeakMap<THREE.Material, RadialSpriteMaterial>()
+
+/** 材質を作り、戻る道を張る。爆発とフレアはこちらを呼ぶ */
+export function makeRadialSprite(
+  factory: RadialSpriteFactory,
+  options: RadialSpriteOptions,
+): RadialSpriteMaterial {
+  const made = factory(options)
+  handles.set(made.material, made)
+  return made
+}
+
+/** `mesh.material` から作り手を引く。`makeRadialSprite` で作ったものだけ */
+export function radialSpriteHandle(
+  material: THREE.Material,
+): RadialSpriteMaterial | undefined {
+  return handles.get(material)
+}

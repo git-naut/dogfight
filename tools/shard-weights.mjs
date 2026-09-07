@@ -36,6 +36,9 @@ const arg = (name, fallback) => {
 const DIR = arg('--dir', null)
 const SHARDS = Number(arg('--shards', 8))
 const FACTOR = Number(arg('--factor', 2))
+// そのレポートを撮ったときに効いていた重み。**2 周目以降は必須。**
+// 均等割りを前提に検算すると、重みつきで撮ったレポートでは必ず外れる
+const WAS = arg('--weights', null)?.split(':').map(Number) ?? null
 
 if (DIR === null || !existsSync(DIR)) {
   console.error('--dir に `gh run download` で落としたレポートの置き場を渡す')
@@ -147,7 +150,11 @@ if (order.length !== measured.size) {
   process.exit(2)
 }
 {
-  const sizes = equalSizes(order.length, observedShards)
+  const sizes = WAS ?? equalSizes(order.length, observedShards)
+  if (sizes.length !== observedShards) {
+    console.error(`--weights が ${sizes.length} 個、レポートは ${observedShards} 台`)
+    process.exit(2)
+  }
   let pos = 0
   for (let s = 1; s <= observedShards; s++) {
     for (const item of order.slice(pos, pos + sizes[s - 1])) {
@@ -160,7 +167,8 @@ if (order.length !== measured.size) {
     }
     pos += sizes[s - 1]
   }
-  console.log(`並びの検算: ${order.length} 本すべて ${observedShards} 台の観測と一致した`)
+  const how = WAS ? `重み ${WAS.join(':')}` : '均等割り'
+  console.log(`並びの検算（${how}）: ${order.length} 本すべて ${observedShards} 台の観測と一致した`)
 }
 
 const ms = order.map((o) => measured.get(o.key) ?? 0)

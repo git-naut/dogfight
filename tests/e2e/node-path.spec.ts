@@ -59,6 +59,23 @@ import {
  * `chromium-swiftshader` では WebGPU の起動引数が無いので `?gpu=2` は
  * WebGL2 へ落ちる。`chromium-webgpu` では落ちない。**その差そのものを検査する。**
  */
+/**
+ * プローブが結果を置くまでの待ち。
+ *
+ * **これは固まりの検出ではない。**固まりを見るのは e2e.yml の段の上限
+ * （18 分）で、`playwright.config.ts` の注記もそう書いている。ここは
+ * 「まだ描いている最中」と「もう来ない」を分けるだけ。
+ *
+ * 120 秒では足りなくなった。`RenderPipeline でポストの鎖が立つ` の実測は
+ * 104.6 秒（run 34056675131）、116.2 秒（run 34100372031）、そして
+ * run 34111954315 で 120 秒を超えて本番とリトライの両方が落ちた。
+ * 直列の起動は 7.3 秒なので、伸びているぶんはほぼ競合。**シャードを
+ * 所要で釣り合わせると重い物が同じ台に集まるので、さらに伸びる。**
+ *
+ * 300 秒にして直列比 40 倍、実測の最悪 116.2 秒に対して 2.6 倍を取る。
+ */
+const PROBE_TIMEOUT_MS = 300_000
+
 async function probe(page: import('@playwright/test').Page, query: string) {
   const errors: string[] = []
   page.on('console', (msg) => {
@@ -70,12 +87,18 @@ async function probe(page: import('@playwright/test').Page, query: string) {
   const handle = await page.waitForFunction(
     () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.gpuProbe ?? null,
     undefined,
-    { timeout: 120_000 },
+    { timeout: PROBE_TIMEOUT_MS },
   )
   return { result: (await handle.jsonValue()) as NonNullable<TestHook['gpuProbe']>, errors }
 }
 
 test.describe('node 経路', () => {
+  // 1 テストの制限をこの spec だけ上げる。**`mode` は渡さない。**
+  // `_configure` は `mode` を渡したときだけ `_parallelMode` を書くので、
+  // `timeout` だけなら群の作り方（1 テストずつ）は変わらず、
+  // `PWTEST_SHARD_WEIGHTS` の前提も崩れない
+  test.describe.configure({ timeout: 420_000 })
+
   test('?gpu=1 は WebGL2 バックエンドで立ち、glb を描く', async ({ page }) => {
     const { result, errors } = await probe(page, 'gpu=1')
 

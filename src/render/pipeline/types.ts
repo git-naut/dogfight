@@ -191,12 +191,6 @@ export interface SceneOptions {
  */
 export interface ScenePipeline {
   readonly backend: RenderBackend
-  /**
-   * 段 15 までの過渡的な口。
-   *
-   * いまは誰も読んでいない。WebGPU 経路が立つまでの逃げ道として残す
-   */
-  readonly renderer: THREE.WebGLRenderer
   readonly scene: THREE.Scene
   readonly camera: THREE.PerspectiveCamera
   readonly chase: ChaseCamera

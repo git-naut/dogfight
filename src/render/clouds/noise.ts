@@ -17,7 +17,6 @@ import {
 } from 'three'
 import noise3dFrag from './shaders/noise3d.frag?raw'
 import weatherFrag from './shaders/weather.frag?raw'
-import type { RenderBackend } from '../backend'
 
 /**
  * 雲のノイズを GPU で焼く。
@@ -109,8 +108,19 @@ function createQuad(material: ShaderMaterial): { scene: Scene; camera: Orthograp
   return { scene, camera }
 }
 
-export function generateCloudNoise(backend: RenderBackend): CloudNoise {
-  const renderer = backend.renderer
+/**
+ * 雲のノイズを焼く。
+ *
+ * **レンダラを直に受ける。**バックエンドの継ぎ目を通していたが、
+ * `RenderBackend.renderer` は `WebGLRenderer` 型の逃げ口で、node 経路の
+ * `WebGPURenderer` を入れられなかった（段 20a-2）。node 経路のノイズは
+ * `clouds/noiseNodes.ts` が焼くので、こちらは GLSL 経路専用でよい。
+ */
+export function generateCloudNoise(
+  renderer: WebGLRenderer,
+  /** 投入済みを排出して待つ。`RenderBackend.drain` を渡す */
+  drain: () => void,
+): CloudNoise {
   const started = performance.now()
 
   const previousTarget = renderer.getRenderTarget()
@@ -171,7 +181,7 @@ export function generateCloudNoise(backend: RenderBackend): CloudNoise {
   // ただし ANGLE 経由だと finish() でも完全には待ち切れず、この値は実際の
   // 生成時間を下回る。信用できるのはページ読み込みからの実測のほうで、
   // 解像度の判断はそちらで行った（docs/decisions/0003 参照）
-  backend.drain()
+  drain()
   const elapsedMs = performance.now() - started
 
   const sample = sampleSlice(renderer, shapeTarget, Math.floor(SHAPE_SIZE / 2))

@@ -144,7 +144,7 @@ export async function createWebGLPipeline(
   scene.add(atmosphere.skyLight)
 
   // 雲のノイズを焼く。起動時の一度だけで、以降は使い回す
-  const noise: CloudNoise = generateCloudNoise(backend)
+  const noise: CloudNoise = generateCloudNoise(renderer, () => backend.drain())
 
   // 地形。高さ場は sim が持つ。ここはテクスチャへ上げて頂点シェーダで引くだけ。
   // 生成時間は sim 層で測れない（performance.now() が使えない）のでここで挟む
@@ -358,7 +358,6 @@ export async function createWebGLPipeline(
 
   return {
     backend,
-    renderer,
     scene,
     camera,
     chase,

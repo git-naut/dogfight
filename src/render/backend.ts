@@ -18,6 +18,11 @@ import type { WebGLRenderer } from 'three'
  * | `gl.finish()` + `gl.readPixels()` | `await resolveTimestampsAsync()` |
  * | `renderer.getContext()` | **WebGPU では `undefined`** |
  *
+ * `renderer` そのものを渡す逃げ口は段 20a-2 で消した。`WebGLRenderer` 型で
+ * 固定されていて node 経路の `WebGPURenderer` を入れられず、継ぎ目の意味を
+ * 失っていた。唯一の読み手だった雲のノイズは GLSL 経路専用なので、
+ * そちらがレンダラを直に受ける。
+ *
  * 計測の口は `createTimer()` に寄せた（段 18）。生のコンテキストを借りる
  * `webglContext()` は消えている。
  *
@@ -35,14 +40,6 @@ export interface DrawingBufferSize {
 export interface RenderBackend {
   readonly kind: BackendKind
   readonly domElement: HTMLCanvasElement
-
-  /**
-   * 段 8 までの過渡的な口。
-   *
-   * 描画とレンダーターゲットの操作はまだこちらを使う。移行が進むにつれて
-   * 参照は減る。**新しく増やさない。**
-   */
-  readonly renderer: WebGLRenderer
 
   /** 直近のフレームで投入したドローコール */
   readonly drawCalls: number
@@ -229,7 +226,6 @@ export function createWebGLBackend(renderer: WebGLRenderer): RenderBackend {
   return {
     kind: 'webgl',
     domElement: renderer.domElement,
-    renderer,
     webglVersion,
 
     get drawCalls() {

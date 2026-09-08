@@ -43,7 +43,8 @@ export interface SceneHandle {
    *
    * WebGPU へ移すと消えるか名前が変わる面は、すべてこちらを通す。
    * **`renderer` はここには出さない。**段 7 で寄せ切ったので読む者がいない。
-   * 逃げ口としては `ScenePipeline.renderer` だけが残る
+   * `ScenePipeline.renderer` の逃げ口も段 20a-2 で消した（`WebGLRenderer`
+   * 型で固定されていて node 経路を入れられなかった）
    */
   backend: RenderBackend
   scene: THREE.Scene

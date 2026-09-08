@@ -273,7 +273,6 @@ export async function createScene(
     camera,
     chase,
     terrain,
-    terrainUniforms,
     terrainMesh,
     water,
     aircraft,
@@ -553,24 +552,21 @@ export async function createScene(
       lastShadowInputs.centerX = shadowCenter.x
       lastShadowInputs.centerZ = shadowCenter.y
 
-      // 地形と海面が参照する雲影の領域も合わせる
-      terrainUniforms.cloudShadowCenter.value.copy(shadowCenter)
-      terrainUniforms.cloudShadowEnabled.value = pipeline.quality.cloudGroundShadow
-        ? 1
-        : 0
-
-      // ライティングは自前で組む。MeshStandardMaterial を使わないので three の
-      // ライトは効かない。大気ライブラリの放射輝度をそのまま渡す
-      terrainUniforms.sunDirectionWorld.value.copy(pipeline.sunDirectionWorld)
-      terrainUniforms.sunRadiance.value.copy(pipeline.sunRadiance)
-      terrainUniforms.skyRadiance.value.copy(pipeline.skyRadiance)
-
       // LOD はカメラ位置で決める。機体位置ではない（追従カメラは後方にいる）。
       // chase の更新後に読むこと
       const cameraWorld = pipeline.updateCameraWorld()
-      // 地形のモーフの基準。**影を焼くパスでも主カメラの位置を使う**ため、
-      // 組み込みの `cameraPosition` ではなくこれを渡す
-      terrainUniforms.morphOrigin.value.copy(cameraWorld)
+
+      // **書き先はパイプラインが知る。**GLSL 経路は共有ユニフォームへ書き、
+      // node 経路は `NodeSurfaceState` へ入れる。帳簿がどちらかを知って
+      // いると、片方で黙って効かない（段 20a-2-3）
+      pipeline.setSurfaceFrame({
+        cloudShadowCenter: shadowCenter,
+        cloudShadowEnabled: pipeline.quality.cloudGroundShadow,
+        sunDirectionWorld: pipeline.sunDirectionWorld,
+        sunRadiance: pipeline.sunRadiance,
+        skyRadiance: pipeline.skyRadiance,
+        morphOrigin: cameraWorld,
+      })
 
       // HUD へ渡す行列。カメラの位置と画角が決まったあとに組む。
       // Camera.updateMatrixWorld が matrixWorldInverse も作り直す

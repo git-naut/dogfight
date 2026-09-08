@@ -287,7 +287,6 @@ export async function createWebGLPipeline(
     chase,
 
     terrain,
-    terrainUniforms,
     terrainMesh,
     water,
     aircraft,
@@ -324,6 +323,20 @@ export async function createWebGLPipeline(
 
     updateAtmosphere() {
       atmosphere.update()
+    },
+
+    setSurfaceFrame(frame) {
+      // 地形と海面が参照する雲影の領域
+      terrainUniforms.cloudShadowCenter.value.copy(frame.cloudShadowCenter)
+      terrainUniforms.cloudShadowEnabled.value = frame.cloudShadowEnabled ? 1 : 0
+      // ライティングは自前で組む。`MeshStandardMaterial` を使わないので
+      // three のライトは効かない。大気の放射輝度をそのまま渡す
+      terrainUniforms.sunDirectionWorld.value.copy(frame.sunDirectionWorld)
+      terrainUniforms.sunRadiance.value.copy(frame.sunRadiance)
+      terrainUniforms.skyRadiance.value.copy(frame.skyRadiance)
+      // **影を焼くパスでも主カメラの位置を使う**ため、組み込みの
+      // `cameraPosition` ではなくこれを渡す
+      terrainUniforms.morphOrigin.value.copy(frame.morphOrigin)
     },
 
     updateClouds(update) {

@@ -12,7 +12,7 @@ import type { DamageSmokeView } from '../damageSmoke'
 import type { Explosions } from '../weapons/explosions'
 import type { Flares } from '../weapons/flares'
 import type { AircraftTrails } from '../aircraft/trails'
-import type { TerrainMesh, TerrainSharedUniforms } from '../terrain/terrainMesh'
+import type { TerrainMesh } from '../terrain/terrainMesh'
 import type { Water } from '../terrain/water'
 import type { Terrain } from '../../sim/terrain'
 import type { PresetName, QualityOverride, QualitySettings } from '../quality'
@@ -189,6 +189,25 @@ export interface SceneOptions {
  * 段 15 で中身が総取り替えになる。**帳簿がレンダラを名指しできないよう、
  * 描画も計測も操作として渡す。**
  */
+/**
+ * 地表と海面が読む毎フレームの値。
+ *
+ * **帳簿が uniform を直に触らない。**GLSL 経路は `TerrainSharedUniforms`
+ * へ書くが、**node 経路の材質はそこを読まない**（`NodeSurfaceState` が
+ * 別に値を持つ）。帳簿が書き先を知っていると、node 経路で黙って効かず、
+ * 太陽の向きも雲影の追従もモーフの基準も初期値のまま固まる。絵は出るので
+ * 気づけない（段 20a-2-3 で見つけた）。
+ */
+export interface SurfaceFrame {
+  cloudShadowCenter: THREE.Vector2
+  cloudShadowEnabled: boolean
+  sunDirectionWorld: THREE.Vector3
+  sunRadiance: THREE.Vector3
+  skyRadiance: THREE.Vector3
+  /** 地形のモーフの基準。主カメラのワールド位置 */
+  morphOrigin: THREE.Vector3
+}
+
 export interface ScenePipeline {
   readonly backend: RenderBackend
   readonly scene: THREE.Scene
@@ -196,7 +215,6 @@ export interface ScenePipeline {
   readonly chase: ChaseCamera
 
   readonly terrain: Terrain
-  readonly terrainUniforms: TerrainSharedUniforms
   readonly terrainMesh: TerrainMesh
   readonly water: Water
   readonly aircraft: AircraftView
@@ -227,6 +245,13 @@ export interface ScenePipeline {
   /** 太陽の位置と輝度を出し直す。影の箱を動かしたあとに呼ぶ */
   updateAtmosphere(): void
   setHour(hour: number): void
+
+  /**
+   * 地表と海面の毎フレームの値をまとめて渡す。
+   *
+   * **書き先はパイプラインが知る。**帳簿は `terrainUniforms` を触らない
+   */
+  setSurfaceFrame(frame: SurfaceFrame): void
 
   /** 雲の状態を渡す。時刻はフレーム番号から導いた値を受ける */
   updateClouds(update: CloudsUpdate): void

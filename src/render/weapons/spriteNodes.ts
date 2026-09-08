@@ -1,6 +1,12 @@
-import { Discard, Fn, float, length, max, pow, uv, vec4 } from 'three/tsl'
-import type { Node } from 'three/webgpu'
-import { ALPHA_CUT, CORE_CUT } from './radialSprite'
+import { Discard, Fn, float, length, max, pow, uniform, uv, vec4 } from 'three/tsl'
+import { MeshBasicNodeMaterial, type Node } from 'three/webgpu'
+import { AdditiveBlending, Color, DoubleSide, NormalBlending } from 'three'
+import {
+  ALPHA_CUT,
+  CORE_CUT,
+  type RadialSpriteMaterial,
+  type RadialSpriteOptions,
+} from './radialSprite'
 
 /**
  * 円形スプライトの色と不透明度を TSL で書く。
@@ -39,4 +45,54 @@ export function radialSpriteFragmentNode(
     }
     return vec4(inputs.color, a)
   })()
+}
+
+/**
+ * node 経路の円形スプライト。`createGlRadialSprite` と同じ口を返す。
+ *
+ * **`fragmentNode` は使わない。**断片を丸ごと置き換えると、材質の出力を
+ * レンダラが整える段（出力の色空間と un/premultiply）を跨いでしまう。
+ * `colorNode` と `opacityNode` に分けて渡せば、GLSL 版の
+ * `gl_FragColor = vec4(uColor, a)` と同じ位置に収まる。
+ *
+ * 色と不透明度は `uniform()` の器で持つ。GLSL 版の `uniforms` と違い、
+ * ノードそのものが値を抱えるので、setter は器の中身を書き換える。
+ *
+ * `Discard` は断片のノードの中にある。**両方から参照しても本体は 1 度しか
+ * 生成されない**ので、捨てる判定が二重に走ることはない。
+ */
+export function createNodeRadialSprite(options: RadialSpriteOptions): RadialSpriteMaterial {
+  const opaqueCore = options.opaqueCore ?? false
+  // **複製する。**参照のまま入れるとスロット全部が同じ器を指す
+  const color = uniform(options.color.clone())
+  const opacity = uniform(0)
+  const falloff = uniform(options.falloff)
+
+  const rgba = radialSpriteFragmentNode(
+    {
+      color: color as unknown as Node<'vec3'>,
+      opacity: opacity as unknown as Node<'float'>,
+      falloff: falloff as unknown as Node<'float'>,
+    },
+    opaqueCore,
+  )
+
+  const material = new MeshBasicNodeMaterial()
+  material.colorNode = rgba.rgb
+  material.opacityNode = rgba.a
+  material.transparent = true
+  material.blending = options.additive ? AdditiveBlending : NormalBlending
+  // 不透明な芯だけ深度を書く。理由は `CORE_CUT` の節（`docs/weapons.md`）
+  material.depthWrite = opaqueCore
+  material.side = DoubleSide
+
+  return {
+    material,
+    setColor(next) {
+      ;(color.value as Color).copy(next)
+    },
+    setOpacity(value) {
+      opacity.value = value
+    },
+  }
 }

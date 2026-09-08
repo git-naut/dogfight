@@ -508,7 +508,6 @@ export async function runNodeProbe(
   let overlaySource: NodeProbeResult['overlaySource'] = null
   if (options.overlayProbe) {
     const probe = await import('../overlayProbe')
-    const overlayNodes = await import('../overlayNodes')
     const side = probe.OVERLAY_PROBE_SIDE
 
     // GLSL 側と同じ式で入力を導く。**写しを 2 つ持たないよう定数は
@@ -546,6 +545,8 @@ export async function runNodeProbe(
           .mul(bright),
         probe.OVERLAY_PROBE_BASE_ALPHA,
       )
+
+    const overlayNodes = await import('../overlayNodes')
 
     const bake = async (fragment: import('three/webgpu').Node<'vec4'>): Promise<number[]> => {
       const target = volume.bakePlane(renderer, quad, side, side, fragment)
@@ -1088,7 +1089,6 @@ export async function runNodeProbe(
   let clouds: import('../clouds/cloudsNodePass').CloudsNodePass | null = null
   if (options.nodePipeline && isWebGPU && atmosphereContext !== null) {
     const atmos = await import('@takram/three-atmosphere/webgpu')
-    const overlayNodes = await import('../overlayNodes')
     const cloudsNodePass = await import('../clouds/cloudsNodePass')
     // SMAA は `three/tsl` ではなく addons 側にある。面積テクスチャと探索
     // テクスチャを data URI で内包する
@@ -1114,13 +1114,14 @@ export async function runNodeProbe(
       1 / Math.PI,
     )
 
-    const scenePass = tsl.pass(scene, camera)
-    // 深度は `pass` が持つテクスチャを直に引く。**パスのテクスチャノードを
-    // 雲の材質へ渡してはいけない**（その材質を焼くたびに場面がもう 1 度
-    // 描かれる）
-    const sceneDepthTexture = (
-      scenePass as unknown as { renderTarget: { depthTexture: THREE.Texture } }
-    ).renderTarget.depthTexture
+    // **`pass.getTextureNode()` を自前の材質へ渡してはいけない**（その材質を
+    // 焼くたびに場面がもう 1 度描かれる）。深度は素のテクスチャを引く。
+    // 組み方を知っているのは `nodeOutput.ts` だけ（段 20a-2-3）
+    const nodeOutput = await import('./nodeOutput')
+    const { scenePass, depthTexture: sceneDepthTexture } = nodeOutput.createScenePass(
+      scene,
+      camera,
+    )
 
     clouds = cloudsNodePass.createCloudsNodePass({
       camera,
@@ -1368,30 +1369,22 @@ export async function runNodeProbe(
     nodeWater.follow(cameraWorld.x, cameraWorld.z)
     surfaceState.setMorphOrigin(cameraWorld.x, cameraWorld.y, cameraWorld.z)
 
-    const cloudNode = clouds.node
-    const composite = tsl.Fn(() => {
-      // **場面のパスを雲より先に触る。**`updateBefore` の呼ばれる順は
-      // ノードを辿った順で決まるので、ここで順が決まる。順が入れ替われば
-      // 雲が 1 フレーム前の深度を読む。`cloudFrameCallsAtRun` で数を見る
-      const sceneColor = scenePass.getTextureNode().toVar()
-      const sceneDepth = scenePass.getTextureNode('depth')
-      return overlayNodes.overlayCompositeNode(
-        cloudNode,
-        () =>
-          atmos.aerialPerspective(
-            sceneColor as unknown as Parameters<typeof atmos.aerialPerspective>[0],
-            sceneDepth as unknown as Parameters<typeof atmos.aerialPerspective>[1],
-          ) as unknown as import('three/webgpu').Node<'vec4'>,
-      )
-    })()
-
-    // 露出とトーンマッピングは GLSL 経路と同じ値をレンダラへ置く
+    // 露出とトーンマッピングは GLSL 経路と同じ値をレンダラへ置く。
+    // `RenderPipeline._update` が `renderOutput` を足し、`ToneMappingNode` の
+    // 露出は `rendererReference('toneMappingExposure')` を読む
     renderer.toneMapping = THREE.AgXToneMapping
     renderer.toneMappingExposure = DEFAULT_EXPOSURE
 
-    const outputNode = smaa(
-      composite as unknown as Parameters<typeof smaa>[0],
-    ) as unknown as import('three/webgpu').Node
+    // **場面のパスを雲より先に触る**ことと、**大気の呼び出しを `Else` の
+    // 中に置く**ことを知っているのは `nodeOutput.ts` だけ。前者を外すと雲が
+    // 1 フレーム前の深度で打ち切り、後者を外すと早期打ち切りの稼ぎが消える。
+    // どちらも絵には出ない（段 20a-2-3）
+    const { composite, outputNode } = nodeOutput.createNodeOutputNode({
+      atmos,
+      smaa: smaa as unknown as (node: import('three/webgpu').Node) => import('three/webgpu').Node,
+      scenePass,
+      cloudNode: clouds.node,
+    })
 
     // **順序を知っているのは `nodeBuild.ts` だけ。**`setMRT()` と
     // `getTextureNode()` を先に済ませること、`castShadow` を組み立ての
@@ -1590,7 +1583,7 @@ export async function runNodeProbe(
     // **SMAA が効いているかは数で見る。**鎖に入れただけでは、辺を拾って
     // いるかどうかは分からない。外して撮り直し、パスの数と絵の両方が
     // 動くことを確かめる
-    pipeline.outputNode = composite as unknown as import('three/webgpu').Node
+    pipeline.outputNode = composite
     pipeline.needsUpdate = true
     const plainBytes = await readPicture()
     const plainFrameCalls = lastPictureFrameCalls

@@ -1,6 +1,4 @@
 import * as THREE from 'three'
-import { getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere'
-import { Geodetic } from '@takram/three-geospatial'
 import { loadAircraftModel } from '../aircraft/model'
 import {
   DETAIL_SIZE,
@@ -44,12 +42,6 @@ import {
 } from '../clouds/marchProbe'
 import { HASH_PROBE_SIDE } from '../hashReference'
 import { loadCarrier, placeCarrier, DECK_HEIGHT } from '../carrier'
-import {
-  createLocalFrame,
-  dateForHour,
-  REFERENCE_LATITUDE,
-  REFERENCE_LONGITUDE,
-} from '../atmosphere'
 import { DEFAULT_EXPOSURE, type NodeProbeResult } from './types'
 import type { QualitySettings } from '../quality'
 
@@ -895,26 +887,16 @@ export async function runNodeProbe(
     // この段の主目的。**
     const atmos = await import('@takram/three-atmosphere/webgpu')
 
-    // 原点も時刻も WebGL 経路と同じものを使う。**別々に持つと、絵を見比べても
-    // 分からないずれ方をする**
-    const referenceEcef = new Geodetic(
-      REFERENCE_LONGITUDE,
-      REFERENCE_LATITUDE,
-      0,
-    ).toECEF()
-    const worldToECEF = createLocalFrame(referenceEcef)
-    const date = dateForHour(options.hour)
-    const sunDirectionECEF = getSunDirectionECEF(date, new THREE.Vector3())
-    const moonDirectionECEF = getMoonDirectionECEF(date, new THREE.Vector3())
-    const localUpECEF = new THREE.Vector3(0, 1, 0).transformDirection(worldToECEF)
-    sunElevationDeg =
-      (Math.asin(Math.max(-1, Math.min(1, sunDirectionECEF.dot(localUpECEF)))) * 180) /
-      Math.PI
-
-    // 雲のライティングはワールド座標の太陽の向きで要る。ECEF から戻す
-    sunDirectionWorld
-      .copy(sunDirectionECEF)
-      .transformDirection(worldToECEF.clone().invert())
+    // 原点も時刻も GLSL 経路と同じものを使う。**別々に持つと、絵を見比べても
+    // 分からないずれ方をする。**基準は `atmosphere.ts` の 1 か所だけで、
+    // 時刻から向きを出すのは `atmosphereNodes.ts`（段 20a-2-3）
+    const { solarFrameForHour } = await import('../atmosphereNodes')
+    const solar = solarFrameForHour(options.hour)
+    const worldToECEF = solar.worldToECEF
+    const sunDirectionECEF = solar.sunDirectionECEF
+    const moonDirectionECEF = solar.moonDirectionECEF
+    sunElevationDeg = solar.sunElevationDeg
+    sunDirectionWorld.copy(solar.sunDirectionWorld)
 
     // **組み立ての手順を知っているのは `atmosphereNodes.ts` だけ。**
     // `contextNode.value` を潰さないこと、`addLight` で

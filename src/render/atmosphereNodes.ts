@@ -1,4 +1,12 @@
-import { Vector2, Vector3, type Camera, type Matrix4, type Scene } from 'three'
+import { Matrix4, Vector2, Vector3, type Camera, type Scene } from 'three'
+import { getMoonDirectionECEF, getSunDirectionECEF } from '@takram/three-atmosphere'
+import { Geodetic } from '@takram/three-geospatial'
+import {
+  createLocalFrame,
+  dateForHour,
+  REFERENCE_LATITUDE,
+  REFERENCE_LONGITUDE,
+} from './atmosphere'
 import { context as tslContext, vec4 } from 'three/tsl'
 import type { Node, Renderer } from 'three/webgpu'
 import type { QualitySettings } from './quality'
@@ -192,5 +200,51 @@ export function setupAtmosphereNodes(
     context,
     sunLight: sunLight as unknown as import('three').DirectionalLight,
     nodes: createAtmosphereNodes(atmos, context as unknown as AtmosphereContextLike),
+  }
+}
+
+/**
+ * 時刻から太陽と月の向きを出す。
+ *
+ * **原点も時刻も GLSL 経路と同じものを使う。**別々に持つと、絵を見比べても
+ * 分からないずれ方をする。基準は `atmosphere.ts` の 1 か所だけ。
+ *
+ * 大気は ECEF で解かれるので向きも ECEF で持つ。雲のライティングは
+ * ワールド座標の向きが要るので、逆行列で戻したものも返す。
+ */
+export interface SolarFrame {
+  /** ワールドから ECEF への行列 */
+  worldToECEF: Matrix4
+  sunDirectionECEF: Vector3
+  moonDirectionECEF: Vector3
+  /** 太陽高度 deg。地平線より下なら負 */
+  sunElevationDeg: number
+  /** ワールド座標の太陽の向き。単位ベクトル */
+  sunDirectionWorld: Vector3
+}
+
+export function solarFrameForHour(hour: number): SolarFrame {
+  const referenceEcef = new Geodetic(REFERENCE_LONGITUDE, REFERENCE_LATITUDE, 0).toECEF()
+  const worldToECEF = createLocalFrame(referenceEcef)
+  const date = dateForHour(hour)
+  const sunDirectionECEF = getSunDirectionECEF(date, new Vector3())
+  const moonDirectionECEF = getMoonDirectionECEF(date, new Vector3())
+
+  // 局所の上方向を ECEF へ回してから内積を取る。**ワールドの Y と
+  // ECEF の Z は別物**なので、行列を通さずに測ると緯度ぶんずれる
+  const localUpECEF = new Vector3(0, 1, 0).transformDirection(worldToECEF)
+  const cos = Math.max(-1, Math.min(1, sunDirectionECEF.dot(localUpECEF)))
+  const sunElevationDeg = (Math.asin(cos) * 180) / Math.PI
+
+  const sunDirectionWorld = sunDirectionECEF
+    .clone()
+    .transformDirection(worldToECEF.clone().invert())
+
+  return {
+    worldToECEF,
+    sunDirectionECEF,
+    moonDirectionECEF,
+    sunElevationDeg,
+    sunDirectionWorld,
   }
 }

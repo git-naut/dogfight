@@ -356,6 +356,15 @@ export const BITE_MARKS = [
     why: 'どちらの枝の色でもない画素を数えないと、枝の書き分けが壊れていても片方の数が合っているだけで通る',
   },
   {
+    id: 'solar-elevation-skip-frame',
+    kind: '文の削除',
+    file: 'src/render/atmosphereNodes.ts',
+    find: '  const localUpECEF = new Vector3(0, 1, 0).transformDirection(worldToECEF)',
+    replace: '  const localUpECEF = new Vector3(0, 1, 0)',
+    expect: 'tests/render/solarFrame.test.ts',
+    why: 'ワールドの Y と ECEF の Z は別物。行列を通さずに内積を取ると太陽高度が緯度ぶん（35.6 度）ずれる。絵では夕方の色が少し違うようにしか見えず、雲のライティングも一緒にずれるので切り分けられない',
+  },
+  {
     id: 'node-backend-version-from-kind',
     kind: '条件の固定',
     file: 'src/render/pipeline/nodeBackend.ts',

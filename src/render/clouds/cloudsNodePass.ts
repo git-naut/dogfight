@@ -106,6 +106,14 @@ export interface CloudsNodePass {
   readonly texture: Texture
   /** 地形と海面が引く雲影マップ */
   readonly shadowTexture: Texture
+  /**
+   * 足し込みの器が 16bit 浮動小数か。
+   *
+   * **8bit へ戻すと等高線状の横線が復活する。**スクリーンショット回帰では
+   * 許容差に埋もれて検出できなかったので型そのものを検査する
+   * （`CloudsPass.isHdrTarget` と同じ理由）
+   */
+  readonly isHdrTarget: boolean
   update(params: CloudsUpdate): void
   /**
    * 雲影マップを焼く。
@@ -443,6 +451,9 @@ export function createCloudsNodePass(
     },
     get shadowTexture() {
       return shadowTarget.texture
+    },
+    get isHdrTarget() {
+      return output.texture.type === HalfFloatType
     },
     get frameCallsAtRun() {
       return frameCallsAtRun

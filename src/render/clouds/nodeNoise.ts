@@ -1,7 +1,20 @@
 import type { Renderer } from 'three/webgpu'
-import { DETAIL_SIZE, SHAPE_SIZE, WEATHER_SIZE } from './noise'
+import {
+  DETAIL_SIZE,
+  NOISE_SLICE_SIDE,
+  SHAPE_SIZE,
+  WEATHER_SIZE,
+  type NoiseStats,
+} from './noise'
 import { noiseFragmentNode, weatherFragmentNode } from './noiseNodes'
-import { bakePlane, createBakeQuad, bakeVolume, type BakeQuad } from './volume'
+import {
+  bakePlane,
+  bakeVolume,
+  createBakeQuad,
+  readPlaneSlice,
+  readVolumeSlice,
+  type BakeQuad,
+} from './volume'
 import type { CloudsNodeTextures } from './cloudsNodePass'
 
 /**
@@ -21,7 +34,35 @@ import type { CloudsNodeTextures } from './cloudsNodePass'
 export interface NodeCloudNoise extends CloudsNodeTextures {
   /** 焼くのにかかったミリ秒 */
   ms: number
+  /**
+   * 形状ノイズの中央スライスから出した統計。
+   *
+   * **空でないことの確認用。**`smoke.spec.ts` が `max > min` と
+   * 平均が 0.1〜0.95 の内側であることを見る（画素に依存しない検査の 1 件）
+   */
+  stats: NoiseStats
+  /** 形状ノイズの中央スライスの左下 16x16。RGBA8 の生バイト 1,024 個 */
+  slice: Uint8Array
+  /** 気象マップの左下 16x16。**雲の配置を決めるのはこちら** */
+  weatherSlice: Uint8Array
   dispose(): void
+}
+
+/** R チャンネル（Perlin-Worley）だけ見れば足りる。GLSL 版と同じ */
+function sliceStats(bytes: ArrayLike<number>): NoiseStats {
+  if (bytes.length === 0) return { min: 0, max: 0, mean: 0 }
+  let min = 255
+  let max = 0
+  let sum = 0
+  let count = 0
+  for (let i = 0; i < bytes.length; i += 4) {
+    const v = bytes[i]!
+    if (v < min) min = v
+    if (v > max) max = v
+    sum += v
+    count++
+  }
+  return { min: min / 255, max: max / 255, mean: sum / count / 255 }
 }
 
 /** 1 セルに 4 テクセル。超えると白色ノイズになる */
@@ -33,7 +74,10 @@ function maxFrequency(size: number): number {
  * @param shared 焼きに使う全画面クアッド。**渡した側が破棄を持つ。**
  *   プローブは同じクアッドを読み戻しにも使い回すので、ここで捨てられない
  */
-export function bakeNodeCloudNoise(renderer: Renderer, shared?: BakeQuad): NodeCloudNoise {
+export async function bakeNodeCloudNoise(
+  renderer: Renderer,
+  shared?: BakeQuad,
+): Promise<NodeCloudNoise> {
   const quad = shared ?? createBakeQuad()
   const started = performance.now()
 
@@ -55,11 +99,35 @@ export function bakeNodeCloudNoise(renderer: Renderer, shared?: BakeQuad): NodeC
     { repeat: true },
   )
 
+  const ms = performance.now() - started
+
+  // GLSL 版（`noise.ts` の `sampleSlice`）が読むのと同じ層の同じ左下 16x16。
+  // **統計だけでは 1 ビットのずれが埋もれる**ので生バイトも持ち帰る
+  const isWebGPU = 'isWebGPUBackend' in renderer.backend
+  const slice = await readVolumeSlice(
+    renderer,
+    quad,
+    shape.texture,
+    Math.floor(SHAPE_SIZE / 2),
+    NOISE_SLICE_SIDE,
+    isWebGPU,
+  )
+  const weatherSlice = await readPlaneSlice(
+    renderer,
+    quad,
+    weather.texture,
+    NOISE_SLICE_SIDE,
+    isWebGPU,
+  )
+
   return {
     shape: shape.texture,
     detail: detail.texture,
     weather: weather.texture,
-    ms: performance.now() - started,
+    ms,
+    stats: sliceStats(slice),
+    slice: new Uint8Array(slice),
+    weatherSlice: new Uint8Array(weatherSlice),
     dispose() {
       shape.dispose()
       detail.dispose()

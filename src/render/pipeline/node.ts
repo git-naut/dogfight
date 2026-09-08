@@ -1,10 +1,6 @@
 import * as THREE from 'three'
 import { loadAircraftModel } from '../aircraft/model'
 import {
-  NOISE_SLICE_SIDE,
-  SHAPE_SIZE,
-} from '../clouds/noise'
-import {
   SHADOW_SIZE,
   shadowHistogram,
   shadowTileMeans,
@@ -168,27 +164,15 @@ export async function runNodeProbe(
   // 焼き方を知っているのは `clouds/nodeNoise.ts` だけ。周波数の上限の式
   // （1 セルに 4 テクセル）と気象マップだけ折り返すことを持つ（段 20a-2-3）
   const nodeNoise = await import('../clouds/nodeNoise')
-  const baked = nodeNoise.bakeNodeCloudNoise(renderer, quad)
+  const baked = await nodeNoise.bakeNodeCloudNoise(renderer, quad)
   const volumeMs = baked.ms
 
-  const noiseSlice = await volume.readVolumeSlice(
-    renderer,
-    quad,
-    baked.shape,
-    Math.floor(SHAPE_SIZE / 2),
-    NOISE_SLICE_SIDE,
-    isWebGPU,
-  )
-
-  // 気象マップも突き合わせる。**雲の配置を決めるのはこちら。**ずれると
-  // 雲の湧く場所が変わるが、雲影の分布では捕まらない
-  const weatherSlice = await volume.readPlaneSlice(
-    renderer,
-    quad,
-    baked.weather,
-    NOISE_SLICE_SIDE,
-    isWebGPU,
-  )
+  // 中央スライスと気象マップの左下 16x16 は焼く側が読んで持ち帰る。
+  // **統計だけでは 1 ビットのずれが埋もれる**ので生バイトで比べる。
+  // 気象マップは雲の配置を決めるので、ずれると雲の湧く場所が変わる
+  // （雲影の分布では捕まらない）
+  const noiseSlice = [...baked.slice]
+  const weatherSlice = [...baked.weatherSlice]
 
   const hashTarget = volume.bakePlane(
     renderer,

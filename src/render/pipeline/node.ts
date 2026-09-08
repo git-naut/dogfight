@@ -915,60 +915,24 @@ export async function runNodeProbe(
       .copy(sunDirectionECEF)
       .transformDirection(worldToECEF.clone().invert())
 
-    atmosphereContext = new atmos.AtmosphereContext()
-    atmosphereContext.camera = camera
-    atmosphereContext.raymarchScattering = options.quality.aerialRaymarchScattering
-    // `matrixECEFToWorld` と `cameraPositionECEF` は `onRenderUpdate` で
-    // ここから導かれる。入れるのは元になる 3 つだけでよい
-    atmosphereContext.matrixWorldToECEF.value.copy(worldToECEF)
-    atmosphereContext.sunDirectionECEF.value.copy(sunDirectionECEF)
-    atmosphereContext.moonDirectionECEF.value.copy(moonDirectionECEF)
-
-    if (options.quality.atmosphereLutScale !== 1) {
-      // **面積で効く。**倍率を半分にすると計算量は 4 分の 1 になる
-      const p = atmosphereContext.parameters
-      const one2 = new THREE.Vector2(1, 1)
-      const one3 = new THREE.Vector3(1, 1, 1)
-      p.transmittanceTextureSize.multiplyScalar(options.quality.atmosphereLutScale).round().max(one2)
-      p.irradianceTextureSize.multiplyScalar(options.quality.atmosphereLutScale).round().max(one2)
-      p.multipleScatteringTextureSize.multiplyScalar(options.quality.atmosphereLutScale).round().max(one2)
-      p.scatteringTextureSize.multiplyScalar(options.quality.atmosphereLutScale).round().max(one3)
-    }
-
-    // **既存の `contextNode.value` を潰さない。**`renderer.highPrecision = true`
-    // にすると `Renderer` の setter が `modelViewMatrix` をここへ入れる
-    // （`Renderer.js` の `set highPrecision`）。潰すと高精度の行列が消える
-    renderer.contextNode = tsl.context({
-      ...(renderer.contextNode.value as Record<string, unknown>),
-      getAtmosphere: () => atmosphereContext,
+    // **組み立ての手順を知っているのは `atmosphereNodes.ts` だけ。**
+    // `contextNode.value` を潰さないこと、`addLight` で
+    // `AtmosphereLightNode` を登録すること、LUT の縮小に下限を取ること、
+    // 鎖を組むときに背景へ空クアッドを置かないこと。どれも破っても例外は
+    // 出ない。本番の場面と同じ関数へ通す（段 20a-2-3）
+    const { setupAtmosphereNodes } = await import('../atmosphereNodes')
+    const setup = setupAtmosphereNodes(atmos, {
+      renderer,
+      camera,
+      scene,
+      quality: options.quality,
+      worldToECEF,
+      sunDirectionECEF,
+      moonDirectionECEF,
+      skyBackground: !options.nodePipeline,
     })
-
-    // `NodeLibrary.addLight` は実装にあるのに `@types/three` は空の宣言しか
-    // 持たない（`renderers/common/nodes/NodeLibrary.d.ts` が `declare class
-    // NodeLibrary {}`）。名前と引数は `NodeLibrary.js:142` で確かめた
-    const library = renderer.library as unknown as {
-      addLight(nodeClass: unknown, lightClass: unknown): void
-    }
-    library.addLight(atmos.AtmosphereLightNode, atmos.AtmosphereLight)
-
-    const sunLight = new atmos.AtmosphereLight()
-    scene.add(sunLight)
-    scene.add(sunLight.target)
-    atmosphereSunLight = sunLight as unknown as THREE.DirectionalLight
-
-    // `Scene.backgroundNode` と `environmentNode` も `@types/three` に無い。
-    // 読む側は `NodeManager.getBackgroundNode()` と `NodeManager.js:513`
-    const sceneNodes = scene as unknown as {
-      backgroundNode: unknown
-      environmentNode: unknown
-    }
-    // **鎖を組むときは空クアッドを置かない。**`AerialPerspectiveNode` が
-    // `depth >= 1` の画素で `skyNode` を評価するので、背景にも空を入れると
-    // 二重に描くことになる（計画の段 15 の注記）
-    if (!options.nodePipeline) sceneNodes.backgroundNode = atmos.skyBackground()
-    if (options.quality.skyEnvironmentSize > 0) {
-      sceneNodes.environmentNode = atmos.skyEnvironment(options.quality.skyEnvironmentSize)
-    }
+    atmosphereContext = setup.context
+    atmosphereSunLight = setup.sunLight
 
   } else {
     // 大気を組まないときの光。glb の材質が描けることだけを見る

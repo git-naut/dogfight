@@ -1,5 +1,7 @@
-import { vec4 } from 'three/tsl'
-import type { Node } from 'three/webgpu'
+import { Vector2, Vector3, type Camera, type Matrix4, type Scene } from 'three'
+import { context as tslContext, vec4 } from 'three/tsl'
+import type { Node, Renderer } from 'three/webgpu'
+import type { QualitySettings } from './quality'
 import type { IlluminanceProvider } from './terrain/surfaceNodes'
 
 /**
@@ -88,5 +90,107 @@ export function createAtmosphereNodes(
         sunDirectionECEF as never,
       ) as unknown as SplitIlluminance
     },
+  }
+}
+
+/**
+ * 大気を node 経路へ組み込む。
+ *
+ * **外せない手順が 4 つある。**どれも破っても例外が出ない。
+ *
+ * 1. **既存の `contextNode.value` を潰さない。**`renderer.highPrecision`
+ *    を立てると `Renderer` の setter が `modelViewMatrix` をここへ入れる
+ *    （`Renderer.js` の `set highPrecision`）。潰すと高精度の行列が消える。
+ * 2. `NodeLibrary.addLight` で `AtmosphereLightNode` を登録する。
+ *    `@types/three` は `declare class NodeLibrary {}` しか持たないので
+ *    型からは見えない（名前と引数は `NodeLibrary.js:142` で確かめた）。
+ * 3. LUT の縮小は**面積で効く。**倍率を半分にすると計算量は 4 分の 1。
+ *    `round()` のあと 1 で下限を取らないと 0 になる。
+ * 4. **鎖を組むときは背景に空クアッドを置かない。**
+ *    `AerialPerspectiveNode` が `depth >= 1` の画素で `skyNode` を
+ *    評価するので、背景にも空を入れると二重に描く。
+ *
+ * 入れるのは元になる 3 つだけでよい。`matrixECEFToWorld` と
+ * `cameraPositionECEF` は `onRenderUpdate` がここから導く。
+ */
+export interface AtmosphereSetupInput {
+  renderer: Renderer
+  camera: Camera
+  scene: Scene
+  quality: QualitySettings
+  /** ワールドから ECEF への行列 */
+  worldToECEF: Matrix4
+  sunDirectionECEF: Vector3
+  moonDirectionECEF: Vector3
+  /**
+   * 背景に空クアッドを置くか。
+   *
+   * **ポストの鎖を組むときは false。**`AerialPerspectiveNode` が空を描く
+   */
+  skyBackground: boolean
+}
+
+export interface AtmosphereSetup {
+  context: InstanceType<AtmosphereWebgpu['AtmosphereContext']>
+  /** `AtmosphereLight`。影の投げ手にも使う */
+  sunLight: import('three').DirectionalLight
+  nodes: AtmosphereNodes
+}
+
+export function setupAtmosphereNodes(
+  atmos: AtmosphereWebgpu,
+  input: AtmosphereSetupInput,
+): AtmosphereSetup {
+  const { renderer, camera, scene, quality } = input
+
+  const context = new atmos.AtmosphereContext()
+  context.camera = camera
+  context.raymarchScattering = quality.aerialRaymarchScattering
+  context.matrixWorldToECEF.value.copy(input.worldToECEF)
+  context.sunDirectionECEF.value.copy(input.sunDirectionECEF)
+  context.moonDirectionECEF.value.copy(input.moonDirectionECEF)
+
+  if (quality.atmosphereLutScale !== 1) {
+    const p = context.parameters
+    const one2 = new Vector2(1, 1)
+    const one3 = new Vector3(1, 1, 1)
+    p.transmittanceTextureSize.multiplyScalar(quality.atmosphereLutScale).round().max(one2)
+    p.irradianceTextureSize.multiplyScalar(quality.atmosphereLutScale).round().max(one2)
+    p.multipleScatteringTextureSize
+      .multiplyScalar(quality.atmosphereLutScale)
+      .round()
+      .max(one2)
+    p.scatteringTextureSize.multiplyScalar(quality.atmosphereLutScale).round().max(one3)
+  }
+
+  renderer.contextNode = tslContext({
+    ...(renderer.contextNode.value as Record<string, unknown>),
+    getAtmosphere: () => context,
+  }) as never
+
+  const library = renderer.library as unknown as {
+    addLight(nodeClass: unknown, lightClass: unknown): void
+  }
+  library.addLight(atmos.AtmosphereLightNode, atmos.AtmosphereLight)
+
+  const sunLight = new atmos.AtmosphereLight()
+  scene.add(sunLight)
+  scene.add(sunLight.target)
+
+  // `Scene.backgroundNode` と `environmentNode` も `@types/three` に無い。
+  // 読む側は `NodeManager.getBackgroundNode()` と `NodeManager.js:513`
+  const sceneNodes = scene as unknown as {
+    backgroundNode: unknown
+    environmentNode: unknown
+  }
+  if (input.skyBackground) sceneNodes.backgroundNode = atmos.skyBackground()
+  if (quality.skyEnvironmentSize > 0) {
+    sceneNodes.environmentNode = atmos.skyEnvironment(quality.skyEnvironmentSize)
+  }
+
+  return {
+    context,
+    sunLight: sunLight as unknown as import('three').DirectionalLight,
+    nodes: createAtmosphereNodes(atmos, context as unknown as AtmosphereContextLike),
   }
 }

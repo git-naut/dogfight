@@ -1476,37 +1476,26 @@ export async function runNodeProbe(
       composite as unknown as Parameters<typeof smaa>[0],
     ) as unknown as import('three/webgpu').Node
 
-    const pipeline = new webgpu.RenderPipeline(renderer, outputNode)
-
-    // **`setMRT()` と `getTextureNode()` は事前コンパイルより前に済ませる**
-    // （`PassNode.setup` の注記）。上で組み終えているので順は満たしている
-    const pipelineBuildStarted = performance.now()
-    // **影マップは組み立てのときにできる。**`ShadowNode.setup()` は
-    // `Fn` の中で `setupShadow` を呼ぶので、材質を組むまで `shadowMap` は
-    // null のまま。`updateBefore` が先に走ると null を触って落ちる
-    // **`castShadow` は組み立てのあとで立てる。**組み立ての時点で立っていると
-    // three の光の系が影のノードをもう 1 つ作り、その本体が生成されないまま
-    // `updateBefore` だけが残って落ちる。立てるのを後にすれば光の系の
-    // 組み立てはもう終わっているので、作られるのは自前の 1 つだけ。
-    // **影マップは光の `castShadow` がないと焼かれない**ので、立てないと
-    // `shadow(light)` は空の影マップを引く（実測で最大差 1 階調しか出ない）
-    if (shadowLight !== null) shadowLight.shadow.autoUpdate = false
-    await renderer.compileAsync(scene, camera)
-    if (shadowLight !== null) {
-      shadowLight.castShadow = true
-      shadowLight.shadow.autoUpdate = true
-      shadowLight.shadow.needsUpdate = true
-    }
-    const compileSceneMs = performance.now() - pipelineBuildStarted
-
-    // **雲のクアッドは場面に入っていない。**別に組む（段 19）
-    const compileCloudsStarted = performance.now()
-    await clouds.compile(renderer)
-    const compileCloudsMs = performance.now() - compileCloudsStarted
-    const lutStarted = performance.now()
-    await atmosphereContext.lutNode.updateTextures(renderer)
-    const pipelineLutMs = performance.now() - lutStarted
-    const pipelineBuildMs = performance.now() - pipelineBuildStarted
+    // **順序を知っているのは `nodeBuild.ts` だけ。**`setMRT()` と
+    // `getTextureNode()` を先に済ませること、`castShadow` を組み立ての
+    // あとで立てること、雲のクアッドを別に組むこと、LUT の中身を最後に
+    // 作ること。どれも破っても例外が出ない。**写しを 2 つ作ると片方だけ
+    // 直したときに気づけない**ので、本番の場面と同じ関数へ通す（段 20a-2-3）
+    const { buildNodePipeline } = await import('./nodeBuild')
+    const built = await buildNodePipeline({
+      renderer,
+      scene,
+      camera,
+      outputNode,
+      shadowLight,
+      clouds,
+      lutNode: atmosphereContext.lutNode,
+    })
+    const pipeline = built.pipeline
+    const compileSceneMs = built.compileSceneMs
+    const compileCloudsMs = built.compileCloudsMs
+    const pipelineLutMs = built.lutMs
+    const pipelineBuildMs = built.totalMs
 
     // LUT ができたので、ライティングの差をここで焼く
     const lightBefore = await bakeLight()

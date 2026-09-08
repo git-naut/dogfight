@@ -1,10 +1,8 @@
 import * as THREE from 'three'
 import { loadAircraftModel } from '../aircraft/model'
 import {
-  DETAIL_SIZE,
   NOISE_SLICE_SIDE,
   SHAPE_SIZE,
-  WEATHER_SIZE,
 } from '../clouds/noise'
 import {
   SHADOW_SIZE,
@@ -167,38 +165,16 @@ export async function runNodeProbe(
   const volume = await import('../clouds/volume')
 
   const quad = volume.createBakeQuad()
-  const bakeStarted = performance.now()
+  // 焼き方を知っているのは `clouds/nodeNoise.ts` だけ。周波数の上限の式
+  // （1 セルに 4 テクセル）と気象マップだけ折り返すことを持つ（段 20a-2-3）
+  const nodeNoise = await import('../clouds/nodeNoise')
+  const baked = nodeNoise.bakeNodeCloudNoise(renderer, quad)
+  const volumeMs = baked.ms
 
-  // GLSL 版と同じ周波数の上限を使う。`noise.ts` の `bakeVolume` の式を写す。
-  // 1 セルに 4 テクセル確保できるところまで。超えると白色ノイズになる
-  const maxFreq = (size: number): number => Math.max(1, Math.floor(size / 4))
-
-  const shapeVolume = volume.bakeVolume(renderer, quad, {
-    side: SHAPE_SIZE,
-    fragment: (layer) =>
-      noiseNodes.noiseFragmentNode(0, maxFreq(SHAPE_SIZE), layer),
-  })
-  const detailVolume = volume.bakeVolume(renderer, quad, {
-    side: DETAIL_SIZE,
-    fragment: (layer) =>
-      noiseNodes.noiseFragmentNode(1, maxFreq(DETAIL_SIZE), layer),
-  })
-  const weatherPlane = volume.bakePlane(
-    renderer,
-    quad,
-    WEATHER_SIZE,
-    WEATHER_SIZE,
-    noiseNodes.weatherFragmentNode(),
-    // 世界座標で引き回すので折り返す。GLSL 版と揃える
-    { repeat: true },
-  )
-  const volumeMs = performance.now() - bakeStarted
-
-  // GLSL 版（`noise.ts` の `sampleSlice`）が読むのと同じ層の同じ左下 16x16
   const noiseSlice = await volume.readVolumeSlice(
     renderer,
     quad,
-    shapeVolume.texture,
+    baked.shape,
     Math.floor(SHAPE_SIZE / 2),
     NOISE_SLICE_SIDE,
     isWebGPU,
@@ -209,7 +185,7 @@ export async function runNodeProbe(
   const weatherSlice = await volume.readPlaneSlice(
     renderer,
     quad,
-    weatherPlane.texture,
+    baked.weather,
     NOISE_SLICE_SIDE,
     isWebGPU,
   )
@@ -247,9 +223,9 @@ export async function runNodeProbe(
       SHADOW_SIZE,
       densityNodes.cloudShadowFragmentNode(
         {
-          shapeNoise: shapeVolume.texture,
-          detailNoise: detailVolume.texture,
-          weatherMap: weatherPlane.texture,
+          shapeNoise: baked.shape,
+          detailNoise: baked.detail,
+          weatherMap: baked.weather,
           cloudTime: tsl.float(shadow.cloudTime),
           coverage: tsl.float(shadow.coverage),
         },
@@ -306,9 +282,9 @@ export async function runNodeProbe(
     const node = <T>(value: unknown): T => tsl.uniform(value as never) as unknown as T
 
     const marchInputs = {
-      shapeNoise: shapeVolume.texture,
-      detailNoise: detailVolume.texture,
-      weatherMap: weatherPlane.texture,
+      shapeNoise: baked.shape,
+      detailNoise: baked.detail,
+      weatherMap: baked.weather,
       cloudTime: tsl.float(MARCH_PROBE_CLOUD_TIME),
       coverage: tsl.float(MARCH_PROBE_COVERAGE),
       // 遮蔽物を置かないので深度は 1.0（空）で固定
@@ -838,9 +814,7 @@ export async function runNodeProbe(
   }
 
   quad.dispose()
-  shapeVolume.dispose()
-  detailVolume.dispose()
-  weatherPlane.dispose()
+  baked.dispose()
 
   renderer.setPixelRatio(1)
   renderer.setSize(options.width, options.height, false)
@@ -1108,9 +1082,9 @@ export async function runNodeProbe(
     clouds = cloudsNodePass.createCloudsNodePass({
       camera,
       noise: {
-        shape: shapeVolume.texture,
-        detail: detailVolume.texture,
-        weather: weatherPlane.texture,
+        shape: baked.shape,
+        detail: baked.detail,
+        weather: baked.weather,
       },
       quality: options.quality,
       coverage: MARCH_PROBE_COVERAGE,

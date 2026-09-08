@@ -1130,61 +1130,14 @@ export async function runNodeProbe(
     // テクスチャを data URI で内包する
     const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
 
-    /**
-     * 大気の LUT が決める照度。
-     *
-     * **機体と同じ式になる。**`AtmosphereLightNode` は間接に
-     * `getIndirectIlluminance` を使い、直達は太陽放射照度に透過率と
-     * `max(N・L, 0)` を掛ける。`getSplitIlluminance` はその 2 つを
-     * 1 度に返す（`getSplitIrradiance` が同じ式で組んでいる）
-     */
-    const atmosphereIlluminance: import('../terrain/surfaceNodes').IlluminanceProvider =
-      (world, normal) => {
-        const ctx = atmosphereContext!
-        const params = ctx.parametersNode as unknown as {
-          worldToUnit: import('three/webgpu').Node<'float'>
-        }
-        const toECEF = ctx.matrixWorldToECEF as unknown as import('three/webgpu').Node<'mat4'>
-        let positionECEF = toECEF.mul(tsl.vec4(world, 1)).xyz
-        if (ctx.correctAltitude) {
-          positionECEF = positionECEF.add(
-            ctx.altitudeCorrectionECEF as unknown as import('three/webgpu').Node<'vec3'>,
-          )
-        }
-        const positionUnit = positionECEF.mul(params.worldToUnit)
-        const normalECEF = toECEF.mul(tsl.vec4(normal, 0)).xyz
-        const split = atmos.getSplitIlluminance(
-          positionUnit,
-          normalECEF,
-          ctx.sunDirectionECEF,
-        ) as unknown as {
-          get(name: string): import('three/webgpu').Node<'vec3'>
-        }
-        return { direct: split.get('direct'), indirect: split.get('indirect') }
-      }
-
-    /** ワールドの点を大気の単位空間へ写す */
-    const toUnit = (world: import('three/webgpu').Node<'vec3'>) => {
-      const ctx = atmosphereContext!
-      const params = ctx.parametersNode as unknown as {
-        worldToUnit: import('three/webgpu').Node<'float'>
-      }
-      const toECEF = ctx.matrixWorldToECEF as unknown as import('three/webgpu').Node<'mat4'>
-      let positionECEF = toECEF.mul(tsl.vec4(world, 1)).xyz
-      if (ctx.correctAltitude) {
-        positionECEF = positionECEF.add(
-          ctx.altitudeCorrectionECEF as unknown as import('three/webgpu').Node<'vec3'>,
-        )
-      }
-      return positionECEF.mul(params.worldToUnit)
-    }
-
-    /** 余弦を含まない側の照度。太陽の見かけの明るさに使う */
-    const scalarIlluminance = (world: import('three/webgpu').Node<'vec3'>) =>
-      atmos.getSplitScalarIlluminance(
-        toUnit(world),
-        atmosphereContext!.sunDirectionECEF,
-      ) as unknown as { get(name: string): import('three/webgpu').Node<'vec3'> }
+    // **ワールド座標から大気の単位空間への写し替えを知っているのは
+    // `atmosphereNodes.ts` だけ。**`matrixWorldToECEF` を掛けて
+    // `worldToUnit` で縮め、高度の補正を足す 3 段で、忘れても例外は出ずに
+    // 値が桁ごとずれる。本番の場面と同じものを通す（段 20a-2-3）
+    const { createAtmosphereNodes } = await import('../atmosphereNodes')
+    const atmosphereNodes = createAtmosphereNodes(atmos, atmosphereContext)
+    const atmosphereIlluminance = atmosphereNodes.illuminance
+    const scalarIlluminance = atmosphereNodes.scalarIlluminance
 
     // **雲の太陽光と天空光も LUT から取る。**GLSL 経路は CPU で出した値を
     // uniform で渡していたが、node 経路は CPU 側に値が無い。大気は緩やかに

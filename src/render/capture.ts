@@ -57,6 +57,23 @@ export interface CaptureConfig {
   showWater: boolean
   /** 環境反射を使うか。`?env=0` で切る。質感の比較に使う */
   showEnvironment: boolean
+  /**
+   * ポストの鎖に SMAA を掛けるか。`?smaa=0` で外す。
+   *
+   * **差分の帰属を測るための口（段 20a-4）。**node 経路の 42 枚は全画素が
+   * 動くので、原因ごとの寄与を切り分けるには 1 つずつ振るしかない。
+   * 既定の経路には効かない（`EffectComposer` の側は別の段で切る）
+   */
+  smaa: boolean
+  /**
+   * 地表と海面のライティングを大気の LUT から引くか。`?illum=0` で段 17b の
+   * 形（`surfaceState` の放射輝度）へ戻す。
+   *
+   * **差分の帰属を測るための口（段 20a-4）。**計画は
+   * `getSplitIlluminance` の影響を「地形が映る 40 枚」と見積もっている。
+   * 既定の経路には効かない
+   */
+  illuminance: boolean
   /** 機体の影を使うか。`?shadow=0` で切る。切り分けと計測に使う */
   showAircraftShadow: boolean
   /**
@@ -304,6 +321,8 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showTerrain: params.get('terrain') !== '0',
     showWater: params.get('water') !== '0',
     showEnvironment: params.get('env') !== '0',
+    smaa: params.get('smaa') !== '0',
+    illuminance: params.get('illum') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',
     showEnemies: params.get('enemies') !== '0',

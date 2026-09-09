@@ -166,6 +166,20 @@ export interface SceneOptions {
   showWater?: boolean
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean
+  /**
+   * ポストの鎖に SMAA を掛けるか。既定は true。
+   *
+   * **差分の帰属を測るための口（段 20a-4）。**node 経路の 42 枚は全画素が
+   * 動くので、原因ごとの寄与は 1 つずつ振って測るしかない
+   */
+  smaa?: boolean
+  /**
+   * 地表と海面のライティングを大気の LUT から引くか。既定は true。
+   *
+   * false にすると段 17b の形（`surfaceState` の放射輝度）へ戻る。
+   * **差分の帰属を測るための口（段 20a-4）**
+   */
+  illuminance?: boolean
   /** 機体の影を使うか。切り分けと計測に使う */
   showAircraftShadow?: boolean
   /** 標的機を描くか。差分で標的の画素だけを取り出すのに使う */

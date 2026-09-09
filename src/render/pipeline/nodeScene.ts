@@ -174,6 +174,13 @@ export async function createNodePipeline(
     solar.sunDirectionWorld.z,
   )
 
+  // **環境反射は `?env=0` で外せる。**`setupAtmosphereNodes` は
+  // `skyEnvironmentSize` だけを見るので、ここで台本の指定を重ねる
+  // （GLSL 経路の `scene.environment = showEnvironment ? ... : null` と同じ）
+  if (options.showEnvironment === false) {
+    ;(scene as unknown as { environmentNode: unknown }).environmentNode = null
+  }
+
   // 場面に置く物。**円形スプライトは TSL 版を差す。**`ShaderMaterial` は
   // node 経路で黙って描かれない（例外は出ず、コンソールに 1 行出るだけ）
   const views = await createSceneViews({
@@ -202,9 +209,15 @@ export async function createNodePipeline(
 
   // 地形と海面。**格子もパッチの選び方も GLSL 経路と同じものを使う。**
   // 差し替わるのは材質だけで、工場を受け取る口が両方にある
+  // **`?illum=0` で段 17b の形へ戻せる。**大気の LUT から引くのをやめると
+  // `surfaceState` の放射輝度（照度の読み戻しが入れた値）を使う。
+  // 差分の帰属を測るための口（段 20a-4）
+  const useLutIlluminance = options.illuminance ?? true
   const sharedUniforms = createTerrainUniforms(terrain, SHADOW_EXTENT)
   const terrainMesh: TerrainMesh = createTerrainMesh(terrain, quality, sharedUniforms, () =>
-    createTerrainNodeMaterial(surfaceState, aircraftShade, atmosphereNodes.illuminance),
+    useLutIlluminance
+      ? createTerrainNodeMaterial(surfaceState, aircraftShade, atmosphereNodes.illuminance)
+      : createTerrainNodeMaterial(surfaceState, aircraftShade),
   )
   terrainMesh.mesh.visible = options.showTerrain ?? true
   scene.add(terrainMesh.mesh)
@@ -217,21 +230,25 @@ export async function createNodePipeline(
    * 間接を pi で割る
    */
   const water: Water = createWater(quality, sharedUniforms, () =>
-    createWaterNodeMaterial(surfaceState, aircraftShade, (world, normal) => ({
-      sun: atmosphereNodes.scalarIlluminance(world).get('direct'),
-      sky: atmosphereNodes.illuminance(world, normal).indirect.mul(1 / Math.PI),
-    })),
+    useLutIlluminance
+      ? createWaterNodeMaterial(surfaceState, aircraftShade, (world, normal) => ({
+          sun: atmosphereNodes.scalarIlluminance(world).get('direct'),
+          sky: atmosphereNodes.illuminance(world, normal).indirect.mul(1 / Math.PI),
+        }))
+      : createWaterNodeMaterial(surfaceState, aircraftShade),
   )
   water.mesh.visible = options.showWater ?? true
   scene.add(water.mesh)
 
-  const { composite, outputNode } = createNodeOutputNode({
+  const output = createNodeOutputNode({
     atmos,
     smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
     scenePass,
     cloudNode: clouds.node,
   })
-  void composite
+  // **`?smaa=0` で外せる。**42 枚は全画素が動くので、原因ごとの寄与は
+  // 1 つずつ振って測るしかない（段 20a-4 の差分の台帳）
+  const outputNode = (options.smaa ?? true) ? output.outputNode : output.composite
 
   const built = await buildNodePipeline({
     renderer,

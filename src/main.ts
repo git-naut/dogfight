@@ -396,6 +396,8 @@ async function main(): Promise<void> {
     showTerrain: capture.showTerrain,
     showWater: capture.showWater,
     showEnvironment: capture.showEnvironment,
+    smaa: capture.smaa,
+    illuminance: capture.illuminance,
     showAircraftShadow: capture.showAircraftShadow,
     showTargets: capture.showTargets,
     showEnemies: capture.showEnemies,

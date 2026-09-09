@@ -191,13 +191,14 @@ export async function createNodePipeline(
   views.aircraft.object.traverse((o) => {
     if (o instanceof THREE.Mesh) o.castShadow = true
   })
-  const aircraftShade = configureNodeAircraftShadow({
+  const shadowInfo = configureNodeAircraftShadow({
     renderer,
     light: shadowLight,
     quality,
     center: new THREE.Vector3(0, 0, 0),
     sunDirectionWorld: solar.sunDirectionWorld,
   })
+  const aircraftShade = shadowInfo.shade
 
   // 地形と海面。**格子もパッチの選び方も GLSL 経路と同じものを使う。**
   // 差し替わるのは材質だけで、工場を受け取る口が両方にある
@@ -237,7 +238,9 @@ export async function createNodePipeline(
     scene,
     camera,
     outputNode,
-    shadowLight,
+    // **立てていないときは渡さない。**渡すと `castShadow` が立ち、
+    // low プリセットで「影が切れている」の検査が通らない
+    shadowLight: shadowInfo.enabled ? shadowLight : null,
     clouds,
     lutNode: atmosphere.context.lutNode,
   })
@@ -331,7 +334,7 @@ export async function createNodePipeline(
       quality.aircraftShadowMapSize,
       quality.aircraftShadowMapSize,
     )
-    renderer.shadowMap.type = shadowMapType(quality)
+    if (shadowInfo.enabled) renderer.shadowMap.type = shadowMapType(quality)
     // 環境反射の大きさが変わったらノードを作り直す。鎖は組み直しが要る
     const sceneNodes = scene as unknown as { environmentNode: unknown }
     sceneNodes.environmentNode =
@@ -470,13 +473,15 @@ export async function createNodePipeline(
     },
 
     updateAircraftShadow(position) {
+      if (!shadowInfo.enabled) return
       followAircraftShadow(shadowLight, position, solar.sunDirectionWorld)
     },
     get aircraftShadowReady() {
-      return shadowLight.castShadow && shadowLight.shadow.map !== null
+      return shadowInfo.enabled && shadowLight.castShadow && shadowLight.shadow.map !== null
     },
     get environmentReady() {
-      return (scene as unknown as { environmentNode: unknown }).environmentNode !== null
+      // **`!== null` では足りない。**設定していなければ `undefined` になる
+      return Boolean((scene as unknown as { environmentNode: unknown }).environmentNode)
     },
 
     get gpuFrameMs() {

@@ -2,9 +2,26 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { SCENES } from './scenes.mjs'
-import { DEG, capture, openLive, readHook, type TestHook } from './harness'
+import {
+  DEG,
+  advanceFrames,
+  capture,
+  onNodePath,
+  openLive,
+  readHook,
+  waitBudgetMs,
+  type TestHook,
+} from './harness'
 import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
 
+
+// **node 経路は所要が 1.96 倍。**180 秒の上限は GLSL 経路で決めた値で、
+// 並列に回すと重いライブ UI の検査が超える（段 20a-3 で 3 件。単独では通る）。
+// `test.slow()` は上限を 3 倍にする。固まりの検出は e2e.yml の段の上限が担う
+// （`playwright.config.ts` の注記と同じ考え方）
+test.beforeEach(() => {
+  if (onNodePath()) test.slow()
+})
 
 test.describe('起動', () => {
   test('WebGL2 が取れて大気を読み終え、コンソールエラーが出ない', async ({ page }) => {
@@ -19,11 +36,18 @@ test.describe('起動', () => {
 
     expect(hook.captureReady).toBe(true)
     expect(hook.atmosphereReady).toBe(true)
-    // SwiftShader でも WebGL2 は取れる。1 に落ちていたら描画品質の前提が崩れる
-    expect(hook.webglVersion).toBe(2)
-    // 既定はこれまでどおり WebGLRenderer 直結の経路。node 経路へ勝手に
-    // 切り替わっていないことを見る
-    expect(hook.backend).toBe('webgl')
+    if (onNodePath()) {
+      // **node 経路には生の WebGL コンテキストが無い。**`getContext()` が
+      // 空実装なので 0。`kind` から導いていないことの裏返しでもある
+      expect(hook.webglVersion).toBe(0)
+      expect(hook.backend).toBe('node-webgpu')
+    } else {
+      // SwiftShader でも WebGL2 は取れる。1 に落ちていたら描画品質の前提が崩れる
+      expect(hook.webglVersion).toBe(2)
+      // 既定はこれまでどおり WebGLRenderer 直結の経路。node 経路へ勝手に
+      // 切り替わっていないことを見る
+      expect(hook.backend).toBe('webgl')
+    }
     expect(errors).toEqual([])
   })
 
@@ -126,7 +150,7 @@ test.describe('ライブループ', () => {
       await page.waitForFunction(
         () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
         undefined,
-        { timeout: 60_000 },
+        { timeout: waitBudgetMs(60_000) },
       )
       await page.waitForTimeout(1500)
 
@@ -1107,7 +1131,9 @@ test.describe('リザルト', () => {
         return hook !== undefined && hook.missionOutcome === 'shotDown'
       },
       undefined,
-      { timeout: 120_000 },
+      // **値に届くまでの壁時計はフレームの費用に比例する。**上限の与え方は
+      // `waitBudgetMs` が持つ（node 経路は 3 倍）
+      { timeout: waitBudgetMs(120_000) },
     )
 
     await expect(result).toBeVisible()
@@ -1289,6 +1315,12 @@ test.describe('スクリーンショット回帰', () => {
 
   for (const scene of scenes) {
     test(`${scene.name} の絵が基準と一致する`, async ({ page }) => {
+      // **node 経路では画素を比べない。**基準画像 42 枚は
+      // `chromium-swiftshader` のもので、node 経路は光の式が違う
+      // （大気の LUT・環境反射・PCF・`getSplitIlluminance`）。撮り直すのは
+      // 段 20b で、差分の理由を台帳にしてから。ここで撮ると別物の 42 枚が
+      // 黙って増える（段 20a-3）
+      test.skip(onNodePath(), '画素の撮り直しは段 20b')
       await capture(page, scene)
       await expect(page.locator('#viewport')).toHaveScreenshot(`${scene.name}.png`)
     })
@@ -1308,7 +1340,7 @@ test.describe('タイトル画面', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
 
     const title = page.locator('#title')
@@ -1370,7 +1402,7 @@ test.describe('設定画面', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     await page.locator('.title-settings').click()
     await expect(page.locator('#settings')).toBeVisible()
@@ -1448,18 +1480,28 @@ test.describe('設定画面', () => {
     const before = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.roundsFired ?? -1,
     )
+    // **フレームで待つ。**`waitForTimeout(600)` は GLSL 経路の 1 フレーム
+    // 50 ms を前提にした値で、node 経路（800 ms 前後）では 1 枚も進まず
+    // 「撃っていない」が空振りで通る（段 20a-3 で実測）
     await page.keyboard.down('Space')
-    await page.waitForTimeout(600)
+    await advanceFrames(page, 60)
     await page.keyboard.up('Space')
     const during = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.roundsFired ?? -1,
     )
     expect(during, '設定を開いている間に撃っている').toBe(before)
 
-    // 閉じたら戻る
+    // 閉じたら戻る。**撃てたことを値で待つ**（枚数で待つと、発射間隔が
+    // 変わったときに待ち足りなくなる）
     await page.locator('.settings-close').click()
     await page.keyboard.down('Space')
-    await page.waitForTimeout(600)
+    await page.waitForFunction(
+      (from) =>
+        ((window as unknown as { __dogfight?: TestHook }).__dogfight?.roundsFired ?? -1) >
+        from,
+      during,
+      { timeout: waitBudgetMs(120_000) },
+    )
     await page.keyboard.up('Space')
     const after = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.roundsFired ?? -1,
@@ -1478,7 +1520,7 @@ test.describe('設定画面', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     const hook = await readHook(page)
     expect(hook?.preset).toBe('medium')
@@ -1495,7 +1537,7 @@ test.describe('設定画面', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     expect((await readHook(page))?.preset).toBe('ultra')
   })
@@ -1532,7 +1574,7 @@ test.describe('設定画面', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     expect(errors, '例外が出ている').toEqual([])
     expect((await readHook(page))?.preset, '既定へ倒れていない').toBe('high')
@@ -1554,7 +1596,7 @@ test.describe('効果音', () => {
       () =>
         (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
       undefined,
-      { timeout: 60_000 },
+      { timeout: waitBudgetMs(60_000) },
     )
     const probe = (await handle.jsonValue()) as Record<
       string,
@@ -1584,7 +1626,7 @@ test.describe('効果音', () => {
       () =>
         (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
       undefined,
-      { timeout: 60_000 },
+      { timeout: waitBudgetMs(60_000) },
     )
     const probe = (await handle.jsonValue()) as Record<
       string,
@@ -1604,7 +1646,7 @@ test.describe('効果音', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     expect((await readHook(page))?.audioReady, 'START の前に作っている').toBe(false)
 
@@ -1623,7 +1665,7 @@ test.describe('効果音', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     await page.locator('.title-start').click()
     await page.waitForTimeout(500)
@@ -1646,7 +1688,7 @@ test.describe('効果音', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     await page.locator('.title-start').click()
     // 撃つ・被弾する・爆発する を一通り通す
@@ -1679,7 +1721,7 @@ test.describe('シェーダの事前コンパイル', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 300_000 },
+      { timeout: waitBudgetMs(300_000) },
     )
     const hook = await readHook(page)
     // 実測で 119 個。1 段ぶんだけなら 43 個だった
@@ -1696,7 +1738,7 @@ test.describe('シェーダの事前コンパイル', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 300_000 },
+      { timeout: waitBudgetMs(300_000) },
     )
     const before = (await readHook(page))!.programs
 
@@ -1706,7 +1748,7 @@ test.describe('シェーダの事前コンパイル', () => {
         () =>
           (window as unknown as { __dogfight?: TestHook }).__dogfight?.preset !== 'high',
         undefined,
-        { timeout: 60_000 },
+        { timeout: waitBudgetMs(60_000) },
       )
       .then(() => true)
       .catch(() => false)
@@ -1842,7 +1884,7 @@ test.describe('ポーズ', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     await page.locator('.title-start').click()
     await expect(page.locator('#title')).toBeHidden()
@@ -1877,7 +1919,7 @@ test.describe('ポーズ', () => {
           page.evaluate(
             () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0,
           ),
-        { timeout: 30_000 },
+        { timeout: waitBudgetMs(30_000) },
       )
       .toBeGreaterThan(during)
   })
@@ -1888,7 +1930,7 @@ test.describe('ポーズ', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     await expect(page.locator('#title')).toBeVisible()
     await page.keyboard.press('Escape')
@@ -1965,7 +2007,7 @@ test.describe('通しの流れ', () => {
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
-      { timeout: 120_000 },
+      { timeout: waitBudgetMs(120_000) },
     )
     // タイトルの裏で甲板に乗っている
     await expect(page.locator('#title')).toBeVisible()
@@ -1992,7 +2034,7 @@ test.describe('通しの流れ', () => {
           page.evaluate(
             () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.speed ?? 0,
           ),
-        { timeout: 60_000 },
+        { timeout: waitBudgetMs(60_000) },
       )
       .toBeGreaterThan(50)
     await page.keyboard.up('ShiftLeft')
@@ -2006,7 +2048,7 @@ test.describe('通しの流れ', () => {
               (window as unknown as { __dogfight?: TestHook }).__dogfight
                 ?.missionRemaining ?? 0,
           ),
-        { timeout: 30_000 },
+        { timeout: waitBudgetMs(30_000) },
       )
       .toBeLessThan(300 * 120)
   })
@@ -2021,6 +2063,11 @@ test.describe('通しの流れ', () => {
  */
 test.describe('雲影の分布', () => {
   test('?shadowprobe=1 で 16 ビンの分布が返る', async ({ page }) => {
+    // **GLSL 側が TSL との突き合わせの参照値を作るための口。**node 経路では
+    // 相手がいないので `readShadowHistogram` は投げる（空を返すと「一致した」と
+    // 読める結果が出てしまう）。node 側の分布は `node-path.spec.ts` が
+    // `?nodeshadow=1` で見る（段 20a-3）
+    test.skip(onNodePath(), 'プローブの参照値は GLSL 側の口')
     const hook = await capture(page, {
       script: 'level',
       frame: 240,
@@ -2052,6 +2099,11 @@ test.describe('雲影の分布', () => {
   })
 
   test('雲量 0 なら影は日向の側へ寄る', async ({ page }) => {
+    // **GLSL 側が TSL との突き合わせの参照値を作るための口。**node 経路では
+    // 相手がいないので `readShadowHistogram` は投げる（空を返すと「一致した」と
+    // 読める結果が出てしまう）。node 側の分布は `node-path.spec.ts` が
+    // `?nodeshadow=1` で見る（段 20a-3）
+    test.skip(onNodePath(), 'プローブの参照値は GLSL 側の口')
     // 検査が働くことの確認。雲が無ければ透過率 1 の側だけが埋まる
     const hook = await capture(page, {
       script: 'level',

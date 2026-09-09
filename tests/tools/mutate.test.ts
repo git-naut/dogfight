@@ -146,7 +146,13 @@ describe('docs/lessons.md', () => {
     // 段 19 のあとで 8 へ。`--shard` が本数で割る件は
     // `PWTEST_SHARD_WEIGHTS` で所要から分配して塞いだ（重みの計算は
     // `tools/shard-weights.mjs`）。**競合そのものはまだ穴のまま。**
+    //
+    // 段 20a-3 で 9 へ。`smoke.spec.ts` の `waitForTimeout` が残り 8 か所
+    // ある。壁時計の待ちは遅い経路で 1 枚も進まず、「何も起きていない」の
+    // 主張を空振りで通す。1 か所は直したが（`開いている間は撃てない`）、
+    // 残りは両経路で通っているので触っていない。**段 20b で既定が node に
+    // なる前に洗う。**
     // **減らしたときは下げる。増やすときは理由を書く。**
-    expect(holes).toBeLessThanOrEqual(8)
+    expect(holes).toBeLessThanOrEqual(9)
   })
 })

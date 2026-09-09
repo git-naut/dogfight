@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { captureParams, type CaptureQuery } from './scenes.mjs'
 
 /**
@@ -277,8 +277,61 @@ export function readHook(page: Page): Promise<TestHook | undefined> {
 // `tools/exact.mjs` も同じものを読む。写しを持つと、片方だけが別の既定値を
 // 使ったときに画素比較の道具が嘘の結論を出す（雲量の既定で実際にずれていた）。
 
+/**
+ * node 経路の project で回っているか。
+ *
+ * **`?gpu=3` を足すのはここ 1 か所だけ。**各テストが URL を組み立てる形に
+ * すると、足し忘れた検査が GLSL 経路のまま通って「両経路で緑」の意味が
+ * 消える（段 20a-3）
+ */
+export function onNodePath(): boolean {
+  return test.info().project.name === 'chromium-node'
+}
+
+/**
+ * シムのフレームが n 枚進むまで待つ。
+ *
+ * **壁時計で待たない。**`waitForTimeout(600)` は GLSL 経路の 1 フレーム
+ * 50 ms を前提にした値で、node 経路は 800 ms 前後かかるので 1 枚も進まない
+ * ことがある。**進まないと「何も起きていない」という主張が空振りで通る。**
+ * 実測で `開いている間は撃てない` の前半（設定を開いている間は撃てない）が
+ * その形になっていた（段 20a-3）。
+ *
+ * `hook.frame` は 120 Hz のシムのフレーム番号。60 枚で 0.5 秒ぶん
+ */
+/**
+ * 値で待つときの上限。
+ *
+ * **node 経路はフレームの費用が 1.96 倍。**上限は GLSL 経路で決めた値なので、
+ * そのままだと値に届く前に打ち切る。実測で `speed > 50` が 60 秒で 39.86 の
+ * まま落ち、`missionOutcome === 'shotDown'` が 120 秒で届かなかった
+ * （どちらも単独では通る。段 20a-3）。
+ *
+ * **値で待つ形は保つ。**壁時計で待つ形へ戻すと、遅い経路で「何も起きて
+ * いない」の主張が空振りで通る（`advanceFrames` の注記）。伸ばすのは上限だけ。
+ *
+ * 3 倍は `test.slow()` と同じ倍率。固まりの検出は e2e.yml の段の上限が担う
+ */
+export function waitBudgetMs(base: number): number {
+  return onNodePath() ? base * 3 : base
+}
+
+export async function advanceFrames(page: Page, frames: number): Promise<void> {
+  const from = await page.evaluate(
+    () => (window as unknown as { __dogfight?: { frame: number } }).__dogfight?.frame ?? 0,
+  )
+  await page.waitForFunction(
+    ([start, n]) =>
+      ((window as unknown as { __dogfight?: { frame: number } }).__dogfight?.frame ?? 0) >=
+      start! + n!,
+    [from, frames],
+    { timeout: 120_000 },
+  )
+}
+
 export async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
   const params = captureParams(query)
+  if (onNodePath()) params.set('gpu', '3')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')
@@ -304,7 +357,8 @@ export async function openLive(page: Page, query = ''): Promise<void> {
   // 全体も 11.8 分から 17.2 分へ延びた）。事前コンパイル自体は専用の
   // describe が見ている
   const sep = query === '' ? '?' : '&'
-  await page.goto(`/dogfight/${query}${sep}title=0&precompile=0`)
+  const path = onNodePath() ? '&gpu=3' : ''
+  await page.goto(`/dogfight/${query}${sep}title=0&precompile=0${path}`)
   await page.waitForFunction(
     () => {
       const hook = (window as unknown as { __dogfight?: { frame: number } }).__dogfight

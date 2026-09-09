@@ -137,6 +137,29 @@ export default defineConfig({
         launchOptions: { args: [...SWIFTSHADER_ARGS] },
       },
     },
+    // **画素に依存しない検査を node 経路でも回す（段 20a-3）。**
+    //
+    // 計画は段 20b の前提に「画素に依存しないテストが両経路で緑」を置く。
+    // 緑なら「絵の内容は同じで画素の量子化だけが違う」と言える。赤いなら
+    // バックエンドの差か移植の欠陥か、値の置き場所の違いのどれか。
+    //
+    // **既定では回さない。**`smoke.spec.ts` の 225 件を node 経路で足すと
+    // E2E の所要がおよそ倍になる（node 経路の定常は GLSL 経路の 1.96 倍）。
+    // 門として通すためのものなので `NODEPATH=1` で明示的に回す。段 20b で
+    // 既定が node になれば、この project は畳んで `chromium-swiftshader` の
+    // 側が node 経路になる。`MUTATE=1` と同じ作法
+    ...(process.env.NODEPATH === '1'
+      ? [
+          {
+            name: 'chromium-node',
+            testMatch: /smoke\.spec\.ts/,
+            use: {
+              ...devices['Desktop Chrome'],
+              launchOptions: { args: [...WEBGPU_ARGS] },
+            },
+          },
+        ]
+      : []),
     {
       // node 経路だけを WebGPU の起動引数で回す。
       //

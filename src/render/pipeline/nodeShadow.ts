@@ -6,7 +6,7 @@ import {
   type OrthographicCamera,
   type ShadowMapType,
 } from 'three'
-import { shadow } from 'three/tsl'
+import { float, shadow } from 'three/tsl'
 import type { Node, Renderer } from 'three/webgpu'
 import type { AtmosphereSunLight } from '../atmosphereNodes'
 import type { QualitySettings } from '../quality'
@@ -50,8 +50,28 @@ export function shadowMapType(quality: QualitySettings): ShadowMapType {
   return BasicShadowMap
 }
 
-export function configureNodeAircraftShadow(input: NodeAircraftShadowInput): Node<'float'> {
+export interface NodeAircraftShadow {
+  /** 影の係数。立てていなければ 1（遮らない） */
+  shade: Node<'float'>
+  /**
+   * 影を立てたか。
+   *
+   * **`aircraftShadowMapSize` が 0 のプリセット（low）では立てない。**
+   * 立てると `low では影も環境反射も切れている` が通らない。false のときは
+   * `buildNodePipeline` へ投げ手を渡さない（渡すと `castShadow` が立つ）
+   */
+  enabled: boolean
+}
+
+export function configureNodeAircraftShadow(
+  input: NodeAircraftShadowInput,
+): NodeAircraftShadow {
   const { renderer, light, quality } = input
+
+  if (quality.aircraftShadowMapSize === 0) {
+    light.castShadow = false
+    return { shade: float(1) as unknown as Node<'float'>, enabled: false }
+  }
 
   // **組み立てのあいだは伏せる。**理由は本文の注記
   light.castShadow = false
@@ -77,7 +97,7 @@ export function configureNodeAircraftShadow(input: NodeAircraftShadowInput): Nod
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = shadowMapType(quality)
 
-  return shadow(light as never) as unknown as Node<'float'>
+  return { shade: shadow(light as never) as unknown as Node<'float'>, enabled: true }
 }
 
 /**

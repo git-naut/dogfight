@@ -20,7 +20,8 @@
     "exact": "node tools/exact.mjs",
     "mutate": "node tools/mutate.mjs",
     "stryker": "stryker run",
-    "mutate:pixel": "MUTATE=1 playwright test pixel-mutate"
+    "mutate:pixel": "MUTATE=1 playwright test pixel-mutate",
+    "test:nodepath": "NODEPATH=1 playwright test --project=chromium-node"
   },
   "dependencies": {
     "@takram/three-atmosphere": "^0.19.1",

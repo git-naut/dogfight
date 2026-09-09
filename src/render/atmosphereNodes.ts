@@ -200,9 +200,11 @@ export function setupAtmosphereNodes(
     environmentNode: unknown
   }
   if (input.skyBackground) sceneNodes.backgroundNode = atmos.skyBackground()
-  if (quality.skyEnvironmentSize > 0) {
-    sceneNodes.environmentNode = atmos.skyEnvironment(quality.skyEnvironmentSize)
-  }
+  // **0 のときも明示的に null を入れる。**入れないとプロパティが
+  // `undefined` のまま残り、`!== null` の判定が true になる（low プリセットで
+  // 「環境反射が切れている」の検査が通らなくなる。段 20a-3 で踏んだ）
+  sceneNodes.environmentNode =
+    quality.skyEnvironmentSize > 0 ? atmos.skyEnvironment(quality.skyEnvironmentSize) : null
 
   return {
     context,

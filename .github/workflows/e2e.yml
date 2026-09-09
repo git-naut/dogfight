@@ -184,10 +184,11 @@ jobs:
       - run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         timeout-minutes: 18
         env:
-          # 台ごとに入れる本数。合計 273 は算出時の総テスト数で、
+          # 台ごとに入れる本数。合計 275 は算出時の総テスト数で、
           # `floor(w * total / totalWeight)` がその数を返す。**総数が
-          # 動くと比率のまま伸縮する。**段 20a で 275 本になったぶん
-          # （0.7%）は 1〜2 本のずれに収まるので、次の実測で計算し直す。
+          # 動いても比率のまま伸縮する**ので、テストが増減しても崩れない
+          # （`tools/shard-weights.mjs` が `filterForShard` の式を写して
+          # 検算する）。
           #
           # **腐る値。**run 34100372031 の所要から計算したもので、テストを
           # 足したり所要が変われば釣り合いが崩れる。段 20 で 42 枚を撮り
@@ -197,7 +198,7 @@ jobs:
           #
           # **本数と台数を合わせる。**合わないと Playwright が全台で即
           # 落ちる。`tests/tools/shardWeights.test.ts` が先に見る。
-          PWTEST_SHARD_WEIGHTS: 46:43:38:30:32:24:13:16:15:16
+          PWTEST_SHARD_WEIGHTS: 37:34:38:33:27:41:17:25:14:9
 
       - uses: actions/upload-artifact@v5
         if: ${{ !cancelled() }}

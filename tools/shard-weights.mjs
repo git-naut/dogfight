@@ -136,11 +136,23 @@ for (const project of list.config.projects) {
   }
 }
 
-function equalSizes(total, shards) {
-  const base = Math.floor(total / shards)
-  const sizes = Array.from({ length: shards }, () => base)
-  for (let i = 0; i < total - base * shards; i++) sizes[i % shards]++
+/**
+ * 重みから台ごとの本数を出す。**`filterForShard` の式をそのまま写す。**
+ *
+ * `floor(w * total / totalWeight)` を取り、余りを先頭から 1 本ずつ配る。
+ * 重みの合計と総本数が一致していなくても比率のまま伸縮するので、
+ * テストが増減しても検算が成立する
+ */
+function sizesFromWeights(weights, total) {
+  const totalWeight = weights.reduce((a, b) => a + b, 0)
+  const sizes = weights.map((w) => Math.floor((w * total) / totalWeight))
+  const remainder = total - sizes.reduce((a, b) => a + b, 0)
+  for (let i = 0; i < remainder; i++) sizes[i % sizes.length]++
   return sizes
+}
+
+function equalSizes(total, shards) {
+  return sizesFromWeights(Array.from({ length: shards }, () => 1), total)
 }
 
 // 現行の均等割りを再現して、観測したシャード番号と突き合わせる
@@ -150,7 +162,10 @@ if (order.length !== measured.size) {
   process.exit(2)
 }
 {
-  const sizes = WAS ?? equalSizes(order.length, observedShards)
+  const sizes =
+    WAS === null
+      ? equalSizes(order.length, observedShards)
+      : sizesFromWeights(WAS, order.length)
   if (sizes.length !== observedShards) {
     console.error(`--weights が ${sizes.length} 個、レポートは ${observedShards} 台`)
     process.exit(2)

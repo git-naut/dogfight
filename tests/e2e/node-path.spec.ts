@@ -1108,6 +1108,61 @@ test.describe('node 経路', () => {
     ).toBeLessThanOrEqual(result.renderMs * 1.1)
   })
 
+  test('本番の場面が node 経路で立つ', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
+
+    // **段 20a の到達点。**`?gpu=1|2` は自己診断で、固定入力のプローブ用の
+    // 場面を描く。`?gpu=3` は `createNodePipeline` を立てて**本番の場面**
+    // （mission-01 の台本・HUD の帳簿・views 11 種）を node 経路で描く。
+    const errors: string[] = []
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') errors.push(msg.text())
+    })
+    page.on('pageerror', (err) => errors.push(err.message))
+
+    await page.goto('/dogfight/?capture=1&frame=60&script=level&gpu=3')
+    await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 300_000 })
+    const hook = await page.evaluate(
+      () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
+    )
+    expect(errors, `コンソールに ${errors.length} 件`).toEqual([])
+    expect(hook!.backend).toBe('node-webgpu')
+
+    // **場面が毎フレーム描かれていること。**手で `render()` を回すと
+    // `nodeFrame.frameId` が進まず、`FRAME` 型の更新が 1 枚目だけになる。
+    // レンダーターゲットに前の中身が残るので**絵は出続ける。**実測で
+    // 1 枚目 167 呼び出し・458,486 三角形、2 枚目以降 2 呼び出し・3 三角形。
+    // ここが読むのは最後のフレームの数なので、進んでいないと落ちる
+    expect(
+      hook!.drawCalls,
+      `最後のフレームの描画呼び出しが ${hook!.drawCalls}。` +
+        'nodeFrame が進んでいない疑い',
+    ).toBeGreaterThan(100)
+    expect(hook!.drawnTriangles).toBeGreaterThan(400_000)
+
+    // 雲ノイズが焼けていること。GLSL 経路と同じ主張
+    expect(hook!.noiseStats.max).toBeGreaterThan(hook!.noiseStats.min)
+    expect(hook!.noiseStats.mean).toBeGreaterThan(0.1)
+    expect(hook!.noiseStats.mean).toBeLessThan(0.95)
+    // 8bit へ戻すと等高線状の横線が復活する。型そのものを見る
+    expect(hook!.cloudHdrTarget).toBe(true)
+
+    // **放射輝度に CPU 側の値が無い。**`AtmosphereLight` の `direct` と
+    // `indirect` は on/off で色ではないので、照度を焼いて読み戻している。
+    // 実測 1.7055 で、GLSL 経路の 1.751 と 2.6% 違い
+    expect(hook!.sunRadiance[0]).toBeGreaterThan(0)
+    // 白 (1,1,1) で固定されていないこと。`smoke.spec.ts` と同じ主張
+    expect(hook!.sunRadiance[0]).not.toBeCloseTo(hook!.sunRadiance[2]!, 3)
+    expect(hook!.skyRadiance[2]).toBeGreaterThan(0)
+
+    expect(hook!.atmosphereReady).toBe(true)
+    expect(hook!.environmentReady).toBe(true)
+    expect(hook!.aircraftShadowReady).toBe(true)
+    // `ShaderMaterial` は node 経路で黙って描かれない。円形スプライトを
+    // TSL 版に差し替えてあるので 0 でなければならない
+    expect(hook!.webglVersion, 'WebGPU なので生のコンテキストは無い').toBe(0)
+  })
+
   test('既定の経路は node を立てない', async ({ page }) => {
     await page.goto('/dogfight/?capture=1&frame=0')
     await page.waitForSelector('body[data-capture-ready="1"]')

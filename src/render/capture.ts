@@ -125,7 +125,10 @@ export interface CaptureConfig {
    */
   audioProbe: boolean
   /**
-   * 描画バックエンドの経路。`?gpu=0|1|2`。
+   * 描画バックエンドの経路。`?gpu=0|1|2|3`。
+   *
+   * 0 は既定（GLSL）、1 と 2 は node 経路の自己診断（`runNodeProbe`）、
+   * **3 は本番の場面を node 経路で描く**（段 20a-2-3 の `createNodePipeline`）。
    *
    * 0 が既定で、いままでどおり `WebGLRenderer` を直に立てる。1 と 2 は
    * `WebGPURenderer` を立てる第 2 経路で、1 は `forceWebGL: true` で
@@ -319,7 +322,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? params.get('sound') === '1'
       : params.get('capture') !== '1',
     audioProbe: params.get('audioprobe') === '1',
-    gpu: clampInt(params.get('gpu'), 0, 2, 0),
+    gpu: clampInt(params.get('gpu'), 0, 3, 0),
     noiseProbe: params.get('noiseprobe') === '1',
     shadowProbe: params.get('shadowprobe') === '1',
     marchProbe: params.get('marchprobe') === '1',

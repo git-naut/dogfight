@@ -356,6 +356,15 @@ export const BITE_MARKS = [
     why: 'どちらの枝の色でもない画素を数えないと、枝の書き分けが壊れていても片方の数が合っているだけで通る',
   },
   {
+    id: 'node-frame-no-advance',
+    kind: '文の削除',
+    file: 'src/render/pipeline/nodeBuild.ts',
+    find: '  holder._nodes.nodeFrame.frameId++',
+    replace: '  void holder',
+    expect: 'tests/render/nodeFrame.test.ts',
+    lesson: '手で `render()` を回すと `FRAME` 型のノード更新が 1 度しか走らない',
+  },
+  {
     id: 'solar-elevation-skip-frame',
     kind: '文の削除',
     file: 'src/render/atmosphereNodes.ts',

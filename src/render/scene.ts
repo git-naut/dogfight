@@ -268,7 +268,12 @@ export async function createScene(
   canvas: HTMLCanvasElement,
   options: SceneOptions,
 ): Promise<SceneHandle> {
-  const pipeline = await createWebGLPipeline(canvas, options)
+  // **帳簿はどちらが立っているかを知らない。**選ぶのはここ 1 か所だけで、
+  // `ScenePipeline` の口から先は同じ（段 20a-2-3）
+  const pipeline =
+    options.pipeline === 'node'
+      ? await (await import('./pipeline/nodeScene')).createNodePipeline(canvas, options)
+      : await createWebGLPipeline(canvas, options)
   const {
     camera,
     chase,

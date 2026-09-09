@@ -138,10 +138,18 @@ export interface AtmosphereSetupInput {
   skyBackground: boolean
 }
 
+/**
+ * `AtmosphereLight`。`DirectionalLight` に `distance` が乗る。
+ *
+ * **自分の位置を更新しない。**`directionECEF` を持つだけなので、影の箱を
+ * 向けるにはワールド座標の太陽の向きから位置を入れる
+ */
+export type AtmosphereSunLight = import('three').DirectionalLight & { distance: number }
+
 export interface AtmosphereSetup {
   context: InstanceType<AtmosphereWebgpu['AtmosphereContext']>
   /** `AtmosphereLight`。影の投げ手にも使う */
-  sunLight: import('three').DirectionalLight
+  sunLight: AtmosphereSunLight
   nodes: AtmosphereNodes
 }
 
@@ -198,7 +206,7 @@ export function setupAtmosphereNodes(
 
   return {
     context,
-    sunLight: sunLight as unknown as import('three').DirectionalLight,
+    sunLight: sunLight as unknown as AtmosphereSunLight,
     nodes: createAtmosphereNodes(atmos, context as unknown as AtmosphereContextLike),
   }
 }

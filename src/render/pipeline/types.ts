@@ -146,6 +146,13 @@ export interface SceneOptions {
   /** 空母を置く位置と艦首の向き。`carrierUrl` があるときだけ意味を持つ */
   carrier?: { x: number; z: number; heading: number }
   /** プリセットの上書き。実機でつまみを振るときに使う */
+  /**
+   * 描画経路。**既定は GLSL。**
+   *
+   * `node` を選ぶと `createNodePipeline` が立つ。段 20b で既定を切り替える
+   * までは `?gpu=3` からしか入らない
+   */
+  pipeline?: 'webgl' | 'node'
   qualityOverride?: QualityOverride
   /** 雲バッファの持ち方の比較用。決着したら消す */
   /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */

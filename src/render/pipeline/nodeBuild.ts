@@ -106,3 +106,30 @@ export async function buildNodePipeline(
     totalMs: performance.now() - started,
   }
 }
+
+/**
+ * ノードのフレーム番号を 1 つ進める。
+ *
+ * **手で `render()` を回すと `FRAME` 型の更新が 1 度しか走らない。**
+ * `NodeUpdateType.FRAME` の更新は `NodeFrame` が `frameId` で重複を潰す。
+ * その `frameId` を進めるのは `Animation.js` の `nodeFrame.update()` だけで、
+ * それは `setAnimationLoop` を使ったときにしか呼ばれない
+ * （`info.reset()` が同じ場所にあるのと同じ理由）。
+ *
+ * 進めないと、場面の `PassNode` も雲のパスも 1 枚目しか描かれない。
+ * **絵は出る。**レンダーターゲットに前の中身が残るので、2 枚目以降も同じ
+ * 絵が返る。実測で 1 枚目が 167 描画呼び出し・39 パス・458,486 三角形、
+ * 2 枚目以降が 2 呼び出し・2 パス・3 三角形だった（段 20a-2-3）。
+ *
+ * **`nodeFrame.update()` は呼ばない。**あれは `performance.now()` から
+ * `deltaTime` と `time` を進めるので、実時間が描画へ入る。この repo は
+ * それを禁じている（`CLAUDE.md` の決定論の規則）。番号だけ進める。
+ */
+interface NodeFrameHolder {
+  _nodes: { nodeFrame: { frameId: number } }
+}
+
+export function advanceNodeFrame(renderer: Renderer): void {
+  const holder = renderer as unknown as NodeFrameHolder
+  holder._nodes.nodeFrame.frameId++
+}

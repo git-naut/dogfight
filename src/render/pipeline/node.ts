@@ -1331,8 +1331,8 @@ export async function runNodeProbe(
     // あとで立てること、雲のクアッドを別に組むこと、LUT の中身を最後に
     // 作ること。どれも破っても例外が出ない。**写しを 2 つ作ると片方だけ
     // 直したときに気づけない**ので、本番の場面と同じ関数へ通す（段 20a-2-3）
-    const { buildNodePipeline } = await import('./nodeBuild')
-    const built = await buildNodePipeline({
+    const nodeBuild = await import('./nodeBuild')
+    const built = await nodeBuild.buildNodePipeline({
       renderer,
       scene,
       camera,
@@ -1426,6 +1426,11 @@ export async function runNodeProbe(
       drawCalls: number
     }> => {
       renderer.info.reset()
+      // **番号を進めないと場面のパスが 1 枚目しか走らない。**
+      // 手で `render()` を回すと `Animation.js` の `nodeFrame.update()` が
+      // 呼ばれず、`FRAME` 型の更新が重複と見なされて飛ぶ。絵は前の中身が
+      // 残るので出続ける（段 20a-2-3 で実測。2 枚目以降が 2 呼び出し）
+      nodeBuild.advanceNodeFrame(renderer)
       clouds!.renderShadow(renderer)
       renderer.setRenderTarget(pipelineTarget)
       pipeline.render()

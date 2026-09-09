@@ -324,7 +324,9 @@ async function main(): Promise<void> {
   // **node 経路の自己診断。**`?gpu=1` か `?gpu=2` のときだけ。第 2 経路を
   // 立てて glb を 1 枚描くところまでを確かめ、既定の経路には入らない。
   // 音の自己診断と同じく、絵とは別の目的で走らせるモード
-  if (capture.gpu > 0) {
+  // **`?gpu=3` は自己診断ではない。**本番の場面を node 経路で描くので、
+  // プローブは走らせずそのまま `createScene` へ進む（段 20a-2-3）
+  if (capture.gpu > 0 && capture.gpu < 3) {
     setBoot('node 経路を立てています')
     // 大気の設定はプリセットから取る。**`?preset=` で振れるので、LUT の
     // 費用を段ごとに測れる**
@@ -366,6 +368,7 @@ async function main(): Promise<void> {
   const view = await createScene(canvas!, {
     preset: initialSettings.preset,
     hour: initialSettings.hour,
+    ...(capture.gpu === 3 ? { pipeline: 'node' as const } : {}),
     texturesUrl: TEXTURES_URL,
     aircraftUrl: AIRCRAFT_URL,
     enemyUrl: ENEMY_URL,

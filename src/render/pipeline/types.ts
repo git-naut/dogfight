@@ -122,6 +122,21 @@ export interface MeasureConfig {
   terrainPatchCells?: number
 }
 
+/**
+ * 既定の描画経路。**段 20b で `webgl` から `node` へ切り替えた。**
+ *
+ * ここが Phase 8 で唯一、既定の絵を変える 1 行。戻すならこの定数を
+ * `webgl` に戻し、`playwright.config.ts` の projects の順を入れ替える。
+ * 旧基準画像 42 枚は project 名が違うのでファイルとして残っている
+ * （`*-chromium-swiftshader-linux.png`。Phase 9 の完了まで消さない）。
+ *
+ * 切り替えの前提は段 20a で満たした。画素に依存しない検査 181 件が両経路で
+ * 緑（`NODEPATH=1`）、差分の台帳に理由の付かない差分が 0（主因は大気の
+ * 経路で 96%、`docs/measuring.md`）。戻り先のタグは `phase-7-webgl` と
+ * `phase-8-before-flip`。
+ */
+export const DEFAULT_BACKEND: 'webgl' | 'node' = 'node'
+
 export interface SceneOptions {
   preset: PresetName
   hour?: number

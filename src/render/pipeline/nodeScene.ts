@@ -35,7 +35,6 @@ import { createGpuTimer, type GpuTimer } from '../gpuTimer'
 import {
   applyQualityOverride,
   getQuality,
-  PRESET_ORDER,
   type PresetName,
 } from '../quality'
 import {
@@ -62,6 +61,23 @@ import {
  */
 const RADIANCE_SIDE = 2
 
+/**
+ * WebGPU が無いので node 経路の場面を立てられない。
+ *
+ * **node 経路の WebGL2 フォールバックでは大気の構造体が GLSL の
+ * コンパイルで落ちる**（`'AtmosphereParameters' : syntax error`。ADR 0010 の
+ * 段 10）。計画は `forceWebGL: true` を退避路に当てていたが効かない。
+ *
+ * 既定が node になった段 20b 以降、**WebGPU の無いブラウザではこれが投げ
+ * られる。**`createScene` が受けて GLSL 経路へ落とす
+ */
+export class WebGPUUnavailable extends Error {
+  override readonly name = 'WebGPUUnavailable'
+  constructor() {
+    super('WebGPU が無いので node 経路の場面を立てられない（ADR 0010 の段 10）')
+  }
+}
+
 export async function createNodePipeline(
   canvas: HTMLCanvasElement,
   options: SceneOptions,
@@ -81,10 +97,10 @@ export async function createNodePipeline(
   await renderer.init()
 
   if (!('isWebGPUBackend' in renderer.backend)) {
-    throw new Error(
-      'node 経路の場面には WebGPU が要る。WebGL2 フォールバックでは大気の' +
-        '構造体が GLSL のコンパイルで落ちる（ADR 0010 の段 10）',
-    )
+    // **呼ぶ側が退避できるように、専用の型で投げる。**メッセージの文字列で
+    // 判定させると、文言を直した瞬間に退避路が黙って死ぬ（段 20b）
+    renderer.dispose()
+    throw new WebGPUUnavailable()
   }
 
   const backend = createNodeBackend(renderer)
@@ -560,20 +576,33 @@ export async function createNodePipeline(
     },
 
     async compileAllPresets(current, onProgress) {
-      let done = 0
-      for (const name of PRESET_ORDER) {
-        onProgress?.(done, PRESET_ORDER.length)
-        applyPreset(name)
-        await renderer.compileAsync(scene, camera)
-        // **実際に 1 枚描く。**`compileAsync` は場面の物しか組まないので、
-        // 鎖と雲のクアッドは描かないと組まれない（段 19 の実測）
-        renderPlainImpl()
-        done++
-      }
-      onProgress?.(done, PRESET_ORDER.length)
+      // **段ごとに組まない。起動時間と降格の滑らかさを交換している。**
+      //
+      // 実測（段 20b、SwiftShader の WebGPU、`?script=mission-01`）。
+      //
+      // | | 起動 programs | compileMs | 降格で増える数 |
+      // |---|---|---|---|
+      // | 4 段ぶん | 67 | **37,649 ms** | 8 |
+      // | 1 段ぶん（これ） | 61 | 3,456〜4,721 ms | **12** |
+      //
+      // 4 段ぶん回すと降格時の作成が 12 から 8 へ減る。**そのために起動で
+      // 34 秒払う。**降格は環境しだいで起きたり起きなかったりするのに対し、
+      // 起動は毎回必ず payer がいるので 1 段を採った。34 秒は SwiftShader の
+      // 値で、実機の GPU では測っていない。
+      //
+      // 旧経路（GLSL）は `#define` が変わるとシェーダの変種が増えるので、
+      // 4 段ぶん組む意味がある（`?precompile=0` で 25、既定で 119）。
+      // `compileAllPresets` の口そのものは旧経路のために要る。
+      //
+      // **プリセットを変えても作り直しが大量に起きないこと**は
+      // `品質が落ちても作り直しがほぼ起きない` が両経路で見ている
+      onProgress?.(0, 1)
       applyPreset(current)
       await renderer.compileAsync(scene, camera)
+      // **実際に 1 枚描く。**`compileAsync` は場面の物しか組まないので、
+      // 鎖と雲のクアッドは描かないと組まれない（段 19 の実測）
       renderPlainImpl()
+      onProgress?.(1, 1)
     },
 
     setMeasureConfig(config) {

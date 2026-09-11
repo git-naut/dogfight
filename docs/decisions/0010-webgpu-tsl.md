@@ -121,8 +121,8 @@ three を 0.184.0、`@types/three` を 0.184.1 へ落とした。**既定の絵�
 ## 地形の断片シェーダとライティングは段 17 へ回す
 
 計画は段 14（計画の段 12）に 5 つを詰めていた。高さ場、モーフの基準カメラ
-位置の uniform 化、インスタンス属性、`terrain.frag` と `water.frag` の移植、
-そして自前ライティングを `getSplitIlluminance` へ置き換えること。
+位置の uniform 化、インスタンス属性。それに `terrain.frag` と `water.frag` の
+移植と、自前ライティングを `getSplitIlluminance` へ置き換えること。
 
 **前の 2 つで段を閉じ、あとの 3 つを段 17（場面の組み立て）へ移した。**
 
@@ -148,3 +148,50 @@ three を 0.184.0、`@types/three` を 0.184.1 へ落とした。**既定の絵�
 価値がある。Phase 9 でカスケード影を入れると地形が影の投げ手になり、
 組み込みの `cameraPosition` のままだと基準が描くパスごとに変わって裂け目が
 出る。`tests/render/terrain.test.ts` が頂点シェーダの本文を見て縛る。
+
+## 既定を node 経路へ切り替えた（2026-09-11、段 20b）
+
+`DEFAULT_BACKEND`（`src/render/pipeline/types.ts`）を `'webgl'` から `'node'`
+へ変えた。**この 1 行が段 20b の本体。**基準画像 42 枚を撮り直した。
+
+Phase 8 の段 5 から 20a までは「既定の絵を 1 画素も動かさない」形で積んで
+きた。段 20b がその唯一の例外になる。
+
+### 撮り直す前に置いた関門
+
+| 関門 | 結果 |
+|---|---|
+| 画素に依存しない検査が両経路で緑 | 181 件（段 20a-3） |
+| 理由の付かない差分が 1 枚も無い | 主因は大気の経路で 96%（段 20a-4） |
+| 戻り先のタグ | `phase-7-webgl`（`d8a4b96`）と `phase-8-before-flip`（`765b852`） |
+
+### 撮り直したあとに確かめたこと
+
+2 回撮って `tools/exact.mjs` で許容差なしに数え、42 枚 × 921,600 画素が
+**1 つも動かない**ことを見た。`toHaveScreenshot` の許容差 0.05 では 12.75
+階調まで同一とみなすので、これを別に走らせないと「撮り直した絵が毎回同じ」
+とは言えない。
+
+旧 42 枚（`*-chromium-swiftshader-linux.png`）はファイルとして残っている。
+`WEBGL=1` で回すと 42 枚とも一致する。**戻り道は絵の側にも残っている。**
+
+### 戻し方
+
+2 か所。`DEFAULT_BACKEND` を `'webgl'` へ、`playwright.config.ts` の
+`chromium-swiftshader` を `WEBGL=1` の枠から出して先頭へ移す。旧 42 枚は
+project 名が違うのでファイルとして残っており、何も失わない。
+
+### WebGPU が無い機械では GLSL 経路へ落ちる
+
+`createNodePipeline` は WebGPU バックエンドでなければ `WebGPUUnavailable` を
+投げる。`createScene` が受けて `createWebGLPipeline` へ落とす。
+
+**判定はキャンバスを掴む前に置く。**`navigator.gpu.requestAdapter()` を先に
+呼び、null なら node 経路へ入らない。掴んでから落ちると戻れない。1 つの
+キャンバスは 1 つのコンテキストしか持てない。同じキャンバスへ
+`WebGLRenderer` を作り直すと
+`Cannot read properties of null (reading 'precision')` で落ちる。
+
+退避路が生きていることは `chromium-node-gl` の project が数で見る。WebGPU の
+起動引数を渡さない project をわざわざ作ってあるのは、**渡すと「WebGPU が
+無い」状況を作れず、退避路の検査が空振りするため。**

@@ -47,5 +47,29 @@ export function snapshotSuffix(project) {
   return `-${project}-linux.png`
 }
 
-/** 既定の project 名。`playwright.config.ts` の projects[0].name と揃える */
-export const DEFAULT_PROJECT = 'chromium-swiftshader'
+/**
+ * 既定の project 名。`playwright.config.ts` の projects[0].name と揃える。
+ *
+ * **段 20b で `chromium-swiftshader` から `chromium-webgpu` へ移した。**
+ * 既定の経路が node になったので、基準画像もそちらの project が持つ。
+ * 旧 42 枚は `*-chromium-swiftshader-linux.png` として残る
+ */
+export const DEFAULT_PROJECT = 'chromium-webgpu'
+
+/**
+ * project ごとの起動引数。
+ *
+ * **project 名と起動引数の対応はここ 1 か所で決める。**
+ *
+ * | project | 引数 | 何を見るか |
+ * |---|---|---|
+ * | `chromium-webgpu` | WebGPU | 既定。node 経路の絵（基準画像 42 枚） |
+ * | `chromium-node-gl` | SwiftShader | **WebGPU が無いときの退避路** |
+ * | `chromium-swiftshader` | SwiftShader | 旧経路（`?path=webgl`。`WEBGL=1`） |
+ *
+ * `chromium-node-gl` に WebGPU の引数を渡さないのが要点。渡すと
+ * 「WebGPU が無い」状況を作れず、退避路の検査が空振りする
+ */
+export function argsForProject(project) {
+  return project === 'chromium-webgpu' ? WEBGPU_ARGS : SWIFTSHADER_ARGS
+}

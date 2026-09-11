@@ -278,14 +278,18 @@ export function readHook(page: Page): Promise<TestHook | undefined> {
 // 使ったときに画素比較の道具が嘘の結論を出す（雲量の既定で実際にずれていた）。
 
 /**
- * node 経路の project で回っているか。
+ * この project が node 経路で回っているか。
  *
- * **`?gpu=3` を足すのはここ 1 か所だけ。**各テストが URL を組み立てる形に
- * すると、足し忘れた検査が GLSL 経路のまま通って「両経路で緑」の意味が
- * 消える（段 20a-3）
+ * **段 20b で既定が node になった。**`chromium-swiftshader` だけが旧経路
+ * （GLSL）で、それ以外は node。段 20a-3 では `chromium-node` だけが node
+ * だったので、判定の向きが逆になっている。
+ *
+ * **経路を指す `?path=` を足すのはここ 1 か所だけ。**各テストが URL を
+ * 組み立てる形にすると、足し忘れた検査が既定の経路のまま通って
+ * 「両経路で緑」の意味が消える（段 20a-3 で決めた作法）
  */
 export function onNodePath(): boolean {
-  return test.info().project.name === 'chromium-node'
+  return test.info().project.name !== 'chromium-swiftshader'
 }
 
 /**
@@ -331,7 +335,8 @@ export async function advanceFrames(page: Page, frames: number): Promise<void> {
 
 export async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
   const params = captureParams(query)
-  if (onNodePath()) params.set('gpu', '3')
+  // 既定は node。旧経路の project だけ名指しする
+  if (!onNodePath()) params.set('path', 'webgl')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')
@@ -357,7 +362,7 @@ export async function openLive(page: Page, query = ''): Promise<void> {
   // 全体も 11.8 分から 17.2 分へ延びた）。事前コンパイル自体は専用の
   // describe が見ている
   const sep = query === '' ? '?' : '&'
-  const path = onNodePath() ? '&gpu=3' : ''
+  const path = onNodePath() ? '' : '&path=webgl'
   await page.goto(`/dogfight/${query}${sep}title=0&precompile=0${path}`)
   await page.waitForFunction(
     () => {

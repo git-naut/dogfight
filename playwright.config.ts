@@ -1,8 +1,6 @@
-import os from 'node:os'
 import { defineConfig, devices } from '@playwright/test'
 import {
-  SWIFTSHADER_ARGS,
-  WEBGPU_ARGS,
+  argsForProject,
   VIEWPORT,
   DEFAULT_PROJECT,
 } from './tests/e2e/launch.mjs'
@@ -65,8 +63,27 @@ export default defineConfig({
    *
    * 8 コアで 8 本にすると 4 本より 24% 遅い。半分が実測の最適に近い。
    * GitHub の ubuntu-latest は 4 コアなので 2 本になる。
+   *
+   * **その表は GLSL 経路で測った値。node 経路には当たらない。**段 20b で
+   * 既定が node になったあと、8 枚を撮る時間を本数で振って測り直した。
+   *
+   * | 本数 | 所要 |
+   * |---|---|
+   * | 1 | 119.4 秒 / 150.4 秒（同じ設定を 2 回） |
+   * | 2 | 139.8 秒 |
+   * | 4 | 137.8 秒 |
+   *
+   * 同じ設定の 2 回が 26% ばらつき、本数の差はその中に埋もれる。**node
+   * 経路の 1 ページが既に機械を使い切っている**（SwiftShader の Vulkan が
+   * 自分で複数のスレッドを使う）。増やしても速くならないのに、1 件あたりの
+   * 壁時計だけが伸びる。
+   *
+   * 4 本で通しを回すと 20 件が落ちた。内訳は「要素が安定するまで待つ」段の
+   * 60 秒超過、テストの 420 秒超過、ブラウザの落ちで、**どれも競合の症状。**
+   * 上限を上げるのではなく本数を下げる。CI は 4 コアで 2 本なので、
+   * ローカルもそこへ揃える
    */
-  workers: Math.max(1, Math.floor(os.cpus().length / 2)),
+  workers: 2,
   // CI では github アノテーションに加えて HTML レポートも出す。
   // これがないと e2e.yml の upload-artifact が空振りする。
   reporter: process.env.CI
@@ -74,6 +91,20 @@ export default defineConfig({
     : [['list']],
 
   expect: {
+    /**
+     * 1 つの `expect` を待ち切る上限。**`toHaveScreenshot` もここを見る。**
+     *
+     * 既定の 5 秒では node 経路で足りない。`toHaveScreenshot` は撮る前に
+     * 「要素が安定するまで待つ」段を持ち、rAF を 2 回またいで枠が動かない
+     * ことを見る。node 経路は 1 フレーム 800 ms 前後（GLSL 経路の 1.96 倍）
+     * で、4 ワーカーの競合下ではさらに伸びるので、待つだけで 5 秒を使い切る。
+     * 実測で 1 ワーカーなら 8 枚通り、4 ワーカーでは `Timeout 5000ms
+     * exceeded` で落ちた（段 20b）。
+     *
+     * **これは固まりの検出ではない。**固まりを見るのは e2e.yml の段の上限
+     * （18 分）で、`timeout: 180_000` の注記と同じ考え方
+     */
+    timeout: 60_000,
     toHaveScreenshot: {
       /**
        * 1 画素あたりの許容差。既定の 0.2 では緩すぎる。
@@ -130,49 +161,53 @@ export default defineConfig({
   },
 
   projects: [
+    // **段 20b で既定を node 経路へ切り替えた。**基準画像 42 枚はこちらの
+    // project が持つ（`*-chromium-webgpu-linux.png`）。旧 42 枚は
+    // `*-chromium-swiftshader-linux.png` として残っている（Phase 9 の完了まで
+    // 消さない）。段 17 までの `chromium-webgpu` は node-path.spec.ts だけを
+    // 回していたが、既定になったので全 spec を回す（計画の「この分け方を畳む」）
     {
       name: DEFAULT_PROJECT,
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: { args: [...SWIFTSHADER_ARGS] },
+        launchOptions: { args: [...argsForProject(DEFAULT_PROJECT)] },
       },
     },
-    // **画素に依存しない検査を node 経路でも回す（段 20a-3）。**
+    // **WebGPU の無い機械での振る舞いを見る。**段 20b で既定が node に
+    // なったが、node 経路は WebGPU を要求する（WebGL2 フォールバックでは
+    // 大気の構造体が GLSL のコンパイルで落ちる。ADR 0010 の段 10）。
+    // `createScene` が `WebGPUUnavailable` を受けて GLSL 経路へ落とすので、
+    // **落ちる道が生きていることをここで数で見る。**
     //
-    // 計画は段 20b の前提に「画素に依存しないテストが両経路で緑」を置く。
-    // 緑なら「絵の内容は同じで画素の量子化だけが違う」と言える。赤いなら
-    // バックエンドの差か移植の欠陥か、値の置き場所の違いのどれか。
-    //
-    // **既定では回さない。**`smoke.spec.ts` の 225 件を node 経路で足すと
-    // E2E の所要がおよそ倍になる（node 経路の定常は GLSL 経路の 1.96 倍）。
-    // 門として通すためのものなので `NODEPATH=1` で明示的に回す。段 20b で
-    // 既定が node になれば、この project は畳んで `chromium-swiftshader` の
-    // 側が node 経路になる。`MUTATE=1` と同じ作法
-    ...(process.env.NODEPATH === '1'
+    // project を並べ替えたときに、この 24 件が既定から静かに消えていた
+    // （275 → 251 件）。`?gpu=2 の結果は起動引数で決まる` の「引数が
+    // 無ければ WebGL2 へ落ちる」側がその中にあった。**継ぎ目を作る作業が
+    // そのまま見張りを外す**形（`docs/lessons.md` の段 7 の記録と同じ）
+    {
+      name: 'chromium-node-gl',
+      testMatch: /node-path\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { args: [...argsForProject('chromium-node-gl')] },
+      },
+    },
+    // 旧経路。**`WEBGL=1` のときだけ回す。**既定に足すと全件を 2 周させる
+    // ことになる（node 経路は所要が 1.96 倍）。基準画像は既存の 42 枚が
+    // そのまま有効なので、比べたいときに回せばよい。
+    // 段 20b で既定を戻すなら、この project を上へ移して `DEFAULT_BACKEND` を
+    // `webgl` へ戻す
+    ...(process.env.WEBGL === '1'
       ? [
           {
-            name: 'chromium-node',
+            name: 'chromium-swiftshader',
             testMatch: /smoke\.spec\.ts/,
             use: {
               ...devices['Desktop Chrome'],
-              launchOptions: { args: [...WEBGPU_ARGS] },
+              launchOptions: { args: [...argsForProject('chromium-swiftshader')] },
             },
           },
         ]
       : []),
-    {
-      // node 経路だけを WebGPU の起動引数で回す。
-      //
-      // **全件を 2 周させない。**基準画像 42 枚は `chromium-swiftshader` の
-      // ものなので、こちらで撮ると別物になる。`testMatch` で 1 本に絞る。
-      // 段 18 で撮り直すときにこの分け方を畳む
-      name: 'chromium-webgpu',
-      testMatch: /node-path\.spec\.ts/,
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions: { args: [...WEBGPU_ARGS] },
-      },
-    },
   ],
 
   webServer: {

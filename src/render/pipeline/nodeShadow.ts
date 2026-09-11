@@ -6,7 +6,7 @@ import {
   type OrthographicCamera,
   type ShadowMapType,
 } from 'three'
-import { float, shadow } from 'three/tsl'
+import { float, mix, shadow, uniform } from 'three/tsl'
 import type { Node, Renderer } from 'three/webgpu'
 import type { AtmosphereSunLight } from '../atmosphereNodes'
 import type { QualitySettings } from '../quality'
@@ -61,6 +61,32 @@ export interface NodeAircraftShadow {
    * `buildNodePipeline` へ投げ手を渡さない（渡すと `castShadow` が立つ）
    */
   enabled: boolean
+  /**
+   * 実行時に影を効かせるか。1 で効き、0 で遮らない。
+   *
+   * **組み立てのあとに影を切る道はこれしかない。**`shadow(light)` は
+   * ノードへ焼き込まれているので、`castShadow` を下ろすと本体が null の
+   * まま `updateBefore` だけが走る。旧経路も同じ形で、深度テクスチャを
+   * 束縛したまま `aircraftShadowEnabled` を 0 にしている
+   * （`pipeline/webgl.ts` の `updateShadowUniforms`）
+   */
+  setEnabled(on: boolean): void
+  /**
+   * 実行時に影マップを張り替える。
+   *
+   * **0 を `mapSize` へ渡さない。**`low` の `aircraftShadowMapSize` は 0 で、
+   * 0×0 のテクスチャは作られない。`createBindGroup` が
+   * `undefined.mipLevelCount` を読んで落ち、**描画ループごと止まる**
+   * （段 20c で実測。降格を止めると 2,216 フレーム回るのに、
+   * 降格を許すと約 450 フレームで死ぬ）。
+   *
+   * 0 のときは大きさを据え置いて `setEnabled(false)` で遮らなくする。
+   * 旧経路の `aircraftShadow.ts` の `setQuality` が手本で、あちらは
+   * `Math.max(1, size)` で下限を切り、`shadow.map` を捨てて作り直させる。
+   * **移植でその両方が落ちていた。**大きさを変えても作り直さないので、
+   * 落ちない側の降格でも解像度が効いていなかった
+   */
+  setQuality(quality: QualitySettings): void
 }
 
 export function configureNodeAircraftShadow(
@@ -70,7 +96,13 @@ export function configureNodeAircraftShadow(
 
   if (quality.aircraftShadowMapSize === 0) {
     light.castShadow = false
-    return { shade: float(1) as unknown as Node<'float'>, enabled: false }
+    return {
+      shade: float(1) as unknown as Node<'float'>,
+      enabled: false,
+      // 立てていないので実行時に触るものが無い。**黙って無視する形にしない**
+      setEnabled() {},
+      setQuality() {},
+    }
   }
 
   // **組み立てのあいだは伏せる。**理由は本文の注記
@@ -81,7 +113,7 @@ export function configureNodeAircraftShadow(
     .add(input.center)
   light.target.position.copy(input.center)
 
-  const size = quality.aircraftShadowMapSize
+  let size = quality.aircraftShadowMapSize
   light.shadow.mapSize.set(size, size)
 
   const box = light.shadow.camera as OrthographicCamera
@@ -97,7 +129,34 @@ export function configureNodeAircraftShadow(
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = shadowMapType(quality)
 
-  return { shade: shadow(light as never) as unknown as Node<'float'>, enabled: true }
+  // 実行時の切り替えは uniform で行う。ノードを組み直さない
+  const enabledFactor = uniform(1)
+  const shadowNode = shadow(light as never)
+  const shade = mix(
+    float(1),
+    shadowNode as never,
+    enabledFactor as never,
+  ) as unknown as Node<'float'>
+
+  return {
+    shade,
+    enabled: true,
+    setEnabled(on) {
+      enabledFactor.value = on ? 1 : 0
+    },
+    setQuality(next) {
+      renderer.shadowMap.type = shadowMapType(next)
+      // **0 は据え置く。**0×0 の影マップは作られず、束縛が undefined になる
+      const wanted = next.aircraftShadowMapSize
+      this.setEnabled(wanted > 0)
+      if (wanted === 0 || wanted === size) return
+      size = wanted
+      light.shadow.mapSize.set(size, size)
+      // 大きさを変えたらテクスチャを作り直させる。旧経路と同じ一手
+      light.shadow.map?.dispose()
+      light.shadow.map = null
+    },
+  }
 }
 
 /**

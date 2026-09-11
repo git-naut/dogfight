@@ -74,14 +74,6 @@ export interface CaptureConfig {
    * 既定の経路には効かない
    */
   illuminance: boolean
-  /**
-   * 描画経路を名指しする。`?path=webgl` か `?path=node`。
-   *
-   * **既定は `DEFAULT_BACKEND`**（段 20b で node）。旧経路と比べるために
-   * `webgl` を選べる口を残す。`?gpu=1|2` の自己診断とは別で、こちらは
-   * 本番の場面をどちらで描くかを決める
-   */
-  path: 'webgl' | 'node' | null
   /** 機体の影を使うか。`?shadow=0` で切る。切り分けと計測に使う */
   showAircraftShadow: boolean
   /**
@@ -331,12 +323,6 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showEnvironment: params.get('env') !== '0',
     smaa: params.get('smaa') !== '0',
     illuminance: params.get('illum') !== '0',
-    path:
-      params.get('path') === 'webgl'
-        ? 'webgl'
-        : params.get('path') === 'node'
-          ? 'node'
-          : null,
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',
     showEnemies: params.get('enemies') !== '0',

@@ -80,6 +80,14 @@ export interface CloudsNodePassOptions {
   sceneDepth: Texture
   /** キャプチャモードか。足し込みの重み付けが変わる */
   captureMode: boolean
+  /**
+   * 時間方向の足し込みを使うか。`?ta=0` で切る。
+   *
+   * **段 20b まで node 側はこの口を持っていなかった。**`cloudTemporal` を
+   * 読んでいたのは `pipeline/webgl.ts` だけで、既定が node になった時点で
+   * `?ta=0` が黙って効かなくなっていた
+   */
+  temporal: boolean
   /** 近傍で挟む幅の倍率。0 なら挟まない。**生成時に畳まれる** */
   clampScale: number
   /**
@@ -427,11 +435,12 @@ export function createCloudsNodePass(
     draw(renderer, marchQuad!, marchTarget)
 
     // キャプチャは 1/(n+1) で真の平均を取る。通常のループは指数平均
-    blendWeight.value = historyValid
-      ? options.captureMode
-        ? 1 / (resolveCount + 1)
-        : BLEND_WEIGHT
-      : 1
+    blendWeight.value =
+      historyValid && options.temporal
+        ? options.captureMode
+          ? 1 / (resolveCount + 1)
+          : BLEND_WEIGHT
+        : 1
     draw(renderer, resolveQuad, output)
     resolveCount++
 

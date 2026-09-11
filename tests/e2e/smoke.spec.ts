@@ -1315,10 +1315,12 @@ test.describe('スクリーンショット回帰', () => {
 
   for (const scene of scenes) {
     test(`${scene.name} の絵が基準と一致する`, async ({ page }) => {
-      // **段 20b で撮り直した。**project ごとに自分の基準画像と比べる
-      // （`snapshotPathTemplate` が `{-projectName}` を挟む）。node 経路は
-      // `*-chromium-webgpu-linux.png`、旧経路は `*-chromium-swiftshader-
-      // linux.png`。飛ばす理由は無くなった
+      // **node 経路では画素を比べない。**基準画像 42 枚は
+      // `chromium-swiftshader` のもので、node 経路は光の式が違う
+      // （大気の LUT・環境反射・PCF・`getSplitIlluminance`）。撮り直すのは
+      // 段 20b で、差分の理由を台帳にしてから。ここで撮ると別物の 42 枚が
+      // 黙って増える（段 20a-3）
+      test.skip(onNodePath(), '画素の撮り直しは段 20b')
       await capture(page, scene)
       await expect(page.locator('#viewport')).toHaveScreenshot(`${scene.name}.png`)
     })
@@ -1690,18 +1692,10 @@ test.describe('効果音', () => {
     )
     await page.locator('.title-start').click()
     // 撃つ・被弾する・爆発する を一通り通す
-    // **フレームで待つ。**`waitForTimeout(2000)` は GLSL 経路の速度を
-    // 前提にした値で、node 経路（1 フレーム 800 ms 前後）では撃つ機会が
-    // 足りない。実測で `roundsFired` が 0 のまま落ちた（段 20b）
     await page.keyboard.down('Space')
-    await page.waitForFunction(
-      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.roundsFired ?? 0) > 0,
-      undefined,
-      { timeout: waitBudgetMs(120_000) },
-    )
+    await page.waitForTimeout(2000)
     await page.keyboard.up('Space')
-    // 被弾と爆発まで通す。枚数で待つ（実時間ではない）
-    await advanceFrames(page, 120)
+    await page.waitForTimeout(1000)
 
     const hook = await readHook(page)
     expect(hook!.roundsFired, '撃てていない').toBeGreaterThan(0)
@@ -1720,12 +1714,9 @@ test.describe('効果音', () => {
  * high から medium へ落とした瞬間に 13 個がまとめて作られ、そのフレームが
  * 772.9 ms 止まった。**軽くするための降格が、その瞬間に最大のスパイクを
  * 作っていた。**起動時に 4 段ぶん作っておくと 344.9 ms まで下がる。
- *
- * **この測定は旧経路のもの。**node 経路では 4 段ぶん組む代償が 34 秒あり、
- * 段 20b で 1 段だけ組む形にした（`pipeline/nodeScene.ts` の表）。
  */
 test.describe('シェーダの事前コンパイル', () => {
-  test('起動の時点で事前コンパイルが走っている', async ({ page }) => {
+  test('起動を終えた時点で 4 段ぶん作ってある', async ({ page }) => {
     await page.goto('/dogfight/?script=mission-01&title=0')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
@@ -1733,32 +1724,9 @@ test.describe('シェーダの事前コンパイル', () => {
       { timeout: waitBudgetMs(300_000) },
     )
     const hook = await readHook(page)
+    // 実測で 119 個。1 段ぶんだけなら 43 個だった
+    expect(hook!.programs, '事前コンパイルが効いていない').toBeGreaterThan(90)
     expect(hook!.compileMs, 'コンパイルの時間が記録されていない').toBeGreaterThan(0)
-
-    // **programs の数で見られるのは旧経路だけ。**プリセットごとに `#define`
-    // が変わるのでシェーダの変種が増える（`?precompile=0` で 25、既定で 119）。
-    //
-    // node 経路では数が事前コンパイルを見ない。段 20b で 4 条件を測った。
-    //
-    // | 経路 | 事前コンパイルあり | `?precompile=0` |
-    // |---|---|---|
-    // | 旧経路 | 119 | 25 |
-    // | node | 61 | **67** |
-    //
-    // **切ったほうが多い。**最初の 1 枚を描く時点までに組まれる数は、
-    // 事前コンパイルが先に組んだか描画が組んだかで変わらず、読む時刻の
-    // ほうで動く。ここに `> 60` を置いていたが、切っても通る判定だった
-    // （段 20b で実測）。
-    //
-    // node 経路で事前コンパイルが効いているかは所要で見る。暖機の 1 枚と
-    // そのあとの 1 枚の差を `node-path.spec.ts` の
-    // `RenderPipeline でポストの鎖が立つ` が持つ
-    if (!onNodePath()) {
-      expect(
-        hook!.programs,
-        `事前コンパイルが効いていない（programs ${hook!.programs}）`,
-      ).toBeGreaterThan(90)
-    }
   })
 
   /**
@@ -1789,23 +1757,10 @@ test.describe('シェーダの事前コンパイル', () => {
       test.skip(true, '降格が起きなかった（速い環境）')
       return
     }
-    // 壁時計ではなく枚数で待つ。降格の反映はフレームをまたぐ
-    await advanceFrames(page, 60)
+    await page.waitForTimeout(1500)
     const after = (await readHook(page))!.programs
-    // 事前コンパイルが無いと 13 個増えていた。残るのは環境マップ関連の数個。
-    //
-    // **node 経路は段ごとに組まないので少し増える。**段 20b で
-    // `compileAllPresets` を 1 回だけにした。同じ条件で両方を測ると、
-    // 4 段ぶん組めば降格で増えるのは 8 個、1 段なら 12 個。**その 4 個の
-    // ために起動で 34 秒払うことになるので 1 段を採った**（実測 37,649 ms
-    // 対 3,456 ms。`pipeline/nodeScene.ts` に表がある）。
-    //
-    // 通しの実行では 10 個だった。**競合の下では読む時刻がずれる**ので、
-    // 10〜12 を見込んで 16 で縛る
-    expect(
-      after - before,
-      `降格でプログラムが大量に作られている（${after - before} 個）`,
-    ).toBeLessThan(onNodePath() ? 16 : 8)
+    // 事前コンパイルが無いと 13 個増えていた。残るのは環境マップ関連の数個
+    expect(after - before, '降格でプログラムが大量に作られている').toBeLessThan(8)
   })
 
   /** キャプチャモードは早期 return より前なので通らない */

@@ -15,13 +15,7 @@ import { cloudTime } from './clouds/geometry'
 import type { ShadowInputs } from './clouds/shadowInputs'
 import { FIXED_DT } from '../sim/loop'
 import { createWebGLPipeline } from './pipeline/webgl'
-import {
-  DEFAULT_BACKEND,
-  DEFAULT_COVERAGE,
-  type MeasureConfig,
-  type ScenePipeline,
-  type SceneOptions,
-} from './pipeline/types'
+import { DEFAULT_COVERAGE, type MeasureConfig, type SceneOptions } from './pipeline/types'
 
 /** 描画へ渡すミサイルの姿勢。補間済みの値を main が詰める */
 export interface MissilePose {
@@ -270,66 +264,16 @@ export interface SceneHandle {
  * 大気の LUT 読み込みが非同期なので Promise を返す。呼び出し側は await して
  * から描画ループを回すこと。待たずに描くとテクスチャのない絵になる。
  */
-/**
- * 経路を選んで組む。**WebGPU が無ければ GLSL 経路へ落ちる。**
- *
- * 段 20b で既定が node になった。node 経路は WebGPU を要求し、無ければ
- * `WebGPUUnavailable` を投げる（WebGL2 フォールバックでは大気の構造体が
- * GLSL のコンパイルで落ちるため。ADR 0010 の段 10）。**落ちる道が無いと、
- * WebGPU の無いブラウザでゲームが起動しない。**旧経路は動く状態で残って
- * いるので、そこへ落とす。
- *
- * **canvas を掴む前に判定する。**`WebGPURenderer` を作ってから落ちても
- * 戻れない。canvas は 1 つの文脈しか持てないので、そのあと
- * `WebGLRenderer` を作ると `getContext` が null を返し、
- * `Cannot read properties of null (reading 'precision')` で止まる（実測）。
- *
- * 落ちたことは `hook.backend` が `webgl` を返すので外から数で見える。
- */
-async function createPipeline(
-  canvas: HTMLCanvasElement,
-  options: SceneOptions,
-): Promise<ScenePipeline> {
-  if ((options.pipeline ?? DEFAULT_BACKEND) !== 'node') {
-    return await createWebGLPipeline(canvas, options)
-  }
-  // **canvas を掴む前に判定する。**掴んでから落ちても戻れない
-  if (!(await webgpuAvailable())) {
-    console.warn('[dogfight] WebGPU が無いので GLSL 経路へ落ちる')
-    return await createWebGLPipeline(canvas, options)
-  }
-  return await (await import('./pipeline/nodeScene')).createNodePipeline(canvas, options)
-}
-
-/**
- * WebGPU が使えるか。**canvas に触らずに調べる。**
- *
- * `navigator.gpu` の有無と `requestAdapter()` が null でないことを見る。
- * **adapter が取れることは描けることの証明にはならない**（段 0 の記録）が、
- * 取れないことは使えないことの証明になる。ここで要るのは後者だけ。
- *
- * **`about:blank` では `navigator.gpu` そのものが undefined になる。**
- * 保安コンテキストではないため（`launch.mjs` の記録）。ここは実ページから
- * 呼ばれるので当たらない。
- */
-async function webgpuAvailable(): Promise<boolean> {
-  const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu
-  if (gpu === undefined) return false
-  try {
-    return (await gpu.requestAdapter()) !== null
-  } catch {
-    return false
-  }
-}
-
 export async function createScene(
   canvas: HTMLCanvasElement,
   options: SceneOptions,
 ): Promise<SceneHandle> {
   // **帳簿はどちらが立っているかを知らない。**選ぶのはここ 1 か所だけで、
-  // `ScenePipeline` の口から先は同じ（段 20a-2-3）。
-  // 既定は `DEFAULT_BACKEND`（段 20b で node へ切り替えた）
-  const pipeline = await createPipeline(canvas, options)
+  // `ScenePipeline` の口から先は同じ（段 20a-2-3）
+  const pipeline =
+    options.pipeline === 'node'
+      ? await (await import('./pipeline/nodeScene')).createNodePipeline(canvas, options)
+      : await createWebGLPipeline(canvas, options)
   const {
     camera,
     chase,

@@ -441,4 +441,22 @@ export const BITE_MARKS = [
     expect: 'tests/render/spriteProbe.test.ts',
     lesson: '通っていない枝は検査されない',
   },
+  {
+    id: 'node-shadow-zero-mapsize',
+    kind: '条件の固定',
+    file: 'src/render/pipeline/nodeShadow.ts',
+    find: '      if (wanted === 0 || wanted === size) return',
+    replace: '      if (wanted === size) return',
+    expect: 'tests/render/nodeShadow.test.ts',
+    lesson: '0 を `mapSize` へ渡すと影マップが作られない',
+  },
+  {
+    id: 'node-shadow-no-recreate',
+    kind: '文の削除',
+    file: 'src/render/pipeline/nodeShadow.ts',
+    find: '      light.shadow.map = null\n',
+    replace: '',
+    expect: 'tests/render/nodeShadow.test.ts',
+    lesson: '0 を `mapSize` へ渡すと影マップが作られない',
+  },
 ]

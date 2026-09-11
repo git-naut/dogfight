@@ -123,19 +123,24 @@ export interface MeasureConfig {
 }
 
 /**
- * 既定の描画経路。**段 20b で `webgl` から `node` へ切り替えた。**
+ * 既定の描画経路。**段 20c で `node` から `webgl` へ戻した。**
  *
- * ここが Phase 8 で唯一、既定の絵を変える 1 行。戻すならこの定数を
- * `webgl` に戻し、`playwright.config.ts` の projects の順を入れ替える。
- * 旧基準画像 42 枚は project 名が違うのでファイルとして残っている
- * （`*-chromium-swiftshader-linux.png`。Phase 9 の完了まで消さない）。
+ * 段 20b で node へ切り替えたが、**ライブ飛行中に描画ループごと止まる**
+ * ことが分かったので戻した。品質の自動降格で `clouds.setQuality` が
+ * マーチの材質を組み直すと、その材質を最初に描く `createBindGroup` が
+ * `Cannot read properties of undefined (reading 'mipLevelCount')` で落ちる。
+ * 実測で降格を止めれば 4,148 フレーム回り、許せば約 450 フレームで死ぬ。
+ * 切り分けは `docs/measuring.md` の段 20c に 9 手ぶん残した。
  *
- * 切り替えの前提は段 20a で満たした。画素に依存しない検査 181 件が両経路で
- * 緑（`NODEPATH=1`）、差分の台帳に理由の付かない差分が 0（主因は大気の
- * 経路で 96%、`docs/measuring.md`）。戻り先のタグは `phase-7-webgl` と
- * `phase-8-before-flip`。
+ * **node の基準画像 42 枚（`*-chromium-webgpu-linux.png`）は消さない。**
+ * 直して切り替え直すときにそのまま使う。旧 42 枚は
+ * `*-chromium-swiftshader-linux.png`。
+ *
+ * 切り替え直す前に段 20c の検査（ライブループを数百フレーム回して降格まで
+ * 通す）が要る。**キャプチャモードは 1 枚描いて止まるので、この経路を
+ * 一度も通らない。**E2E 277 件が全部緑のまま公開まで抜けた理由がそれ。
  */
-export const DEFAULT_BACKEND: 'webgl' | 'node' = 'node'
+export const DEFAULT_BACKEND: 'webgl' | 'node' = 'webgl'
 
 export interface SceneOptions {
   preset: PresetName

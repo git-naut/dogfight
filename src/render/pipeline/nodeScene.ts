@@ -4,11 +4,7 @@ import * as webgpu from 'three/webgpu'
 import { createChaseCamera } from '../camera'
 import { createNodeBackend } from './nodeBackend'
 import { advanceNodeFrame, buildNodePipeline } from './nodeBuild'
-import {
-  configureNodeAircraftShadow,
-  followAircraftShadow,
-  shadowMapType,
-} from './nodeShadow'
+import { configureNodeAircraftShadow, followAircraftShadow } from './nodeShadow'
 import { createNodeOutputNode, createScenePass } from './nodeOutput'
 import { createSceneViews } from './views'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
@@ -168,6 +164,7 @@ export async function createNodePipeline(
     coverage,
     sceneDepth: depthTexture,
     captureMode: options.cloudCaptureMode ?? false,
+    temporal: options.cloudTemporal ?? true,
     clampScale: 1,
     sunColorNode: cloudSunColor,
     ambientColorNode: cloudAmbientColor,
@@ -354,6 +351,9 @@ export async function createNodePipeline(
     pipeline.render()
   }
 
+  // いま `environmentNode` に入っている大きさ。0 は切っている状態
+  let environmentSize = options.showEnvironment === false ? 0 : quality.skyEnvironmentSize
+
   function applyPreset(preset: PresetName): void {
     quality = applyQualityOverride(getQuality(preset), qualityOverride)
     clouds.setQuality(quality)
@@ -363,16 +363,20 @@ export async function createNodePipeline(
     views.missileSmoke.setQuality(quality)
     views.damageSmoke.setQuality(quality)
     views.explosions.setQuality(quality)
-    shadowLight.shadow.mapSize.set(
-      quality.aircraftShadowMapSize,
-      quality.aircraftShadowMapSize,
-    )
-    if (shadowInfo.enabled) renderer.shadowMap.type = shadowMapType(quality)
-    // 環境反射の大きさが変わったらノードを作り直す。鎖は組み直しが要る
-    const sceneNodes = scene as unknown as { environmentNode: unknown }
-    sceneNodes.environmentNode =
-      quality.skyEnvironmentSize > 0 ? atmos.skyEnvironment(quality.skyEnvironmentSize) : null
-    pipeline.needsUpdate = true
+    // **影は `nodeShadow` に任せる。**ここで `mapSize` を直に書くと `low` の
+    // 0 がそのまま渡り、0×0 のテクスチャで描画ループごと止まる（段 20c）
+    shadowInfo.setQuality(quality)
+    // 環境反射は**大きさが変わったときだけ**作り直す。
+    //
+    // 毎回作り直すと、降格のたびにキューブの的が増える。`?env=0` の指定も
+    // 踏み潰していた（起動で null にしても最初の降格で戻る。段 20c で実測）
+    const wantedEnv = options.showEnvironment === false ? 0 : quality.skyEnvironmentSize
+    if (wantedEnv !== environmentSize) {
+      environmentSize = wantedEnv
+      const sceneNodes = scene as unknown as { environmentNode: unknown }
+      sceneNodes.environmentNode = wantedEnv > 0 ? atmos.skyEnvironment(wantedEnv) : null
+      pipeline.needsUpdate = true
+    }
     applySize()
   }
 

@@ -1074,6 +1074,7 @@ export async function runNodeProbe(
       coverage: MARCH_PROBE_COVERAGE,
       sceneDepth: sceneDepthTexture,
       captureMode: true,
+      temporal: true,
       clampScale: 0,
       sunColorNode: cloudSunColor,
       ambientColorNode: cloudAmbientColor,

@@ -368,13 +368,7 @@ async function main(): Promise<void> {
   const view = await createScene(canvas!, {
     preset: initialSettings.preset,
     hour: initialSettings.hour,
-    // **経路は `?path=` で名指しする。**既定は `DEFAULT_BACKEND`（段 20b で
-    // node）。`?gpu=3` は段 20a の門で使っていた形で、そのまま node を指す
-    ...(capture.path !== null
-      ? { pipeline: capture.path }
-      : capture.gpu === 3
-        ? { pipeline: 'node' as const }
-        : {}),
+    ...(capture.gpu === 3 ? { pipeline: 'node' as const } : {}),
     texturesUrl: TEXTURES_URL,
     aircraftUrl: AIRCRAFT_URL,
     enemyUrl: ENEMY_URL,

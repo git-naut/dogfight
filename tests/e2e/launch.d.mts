@@ -19,6 +19,3 @@ export declare function snapshotSuffix(project: string): string
 
 /** 既定の project 名 */
 export declare const DEFAULT_PROJECT: string
-
-/** project ごとの起動引数。`chromium-swiftshader` だけが旧経路（GLSL） */
-export declare function argsForProject(project: string): string[]

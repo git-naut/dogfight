@@ -38,7 +38,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium } from '@playwright/test'
 import { PNG } from 'pngjs'
 import { SCENES, captureParams } from '../tests/e2e/scenes.mjs'
-import { WEBGPU_ARGS, VIEWPORT, snapshotSuffix } from '../tests/e2e/launch.mjs'
+import { WEBGPU_ARGS, VIEWPORT, DEFAULT_PROJECT, snapshotSuffix } from '../tests/e2e/launch.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SNAP = fileURLToPath(new URL('../tests/e2e/smoke.spec.ts-snapshots', import.meta.url))
@@ -66,10 +66,8 @@ const WORKERS = Math.max(1, Number(arg('--workers', '1')))
 /** 素の絵の置き場。原因を振っても素の側は同じなので使い回す */
 const CACHE = arg('--cache', null)
 const BASE = `http://127.0.0.1:${PORT}/dogfight/`
-// **比べる相手は旧経路の 42 枚。**段 20b で既定の project が
-// `chromium-webgpu` へ移ったので、`DEFAULT_PROJECT` からは導けない。
-// この道具は「旧経路との差」を測るためのものなので名指しする
-const SUFFIX = snapshotSuffix('chromium-swiftshader')
+// 基準画像は既定の project のもの。node 経路の絵をそれと比べる
+const SUFFIX = snapshotSuffix(DEFAULT_PROJECT)
 
 const scenes = SCENES.filter(
   (s) =>

@@ -18,7 +18,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium } from '@playwright/test'
 import { PNG } from 'pngjs'
 import { SCENES, captureParams } from '../tests/e2e/scenes.mjs'
-import { argsForProject, VIEWPORT, DEFAULT_PROJECT, snapshotSuffix } from '../tests/e2e/launch.mjs'
+import { SWIFTSHADER_ARGS, VIEWPORT, DEFAULT_PROJECT, snapshotSuffix } from '../tests/e2e/launch.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SNAP = fileURLToPath(new URL('../tests/e2e/smoke.spec.ts-snapshots', import.meta.url))
@@ -55,9 +55,7 @@ const server = spawn(
   { cwd: ROOT, stdio: 'ignore', detached: true },
 )
 
-// **project に合わせた起動引数。**段 20b で既定が node 経路になったので、
-// `chromium-webgpu` では WebGPU の引数が要る（旧経路は `--project` で選ぶ）
-const browser = await chromium.launch({ args: [...argsForProject(PROJECT)] })
+const browser = await chromium.launch({ args: [...SWIFTSHADER_ARGS] })
 
 /** 2 枚の PNG で違う画素を数える。差の最大階調と差分の外接矩形も返す */
 function compare(a, b) {
@@ -108,10 +106,7 @@ try {
   let served = null
 
   for (const scene of scenes) {
-    const params = captureParams(scene)
-    // **旧経路の project では経路を名指しする。**既定は node（段 20b）
-    if (PROJECT === 'chromium-swiftshader') params.set('path', 'webgl')
-    await page.goto(`${BASE}?${params.toString()}`, { timeout: 300000 })
+    await page.goto(`${BASE}?${captureParams(scene).toString()}`, { timeout: 300000 })
     await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 300000 })
     if (served === null) {
       // 落とし忘れたサーバに繋がっていないか。古い dist を掴むと嘘の結論が出る

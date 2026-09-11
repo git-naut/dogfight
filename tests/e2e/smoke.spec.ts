@@ -2105,6 +2105,67 @@ test.describe('通しの流れ', () => {
 })
 
 /**
+ * 長く飛んでも描画ループが死なない。
+ *
+ * **段 20b の欠陥は「実際に遊ぶ」ことでしか出なかった。**既定を node 経路
+ * へ切り替えて公開したら、遊んでいると約 450 フレームで描画ループごと
+ * 止まった。E2E 277 件は全部緑のまま公開まで抜けた（`docs/lessons.md`）。
+ *
+ * `品質を 4 段切り替えても描画が続く` は実行時の品質変更を通すが、守るのは
+ * その 1 形だけ。**自動降格・地形の LOD の切り替え・VFX の生成消滅は、
+ * 飛び続けないと通らない。**ここはその経路を持つ。
+ *
+ * 実測（段 20c）。旧経路は 21,067 フレーム回って例外 0。node 経路は修正前
+ * に約 450 フレームで死んだ。**1,200 フレーム（シム 10 秒）あれば当時の
+ * 欠陥は捕まる。**
+ *
+ * **降格を止めない。**`?nodegrade=1` で止めると 4,148 フレーム回るので、
+ * 降格を通すことがこの検査の要点。
+ */
+test.describe('長く飛ぶ', () => {
+  test('1,200 フレーム飛んでも描画が止まらない', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message.split('\n')[0] ?? e.message))
+    // **`precompile=0` にしない。**事前コンパイルも通す経路に入れる
+    const path = onNodePath() ? '&gpu=3' : ''
+    await page.goto(`/dogfight/?script=mission-01${path}`)
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: waitBudgetMs(300_000) },
+    )
+
+    await page.locator('.title-start').click()
+    // スロットルを開けて射出する。**値で待つ**（`カタパルト射出` と同じ理由）
+    await page.keyboard.down('ShiftLeft')
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.speed ?? 0,
+          ),
+        { timeout: waitBudgetMs(120_000) },
+      )
+      .toBeGreaterThan(80)
+
+    // **機首を上げて飛ばし続ける。**`KeyW` はピッチ下げ、`KeyS` が上げ。
+    // 放っておくと海面へ向かって墜ち、シムが止まって検査が空振りする
+    await page.keyboard.down('KeyS')
+    await advanceFrames(page, 240)
+    await page.keyboard.up('KeyS')
+
+    const before = (await readHook(page))!
+    await advanceFrames(page, 1_200)
+    await page.keyboard.up('ShiftLeft')
+
+    const after = (await readHook(page))!
+    expect(after.frame - before.frame, 'シムが進んでいない').toBeGreaterThanOrEqual(1_200)
+    expect(after.altitude, '墜ちている（検査が空振りする）').toBeGreaterThan(300)
+    expect(errors, `描画で例外が出た（${errors[0] ?? ''}）`).toEqual([])
+  })
+})
+
+/**
  * 雲影マップの分布を読み戻せることを確かめる。
  *
  * 段 12 で TSL 版と突き合わせるための口。**先に WebGL 側が正しい形の値を

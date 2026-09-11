@@ -377,6 +377,7 @@ export function createCloudsNodePass(
   let width = 1
   let height = 1
   let historyValid = false
+  let historyNeedsFill = false
   let renderCount = 0
   let resolveCount = 0
   let groundShadow = true
@@ -397,6 +398,20 @@ export function createCloudsNodePass(
     // 大きさが変わったら履歴は使えない
     historyValid = false
     resolveCount = 0
+    // **張り替えたら次の描画の前に履歴を焼き直す。**
+    //
+    // `RenderTarget.setSize()` は中で `dispose()` を呼ぶが、
+    // `texture.version` は上げない。three の束縛は
+    // `Sampler.update()`（`version` の比較）が true のときだけ
+    // `textures.updateTexture()` を呼ぶので（`Bindings.js`）、**版が
+    // 上がらないまま GPU テクスチャが消えると作り直されない。**
+    // `WebGPUBindingUtils.createBindGroup` が `textureData.texture` を
+    // `undefined` のまま読み、`mipLevelCount` で落ちて描画ループが死ぬ。
+    //
+    // `marchTarget` と `output` は毎フレーム描き先になるので作り直される。
+    // **`history` だけが「読まれるのが先、書かれるのが後」**なので、
+    // 張り替えた直後の解決で穴に当たる。先に 1 度描き先にして埋める
+    historyNeedsFill = true
   }
 
   function draw(
@@ -433,6 +448,12 @@ export function createCloudsNodePass(
     renderCount++
 
     draw(renderer, marchQuad!, marchTarget)
+
+    // 張り替えた直後の 1 枚。**解決が読む前に描き先にしておく**
+    if (historyNeedsFill) {
+      draw(renderer, marchQuad!, history)
+      historyNeedsFill = false
+    }
 
     // キャプチャは 1/(n+1) で真の平均を取る。通常のループは指数平均
     blendWeight.value =

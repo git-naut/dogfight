@@ -1396,9 +1396,16 @@ test.describe('タイトル画面', () => {
  * ブラウザに保存された画質や時刻で基準画像が変わってしまう）。
  */
 test.describe('設定画面', () => {
-  /** タイトルから開く。開いた状態を作る */
+  /**
+   * タイトルから開く。開いた状態を作る。
+   *
+   * **経路を足すのはここ。**`onNodePath()` を見ずに組むと、node 経路の
+   * project で回しても旧経路を見て通ってしまう（`harness.ts` の注記と
+   * 同じ理由。段 20c で気づいた）
+   */
   async function openSettings(page: Page, query = '?script=level'): Promise<void> {
-    await page.goto(`/dogfight/${query}&precompile=0`)
+    const path = onNodePath() ? '&gpu=3' : ''
+    await page.goto(`/dogfight/${query}&precompile=0${path}`)
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -1407,6 +1414,49 @@ test.describe('設定画面', () => {
     await page.locator('.title-settings').click()
     await expect(page.locator('#settings')).toBeVisible()
   }
+
+  /**
+   * 品質を 4 段切り替えても描画が続く。
+   *
+   * **ライブループを回す検査がこれしかない。**キャプチャモードは N ステップ
+   * 進めて 1 枚描き、`captureReady` を立てて止まるので、実行時の品質変更を
+   * 一度も通らない。段 20b で既定を node 経路にしたとき、遊んでいると
+   * 約 450 フレームで描画ループごと止まる欠陥が **E2E 277 件を全部緑で
+   * 通り抜けて公開まで出た。**穴はここだった（`docs/lessons.md`）。
+   *
+   * **自動降格に頼らない。**降格は機械の速さと場面の重さで時機が変わり、
+   * 甲板の上では medium で止まって `low` へ落ちない。設定画面の
+   * セレクタは `view.setQuality(preset)` を直に呼ぶので、落ちる経路は
+   * 同じで、4 段すべての遷移を必ず通る。
+   *
+   * 生存は**シムのフレーム**で見る。タイトルの裏でもシムは進む（ポーズ
+   * 経由で開くと止まるので、タイトルから開くのが要る）。描画ループが
+   * 例外で死ぬと番号が止まる。
+   *
+   * node 経路の実測（段 20c）。`medium → low` だけが止まり、
+   * `cloudResolutionScale` を medium の値へ戻すと通る。機構は未特定
+   */
+  test('品質を 4 段切り替えても描画が続く', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message.split('\n')[0] ?? e.message))
+    await openSettings(page)
+
+    for (const preset of ['ultra', 'high', 'medium', 'low', 'high'] as const) {
+      const from = (await readHook(page))!.frame
+      await page.selectOption('#settings select[data-key="preset"]', preset)
+      // **フレームで待つ。**壁時計で待つと遅い経路で空振りする
+      await page.waitForFunction(
+        ([start, n]) =>
+          ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) >=
+          start! + n!,
+        [from, 30],
+        { timeout: waitBudgetMs(60_000) },
+      )
+      const hook = await readHook(page)
+      expect(hook!.preset, `${preset} が当たっていない`).toBe(preset)
+    }
+    expect(errors, `描画で例外が出た（${errors[0] ?? ''}）`).toEqual([])
+  })
 
   test('タイトルから開いて閉じるで畳む', async ({ page }) => {
     await openSettings(page)

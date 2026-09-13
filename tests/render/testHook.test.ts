@@ -61,16 +61,23 @@ describe('TestHook', () => {
     expect(extra, 'TestHook にない項目への代入').toEqual([])
   })
 
-  it('E2E 側の写しが本家とずれていない', () => {
-    // tests/e2e/harness.ts が TestHook の写しを持っている。写しなので
-    // 黙ってずれる。Phase 3.5 で実際に 5 項目ずれていた
+  it('E2E は写しを持たず、本家の型を読む', () => {
+    // **かつては 264 行の写しだった。**「本家に足したらここも足す」と書いて
+    // あったが、Phase 3.5 で 5 項目ずれていたのを揃えた履歴があり、
+    // `requiltDiff` を足したときにも `src` 側だけに足して E2E から見えなかった。
+    //
+    // 写しを捨てて `import type` で本家を読む形にした。**`import type` は
+    // コンパイル時に消える**ので、E2E の実行時に `three` は引き込まれない。
+    // ここが見張るのは「写しを作り直していないこと」。
     const spec = readFileSync(`${ROOT}tests/e2e/harness.ts`, 'utf8')
-    const start = spec.indexOf('interface TestHook {')
-    expect(start, '写しが見つからない').toBeGreaterThan(-1)
-    const body = spec.slice(start, spec.indexOf('\n}', start))
-    const copied = new Set([...body.matchAll(/^ {2}(\w+)\??:/gm)].map((m) => m[1]!))
-    const missing = fields.filter((f) => !copied.has(f))
-    expect(missing, '写しに足りない項目').toEqual([])
+    expect(
+      spec.includes("import type { TestHook } from '../../src/render/capture'"),
+      '本家の型を読んでいない',
+    ).toBe(true)
+    expect(
+      spec.includes('interface TestHook {'),
+      '写しが復活している。項目は本家（src/render/capture.ts）にだけ置く',
+    ).toBe(false)
   })
 
   it('検査そのものが働くことを、既知の抜けで確かめる', () => {

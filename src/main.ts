@@ -38,6 +38,11 @@ import { createTitlePanel, type TitlePanel } from './hud/titlePanel'
 import { createSettingsPanel, type SettingsPanel } from './hud/settingsPanel'
 import { createPausePanel, type PausePanel } from './hud/pausePanel'
 import { createGameAudio, type GameAudio } from './audio/audio'
+import {
+  computeCloudDiag,
+  readCanvas,
+  showCloudDiag,
+} from './render/cloudDiag'
 import { probeAudio } from './audio/probe'
 import {
   loadSettings,
@@ -1224,6 +1229,79 @@ async function main(): Promise<void> {
 
   finishBoot()
   requestAnimationFrame(frame)
+
+  // **実機の GPU で雲の追従を数値にする。**`?clouddiag=1`。
+  //
+  // WSL2 の WebGPU は SwiftShader にしか乗らず、Windows の Chrome へ CDP で
+  // 繋ぐ道も塞がれている（`src/render/cloudDiag.ts` の注記）。ページの中で
+  // 2 枚撮って比べ、結果を DOM へ出せば、ヘッドレスの `--screenshot` 1 枚で
+  // 読める
+  if (new URLSearchParams(window.location.search).get('clouddiag') === '1') {
+    void runCloudDiag()
+  }
+
+  /** タイトルを飛ばし、水平に整えてから回して 3 枚撮る */
+  async function runCloudDiag(): Promise<void> {
+    const waitFrames = (n: number) =>
+      new Promise<void>((resolve) => {
+        const from = world.frame
+        const tick = () => {
+          if (world.frame - from >= n) resolve()
+          else requestAnimationFrame(tick)
+        }
+        tick()
+      })
+
+    /** **口を足さずにイベントで押す。**`KeyboardInput` は window に付く */
+    const key = (code: string, down: boolean) =>
+      window.dispatchEvent(
+        new KeyboardEvent(down ? 'keydown' : 'keyup', { code, bubbles: true }),
+      )
+
+    titlePanel?.hide()
+    // 機首を上げて空と雲を入れる。**`KeyW` はピッチ下げ、`KeyS` が上げ**
+    key('KeyS', true)
+    await waitFrames(180)
+    key('KeyS', false)
+    await waitFrames(120)
+
+    const base = readCanvas(canvas!)
+    // **雲の領域はその場で実測する。**どこにあるかを推測しない
+    view.setMeasureConfig?.({ clouds: false })
+    await waitFrames(6)
+    const noClouds = readCanvas(canvas!)
+    view.setMeasureConfig?.({ clouds: true })
+    await waitFrames(6)
+
+    const bankBefore = (world.player.bank * 180) / Math.PI
+    // **描画フレームと雲の焼き回数を並べる。**雲が描画ごとに更新されて
+    // いなければ、遅れて「ついてくる」ように見える
+    const bakesBefore = view.cloudRenderCount
+    let drawn = 0
+    const countDraw = () => {
+      drawn++
+      requestAnimationFrame(countDraw)
+    }
+    requestAnimationFrame(countDraw)
+    key('KeyA', true)
+    await waitFrames(240)
+    key('KeyA', false)
+    await waitFrames(20)
+    const rolled = readCanvas(canvas!)
+    const rolledDegrees = Math.abs((world.player.bank * 180) / Math.PI - bankBefore)
+
+    showCloudDiag(
+      computeCloudDiag(
+        base,
+        rolled,
+        noClouds,
+        rolledDegrees,
+        view.backend.kind,
+        drawn,
+        view.cloudRenderCount - bakesBefore,
+      ),
+    )
+  }
 }
 
 main().catch((error: unknown) => {

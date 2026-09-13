@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { vec3, Fn, vec4 } from 'three/tsl'
+import { vec3, Fn, vec4, uniform } from 'three/tsl'
 import * as webgpu from 'three/webgpu'
 import { createChaseCamera } from '../camera'
 import { createNodeBackend } from './nodeBackend'
@@ -253,11 +253,24 @@ export async function createNodePipeline(
   water.mesh.visible = options.showWater ?? true
   scene.add(water.mesh)
 
+  /**
+   * 雲を合成へ出すか。`setMeasureConfig({ clouds: false })` で 0 にする。
+   *
+   * **旧経路はパスごと止めて差し込み口も外す**（`webgl.ts`）。node 経路は
+   * 鎖の組み直しになるので uniform で掛ける。**費用は下がらない。**
+   * 見た目を消すためのもので、計測で「雲なしの費用」を測る用途には使えない
+   * （`sky` の切り替えと同じ制約。この注記の上にある）。
+   *
+   * **切れないままだと計測と切り分けの手段が失われる。**実際、雲の追従を
+   * 追う診断が「雲あり/なしの差」で雲の領域を求めていて、切れないせいで
+   * 差が出ず、雲が 1/9 しかないという誤った読みを出した（2026-09-14）
+   */
+  const cloudVisibility = uniform(1)
   const output = createNodeOutputNode({
     atmos,
     smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
     scenePass,
-    cloudNode: clouds.node,
+    cloudNode: clouds.node.mul(cloudVisibility) as unknown as webgpu.Node<'vec4'>,
   })
   // **`?smaa=0` で外せる。**42 枚は全画素が動くので、原因ごとの寄与は
   // 1 つずつ振って測るしかない（段 20a-4 の差分の台帳）
@@ -654,7 +667,12 @@ export async function createNodePipeline(
           : null
         pipeline.needsUpdate = true
       }
-      if (config.clouds !== undefined) cloudsEnabled = config.clouds
+      if (config.clouds !== undefined) {
+        cloudsEnabled = config.clouds
+        // **合成からも外す。**`cloudsEnabled` は雲影にしか効かないので、
+        // これが無いと雲は画面に出たままになる
+        cloudVisibility.value = config.clouds ? 1 : 0
+      }
       if (config.terrainPatchCells !== undefined) {
         terrainMesh.setQuality({ ...quality, terrainPatchCells: config.terrainPatchCells })
       }

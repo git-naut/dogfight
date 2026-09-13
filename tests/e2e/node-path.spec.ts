@@ -883,9 +883,15 @@ test.describe('node 経路', () => {
       p.marchSourceLength,
       'マーチの本文が取れていない',
     ).toBeGreaterThan(1000)
+    const diff = p.requiltDiff
     expect(
       p.requiltSameSource,
-      'プリセットを当て直すと別の材質が出る',
+      diff === null
+        ? 'プリセットを当て直すと別の材質が出る'
+        : `プリセットを当て直すと別の材質が出る。${diff.index} 文字目で分岐` +
+          `（長さ ${diff.beforeLength} → ${diff.afterLength}）\n` +
+          `  前: ${JSON.stringify(diff.before)}\n` +
+          `  後: ${JSON.stringify(diff.after)}`,
     ).toBe(true)
     // 組み直しが何もしていなくても上は通る。変わる側も見る
     expect(

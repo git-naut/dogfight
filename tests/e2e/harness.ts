@@ -158,6 +158,13 @@ export interface TestHook {
       marchSourceLength: number
       requiltSameSource: boolean
       requiltOtherDiffers: boolean
+      requiltDiff: {
+        index: number
+        beforeLength: number
+        afterLength: number
+        before: string
+        after: string
+      } | null
     } | null
     nodeShadow: {
       filter: string

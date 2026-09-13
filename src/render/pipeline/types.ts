@@ -676,6 +676,19 @@ export interface NodeProbeResult {
      * 一致するので、変わる側も見る
      */
     requiltOtherDiffers: boolean
+    /**
+     * 当て直して本文が食い違ったときの、最初にずれた位置と前後。
+     *
+     * **真偽値だけでは何が変わったか読めない。**名前の連番がずれただけなのか、
+     * 式そのものが変わったのかで対処が正反対になる。一致していれば null
+     */
+    requiltDiff: {
+      index: number
+      beforeLength: number
+      afterLength: number
+      before: string
+      after: string
+    } | null
   } | null
   /**
    * node 経路の影の測り。`?nodeshadow=1` のときだけ埋まる。

@@ -41,6 +41,44 @@ import { shadowMapType } from './nodeShadow'
 import type { QualitySettings } from '../quality'
 
 /**
+ * 生成された本文を、関数定義の並び順に依らない形へ。
+ *
+ * **three 0.186 で `// codes` の並びが揺れる。**同じプリセットを当て直すと
+ * 長さは 24,695 で同じまま、6,828 文字目から順序だけが入れ替わる
+ * （`dogfightHg` が先か `tsl_clampWrapping_float` が先か）。式は変わって
+ * いないので、行の集合で見る。
+ *
+ * **弱くなることを承知で使う。**行の集合が同じでも並びが違えば別の
+ * プログラムになりうる。ただし WGSL は宣言前の呼び出しを許さないので、
+ * 順序が壊れればコンパイルが落ちて他の検査が先に赤くなる。
+ */
+function normalizeShaderSource(source: string): string {
+  return source.split('\n').sort().join('\n')
+}
+
+/**
+ * 2 つの本文が最初に食い違う位置と、その前後を切り出す。
+ *
+ * **真偽値だけでは何が変わったか読めない。**生成された名前の連番がずれた
+ * だけなのか、式そのものが変わったのかで、対処が正反対になる。
+ */
+function firstDifference(
+  a: string,
+  b: string,
+): NonNullable<NodeProbeResult['pipeline']>['requiltDiff'] {
+  if (a === b) return null
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i++
+  return {
+    index: i,
+    beforeLength: a.length,
+    afterLength: b.length,
+    before: a.slice(Math.max(0, i - 60), i + 100),
+    after: b.slice(Math.max(0, i - 60), i + 100),
+  }
+}
+
+/**
  * node 経路を立てて glb を 1 枚描く。
  *
  * 段 9 の目的は移行の前提を測ることであって、絵を作ることではない。
@@ -1599,8 +1637,18 @@ export async function runNodeProbe(
       smaaChanged: byteDifference(pipelineBytes, plainBytes).differing,
       smaaChangedMax: byteDifference(pipelineBytes, plainBytes).max,
       marchSourceLength: marchSourceBefore.length,
-      requiltSameSource: marchSourceBefore === marchSourceAfter,
-      requiltOtherDiffers: marchSourceBefore !== marchSourceOther,
+      // **並び順は見ない。**three 0.186 で `// codes` の順が揺れる
+      // （`normalizeShaderSource` の注記）
+      requiltSameSource:
+        normalizeShaderSource(marchSourceBefore) ===
+        normalizeShaderSource(marchSourceAfter),
+      requiltOtherDiffers:
+        normalizeShaderSource(marchSourceBefore) !==
+        normalizeShaderSource(marchSourceOther),
+      requiltDiff: firstDifference(
+        normalizeShaderSource(marchSourceBefore),
+        normalizeShaderSource(marchSourceAfter),
+      ),
     }
 
     pipelineTarget.dispose()

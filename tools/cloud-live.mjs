@@ -86,7 +86,12 @@ async function fly(page, nodePath) {
   await page.locator('.title-start').click()
   await advance(page, 120)
 
-  const before = await page.locator('#viewport').screenshot()
+  const size = await page.evaluate(() => {
+    const c = document.querySelector('#viewport')
+    return c ? `${c.clientWidth}x${c.clientHeight}` : 'なし'
+  })
+  console.log(`  viewport=${size}`)
+  const before = await page.locator('#viewport').screenshot({ animations: 'disabled', timeout: 60_000 })
   const cloudsAtBefore = await page.evaluate(
     () => window.__dogfight?.cloudRenderCount ?? 0,
   )
@@ -101,7 +106,7 @@ async function fly(page, nodePath) {
   )
   await page.keyboard.up('KeyA')
   await advance(page, 20)
-  const after = await page.locator('#viewport').screenshot()
+  const after = await page.locator('#viewport').screenshot({ animations: 'disabled', timeout: 60_000 })
 
   const hook = await page.evaluate(() => ({
     backend: window.__dogfight?.backend ?? '',

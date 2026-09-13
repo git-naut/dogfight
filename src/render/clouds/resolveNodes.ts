@@ -8,13 +8,11 @@ import {
   min,
   mix,
   normalize,
-  texture,
   uv,
   vec2,
   vec4,
 } from 'three/tsl'
-import type { Node } from 'three/webgpu'
-import type { Texture } from 'three'
+import type { Node, TextureNode } from 'three/webgpu'
 import {
   CLOUD_BOTTOM,
   CLOUD_TOP,
@@ -36,26 +34,23 @@ import {
  */
 
 /**
- * node 経路でレンダーターゲットのテクスチャを「既定の経路と同じ uv」で引く。
+ * 引き方は three に任せる。
  *
- * node 経路は `texture.isRenderTargetTexture` のとき v を裏返して読む
- * （`TextureNode.setupUV()`。段 12 の `bakeUv` に同じ話を書いた）。
- * **両バックエンドとも裏返すので、揃えるのはここ 1 か所でよい。**
+ * 入力は `rtt()` か `texture()` が返す `TextureNode` で、`.sample(uv)` が
+ * 公式の引き方（`examples/jsm/tsl/utils/TAAUtils.js` も
+ * `previousDepthNode.sample( uv )` と書く）。`TextureNode.setupUV()` が
+ * `isRenderTargetTexture` を見て、WebGL2（`isFlipY()` が true）と WebGPU
+ * （false）の並びの差を吸収する。
  *
- * 焼く側が `uv()` で書いたもの（マーチの出力はそれ）を、書いたときと同じ
- * 位置で読み直すには v を裏返して渡す。3x3 の近傍は最小最大なので上下が
- * 入れ替わっても結果は変わらないが、再投影先の `prevUv` はここを外すと
- * 上下が逆の履歴を引く
+ * **手で `1 - v` を掛けない。**掛けると WebGPU でだけ二重になる。
+ * 旧経路（GLSL 版）とのビット一致は基準から外した（2026-09-14）。
  */
-function sampleTarget(source: Texture, glslUv: Node<'vec2'>): Node<'vec4'> {
-  return texture(source, vec2(glslUv.x, float(1).sub(glslUv.y)))
-}
 
 export interface ResolveInputs {
-  /** 現フレームのマーチ結果 */
-  currentFrame: Texture
-  /** 前フレームまでの蓄積 */
-  historyFrame: Texture
+  /** 現フレームのマーチ結果。`rtt()` の戻り値 */
+  currentFrame: TextureNode
+  /** 前フレームまでの蓄積。ping-pong なので自前の的 */
+  historyFrame: TextureNode
   inverseProjectionMatrix: Node<'mat4'>
   inverseViewMatrix: Node<'mat4'>
   previousViewProjection: Node<'mat4'>
@@ -113,7 +108,7 @@ function slabDistance(
 export function cloudResolveFragmentNode(inputs: ResolveInputs): Node<'vec4'> {
   return Fn(() => {
     const pixelUv = uv().toVar()
-    const current = sampleTarget(inputs.currentFrame, pixelUv).toVar()
+    const current = inputs.currentFrame.sample(pixelUv).toVar()
     const result = vec4(current).toVar()
 
     If(inputs.blendWeight.lessThan(1), () => {
@@ -144,7 +139,7 @@ export function cloudResolveFragmentNode(inputs: ResolveInputs): Node<'vec4'> {
           .or(prevUv.y.greaterThan(1))
 
         If(outside.not(), () => {
-          const history = sampleTarget(inputs.historyFrame, prevUv).toVar()
+          const history = inputs.historyFrame.sample(prevUv).toVar()
 
           if (inputs.clampScale > 0) {
             // 近傍の最小最大で挟む。挟まないと雲の縁で古い値が尾を引く。
@@ -154,8 +149,7 @@ export function cloudResolveFragmentNode(inputs: ResolveInputs): Node<'vec4'> {
             for (let y = -1; y <= 1; y++) {
               for (let x = -1; x <= 1; x++) {
                 if (x === 0 && y === 0) continue
-                const s = sampleTarget(
-                  inputs.currentFrame,
+                const s = inputs.currentFrame.sample(
                   pixelUv.add(vec2(x, y).mul(inputs.texelSize)),
                 )
                 minColor.assign(min(minColor, s))

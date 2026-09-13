@@ -34,6 +34,7 @@ import {
   halton,
   type CloudsUpdate,
 } from './cloudsPass'
+import type { TextureNode } from 'three/webgpu'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -311,8 +312,9 @@ export function createCloudsNodePass(
 
   const resolveMaterial = fragmentMaterial(
     cloudResolveFragmentNode({
-      currentFrame: marchTarget.texture,
-      historyFrame: history.texture,
+      // **素の uv で引く。**並びの差は `TextureNode.setupUV()` が吸収する
+      currentFrame: texture(marchTarget.texture) as unknown as TextureNode,
+      historyFrame: texture(history.texture) as unknown as TextureNode,
       inverseProjectionMatrix: inverseProjectionMatrix as unknown as Node<'mat4'>,
       inverseViewMatrix: inverseViewMatrix as unknown as Node<'mat4'>,
       previousViewProjection: previousViewProjection as unknown as Node<'mat4'>,
@@ -326,7 +328,7 @@ export function createCloudsNodePass(
 
   // 履歴へ写す。**焼き先を入れ替えないので写しが要る**
   const copyMaterial = fragmentMaterial(
-    texture(output.texture, vec2(uv().x, float(1).sub(uv().y))) as unknown as Node<'vec4'>,
+    texture(output.texture) as unknown as Node<'vec4'>,
   )
   const copyQuad = createQuad(copyMaterial)
 
@@ -363,12 +365,8 @@ export function createCloudsNodePass(
     }
 
     override setup(): Node<'vec4'> {
-      // 焼くときは `uv()` で書いたので、引くときは v を裏返す
-      // （`resolveNodes.ts` の `sampleTarget` と同じ約束）
-      return texture(
-        output.texture,
-        vec2(uv().x, float(1).sub(uv().y)),
-      ) as unknown as Node<'vec4'>
+      // **素の uv で引く。**並びの差は `TextureNode.setupUV()` が吸収する
+      return texture(output.texture) as unknown as Node<'vec4'>
     }
   }
 

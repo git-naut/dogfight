@@ -412,8 +412,10 @@ export async function runNodeProbe(
       MARCH_PROBE_WIDTH,
       MARCH_PROBE_HEIGHT,
       resolveNodes.cloudResolveFragmentNode({
-        currentFrame: currentTarget.texture,
-        historyFrame: historyTarget.texture,
+        // **本番と同じ引き方をする。**素の uv で引き、並びの差は
+        // `TextureNode.setupUV()` に任せる
+        currentFrame: tsl.texture(currentTarget.texture) as never,
+        historyFrame: tsl.texture(historyTarget.texture) as never,
         inverseProjectionMatrix: marchInputs.inverseProjectionMatrix,
         inverseViewMatrix: marchInputs.inverseViewMatrix,
         previousViewProjection: node<

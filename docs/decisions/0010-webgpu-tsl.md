@@ -221,3 +221,89 @@ node の基準画像 42 枚（`*-chromium-webgpu-linux.png`）は残してある
 画素に依存しない検査 181 件、差分の台帳（主因は大気の経路で 96%）、撮り
 直した 42 枚と 2 回撮っての完全一致、退避路（WebGPU が無ければ GLSL 経路へ
 落ちる）。**戻したのは 1 定数と検査側の配線だけ。**
+
+## three を 0.186 へ上げた（2026-09-13 追記）
+
+「three は 0.184 に留める」を疑い直した。結論は、**制約は残っているが越えられる。**
+
+`struct()` は 0.186 でも `nodeProxyConstructor(struct, structType)` を返す。
+0.184 の形には戻っていない。takram は 0.19.1（2026-05-06）から更新が止まり、
+three だけが 0.186（2026-09-08）まで進んだので、差は開く一方になる。
+
+壁は 1 種類だった。`StructTypeNode` は `layout` という名前のプロパティを
+持たない（`membersLayout` / `name` / `isStructTypeNode`）ので、Proxy の `get`
+を通しても undefined が返る。atmosphere の build は先頭で `.layout.name` を
+トップレベル評価するため、**モジュールを読み込んだ時点で**落ちる。
+geospatial の `'layout' in s` は import 時には呼ばれない。
+
+`tools/patch-three.mjs` が `nodeProxyConstructor` に `get` の分岐と `has` を
+足し、`isStructTypeNode` のときだけ 0.184 までの `.layout` を代理する。
+`postinstall` で当たる。**対象の文字列が見つからなければ落とす。**three を
+上げて形が変わったときに黙って素通りしないため。
+
+`tests/render/atmosphereCompat.test.ts` は「`struct()` の形」から「takram が
+読み込めること」へ寄せた。形だけを見ていたから、0.185 で踏んだときは
+`?gpu=2` を立てるまで気づかなかった。パッチを外すと 6 件のうち 5 件が落ちる
+ことを測ってから入れた。
+
+### 段 20c の欠陥は three 側の欠落だった
+
+`historyNeedsFill` は「`RenderTarget.setSize()` が `texture.version` を
+上げないので束縛が作り直されない」という読みで入れた回避策だった。0.186 の
+実装を読むと、**根本は別のところにある。**
+
+`Textures.js` の破棄の経路に、0.186 にはこれがある。
+
+```js
+// delete cached bind groups so they don't point to destroyed textures
+if ( textureData.bindGroups ) {
+  for ( const bindGroup of textureData.bindGroups ) {
+    bindingsData.groups = undefined;
+    bindingsData.versions = undefined;
+```
+
+破棄したテクスチャを指す bind group のキャッシュを捨てる。0.184 には無い。
+参照を追う `textureData.bindGroups` そのものが無く、`Bindings.js` に
+`generation`（束縛が別のテクスチャを指したかを見る値）も無い。
+
+キャッシュの鍵も変わった。
+
+| | bind group の鍵 |
+|---|---|
+| 0.184 `Bindings.js:333` | `cacheIndex = cacheIndex * 10 + texture.id` |
+| 0.186 `Bindings.js:448` | `cacheKey += texture.id + ','` |
+
+0.184 の式は `texture.id` が 2 桁以上になると衝突する。id 12 の 1 枚と、
+id 1 と 2 の 2 枚がどちらも 12 になる。枚数が増えれば値は指数的に膨らみ、
+Number の精度を超えて別々の組が同じ値へ潰れる。**「落ちる列が
+`cloudResolutionScale` の `low` への遷移だけだった」のはこれで説明が付く。**
+特定の id の組み合わせでだけ衝突する。段 20c で「理解は片側だけ」と
+書いた不確かさはここだった。
+
+### 既定の絵は動いた。理由は r186 の PBR
+
+0.184 へ落としたときは「既定の絵は 1 画素も動かない」と書けた。0.186 では
+**42 枚すべてが動いた。**差分は 1.2〜32%、最大 11〜14 階調。
+
+動いたのは glb の PBR マテリアルだけだった。差分を赤で塗った絵
+（`tools/exact.mjs --save`）で、機体と空母の甲板とマストが輪郭ごと染まり、
+地形・海・空・HUD は 1 画素も動いていない。**位置はずれていない。**輪郭が
+一致したまま中身の陰影だけが変わっている。
+
+r186 のリリースノートに理由が並んでいる。
+
+- Fix multi-scattering energy compensation, remove `BRDF_GGX_Multiscatter`（#33983）
+- Improve energy conservation for diffuse and sheen lighting（#33985）
+- Optimize multi-scattering energy compensation（#34046）／Optimize DFG LUT sampling（#34055）
+- PMREM: Replace separable blur with spiral blur on both renderers（#32367）
+
+地形と海は自前のシェーダなので当たらない。機体と空母は glb の
+`MeshStandardMaterial` を `scene.environment` で照らしているので当たる。
+**差分の範囲が実装の境目と一致する。**r185 には該当する変更がない。
+
+`envMapIntensity` の意味が変わった件（r186）は当たらない。この作品はその
+プロパティを使っていない。
+
+`tools/exact.mjs` に `--save` を足した。動いたカットの実物・基準・差分を
+書き出す。**枚数と外接だけでは何が動いたか読めない。**今回は差分の絵を見て
+初めて「PBR のマテリアルだけ」と分かった。

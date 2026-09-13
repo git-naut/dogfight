@@ -84,10 +84,13 @@ describe('node 経路の機体の影', () => {
   })
 
   it('フィルタの種別もプリセットから追う', () => {
-    const { renderer, shadow } = build('high')
+    // もとは high → ultra で測っていた。**three 0.186 で `pcfSoft` が
+    // 無くなり**両方 `pcf` になったので、差が出る組は medium（basic）と
+    // high（pcf）になった。ultra と high の差は影マップの大きさ 2048 対 1024
+    const { renderer, shadow } = build('medium')
     const map = (renderer as unknown as { shadowMap: { type: number } }).shadowMap
-    const atHigh = map.type
-    shadow.setQuality(getQuality('ultra'))
-    expect(map.type, 'ultra で `pcfSoft` へ上がっていない').not.toBe(atHigh)
+    const atMedium = map.type
+    shadow.setQuality(getQuality('high'))
+    expect(map.type, 'high で `pcf` へ上がっていない').not.toBe(atMedium)
   })
 })

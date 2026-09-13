@@ -13,7 +13,7 @@
 //   node tools/exact.mjs [--nobuild] [--port N] [--project 名]
 //                        [-g 名前の一部] [--names a,b,c（完全一致）]
 import { spawn, spawnSync } from 'node:child_process'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import { chromium } from '@playwright/test'
 import { PNG } from 'pngjs'
@@ -33,6 +33,9 @@ const PROJECT = arg('--project', DEFAULT_PROJECT)
 const FILTER = arg('-g', null)
 // 名前の完全一致で絞る。-g は部分一致なので aircraft-vortex が 5 枚に広がる
 const NAMES = arg('--names', null)?.split(',')
+// **数と外接だけでは何が動いたか読めない。**動いたカットの実物と、差のある
+// 画素を赤で塗った絵を書き出す。`--save` を付けたときだけ
+const SAVE = arg('--save', null)
 const BASE = `http://127.0.0.1:${PORT}/dogfight/`
 const SUFFIX = snapshotSuffix(PROJECT)
 
@@ -93,6 +96,43 @@ function compare(a, b) {
   return { differing, worst, total: a.width * a.height, box }
 }
 
+/**
+ * 動いたカットを 3 枚書き出す。撮ったもの、基準、差のある画素を赤で塗ったもの。
+ *
+ * **差の階調が小さいと並べても読めない。**赤の濃さを階調に比例させ、
+ * 1 階調でも塗る。場所と形が分かれば何が動いたかは当たりが付く
+ */
+function saveDiff(dir, name, shotBuffer, baselineBuffer) {
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(`${dir}/${name}-actual.png`, shotBuffer)
+  writeFileSync(`${dir}/${name}-baseline.png`, baselineBuffer)
+  const a = PNG.sync.read(shotBuffer)
+  const b = PNG.sync.read(baselineBuffer)
+  if (a.width !== b.width || a.height !== b.height) return
+  const out = new PNG({ width: a.width, height: a.height })
+  for (let i = 0; i < a.data.length; i += 4) {
+    const d = Math.max(
+      Math.abs(a.data[i] - b.data[i]),
+      Math.abs(a.data[i + 1] - b.data[i + 1]),
+      Math.abs(a.data[i + 2] - b.data[i + 2]),
+      Math.abs(a.data[i + 3] - b.data[i + 3]),
+    )
+    if (d > 0) {
+      // 1 階調でも見えるように下駄を履かせる
+      out.data[i] = Math.min(255, 96 + d * 8)
+      out.data[i + 1] = 0
+      out.data[i + 2] = 0
+    } else {
+      // 動いていない画素は元の絵を暗く敷く。位置の手がかりに要る
+      out.data[i] = a.data[i] >> 2
+      out.data[i + 1] = a.data[i + 1] >> 2
+      out.data[i + 2] = a.data[i + 2] >> 2
+    }
+    out.data[i + 3] = 255
+  }
+  writeFileSync(`${dir}/${name}-diff.png`, PNG.sync.write(out))
+}
+
 let moved = 0
 let missing = 0
 try {
@@ -136,6 +176,7 @@ try {
           ` (${((100 * r.differing) / r.total).toFixed(4)}%) 最大 ${r.worst} 階調` +
           ` 外接 ${b.w}x${b.h} @(${b.x},${b.y})`,
       )
+      if (SAVE !== null) saveDiff(SAVE, scene.name, buf, readFileSync(baseline))
       moved++
     }
   }

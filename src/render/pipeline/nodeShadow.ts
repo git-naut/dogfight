@@ -1,7 +1,6 @@
 import {
   BasicShadowMap,
   PCFShadowMap,
-  PCFSoftShadowMap,
   Vector3,
   type OrthographicCamera,
   type ShadowMapType,
@@ -43,9 +42,17 @@ export interface NodeAircraftShadowInput {
   sunDirectionWorld: Vector3
 }
 
-/** `quality.shadowFilter` を three の定数へ。**PCFSoft は node 経路では生きている** */
+/**
+ * `quality.shadowFilter` を three の定数へ。**変換はここが正本。**
+ *
+ * `PCFSoftShadowMap` は three 0.186 で `WebGPURenderer` から無くなった。
+ * 渡すと警告を出して `PCFShadowMap` へ倒れる（`Renderer.js:902`）。倒れた先が
+ * 既定でソフトになったので区別そのものが three から消えた。
+ *
+ * 0.184 のころは `node.ts` の 2 か所が同じ三項を自前で書いていた。**同じ規則を
+ * 3 か所に置くと片方だけ直る**ので、この関数へ寄せた。
+ */
 export function shadowMapType(quality: QualitySettings): ShadowMapType {
-  if (quality.shadowFilter === 'pcfSoft') return PCFSoftShadowMap
   if (quality.shadowFilter === 'pcf') return PCFShadowMap
   return BasicShadowMap
 }

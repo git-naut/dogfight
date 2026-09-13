@@ -11,7 +11,16 @@
 export type PresetName = 'low' | 'medium' | 'high' | 'ultra'
 
 /** 影マップのフィルタ。node 経路だけが読む */
-export type ShadowFilter = 'basic' | 'pcf' | 'pcfSoft'
+/**
+ * 影マップのフィルタ。
+ *
+ * **`pcfSoft` は three 0.186 で無くなった。**`WebGPURenderer` は
+ * `PCFSoftShadowMap` を受け取ると警告を出して `PCFShadowMap` へ倒す
+ * （`Renderer.js:902`）。倒した先が既定でソフトになったためで、区別が
+ * three 側から消えた。**表に残すと「実装が読まない列」が 4 つ目になる**ので
+ * 落とした。ultra にソフト影を戻すなら VSM を別の列として足す（第 IV 群）。
+ */
+export type ShadowFilter = 'basic' | 'pcf'
 
 export interface QualitySettings {
   /** 描画解像度の倍率。1.0 が等倍 */
@@ -102,7 +111,8 @@ export interface QualitySettings {
    * `shadow(light)` ノードが係数を返し、`ShadowNode` が `hasTextureCompare`
    * を見て自動で切り替える。
    *
-   * `pcfSoft` は WebGL 経路では廃止されたが node 経路には生きている。
+   * 値は `basic` と `pcf` の 2 つ。**`pcfSoft` は three 0.186 で無くなった**
+   * （この型の定義のコメント）。ultra と high の差は影マップの大きさで付ける。
    *
    * 段 15 の規約どおり、実装より先に列を作った（`CLAUDE.md`）。段 18 で
    * 経路を切り替えたとき、影が映る 12 枚がここで動く
@@ -316,7 +326,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // セル数を 48 へ上げたぶん、切り替え距離は控えめにする
     lodDistanceScale: 1.15,
     aircraftShadowMapSize: 2048,
-    shadowFilter: 'pcfSoft',
+    // high と同じ。three 0.186 で `pcfSoft` が無くなった（型のコメント）。
+    // ultra の影の差は影マップの大きさ 2048 で付ける
+    shadowFilter: 'pcf',
     environmentMapSize: 256,
     atmosphereLutScale: 1,
     aerialRaymarchScattering: true,

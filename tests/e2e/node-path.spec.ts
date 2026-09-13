@@ -505,19 +505,21 @@ test.describe('node 経路', () => {
       .toBeGreaterThan(20)
   })
 
-  test('WebGPU なら pcfSoft でも通る', async ({ page }, testInfo) => {
+  test('WebGPU で ultra の影マップが 1 パスで焼かれる', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
-    // `PCFSoftShadowFilter` は WebGL 経路では廃止されたが node 経路には
-    // 生きている。**通ることを実測で確かめる**
+    // もとは `pcfSoft` が node 経路で通ることを見ていた。**three 0.186 で
+    // `PCFSoftShadowMap` が `WebGPURenderer` から無くなった**ので、ultra の
+    // 列を `pcf` へ倒した（`quality.ts` の `ShadowFilter`）。パスの回数と
+    // 動いたバイトを見る部分はそのまま価値があるので残す
     const { result, errors } = await probe(page, 'gpu=2&nodeshadow=1&preset=ultra')
     expect(errors).toEqual([])
-    expect(result.nodeShadow!.filter).toBe('pcfSoft')
+    expect(result.nodeShadow!.filter).toBe('pcf')
     const n = result.nodeShadow!
     // 影マップは 1 パス。投げ手なしとの差で数える
     const bakes = n.frameCallsWith - n.frameCallsEnabledNoCaster
     expect(
       bakes,
-      `pcfSoft の影マップのパスが ${bakes} 回（なし ${n.frameCallsWithout} / 投げ手なし ${n.frameCallsEnabledNoCaster} / あり ${n.frameCallsWith}）`,
+      `ultra の影マップのパスが ${bakes} 回（なし ${n.frameCallsWithout} / 投げ手なし ${n.frameCallsEnabledNoCaster} / あり ${n.frameCallsWith}）`,
     ).toBe(1)
     // **WebGPU では有効にするだけでパスが 1 つ増える。**投げ手は無いので
     // 影マップではない。何が足しているかは未特定。段 17 で場面を組むときに
@@ -528,7 +530,7 @@ test.describe('node 経路', () => {
     ).toBe(1)
     expect(
       result.nodeShadow!.changed,
-      `pcfSoft で動いたバイトが ${result.nodeShadow!.changed} 個`,
+      `ultra で動いたバイトが ${result.nodeShadow!.changed} 個`,
     ).toBeGreaterThan(1000)
   })
 

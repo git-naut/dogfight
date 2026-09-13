@@ -371,7 +371,9 @@ describe('自動降格', () => {
  * （`CLAUDE.md`）。段 18 で経路を切り替えたとき、影が映る 12 枚がここで動く。
  */
 describe('影のフィルタ', () => {
-  const RANK: Record<string, number> = { basic: 0, pcf: 1, pcfSoft: 2 }
+  // `pcfSoft` は three 0.186 で無くなったので表から落とした（`quality.ts`）。
+  // **ここに残すと「表に無い値を知っている検査」になる**ので一緒に消す
+  const RANK: Record<string, number> = { basic: 0, pcf: 1 }
 
   it('全プリセットが値を持つ', () => {
     for (const name of PRESET_ORDER) {

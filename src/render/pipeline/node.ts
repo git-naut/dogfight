@@ -37,6 +37,7 @@ import {
 import { HASH_PROBE_SIDE } from '../hashReference'
 import { loadCarrier, placeCarrier, DECK_HEIGHT } from '../carrier'
 import { DEFAULT_EXPOSURE, type NodeProbeResult } from './types'
+import { shadowMapType } from './nodeShadow'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -92,7 +93,7 @@ export interface NodeProbeOptions {
   /**
    * 影を node 経路で立てて測るか。`?nodeshadow=1`。
    *
-   * `shadow(light)` の経路が立つか、`PCFSoftShadowMap` が通るか、影マップが
+   * `shadow(light)` の経路が立つか、プリセットのフィルタが渡るか、影マップが
    * 1 フレームに 1 回しか焼かれないかを見る
    */
   nodeShadow: boolean
@@ -982,14 +983,8 @@ export async function runNodeProbe(
     const enabledNoCaster = await measure()
     shadowLight.castShadow = true
 
-    // プリセットの列をそのまま使う。`pcfSoft` は WebGL 経路では廃止だが
-    // node 経路には生きている
-    renderer.shadowMap.type =
-      options.quality.shadowFilter === 'pcfSoft'
-        ? THREE.PCFSoftShadowMap
-        : options.quality.shadowFilter === 'pcf'
-          ? THREE.PCFShadowMap
-          : THREE.BasicShadowMap
+    // プリセットの列をそのまま使う。変換の正本は `nodeShadow.ts`
+    renderer.shadowMap.type = shadowMapType(options.quality)
     const withShadow = await measure()
 
     // 2 枚目。**焼き込みが 1 フレームに 1 回であることを 2 枚目でも見る**
@@ -1188,12 +1183,7 @@ export async function runNodeProbe(
       box.far = 400
       box.updateProjectionMatrix()
       renderer.shadowMap.enabled = true
-      renderer.shadowMap.type =
-        options.quality.shadowFilter === 'pcfSoft'
-          ? THREE.PCFSoftShadowMap
-          : options.quality.shadowFilter === 'pcf'
-            ? THREE.PCFShadowMap
-            : THREE.BasicShadowMap
+      renderer.shadowMap.type = shadowMapType(options.quality)
       aircraftShade = tsl.shadow(
         shadowLight,
       ) as unknown as import('three/webgpu').Node<'float'>

@@ -22,6 +22,13 @@ export interface RenderInfo {
   /** 太陽高度 rad */
   sunElevation: number
   preset: string
+  /**
+   * 描画バックエンドの名前。`webgl` / `node-webgl` / `node-webgpu`。
+   *
+   * **`?gpu=3` が効いたかを画面で読むために要る。**効いていないまま
+   * 実機で確かめても、何も確かめていないことになる
+   */
+  backend: string
   /** GPU フレーム時間 ms。0 なら計測できていない */
   gpuFrameMs: number
   /** 直近しばらくの最大。現在値だけでは重い視点を見落とす */
@@ -94,6 +101,10 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['throttle', 'スロットル'],
     ['sun', '太陽高度'],
     ['preset', '品質'],
+    // **経路は画面で見えないと確かめようがない。**`?gpu=3` を付けたつもりで
+    // 効いていないまま「長く飛んでも落ちない」を確かめても空振りになる。
+    // `openSettings` が `?gpu=3` を落としていた罠を段 20a-3 で踏んでいる
+    ['backend', '経路'],
     ['frame', 'フレーム'],
     ['fps', 'FPS'],
     ['gpu', 'GPU 時間'],
@@ -157,6 +168,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       set('throttle', `${(sample.throttle * 100).toFixed(0)}%`)
       set('sun', `${(render.sunElevation * DEG).toFixed(1)}°`)
       set('preset', render.preset)
+      set('backend', render.backend)
       set('frame', String(frame))
       // fps は平滑化してあるので、生のフレーム時間も並べる
       set('fps', `${fps.toFixed(0)} (${(1000 / Math.max(fps, 1)).toFixed(1)} ms)`)

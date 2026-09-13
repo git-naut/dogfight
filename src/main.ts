@@ -1147,6 +1147,7 @@ async function main(): Promise<void> {
     debug?.update(sample, world.frame, smoothedFps, {
       sunElevation: view.sunElevation,
       preset,
+      backend: view.backend.kind,
       gpuFrameMs: view.gpuFrameMs,
       gpuFrameMaxMs: view.gpuFrameMaxMs,
       gpuTimerSupported: view.gpuTimerSupported,

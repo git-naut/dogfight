@@ -1180,6 +1180,19 @@ test.describe('デバッグ表示', () => {
     await expect(panel).toContainText('high')
   })
 
+  test('経路が出る。**`?gpu=3` が効いたかを画面で読むため**', async ({ page }) => {
+    // **実機で確かめるときの空振りを防ぐ。**フラグを付けたつもりで効いて
+    // いないまま「長く飛んでも落ちない」を確かめても、何も確かめていない。
+    // `openSettings` が `?gpu=3` を落としていた罠を段 20a-3 で踏んでいる。
+    //
+    // `openLive` は node 経路の project でだけ `&gpu=3` を足すので、
+    // 期待する名前は経路で分かれる
+    await openLive(page, '?debug=1')
+    const panel = page.locator('.debug-panel')
+    await expect(panel).toContainText('経路')
+    await expect(panel).toContainText(onNodePath() ? 'node-webgpu' : 'webgl')
+  })
+
   test('既定では計器を出さない', async ({ page }) => {
     await openLive(page)
     await expect(page.locator('.debug-panel')).toHaveCount(0)

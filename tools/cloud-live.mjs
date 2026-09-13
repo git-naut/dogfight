@@ -87,6 +87,9 @@ async function fly(page, nodePath) {
   await advance(page, 120)
 
   const before = await page.locator('#viewport').screenshot()
+  const cloudsAtBefore = await page.evaluate(
+    () => window.__dogfight?.cloudRenderCount ?? 0,
+  )
   // **姿勢で揃える。**フレーム数で回すと実行ごとにバンクが -98°〜-119° と
   // ばらつき、2 回の測定を並べられない（実測）。ライブは実時間で進むので
   // 入力の効き方がフレームと一致しない
@@ -105,8 +108,11 @@ async function fly(page, nodePath) {
     frame: window.__dogfight?.frame ?? 0,
     altitude: window.__dogfight?.altitude ?? 0,
     bank: window.__dogfight?.bank ?? 0,
+    // **雲が毎フレーム焼けているか。**止まっていれば最初の 1 枚が画面に
+    // 貼り付き、視点についてくるように見える
+    cloudRenderCount: window.__dogfight?.cloudRenderCount ?? 0,
   }))
-  return { before, after, hook }
+  return { before, after, hook, cloudsAtBefore }
 }
 
 const browser = await chromium.launch({ args: [...WEBGPU_ARGS] })
@@ -131,10 +137,13 @@ try {
     const line = bands
       .map((b) => `${((100 * b.moved) / b.total).toFixed(0)}%`)
       .join(' ')
+    const baked = r.hook.cloudRenderCount - r.cloudsAtBefore
     console.log(
       `${label.padEnd(7)} backend=${r.hook.backend.padEnd(12)} ` +
         `frame=${r.hook.frame} 高度=${r.hook.altitude.toFixed(0)}m ` +
-        `バンク=${((r.hook.bank * 180) / Math.PI).toFixed(0)}° | 帯ごとの変化 ${line}`,
+        `バンク=${((r.hook.bank * 180) / Math.PI).toFixed(0)}° | ` +
+        `**回している間に雲を焼いた回数 ${baked}**（累計 ${r.hook.cloudRenderCount}） ` +
+        `| 帯ごとの変化 ${line}`,
     )
   }
   console.log(`\n絵は ${OUT}。**数字の前に絵を見ること。**`)

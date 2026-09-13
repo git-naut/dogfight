@@ -170,7 +170,11 @@ export class CloudsPass extends Pass {
   private readonly copyMaterial: ShaderMaterial
   private readonly resolveQuad: { scene: Scene; camera: OrthographicCamera }
   private readonly copyQuad: { scene: Scene; camera: OrthographicCamera }
-  private renderCount = 0
+  private renderCountValue = 0
+  /** 焼いた回数。ライブで毎フレーム焼けているかを外から見る */
+  get renderCount(): number {
+    return this.renderCountValue
+  }
   /** サイズや品質が変わった直後は履歴を捨てる */
   private historyValid = false
   private readonly probeMode: boolean
@@ -729,13 +733,13 @@ export class CloudsPass extends Pass {
 
     // フレームごとに誤差の出方をずらす。フレーム番号から決まるので
     // 実時間には依存しない
-    const j = this.renderCount % JITTER_PERIOD
+    const j = this.renderCountValue % JITTER_PERIOD
     u['startJitter']!.value = halton(j + 1, 2)
     u['pixelJitter']!.value.set(
       (halton(j + 1, 2) - 0.5) / this.target.width,
       (halton(j + 1, 3) - 0.5) / this.target.height,
     )
-    this.renderCount++
+    this.renderCountValue++
 
     renderer.setRenderTarget(this.target)
     renderer.render(this.quad.scene, this.quad.camera)

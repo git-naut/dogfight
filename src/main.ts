@@ -94,6 +94,7 @@ const hook = installTestHook({
   droppedSteps: 0,
   backend: '',
   webglVersion: 0,
+  cloudRenderCount: 0,
   atmosphereReady: false,
   sunElevation: 0,
   sunRadiance: [0, 0, 0],
@@ -1144,6 +1145,8 @@ async function main(): Promise<void> {
     }
 
     hook.droppedSteps = driver.droppedSteps
+    // **毎フレーム出す。**シムのフレームと並べて、雲が焼けているかを見る
+    hook.cloudRenderCount = view.cloudRenderCount
     debug?.update(sample, world.frame, smoothedFps, {
       sunElevation: view.sunElevation,
       preset,

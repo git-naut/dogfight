@@ -484,6 +484,10 @@ export async function createNodePipeline(
       return clouds.isHdrTarget
     },
 
+    get cloudRenderCount() {
+      return clouds.renderCount
+    },
+
     readCloudProbe() {
       return unsupported('readCloudProbe')
     },

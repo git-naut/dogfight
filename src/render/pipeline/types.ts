@@ -306,6 +306,18 @@ export interface ScenePipeline {
   readonly weatherSlice: Uint8Array
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
+  /**
+   * 雲を焼いた回数。
+   *
+   * **ライブで雲が毎フレーム焼かれているかを見る口がなかった。**node 経路の
+   * 雲は `CloudsRenderNode.updateBefore` から焼く。`NodeFrame` は `frameId`
+   * で重複を潰すので、番号が進まなければ**1 度しか焼かれない。**そうなると
+   * 雲は最初のフレームのまま画面に貼り付き、地形だけが正しく動く。
+   * 実機で報告された「傾けると雲も同じ動きをする」がその形。
+   *
+   * シムのフレーム数と並べて見る。増えていなければ焼けていない
+   */
+  readonly cloudRenderCount: number
   /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
   readCloudProbe(): { mean: number; max: number; p99: number }
   /**

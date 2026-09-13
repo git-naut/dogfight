@@ -112,6 +112,8 @@ export interface SceneHandle {
   readResolveProbe(): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
+  /** 雲を焼いた回数。ライブで毎フレーム焼けているかを見る */
+  readonly cloudRenderCount: number
   /** 高さ場の生成にかかったミリ秒 */
   readonly terrainMs: number
   /** 高さ場の中身。min と max が同じなら生成に失敗している */
@@ -379,6 +381,10 @@ export async function createScene(
 
     get gpuTimerSupported() {
       return pipeline.gpuTimerSupported
+    },
+
+    get cloudRenderCount() {
+      return pipeline.cloudRenderCount
     },
 
     get cloudHdrTarget() {

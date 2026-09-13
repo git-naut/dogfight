@@ -415,6 +415,15 @@ export interface TestHook {
   /** 描画バックエンドの名前。`webgl` / `node-webgl` / `node-webgpu` */
   backend: string
   webglVersion: number
+  /**
+   * 雲を焼いた回数。
+   *
+   * **シムのフレームと並べて見る。**node 経路の雲は
+   * `CloudsRenderNode.updateBefore` から焼き、`NodeFrame` は `frameId` で
+   * 重複を潰す。番号が進まなければ 1 度しか焼かれず、雲は最初のフレームの
+   * まま画面に貼り付いて**視点についてくるように見える**
+   */
+  cloudRenderCount: number
   /** 大気の LUT を読み終えたか */
   atmosphereReady: boolean
   /** 太陽高度 rad。時刻を変えたことの検証に使う */

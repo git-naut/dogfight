@@ -362,6 +362,10 @@ export async function createWebGLPipeline(
       return cloudsPass.isHdrTarget
     },
 
+    get cloudRenderCount() {
+      return cloudsPass.renderCount
+    },
+
     readCloudProbe() {
       return cloudsPass.readProbe(renderer)
     },

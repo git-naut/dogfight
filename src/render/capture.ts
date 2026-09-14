@@ -155,6 +155,8 @@ export interface CaptureConfig {
    * 基準画像 42 枚は 0 の経路だけを見る
    */
   gpu: number
+  /** 足し込みのプローブで代表点を出すか。`?uvmode=world` */
+  uvProbeMode: 'world' | undefined
   /**
    * 雲ノイズの突き合わせ用の読み戻しを出すか。`?noiseprobe=1`。
    *
@@ -342,6 +344,9 @@ export function readCaptureConfig(search: string): CaptureConfig {
       : params.get('capture') !== '1',
     audioProbe: params.get('audioprobe') === '1',
     gpu: clampInt(params.get('gpu'), 0, 3, 0),
+    // **足し込みのプローブで代表点を出す。**`?uvmode=world`。
+    // `prevUv` がずれる前の段階を見るため（2026-09-14）
+    uvProbeMode: params.get('uvmode') === 'world' ? ('world' as const) : undefined,
     noiseProbe: params.get('noiseprobe') === '1',
     shadowProbe: params.get('shadowprobe') === '1',
     marchProbe: params.get('marchprobe') === '1',
@@ -619,6 +624,13 @@ export interface TestHook {
      * **0 なら履歴を読む枝を通っていない。**再投影が全部外れていても
      * 「両側で一致」にはなるので、通っていることを別に見張る
      */
+    /**
+     * `prevUv` を色にしたもの（RG に uv、B に画面内か）。
+     *
+     * **両経路で座標を数値で突き合わせるため。**絵の印象では座標のずれが
+     * 読めず、上下反転の切り分けで何度も外した（2026-09-14）
+     */
+    resolveUv: number[]
     resolveChanged: number
   } | null
   /**

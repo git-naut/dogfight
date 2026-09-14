@@ -27,6 +27,11 @@ uniform vec3 cameraPositionWorld;
 
 /** 現フレームを混ぜる割合。1 なら履歴を使わない */
 uniform float blendWeight;
+/**
+ * 1 なら `prevUv` を色として出す。**両経路で数値を突き合わせるため。**
+ * 絵の印象では座標のずれが読めず、上下反転の切り分けで何度も外した
+ */
+uniform float uvProbe;
 /** テクセルの大きさ。近傍を舐めるのに使う */
 uniform vec2 texelSize;
 /**
@@ -75,12 +80,29 @@ void main() {
 
   // 代表点を前フレームの画面へ投影する
   vec3 world = cameraPositionWorld + rayDirection * slabDistance(cameraPositionWorld, rayDirection);
+  if (uvProbe > 1.5) {
+    // **代表点そのものを見る。**10 km で割って 0..1 へ詰める
+    fragColor = vec4(
+      clamp(world.x / 10000.0 + 0.5, 0.0, 1.0),
+      clamp(world.y / 10000.0, 0.0, 1.0),
+      clamp(world.z / 10000.0 + 0.5, 0.0, 1.0),
+      1.0);
+    return;
+  }
+
   vec4 prevClip = previousViewProjection * vec4(world, 1.0);
   if (prevClip.w <= 0.0) {
     fragColor = current;
     return;
   }
   vec2 prevUv = prevClip.xy / prevClip.w * 0.5 + 0.5;
+
+  if (uvProbe > 0.5) {
+    // **8 ビットへ詰める。**RG に prevUv、B に「画面内か」を入れる
+    bool inside = all(greaterThanEqual(prevUv, vec2(0.0))) && all(lessThanEqual(prevUv, vec2(1.0)));
+    fragColor = vec4(clamp(prevUv, 0.0, 1.0), inside ? 1.0 : 0.0, 1.0);
+    return;
+  }
 
   // 画面の外へ出た履歴は使えない
   if (any(lessThan(prevUv, vec2(0.0))) || any(greaterThan(prevUv, vec2(1.0)))) {

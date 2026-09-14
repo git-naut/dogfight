@@ -99,6 +99,13 @@ function firstDifference(
 export interface NodeProbeOptions {
   /** 1 = `forceWebGL: true`、2 = WebGPU */
   gpu: number
+  /**
+   * 足し込みのプローブで何を色にするか。既定は `prevUv`。
+   *
+   * `'world'` にすると再投影の前の代表点を出す。**`prevUv` がずれる前の
+   * 段階で食い違っていれば、原因は光線か slab の側にある**（2026-09-14）
+   */
+  uvProbeMode?: true | 'world'
   aircraftUrl: string
   carrierUrl: string
   width: number
@@ -427,6 +434,37 @@ export async function runNodeProbe(
         clampScale: RESOLVE_PROBE_CLAMP_SCALE,
       }),
     )
+    // **`prevUv` を色で焼く。**両経路で座標を数値で突き合わせる。
+    // 絵の印象では座標のずれが読めず、上下反転の切り分けで何度も外した
+    const resolveUvTarget = volume.bakePlane(
+      renderer,
+      quad,
+      MARCH_PROBE_WIDTH,
+      MARCH_PROBE_HEIGHT,
+      resolveNodes.cloudResolveFragmentNode({
+        currentFrame: tsl.texture(currentTarget.texture) as never,
+        historyFrame: tsl.texture(historyTarget.texture) as never,
+        inverseProjectionMatrix: marchInputs.inverseProjectionMatrix,
+        inverseViewMatrix: marchInputs.inverseViewMatrix,
+        previousViewProjection: node<
+          typeof marchInputs.inverseViewMatrix
+        >(previousViewProjection),
+        cameraPositionWorld: marchInputs.cameraPositionWorld,
+        blendWeight: tsl.float(RESOLVE_PROBE_BLEND_WEIGHT),
+        texelSize: tsl.vec2(1 / MARCH_PROBE_WIDTH, 1 / MARCH_PROBE_HEIGHT),
+        clampScale: RESOLVE_PROBE_CLAMP_SCALE,
+        uvProbe: (options.uvProbeMode ?? true) as never,
+      }),
+    )
+    const resolveUvBytes = await volume.readPlane(
+      renderer,
+      resolveUvTarget,
+      MARCH_PROBE_WIDTH,
+      MARCH_PROBE_HEIGHT,
+      isWebGPU,
+    )
+    resolveUvTarget.dispose()
+
     const resolveBytes = await volume.readPlane(
       renderer,
       resolveTarget,
@@ -443,6 +481,7 @@ export async function runNodeProbe(
       exhausted: marchExhaustedCount(await bakeMarch(2)),
       tiles: tileMeans(await bakeMarch(0), MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
       resolve: resolveBytes,
+      resolveUv: resolveUvBytes,
     }
   }
 

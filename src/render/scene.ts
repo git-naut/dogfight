@@ -109,7 +109,7 @@ export interface SceneHandle {
     waterBranches: number[][]
   }
   /** 時間方向の足し込みを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
-  readResolveProbe(): number[]
+  readResolveProbe(uvProbe?: number): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   /** 雲を焼いた回数。ライブで毎フレーム焼けているかを見る */
@@ -495,8 +495,8 @@ export async function createScene(
       return pipeline.readSurfaceProbe()
     },
 
-    readResolveProbe() {
-      return pipeline.readResolveProbe()
+    readResolveProbe(uvProbe?: number) {
+      return pipeline.readResolveProbe(uvProbe)
     },
 
     get quality() {

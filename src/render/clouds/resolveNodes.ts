@@ -88,6 +88,13 @@ export interface ResolveInputs {
    * 3x3 を舐める枝ごと消せる
    */
   clampScale: number
+  /**
+   * `prevUv` を色として出すか。**JS の定数で畳む。**
+   *
+   * 両経路で座標を数値で突き合わせるために要る。絵の印象では座標のずれが
+   * 読めず、上下反転の切り分けで何度も外した（2026-09-14）
+   */
+  uvProbe?: boolean | 'world'
 }
 
 /**
@@ -155,6 +162,34 @@ export function cloudResolveFragmentNode(inputs: ResolveInputs): Node<'vec4'> {
           .or(prevUv.x.greaterThan(1))
           .or(prevUv.y.greaterThan(1))
 
+        // **TSL に早期 return が無い。**`Return()` は値を返さない
+        // （`expression('return')`）。プローブの代入だけを置くと、後続の
+        // `If(outside.not(), ...)` が同じ `result` を上書きする。**実測で
+        // B が 0/255 ではなく 115 になり、プローブ自体が壊れていた。**
+        // 枝ごと JS で分ける
+        if (inputs.uvProbe === 'world') {
+          // **代表点そのものを見る。**`prevUv` がずれる前の段階で
+          // 食い違っていれば、原因は光線か slab の側にある。
+          // 10 km で割って 0..1 へ詰める
+          result.assign(
+            vec4(
+              clamp(world.x.div(10000).add(0.5), 0, 1),
+              clamp(world.y.div(10000), 0, 1),
+              clamp(world.z.div(10000).add(0.5), 0, 1),
+              1,
+            ),
+          )
+        } else if (inputs.uvProbe === true) {
+          // **8 ビットへ詰める。**RG に prevUv、B に「画面内か」
+          result.assign(
+            vec4(
+              clamp(prevUv.x, 0, 1),
+              clamp(prevUv.y, 0, 1),
+              outside.select(float(0), float(1)),
+              1,
+            ),
+          )
+        } else
         If(outside.not(), () => {
           const history = sampleTarget(inputs.historyFrame, prevUv).toVar()
 

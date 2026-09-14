@@ -552,7 +552,14 @@ export class CloudsPass extends Pass {
    * 履歴に見立てる。マーチは両側でバイトまで一致することを段 13 の前半で
    * 確かめてあるので、入力が同じであることは言い切れる
    */
-  readResolveProbe(renderer: WebGLRenderer): number[] {
+  /**
+   * 足し込みのプローブ。固定入力で 1 枚焼いて読み戻す。
+   *
+   * `uvProbe` を立てると、色の代わりに **`prevUv` を RG に、画面内かを B に**
+   * 入れて返す。**両経路で座標を数値で突き合わせるため。**絵の印象では
+   * 座標のずれが読めず、上下反転の切り分けで何度も外した（2026-09-14）
+   */
+  readResolveProbe(renderer: WebGLRenderer, uvProbe = 0): number[] {
     const current = this.marchProbeTarget()
     const history = this.marchProbeTarget()
     const output = this.marchProbeTarget()
@@ -590,6 +597,8 @@ export class CloudsPass extends Pass {
           value: new Vector2(1 / MARCH_PROBE_WIDTH, 1 / MARCH_PROBE_HEIGHT),
         },
         clampScale: { value: RESOLVE_PROBE_CLAMP_SCALE },
+        // **`prevUv` を色として出す。**両経路で数値を突き合わせる
+        uvProbe: { value: uvProbe },
       },
     })
 

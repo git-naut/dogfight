@@ -351,6 +351,7 @@ async function main(): Promise<void> {
       // ヒストグラムの不一致が移植の欠陥なのか入力の違いなのか分からない
       shadowInputs: capture.shadowInputs,
       marchProbe: capture.marchProbe,
+      ...(capture.uvProbeMode !== undefined ? { uvProbeMode: capture.uvProbeMode } : {}),
       heightProbe: capture.heightProbe,
       nodeShadow: capture.nodeShadow,
       spriteProbe: capture.spriteProbe,
@@ -726,6 +727,8 @@ async function main(): Promise<void> {
         exhausted: marchExhaustedCount(view.readMarchProbe(2)),
         tiles: tileMeans(currentBytes, MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
         resolve: resolveBytes,
+        // **`prevUv` を色で焼いたもの。**node 経路と数値で突き合わせる
+        resolveUv: view.readResolveProbe(capture.uvProbeMode === 'world' ? 2 : 1),
         // **履歴を読む枝を通ったか。**現フレームと同じなら通っていない
         resolveChanged: byteDifference(resolveBytes, currentBytes).differing,
       }

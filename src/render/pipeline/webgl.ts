@@ -378,8 +378,8 @@ export async function createWebGLPipeline(
       return cloudsPass.readMarchProbe(renderer, mode)
     },
 
-    readResolveProbe() {
-      return cloudsPass.readResolveProbe(renderer)
+    readResolveProbe(uvProbe?: number) {
+      return cloudsPass.readResolveProbe(renderer, uvProbe)
     },
 
     readSpriteProbe(opaqueCore: boolean) {

@@ -333,7 +333,11 @@ export interface ScenePipeline {
    */
   readMarchProbe(mode: 0 | 1 | 2): number[]
   /** 時間方向の足し込みを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
-  readResolveProbe(): number[]
+  /**
+   * 足し込みのプローブ。`uvProbe` を立てると `prevUv` を色で返す
+   * （RG に uv、B に画面内か）。**両経路で座標を数値で比べるため**
+   */
+  readResolveProbe(uvProbe?: number): number[]
   /** 円形スプライトを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
   readSpriteProbe(opaqueCore: boolean): number[]
   /** トーンマッピングを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
@@ -489,6 +493,13 @@ export interface NodeProbeResult {
     tiles: number[]
     /** 時間方向の足し込みの生バイト。GLSL 版とバイトで比べる */
     resolve: number[]
+    /**
+     * `prevUv` を色にしたもの（RG に uv、B に画面内か）。
+     *
+     * **両経路で座標を数値で突き合わせるため。**絵の印象では座標のずれが
+     * 読めず、上下反転の切り分けで何度も外した（2026-09-14）
+     */
+    resolveUv: number[]
   } | null
   /**
    * TSL で引いた高さ場 64 点 m。`?heightprobe=1` のときだけ埋まる。

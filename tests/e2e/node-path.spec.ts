@@ -418,6 +418,38 @@ test.describe('node 経路', () => {
     // 引く）とはバイトが揃わない（実測で 26,763 個・最大 181。**絵は
     // ほとんど変わらない**ことを `tools/cloud-live.mjs` で確かめた）。
     //
+    // ---- `prevUv` を数値で突き合わせる ----
+    //
+    // **絵の印象では座標のずれが読めない。**上下反転の切り分けで何度も
+    // 外した（2026-09-14）。`prevUv` を色として焼き、両経路でバイトを
+    // 比べる。RG に uv、B に「画面内か」が入る
+    const uvDiff = byteDifference(glsl!.resolveUv, result.march!.resolveUv)
+    // eslint-disable-next-line no-console
+    console.log(
+      `[prevUv] 違う ${uvDiff.differing} / 最大 ${uvDiff.max}`,
+    )
+    // **チャンネル別に見る。**R=u、G=v、B=画面内か。どれがずれているかで
+    // 原因が分かれる（座標そのものか、判定の枝か）
+    const perChannel = [0, 1, 2].map((c) => {
+      let n = 0
+      let max = 0
+      for (let i = c; i < glsl!.resolveUv.length; i += 4) {
+        const d = Math.abs(glsl!.resolveUv[i]! - result.march!.resolveUv[i]!)
+        if (d > 0) n++
+        if (d > max) max = d
+      }
+      return { n, max }
+    })
+    const label = ['u', 'v', '画面内'][0]
+    expect(
+      uvDiff.max,
+      `再投影の座標が両経路でずれる。` +
+        `u=${perChannel[0]!.n}個/最大${perChannel[0]!.max} ` +
+        `v=${perChannel[1]!.n}個/最大${perChannel[1]!.max} ` +
+        `画面内=${perChannel[2]!.n}個/最大${perChannel[2]!.max}` +
+        `（${label}）`,
+    ).toBeLessThanOrEqual(2)
+
     // 一致を基準に置いている限り、自前のターゲット管理と三重の裏返しを
     // 捨てられない。**守るものは「旧経路と同じ絵」から「雲が正しく出る」
     // へ移す。**入力（マーチ 2 枚）の一致は上で見張っており、足し込みが

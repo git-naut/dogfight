@@ -44,6 +44,10 @@ function keyHandlingFiles(): { path: string; source: string }[] {
   return collectTsFiles(SRC)
     .map((path) => ({ path, source: readFileSync(path, 'utf8') }))
     .filter(({ source }) => source.includes('keydown') || source.includes('KeyboardEvent'))
+    // **診断だけのキーは操作説明に載せない。**`cloudDiag.ts` の `P` は
+    // `?clouddiag=manual` のときだけ効き、手順は画面へ出す。ここを外さないと
+    // 「説明に無いキー」で落ちる。**除外はこの 1 本だけに留める**
+    .filter(({ path }) => !path.endsWith('cloudDiag.ts'))
 }
 
 /** 実装が入力の判定に使っているキーコード */

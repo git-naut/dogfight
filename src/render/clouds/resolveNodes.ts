@@ -46,6 +46,23 @@ import {
  * 旧経路（GLSL 版）とのビット一致は基準から外した（2026-09-14）。
  */
 
+/**
+ * レンダーターゲットを「書いたときと同じ位置」で引く。
+ *
+ * **手で裏返す。**`TextureNode.setupUV()` は `isFlipY()` を見るが
+ * `WGSLNodeBuilder` では false なので WebGPU では何もしない。全画面
+ * クアッドをレンダーターゲットへ描く時点で上下が入れ替わっているので、
+ * 読む側で戻す。
+ *
+ * 2026-09-14 に「three に任せる」で外したが、**バンク中の同じフレームを
+ * 両経路で撮ると上下が反転していた**（暗い雲の塊が旧経路で画面左下、
+ * node で左上）。反転した絵はロールに対して逆向きに回るので、「機体を
+ * 傾けた同じ量の方向に雲が動く」という報告になる。
+ */
+function sampleTarget(source: TextureNode, at: Node<'vec2'>): Node<'vec4'> {
+  return source.sample(vec2(at.x, float(1).sub(at.y)))
+}
+
 export interface ResolveInputs {
   /** 現フレームのマーチ結果。`rtt()` の戻り値 */
   currentFrame: TextureNode
@@ -108,7 +125,7 @@ function slabDistance(
 export function cloudResolveFragmentNode(inputs: ResolveInputs): Node<'vec4'> {
   return Fn(() => {
     const pixelUv = uv().toVar()
-    const current = inputs.currentFrame.sample(pixelUv).toVar()
+    const current = sampleTarget(inputs.currentFrame, pixelUv).toVar()
     const result = vec4(current).toVar()
 
     If(inputs.blendWeight.lessThan(1), () => {
@@ -139,7 +156,7 @@ export function cloudResolveFragmentNode(inputs: ResolveInputs): Node<'vec4'> {
           .or(prevUv.y.greaterThan(1))
 
         If(outside.not(), () => {
-          const history = inputs.historyFrame.sample(prevUv).toVar()
+          const history = sampleTarget(inputs.historyFrame, prevUv).toVar()
 
           if (inputs.clampScale > 0) {
             // 近傍の最小最大で挟む。挟まないと雲の縁で古い値が尾を引く。
@@ -149,7 +166,8 @@ export function cloudResolveFragmentNode(inputs: ResolveInputs): Node<'vec4'> {
             for (let y = -1; y <= 1; y++) {
               for (let x = -1; x <= 1; x++) {
                 if (x === 0 && y === 0) continue
-                const s = inputs.currentFrame.sample(
+                const s = sampleTarget(
+                  inputs.currentFrame,
                   pixelUv.add(vec2(x, y).mul(inputs.texelSize)),
                 )
                 minColor.assign(min(minColor, s))

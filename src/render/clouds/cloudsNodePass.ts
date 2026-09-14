@@ -266,7 +266,13 @@ export function createCloudsNodePass(
   // その材質の依存にパスのノードが入り、この材質を焼くたびに場面がもう 1 度
   // 描かれる。深度テクスチャは `isRenderTargetTexture` が立っているので、
   // v の裏返しは `TextureNode.setupUV()` が入れる（三の他の経路と同じ約束）
-  const sceneDepthNode = texture(options.sceneDepth, uv()).r as unknown as Node<'float'>
+  // **深度も裏返して読む。**マーチの出力と同じ約束（`resolveNodes.ts` の
+  // `sampleTarget`）。素の uv で読むと打ち切りの位置が上下逆になり、
+  // **機体が雲の後ろへ回る**（実測。旧経路は機体が手前に出る）
+  const sceneDepthNode = texture(
+    options.sceneDepth,
+    vec2(uv().x, float(1).sub(uv().y)),
+  ).r as unknown as Node<'float'>
 
   let quadQuality = quality
   let marchMaterial: NodeMaterial | null = null
@@ -365,7 +371,9 @@ export function createCloudsNodePass(
     }
 
     override setup(): Node<'vec4'> {
-      // **素の uv で引く。**並びの差は `TextureNode.setupUV()` が吸収する
+      // **ここは素の uv。**裏返すのは resolve の入力側だけでよい
+      // （`resolveNodes.ts` の `sampleTarget`）。ここでも裏返すと二重に
+      // なり、機体が雲の後ろへ回る（実測）
       return texture(output.texture) as unknown as Node<'vec4'>
     }
   }

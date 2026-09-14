@@ -182,7 +182,14 @@ describe('docs/lessons.md', () => {
     // 測ったが雲は下半分、`?debug=1` の計器が測定領域を覆う、敵のいる
     // 台本で撃墜されてリザルトの暗幕を数える）。
     //
+    // 2026-09-14 に 13 へ。雲の上下反転を直したときに開けた。
+    // **`overlayProbe` は本番を模していない。**`volume.bakePlane()` で焼くが
+    // 本番は全画面クアッドを `draw` で焼き、y の向きが違う。プローブでは
+    // 素の uv が正しく、本番では裏返しが要る。**検査が通ったまま本番だけが
+    // 上下逆だった。**node 経路の本番の絵を縛る検査が無い（基準画像 42 枚は
+    // `test.skip(onNodePath())` で飛ばす）。
+    //
     // **減らしたときは下げる。増やすときは理由を書く。**
-    expect(holes).toBeLessThanOrEqual(12)
+    expect(holes).toBeLessThanOrEqual(13)
   })
 })

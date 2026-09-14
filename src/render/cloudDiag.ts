@@ -272,3 +272,87 @@ export function showCloudDiag(
   }
   document.body.append(panel)
 }
+
+/**
+ * 手で操作して、追従していると感じた瞬間に測る。`?clouddiag=manual`。
+ *
+ * **自動操作では再現しなかった。**カメラのロールには `ROLL_TAU` の遅れが
+ * あり、撮るタイミングで見え方が変わる。操作する人が「いま追従して
+ * いる」と判じた瞬間を捉えるほうが確実。
+ *
+ * `P` を押すと 1 枚目、動かしてからもう一度 `P` で 2 枚目と結果。
+ *
+ * **`main.ts` から分けてある。**`tests/input/controlHelp.test.ts` は
+ * `src/` から `event.code === '...'` を拾って操作説明と突き合わせるので、
+ * 診断だけのキーが混ざると「説明に無いキー」として落ちる。診断は
+ * `?clouddiag=manual` のときだけ動き、手順は画面に出すので操作説明には
+ * 載せない。**検査の側でこのファイルを除外する。**
+ */
+export function runManualCloudDiag(deps: {
+  canvas: HTMLCanvasElement
+  view: {
+    backend: { kind: string }
+    cloudRenderCount: number
+    setMeasureConfig?: (config: { clouds: boolean }) => void
+  }
+  computeCloudDiag: typeof computeCloudDiag
+  showCloudDiag: typeof showCloudDiag
+  readCanvas: typeof readCanvas
+}): void {
+  const { canvas, view } = deps
+  const note = document.createElement('div')
+  note.style.cssText =
+    'position:fixed;left:16px;bottom:16px;color:#0f0;background:#000a;' +
+    'font:20px monospace;padding:12px 16px;z-index:9999;white-space:pre'
+  note.textContent =
+    '雲の追従を測る\n\n' +
+    '1. ふつうに飛ぶ\n' +
+    '2. **P** を押す（1 枚目）\n' +
+    '3. 追従していると感じる操作をする\n' +
+    '4. もう一度 **P**（結果が出る）'
+  document.body.append(note)
+
+  let first: { img: ImageData; noClouds: ImageData; bakes: number } | null = null
+  let busy = false
+
+  /** 雲あり／なしを続けて撮る。**間に操作を挟ませない** */
+  const shootPair = async (): Promise<{ img: ImageData; noClouds: ImageData }> => {
+    const img = deps.readCanvas(canvas)
+    view.setMeasureConfig?.({ clouds: false })
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const noClouds = deps.readCanvas(canvas)
+    view.setMeasureConfig?.({ clouds: true })
+    return { img, noClouds }
+  }
+
+  window.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyP' || busy) return
+    busy = true
+    void (async () => {
+      const pair = await shootPair()
+      if (first === null) {
+        first = { ...pair, bakes: view.cloudRenderCount }
+        note.textContent = '1 枚目を撮った\n\n追従する操作をしてから、もう一度 **P**'
+      } else {
+        note.remove()
+        const diag = deps.computeCloudDiag(
+          first.img,
+          pair.img,
+          first.noClouds,
+          0,
+          view.backend.kind,
+          0,
+          view.cloudRenderCount - first.bakes,
+          pair.noClouds,
+        )
+        deps.showCloudDiag(diag, {
+          base: first.img,
+          rolled: pair.img,
+          cloud: diag.masks.cloud,
+          cloudAfter: diag.masks.cloudAfter,
+        })
+      }
+      busy = false
+    })()
+  })
+}

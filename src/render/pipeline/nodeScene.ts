@@ -344,7 +344,14 @@ export async function createNodePipeline(
     const ratio = Math.min(dpr, quality.maxPixelRatio) * quality.renderScale
     renderer.setPixelRatio(ratio)
     renderer.setSize(cssWidth, cssHeight, false)
-    clouds.setSize(cssWidth, cssHeight)
+    // **描画バッファの実寸を渡す。**CSS の寸法を渡すと `renderScale` と
+    // `maxPixelRatio` が雲に届かず、**dpr が 1 より大きい画面で node の雲
+    // だけが粗くなる**（実測。dpr 1.5・high で旧経路 960 幅に対し 640 幅）。
+    // 旧経路は `composer.setSize()` が実寸を各パスへ配るので同じ幅になる
+    clouds.setSize(
+      Math.round(cssWidth * ratio),
+      Math.round(cssHeight * ratio),
+    )
     camera.aspect = cssWidth / cssHeight
     camera.updateProjectionMatrix()
   }

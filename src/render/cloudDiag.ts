@@ -55,6 +55,8 @@ export interface CloudDiagResult {
    */
   cloudCentroidShift: number
   otherCentroidShift: number
+  /** 雲と判定した画素。絵に重ねて見せるのに使う */
+  masks: { cloud: Uint8Array; cloudAfter: Uint8Array }
 }
 
 /** マスクの重心。無ければ null */
@@ -174,11 +176,65 @@ export function computeCloudDiag(
     cloudBakes,
     cloudCentroidShift,
     otherCentroidShift,
+    masks: { cloud, cloudAfter },
   }
 }
 
+/**
+ * 回す前と後の絵を並べ、雲の領域を縁取って出す。
+ *
+ * **数字と現象が同じものを指しているかを、目で確かめるため。**手元では
+ * 追従が再現せず（重心が 193〜814 画素動く）、報告とかみ合わない。
+ * 私が測っているものと、報告者が見ているものがずれている疑いがある
+ */
+function drawPair(
+  base: ImageData,
+  rolled: ImageData,
+  cloud: Uint8Array,
+  cloudAfter: Uint8Array,
+): HTMLElement {
+  const row = document.createElement('div')
+  row.style.cssText = 'display:flex;gap:12px;margin-top:16px'
+  for (const [img, mask, label] of [
+    [base, cloud, '回す前'],
+    [rolled, cloudAfter, '回した後'],
+  ] as const) {
+    const wrap = document.createElement('div')
+    const cap = document.createElement('div')
+    cap.textContent = label
+    cap.style.cssText = 'color:#0f0;font:16px monospace;margin-bottom:4px'
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    c.style.cssText = 'width:520px;height:auto;border:1px solid #0f0'
+    const ctx = c.getContext('2d')!
+    ctx.putImageData(img, 0, 0)
+    // 雲と判定した画素を赤く重ねる。**どこを雲として数えたかを見せる**
+    const overlay = ctx.getImageData(0, 0, img.width, img.height)
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] !== 1) continue
+      const p = i * 4
+      overlay.data[p] = Math.min(255, overlay.data[p]! + 90)
+      overlay.data[p + 1] = overlay.data[p + 1]! >> 1
+      overlay.data[p + 2] = overlay.data[p + 2]! >> 1
+    }
+    ctx.putImageData(overlay, 0, 0)
+    wrap.append(cap, c)
+    row.append(wrap)
+  }
+  return row
+}
+
 /** 結果を画面へ大きく出す。**1 枚撮れば読めるように** */
-export function showCloudDiag(result: CloudDiagResult): void {
+export function showCloudDiag(
+  result: CloudDiagResult,
+  pictures?: {
+    base: ImageData
+    rolled: ImageData
+    cloud: Uint8Array
+    cloudAfter: Uint8Array
+  },
+): void {
   const cloudRate =
     result.cloudPixels > 0 ? (100 * result.cloudMoved) / result.cloudPixels : 0
   const otherRate =
@@ -209,5 +265,10 @@ export function showCloudDiag(result: CloudDiagResult): void {
     `（描画あたり ${result.drawnFrames > 0 ? (result.cloudBakes / result.drawnFrames).toFixed(2) : '-'}）\n` +
     `雲の重心の移動  ${result.cloudCentroidShift.toFixed(1)} 画素\n\n` +
     `${verdict}`
+  if (pictures !== undefined) {
+    panel.append(
+      drawPair(pictures.base, pictures.rolled, pictures.cloud, pictures.cloudAfter),
+    )
+  }
   document.body.append(panel)
 }

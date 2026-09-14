@@ -1237,7 +1237,78 @@ async function main(): Promise<void> {
   // 2 枚撮って比べ、結果を DOM へ出せば、ヘッドレスの `--screenshot` 1 枚で
   // 読める
   if (new URLSearchParams(window.location.search).has('clouddiag')) {
-    void runCloudDiag()
+    if (new URLSearchParams(window.location.search).get('clouddiag') === 'manual') {
+      runManualCloudDiag()
+    } else {
+      void runCloudDiag()
+    }
+  }
+
+  /**
+   * 手で操作して、追従していると感じた瞬間に測る。`?clouddiag=manual`。
+   *
+   * **自動操作では再現しなかった。**カメラのロールには `ROLL_TAU` の遅れが
+   * あり、撮るタイミングで見え方が変わる。操作する人が「いま追従して
+   * いる」と判じた瞬間を捉えるほうが確実。
+   *
+   * `P` を押すと 1 枚目、動かしてからもう一度 `P` で 2 枚目と結果。
+   */
+  function runManualCloudDiag(): void {
+    const note = document.createElement('div')
+    note.style.cssText =
+      'position:fixed;left:16px;bottom:16px;color:#0f0;background:#000a;' +
+      'font:20px monospace;padding:12px 16px;z-index:9999;white-space:pre'
+    note.textContent =
+      '雲の追従を測る\n\n' +
+      '1. ふつうに飛ぶ\n' +
+      '2. **P** を押す（1 枚目）\n' +
+      '3. 追従していると感じる操作をする\n' +
+      '4. もう一度 **P**（結果が出る）'
+    document.body.append(note)
+
+    let first: { img: ImageData; noClouds: ImageData; bakes: number } | null = null
+    let busy = false
+
+    /** 雲あり／なしを続けて撮る。**間に操作を挟ませない** */
+    const shootPair = async (): Promise<{ img: ImageData; noClouds: ImageData }> => {
+      const img = readCanvas(canvas!)
+      view.setMeasureConfig?.({ clouds: false })
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      const noClouds = readCanvas(canvas!)
+      view.setMeasureConfig?.({ clouds: true })
+      return { img, noClouds }
+    }
+
+    window.addEventListener('keydown', (event) => {
+      if (event.code !== 'KeyP' || busy) return
+      busy = true
+      void (async () => {
+        const pair = await shootPair()
+        if (first === null) {
+          first = { ...pair, bakes: view.cloudRenderCount }
+          note.textContent = '1 枚目を撮った\n\n追従する操作をしてから、もう一度 **P**'
+        } else {
+          note.remove()
+          const diag = computeCloudDiag(
+            first.img,
+            pair.img,
+            first.noClouds,
+            0,
+            view.backend.kind,
+            0,
+            view.cloudRenderCount - first.bakes,
+            pair.noClouds,
+          )
+          showCloudDiag(diag, {
+            base: first.img,
+            rolled: pair.img,
+            cloud: diag.masks.cloud,
+            cloudAfter: diag.masks.cloudAfter,
+          })
+        }
+        busy = false
+      })()
+    })
   }
 
   /** タイトルを飛ばし、水平に整えてから回して 3 枚撮る */
@@ -1290,13 +1361,20 @@ async function main(): Promise<void> {
       requestAnimationFrame(countDraw)
     }
     requestAnimationFrame(countDraw)
+    // **入力を止めずに撮る。**報告は「入力するとすぐに挙動する」。
+    // 入力を止めて落ち着いてから撮ると、雲が追いついて差が消える。
+    // `?lag=N` で入力してから撮るまでのフレーム数を変えられる
+    const lag = Number(
+      new URLSearchParams(window.location.search).get('lag') ?? '24',
+    )
     key(moveKey, true)
-    await waitFrames(240)
-    key(moveKey, false)
-    await waitFrames(20)
+    await waitFrames(lag)
     const rolled = readCanvas(canvas!)
+    key(moveKey, false)
     // **回した後の雲の位置も要る。**重心の移動を出すには、回す前と後の
     // 両方で「雲がどこにあるか」を知る必要がある
+    // **雲の位置は入力を止めてから測る。**動いている最中に切り替えると
+    // 雲あり/なしの 2 枚で視点がずれ、差が雲でなく視点の移動になる
     view.setMeasureConfig?.({ clouds: false })
     await waitFrames(6)
     const rolledNoClouds = readCanvas(canvas!)
@@ -1304,8 +1382,7 @@ async function main(): Promise<void> {
     await waitFrames(6)
     const rolledDegrees = Math.abs((world.player.bank * 180) / Math.PI - bankBefore)
 
-    showCloudDiag(
-      computeCloudDiag(
+    const diag = computeCloudDiag(
         base,
         rolled,
         noClouds,
@@ -1314,8 +1391,13 @@ async function main(): Promise<void> {
         drawn,
         view.cloudRenderCount - bakesBefore,
         rolledNoClouds,
-      ),
     )
+    showCloudDiag(diag, {
+      base,
+      rolled,
+      cloud: diag.masks.cloud,
+      cloudAfter: diag.masks.cloudAfter,
+    })
   }
 }
 

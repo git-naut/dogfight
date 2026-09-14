@@ -2478,3 +2478,48 @@ node 経路は修正前に約 450 フレームで死んだ。**当時の欠陥�
 
 **どちらも SwiftShader での検査。**実機の GPU とは条件が違う。段 20b の
 欠陥は両方で出たが、逆に実機でだけ出る形は捕まらない。
+
+## 実 GPU で測る（2026-09-14）
+
+**WSL2 の WebGPU は SwiftShader にしか乗らない。**`/dev/dxg` と
+`libd3d12.so` はあるが、4 通りの起動引数すべてで vendor=google
+arch=swiftshader（`tools/gpu-probe.mjs`）。実機でだけ出る欠陥は手元で
+追えなかった。
+
+**Windows 側の node から playwright-core で Chrome を操作すると届く。**
+vendor=intel arch=xe-2lpg。CDP は同じマシンの中で閉じるので NAT を越えない。
+
+```bash
+# 一度だけ: C:\Windows\Temp\dg-pw に playwright-core を入れる
+cmd.exe /c "cd C:\Windows\Temp\dg-pw && npm install playwright-core"
+
+# 測る。URL は url.txt で渡す（cmd.exe 越しに引数の引用符が混ざる）
+cp tools/win-measure.mjs /mnt/c/Windows/Temp/dg-pw/measure.mjs
+printf '%s' "http://$(hostname -I | awk '{print $1}'):4415/dogfight/?clouddiag=1&gpu=3" \
+  > /mnt/c/Windows/Temp/dg-pw/url.txt
+cmd.exe /c "cd C:\Windows\Temp\dg-pw && node measure.mjs"
+```
+
+**preview は `--host 0.0.0.0` で立てる。**Windows から WSL の IP へ繋ぐ。
+
+### 塞がれた道
+
+| 手 | 結果 |
+|---|---|
+| WSL の Chromium に GPU を掴ませる | 4 通りとも SwiftShader |
+| WSL から Windows の Chrome へ CDP | **Chrome が 9222 を `127.0.0.1` に固定する。**`--remote-debugging-address=0.0.0.0` は無視される（`tools/win-chrome.mjs` に記録） |
+| ヘッドレスの `--screenshot` | 撮れるが**待てない。**`--virtual-time-budget` は仮想時間だけ速回しするので、LUT の実時間の読み込みを待たず 4.6 秒で撮る |
+
+`http://` は保安コンテキストではないので **WebGPU が生えない。**
+`--unsafely-treat-insecure-origin-as-secure=<origin>` が要る
+（`about:blank` で `navigator.gpu` が undefined になるのと同じ形）。
+
+### キャプチャモードでは出ない欠陥がある
+
+雲の追従（上下反転）は**ライブでしか出ない。**キャプチャはカメラが
+止まった状態で 8 枚収束させるので、履歴の再投影の誤りが絵に出ない。
+`tools/cloud-live.mjs` と `?clouddiag=1` はどちらもライブで測る。
+
+**どちらも絵を必ず書き出す。**数字だけを読んで 4 度外した（測る領域に
+雲が入っていない、計器が領域を覆う、撃墜されて暗幕を数える、動いた画素の
+数は向きを見ない）。

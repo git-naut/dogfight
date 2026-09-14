@@ -38,6 +38,14 @@ npm run build      # 型検査してから Vite ビルド
 npm run test:e2e   # Playwright。SwiftShader 固定でスクリーンショット回帰
 ```
 
+**実機の GPU で確かめるときは Windows 側の node を使う。**WSL2 の WebGPU は
+SwiftShader にしか乗らないので、実機でだけ出る欠陥（雲の上下反転など）を
+手元で追えない。手順と塞がれた道は `docs/measuring.md` の「実 GPU で測る」。
+
+**three にはパッチを当てている。**`tools/patch-three.mjs` が `postinstall` で
+`nodeProxyConstructor` に `get` と `has` を足す。takram 0.19.1 が読む
+`.layout` が three 0.185 以降で消えたため。**当たらなくなったら落ちる。**
+
 ## 品質プリセット
 
 Low / Medium / High / Ultra の4段。レンダースケール、雲のステップ数、影マップの解像度、LOD 切替距離、ポストエフェクトの有無が連動する。基準は Intel Arc 140V で High・1080p・60fps。

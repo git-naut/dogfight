@@ -5,10 +5,19 @@
 // 実機でだけ出る欠陥（雲の追従、2026-09-13）を手元で追えないと、確認のたびに
 // 人へ頼むことになる。
 //
-// WSL2 の localhost は Windows と共有されるので、Windows の Chrome を
-// `--remote-debugging-port` で立てれば `connectOverCDP` で繋がる。
+// **この道は繋がらなかった。**Chrome は CDP を `127.0.0.1` に固定し、
+// `--remote-debugging-address=0.0.0.0` を渡しても無視する（実測。
+// `netstat` で `127.0.0.1:9222` にだけ LISTENING）。WSL2 は NAT なので
+// Windows の `127.0.0.1` へは届かない。
 //
-// 使い方:
+// **実 GPU で測るなら `tools/win-measure.mjs` を使う。**Windows 側の node
+// から playwright-core で Chrome を起動すれば、CDP は同じマシンの中で
+// 閉じるので NAT を越えない。
+//
+// このファイルは**踏んだ道の記録として残す。**消すと、次に同じ手を
+// 試して同じ時間を溶かす。
+//
+// 使い方（繋がらないことの確認）:
 //   node tools/win-chrome.mjs --check          GPU の素性だけ見る
 //   node tools/win-chrome.mjs --url <URL>      開いて hook を読む
 import { spawn } from 'node:child_process'

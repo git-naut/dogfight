@@ -189,7 +189,11 @@ describe('docs/lessons.md', () => {
     // 上下逆だった。**node 経路の本番の絵を縛る検査が無い（基準画像 42 枚は
     // `test.skip(onNodePath())` で飛ばす）。
     //
+    // 2026-09-14 に 12 へ**減らした。**「実機でだけ出る欠陥を手元で追えない」を
+    // 埋めた。Windows 側の node から playwright-core で Chrome を操作すると
+    // 実 GPU に届く（`tools/win-measure.mjs`）。
+    //
     // **減らしたときは下げる。増やすときは理由を書く。**
-    expect(holes).toBeLessThanOrEqual(13)
+    expect(holes).toBeLessThanOrEqual(12)
   })
 })

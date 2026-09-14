@@ -1236,7 +1236,7 @@ async function main(): Promise<void> {
   // 繋ぐ道も塞がれている（`src/render/cloudDiag.ts` の注記）。ページの中で
   // 2 枚撮って比べ、結果を DOM へ出せば、ヘッドレスの `--screenshot` 1 枚で
   // 読める
-  if (new URLSearchParams(window.location.search).get('clouddiag') === '1') {
+  if (new URLSearchParams(window.location.search).has('clouddiag')) {
     void runCloudDiag()
   }
 
@@ -1273,6 +1273,13 @@ async function main(): Promise<void> {
     view.setMeasureConfig?.({ clouds: true })
     await waitFrames(6)
 
+    // **ロールだけでなく上昇下降でも出る**という報告（2026-09-14）。
+    // `?clouddiag=pitch` でピッチに切り替える
+    const mode =
+      new URLSearchParams(window.location.search).get('clouddiag') === 'pitch'
+        ? 'pitch'
+        : 'roll'
+    const moveKey = mode === 'pitch' ? 'KeyS' : 'KeyA'
     const bankBefore = (world.player.bank * 180) / Math.PI
     // **描画フレームと雲の焼き回数を並べる。**雲が描画ごとに更新されて
     // いなければ、遅れて「ついてくる」ように見える
@@ -1283,11 +1290,18 @@ async function main(): Promise<void> {
       requestAnimationFrame(countDraw)
     }
     requestAnimationFrame(countDraw)
-    key('KeyA', true)
+    key(moveKey, true)
     await waitFrames(240)
-    key('KeyA', false)
+    key(moveKey, false)
     await waitFrames(20)
     const rolled = readCanvas(canvas!)
+    // **回した後の雲の位置も要る。**重心の移動を出すには、回す前と後の
+    // 両方で「雲がどこにあるか」を知る必要がある
+    view.setMeasureConfig?.({ clouds: false })
+    await waitFrames(6)
+    const rolledNoClouds = readCanvas(canvas!)
+    view.setMeasureConfig?.({ clouds: true })
+    await waitFrames(6)
     const rolledDegrees = Math.abs((world.player.bank * 180) / Math.PI - bankBefore)
 
     showCloudDiag(
@@ -1299,6 +1313,7 @@ async function main(): Promise<void> {
         view.backend.kind,
         drawn,
         view.cloudRenderCount - bakesBefore,
+        rolledNoClouds,
       ),
     )
   }

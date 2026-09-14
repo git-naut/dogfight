@@ -44,6 +44,40 @@ export interface CloudDiagResult {
    */
   drawnFrames: number
   cloudBakes: number
+  /**
+   * 雲の重心が画面上で動いた距離（画素）。
+   *
+   * **「動いた画素の数」では足りない。**雲が画面に貼り付いたまま内部の
+   * 模様だけ変わっても、8 階調の判定は「動いた」と数える。視点を回せば
+   * 重心は移動するはずで、**追従していれば動かない。**
+   *
+   * 地形の重心の移動と並べて見る。雲だけが動いていなければ追従
+   */
+  cloudCentroidShift: number
+  otherCentroidShift: number
+}
+
+/** マスクの重心。無ければ null */
+function centroid(mask: Uint8Array, width: number): { x: number; y: number } | null {
+  let sx = 0
+  let sy = 0
+  let n = 0
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] !== 1) continue
+    sx += i % width
+    sy += (i / width) | 0
+    n++
+  }
+  return n === 0 ? null : { x: sx / n, y: sy / n }
+}
+
+/** 2 つの重心の距離。どちらか無ければ 0 */
+function shift(
+  a: { x: number; y: number } | null,
+  b: { x: number; y: number } | null,
+): number {
+  if (a === null || b === null) return 0
+  return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
 /** 2 枚の差を数える。閾値は 8 階調 */
@@ -96,9 +130,26 @@ export function computeCloudDiag(
   backend: string,
   drawnFrames: number,
   cloudBakes: number,
+  rolledNoClouds: ImageData,
 ): CloudDiagResult {
   const cloud = cloudMask(base, noClouds)
+  const cloudAfter = cloudMask(rolled, rolledNoClouds)
   const moved = movedMask(base, rolled)
+  // **重心で見る。**回した前後で雲がどこへ移ったか。地形の重心と並べる
+  const cloudCentroidShift = shift(
+    centroid(cloud, base.width),
+    centroid(cloudAfter, base.width),
+  )
+  // 雲以外は「雲でない画素のうち、明るさが中位のもの」では重心が定まらない。
+  // 地形と海が動いた画素を代理に使う
+  const otherMovedMask = new Uint8Array(moved.length)
+  for (let i = 0; i < moved.length; i++) {
+    otherMovedMask[i] = cloud[i] === 0 && moved[i] === 1 ? 1 : 0
+  }
+  const otherCentroidShift = shift(
+    centroid(otherMovedMask, base.width),
+    centroid(otherMovedMask, base.width),
+  )
   let cloudPixels = 0
   let cloudMoved = 0
   let otherPixels = 0
@@ -121,6 +172,8 @@ export function computeCloudDiag(
     backend,
     drawnFrames,
     cloudBakes,
+    cloudCentroidShift,
+    otherCentroidShift,
   }
 }
 
@@ -138,9 +191,11 @@ export function showCloudDiag(result: CloudDiagResult): void {
   const verdict =
     result.cloudPixels < 5000
       ? '雲が出ていない。**測定は空振り**（構図か雲量を変える）'
-      : cloudRate < otherRate * 0.5
-        ? '**雲が視点についてきている**（雲の領域だけ動いていない）'
-        : '雲は流れている'
+      : result.cloudCentroidShift < 8
+        ? '**雲が視点についてきている**（重心がほとんど移っていない）'
+        : cloudRate < otherRate * 0.5
+          ? '**雲が視点についてきている**（雲の領域だけ動いていない）'
+          : '雲は流れている'
   panel.textContent =
     `雲の追従の診断\n\n` +
     `経路            ${result.backend}\n` +
@@ -151,7 +206,8 @@ export function showCloudDiag(result: CloudDiagResult): void {
     `  うち動いた    ${result.otherMoved}（${otherRate.toFixed(1)}%）\n\n` +
     `描画フレーム    ${result.drawnFrames}\n` +
     `雲を焼いた回数  ${result.cloudBakes}` +
-    `（描画あたり ${result.drawnFrames > 0 ? (result.cloudBakes / result.drawnFrames).toFixed(2) : '-'}）\n\n` +
+    `（描画あたり ${result.drawnFrames > 0 ? (result.cloudBakes / result.drawnFrames).toFixed(2) : '-'}）\n` +
+    `雲の重心の移動  ${result.cloudCentroidShift.toFixed(1)} 画素\n\n` +
     `${verdict}`
   document.body.append(panel)
 }

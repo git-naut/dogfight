@@ -15,7 +15,12 @@ import { cloudTime } from './clouds/geometry'
 import type { ShadowInputs } from './clouds/shadowInputs'
 import { FIXED_DT } from '../sim/loop'
 import { createWebGLPipeline } from './pipeline/webgl'
-import { DEFAULT_COVERAGE, type MeasureConfig, type SceneOptions } from './pipeline/types'
+import {
+  DEFAULT_BACKEND,
+  DEFAULT_COVERAGE,
+  type MeasureConfig,
+  type SceneOptions,
+} from './pipeline/types'
 
 /** 描画へ渡すミサイルの姿勢。補間済みの値を main が詰める */
 export interface MissilePose {
@@ -256,6 +261,31 @@ export interface SceneHandle {
 }
 
 /**
+ * WebGPU のアダプタが取れるか。**キャンバスを掴む前に訊く。**
+ *
+ * `WebGPURenderer` は `init()` でキャンバスのコンテキストを取る。取った後で
+ * `dispose()` しても戻せない。**1 つのキャンバスは 1 種類のコンテキストしか
+ * 持てない**ので、同じキャンバスへ `WebGLRenderer` を作り直すと
+ * `Cannot read properties of null (reading 'precision')` で落ちる。
+ *
+ * 実際に踏んだ。`createNodePipeline` が投げる `WebGPUUnavailable` を
+ * `createScene` で受けて GLSL へ作り直す形を書いたら、退避路の検査が
+ * 180 秒で固まった（2026-09-14）。**例外を受けてからでは遅い。**
+ *
+ * `navigator.gpu` が無いのは保安コンテキストでない場合。`requestAdapter()`
+ * が null を返すのは起動引数が足りない場合（`--enable-unsafe-webgpu` など）。
+ */
+async function webgpuAvailable(): Promise<boolean> {
+  const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu
+  if (gpu === undefined) return false
+  try {
+    return (await gpu.requestAdapter()) !== null
+  } catch {
+    return false
+  }
+}
+
+/**
  * シーンの帳簿。
  *
  * sim の値をビューへ写す仕事だけを持つ。**レンダラもコンポーザも雲のパスも
@@ -272,10 +302,23 @@ export async function createScene(
 ): Promise<SceneHandle> {
   // **帳簿はどちらが立っているかを知らない。**選ぶのはここ 1 か所だけで、
   // `ScenePipeline` の口から先は同じ（段 20a-2-3）
-  const pipeline =
-    options.pipeline === 'node'
-      ? await (await import('./pipeline/nodeScene')).createNodePipeline(canvas, options)
-      : await createWebGLPipeline(canvas, options)
+  //
+  // `options.pipeline` が無いときは `DEFAULT_BACKEND` に従う。**この配線が
+  // 抜けていた。**2026-09-14 に `DEFAULT_BACKEND` を `'node'` へ書き換えた
+  // が、読む側が 1 か所も無く、既定は GLSL のままだった。定数だけが
+  // 切り替わっていたので、基準画像 42 枚を「node 経路」の名前で撮り直して
+  // も中身は GLSL、退避路の検査（`node-fallback.spec.ts`）も node が立って
+  // いないので当然のように緑。**どの検査も嘘をつかないまま、全体として
+  // 嘘になっていた。**
+  // **名指し（`?gpu=3`）は退避しない。**立たなければ投げて分かるほうがいい。
+  // 既定のときだけ、WebGPU が取れるかを訊いてから決める
+  const wantNode =
+    options.pipeline === 'node' ||
+    (options.pipeline === undefined && DEFAULT_BACKEND === 'node' && (await webgpuAvailable()))
+
+  const pipeline = wantNode
+    ? await (await import('./pipeline/nodeScene')).createNodePipeline(canvas, options)
+    : await createWebGLPipeline(canvas, options)
   const {
     camera,
     chase,

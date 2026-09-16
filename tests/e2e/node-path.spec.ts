@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import type { TestHook } from './harness'
+import { hasWebGPU, type TestHook } from './harness'
 import {
   hashProbeExpected,
   HASH_PROBE_SIDE,
@@ -10,7 +10,7 @@ import {
   SHADOW_TILES,
 } from '../../src/render/clouds/geometry'
 import { encodeShadowInputs } from '../../src/render/clouds/shadowInputs'
-import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
+import { DEFAULT_BACKEND, DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
 import {
   SEABED_HEIGHT,
   TERRAIN_EXTENT,
@@ -127,21 +127,23 @@ test.describe('node 経路', () => {
     expect(errors).toEqual([])
   })
 
-  test('?gpu=2 の結果は起動引数で決まる', async ({ page }, testInfo) => {
-    const hasWebGPU = testInfo.project.name === 'chromium-webgpu'
+  test('?gpu=2 の結果は起動引数で決まる', async ({ page }) => {
+    // **判定は project が宣言する。**名前で見ていたので、同じ引数で走る
+    // `chromium-node` を「WebGPU が無い」と読んで落ちた（2026-09-14）
+    const webgpu = hasWebGPU()
     const { result, errors } = await probe(page, 'gpu=2')
 
-    expect(result.backend).toBe(hasWebGPU ? 'node-webgpu' : 'node-webgl')
+    expect(result.backend).toBe(webgpu ? 'node-webgpu' : 'node-webgl')
     // 引数が無ければ adapter が取れず WebGL2 へ落ちる。**落ちても止まらない**
-    expect(result.fellBack).toBe(!hasWebGPU)
+    expect(result.fellBack).toBe(!webgpu)
     expect(result.shaderMaterials).toBe(0)
     expect(result.triangles).toBeGreaterThan(0)
     expect(errors).toEqual([])
   })
 
-  test('WebGPU なら大気まで組み、LUT を実行時に計算する', async ({ page }, testInfo) => {
+  test('WebGPU なら大気まで組み、LUT を実行時に計算する', async ({ page }) => {
     test.skip(
-      testInfo.project.name !== 'chromium-webgpu',
+      !hasWebGPU(),
       'WebGPU の起動引数が要る',
     )
     const { result, errors } = await probe(page, 'gpu=2')
@@ -157,7 +159,7 @@ test.describe('node 経路', () => {
     // **絵を見比べても分からない。**同じ時刻から同じ太陽が出ることを数値で
     // 確かめる。ずれていれば座標系の橋渡しがどこかで違っている。
     // 大気付きの WebGPU 起動は 2 分かかるので、同じ 1 回に相乗りさせる
-    await page.goto('/dogfight/?capture=1&frame=0')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -195,7 +197,7 @@ test.describe('node 経路', () => {
     expect(errors).toEqual([])
     expect(result.noiseSlice.length).toBe(16 * 16 * 4)
 
-    await page.goto('/dogfight/?capture=1&frame=0&noiseprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&noiseprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -212,7 +214,7 @@ test.describe('node 経路', () => {
     expect(errors).toEqual([])
     expect(result.weatherSlice.length).toBe(16 * 16 * 4)
 
-    await page.goto('/dogfight/?capture=1&frame=0&noiseprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&noiseprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -221,8 +223,8 @@ test.describe('node 経路', () => {
     expect(result.weatherSlice).toEqual(hook?.weatherSlice)
   })
 
-  test('WGSL でも GLSL 版とビット一致する', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
+  test('WGSL でも GLSL 版とビット一致する', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
     const { result, errors } = await probe(
       page,
       'gpu=2&marchprobe=1&heightprobe=1&spriteprobe=1',
@@ -244,7 +246,7 @@ test.describe('node 経路', () => {
 
     // ノイズと気象マップとマーチ。**同じ 1 回に相乗りさせる。**大気付きの
     // WebGPU 起動は重いので、基準を取る側も 1 回で済ませる
-    await page.goto('/dogfight/?capture=1&frame=0&noiseprobe=1&marchprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&noiseprobe=1&marchprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -286,7 +288,7 @@ test.describe('node 経路', () => {
 
     // 円形スプライト。**WGSL は演算順序が変わるのでバイト一致は求めない**
     expect(result.sprite, 'WGSL 側がスプライトを焼いていない').toBeTruthy()
-    await page.goto('/dogfight/?capture=1&frame=0&spriteprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&spriteprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const spriteHook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -305,7 +307,9 @@ test.describe('node 経路', () => {
    */
   async function bakeShadowWithGlsl(page: import('@playwright/test').Page) {
     await page.goto(
-      `/dogfight/?capture=1&script=level&frame=240&hour=16&coverage=${DEFAULT_COVERAGE}&shadowprobe=1`,
+      // **`webgl=1` で GLSL を名指しする。**関数名が GLSL と言っていても、
+      // 経路を指定しなければ `DEFAULT_BACKEND` に従う（2026-09-14）
+      `/dogfight/?capture=1&webgl=1&script=level&frame=240&hour=16&coverage=${DEFAULT_COVERAGE}&shadowprobe=1`,
     )
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
@@ -373,7 +377,7 @@ test.describe('node 経路', () => {
     // **段 13 の合格条件。**固定のカメラと固定の入力で焼く。密度サンプル数と
     // 打ち切りの数は整数なので、ループと分岐が同じなら完全に一致するはず。
     // 絵は浮動小数の演算順序で動くので区画平均で見る
-    await page.goto('/dogfight/?capture=1&frame=0&marchprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&marchprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -539,8 +543,8 @@ test.describe('node 経路', () => {
       .toBeGreaterThan(20)
   })
 
-  test('WebGPU で ultra の影マップが 1 パスで焼かれる', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
+  test('WebGPU で ultra の影マップが 1 パスで焼かれる', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
     // もとは `pcfSoft` が node 経路で通ることを見ていた。**three 0.186 で
     // `PCFSoftShadowMap` が `WebGPURenderer` から無くなった**ので、ultra の
     // 列を `pcf` へ倒した（`quality.ts` の `ShadowFilter`）。パスの回数と
@@ -576,7 +580,7 @@ test.describe('node 経路', () => {
     expect(errors).toEqual([])
     expect(result.sprite, 'TSL 側がスプライトを焼いていない').toBeTruthy()
 
-    await page.goto('/dogfight/?capture=1&frame=0&spriteprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&spriteprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -610,7 +614,7 @@ test.describe('node 経路', () => {
     expect(errors).toEqual([])
     expect(result.tone, 'TSL 側がトーンマッピングを焼いていない').toBeTruthy()
 
-    await page.goto('/dogfight/?capture=1&frame=0&toneprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&toneprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -647,7 +651,7 @@ test.describe('node 経路', () => {
     expect(errors).toEqual([])
     expect(result.overlay, 'TSL 側が合成を焼いていない').toBeTruthy()
 
-    await page.goto('/dogfight/?capture=1&frame=0&overlayprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&overlayprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -740,9 +744,9 @@ test.describe('node 経路', () => {
     expect(source, '不透明度 1 の判定が本文に無い').toMatch(/\.w == 1\.0/)
   })
 
-  test('WebGPU でも雲の合成が GLSL 版と一致する', async ({ page }, testInfo) => {
+  test('WebGPU でも雲の合成が GLSL 版と一致する', async ({ page }) => {
     test.skip(
-      testInfo.project.name !== 'chromium-webgpu',
+      !hasWebGPU(),
       'WebGPU の起動引数が要る',
     )
     const { result, errors } = await probe(page, 'gpu=2&overlayprobe=1')
@@ -750,7 +754,7 @@ test.describe('node 経路', () => {
     expect(result.backend).toBe('node-webgpu')
     expect(result.overlay, 'TSL 側が合成を焼いていない').toBeTruthy()
 
-    await page.goto('/dogfight/?capture=1&frame=0&overlayprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&overlayprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -771,9 +775,9 @@ test.describe('node 経路', () => {
     expect(diff.max, `合成の最大差 ${diff.max}`).toBeLessThanOrEqual(1)
   })
 
-  test('RenderPipeline でポストの鎖が立つ', async ({ page }, testInfo) => {
+  test('RenderPipeline でポストの鎖が立つ', async ({ page }) => {
     test.skip(
-      testInfo.project.name !== 'chromium-webgpu',
+      !hasWebGPU(),
       'WebGPU の起動引数が要る',
     )
     const { result, errors } = await probe(page, 'gpu=2&nodepipeline=1')
@@ -808,7 +812,7 @@ test.describe('node 経路', () => {
       expect(v, '間接照度が 0。LUT ができる前に焼いている疑い').toBeGreaterThan(0)
     }
 
-    await page.goto('/dogfight/?capture=1&frame=0')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const glslHook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -943,7 +947,7 @@ test.describe('node 経路', () => {
     expect(errors).toEqual([])
     expect(result.surface, 'TSL 側が地表を焼いていない').toBeTruthy()
 
-    await page.goto('/dogfight/?capture=1&frame=0&surfaceprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&surfaceprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -1052,9 +1056,9 @@ test.describe('node 経路', () => {
     }
   })
 
-  test('WebGPU でも地表と海面が GLSL 版と一致する', async ({ page }, testInfo) => {
+  test('WebGPU でも地表と海面が GLSL 版と一致する', async ({ page }) => {
     test.skip(
-      testInfo.project.name !== 'chromium-webgpu',
+      !hasWebGPU(),
       'WebGPU の起動引数が要る',
     )
     const { result, errors } = await probe(page, 'gpu=2&surfaceprobe=1')
@@ -1062,7 +1066,7 @@ test.describe('node 経路', () => {
     expect(result.backend).toBe('node-webgpu')
     expect(result.surface, 'TSL 側が地表を焼いていない').toBeTruthy()
 
-    await page.goto('/dogfight/?capture=1&frame=0&surfaceprobe=1')
+    await page.goto('/dogfight/?capture=1&frame=0&webgl=1&surfaceprobe=1')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
@@ -1126,9 +1130,9 @@ test.describe('node 経路', () => {
     ).toBeLessThanOrEqual(result.renderMs * 1.1)
   })
 
-  test('WebGPU でも GPU 時間が取れる', async ({ page }, testInfo) => {
+  test('WebGPU でも GPU 時間が取れる', async ({ page }) => {
     test.skip(
-      testInfo.project.name !== 'chromium-webgpu',
+      !hasWebGPU(),
       'WebGPU の起動引数が要る',
     )
     // 実測で GPU 229.9 ms 対 CPU 231.9 ms
@@ -1150,8 +1154,8 @@ test.describe('node 経路', () => {
     ).toBeLessThanOrEqual(result.renderMs * 1.1)
   })
 
-  test('本番の場面が node 経路で立つ', async ({ page }, testInfo) => {
-    test.skip(testInfo.project.name !== 'chromium-webgpu', 'WebGPU の起動引数が要る')
+  test('本番の場面が node 経路で立つ', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
 
     // **段 20a の到達点。**`?gpu=1|2` は自己診断で、固定入力のプローブ用の
     // 場面を描く。`?gpu=3` は `createNodePipeline` を立てて**本番の場面**
@@ -1205,14 +1209,25 @@ test.describe('node 経路', () => {
     expect(hook!.webglVersion, 'WebGPU なので生のコンテキストは無い').toBe(0)
   })
 
-  test('既定の経路は node を立てない', async ({ page }) => {
+  test('`?gpu` を渡さない既定が DEFAULT_BACKEND に従う', async ({ page }) => {
     await page.goto('/dogfight/?capture=1&frame=0')
     await page.waitForSelector('body[data-capture-ready="1"]')
     const hook = await page.evaluate(
       () => (window as unknown as { __dogfight?: TestHook }).__dogfight,
     )
-    // **既定の絵には触らない。**`?gpu` を渡さなければ第 2 経路は動かない
+    // 自己診断は `?gpu=1|2` のときだけ。既定では走らない
     expect(hook?.gpuProbe).toBeNull()
-    expect(hook?.backend).toBe('webgl')
+
+    // **この検査が「配線が無いこと」を固定していた。**
+    //
+    // 以前は `expect(hook?.backend).toBe('webgl')` を無条件に書いていた。
+    // `DEFAULT_BACKEND` を `'node'` へ書き換えても `createScene` が読んで
+    // いなかったので、既定は GLSL のまま緑で通り続けた。**定数だけが
+    // 切り替わっている状態を、この検査が守っていた。**
+    //
+    // いまは既定の宣言と実際の経路を突き合わせる。WebGPU の無い project
+    // では退避するので GLSL になる（`node-fallback.spec.ts` の担当）
+    const expected = DEFAULT_BACKEND === 'node' && hasWebGPU() ? 'node-webgpu' : 'webgl'
+    expect(hook?.backend, `既定の宣言は ${DEFAULT_BACKEND}`).toBe(expected)
   })
 })

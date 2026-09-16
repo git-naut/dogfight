@@ -39,9 +39,39 @@ export function readHook(page: Page): Promise<TestHook | undefined> {
  * **`?gpu=3` を足すのはここ 1 か所だけ。**各テストが URL を組み立てる形に
  * すると、足し忘れた検査が GLSL 経路のまま通って「両経路で緑」の意味が
  * 消える（段 20a-3）
+ *
+ * **判定は project の `metadata.nodePath` が正本。**以前は project 名が
+ * `chromium-node` かどうかで見ていたが、既定を node へ切り替えた
+ * 2026-09-14 に追随しなくなった。主 project（`chromium-webgpu`）は node
+ * 経路で走るのに false を返し、`?gpu=3` が付かず、`onNodePath()` を条件に
+ * した `test.skip` が 3 か所すり抜けた。**経路の判定を名前から読むと、
+ * 名前と経路の対応が変わったときに黙って逆を返す。**
  */
 export function onNodePath(): boolean {
-  return test.info().project.name === 'chromium-node'
+  return projectFlag('nodePath')
+}
+
+/**
+ * この project の起動引数で WebGPU が立つか。
+ *
+ * **これも名前で判定していた。**`node-path.spec.ts` が
+ * `project.name === 'chromium-webgpu'` で見ていて、同じ引数で走る
+ * `chromium-node` を「WebGPU が無い」と読んだ。`?gpu=2` が
+ * `node-webgpu` を返したのに `node-webgl` を期待して落ちた
+ */
+export function hasWebGPU(): boolean {
+  return projectFlag('webgpu')
+}
+
+function projectFlag(key: 'nodePath' | 'webgpu'): boolean {
+  const declared = test.info().project.metadata?.[key]
+  if (typeof declared !== 'boolean') {
+    throw new Error(
+      `project '${test.info().project.name}' に metadata.${key} が無い。` +
+        'playwright.config.ts の projects に足すこと',
+    )
+  }
+  return declared
 }
 
 /**
@@ -81,13 +111,19 @@ export async function advanceFrames(page: Page, frames: number): Promise<void> {
       ((window as unknown as { __dogfight?: { frame: number } }).__dogfight?.frame ?? 0) >=
       start! + n!,
     [from, frames],
-    { timeout: 120_000 },
+    // **上限も経路に合わせる。**`waitBudgetMs` を作ったのにここだけ固定値
+    // だった。`1,200 フレーム飛んでも描画が止まらない` が node 経路で
+    // 120 秒に届かず落ちた（2026-09-14）。**待ち方を値にしても、上限が
+    // 速い経路の値のままなら同じところで切れる。**
+    { timeout: waitBudgetMs(120_000) },
   )
 }
 
 export async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
   const params = captureParams(query)
-  if (onNodePath()) params.set('gpu', '3')
+  // **GLSL を名指しされたら node を要求しない。**両方渡しても GLSL が勝つが、
+  // URL に矛盾した名指しを並べない
+  if (onNodePath() && query.webgl !== true) params.set('gpu', '3')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')

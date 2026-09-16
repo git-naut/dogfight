@@ -1328,12 +1328,15 @@ test.describe('スクリーンショット回帰', () => {
 
   for (const scene of scenes) {
     test(`${scene.name} の絵が基準と一致する`, async ({ page }) => {
-      // **node 経路では画素を比べない。**基準画像 42 枚は
-      // `chromium-swiftshader` のもので、node 経路は光の式が違う
-      // （大気の LUT・環境反射・PCF・`getSplitIlluminance`）。撮り直すのは
-      // 段 20b で、差分の理由を台帳にしてから。ここで撮ると別物の 42 枚が
-      // 黙って増える（段 20a-3）
-      test.skip(onNodePath(), '画素の撮り直しは段 20b')
+      // **2026-09-14 に node 経路で撮り直した。**基準画像は
+      // `*-chromium-webgpu-linux.png` の 42 枚。旧経路の 42 枚
+      // （`*-chromium-swiftshader-linux.png`）はファイルとして残してあり、
+      // `WEBGL=1` で回すと突き合わせられる。
+      //
+      // 以前はここに `test.skip(onNodePath(), ...)` があった。**外したのは
+      // 撮り直したからだが、外す前から効いていなかった。**`onNodePath()`
+      // が project 名で判定していて、主 project が node 経路になったのに
+      // false を返していた（`harness.ts`）
       await capture(page, scene)
       await expect(page.locator('#viewport')).toHaveScreenshot(`${scene.name}.png`)
     })
@@ -1754,11 +1757,17 @@ test.describe('効果音', () => {
       { timeout: waitBudgetMs(120_000) },
     )
     await page.locator('.title-start').click()
-    // 撃つ・被弾する・爆発する を一通り通す
+    // 撃つ・被弾する・爆発する を一通り通す。
+    //
+    // **壁時計で待たない。**`waitForTimeout(2000)` は GLSL 経路の 1 フレーム
+    // 50 ms を前提にした値で、node 経路（1 フレーム 800 ms 前後）では 2〜3
+    // 枚しか進まず 1 発も出ない。既定が node になった 2026-09-14 に
+    // `roundsFired` が 0 で落ちた。**「例外が出ない」は撃てていなくても
+    // 通る**ので、`roundsFired` の主張が無ければ気づけなかった
     await page.keyboard.down('Space')
-    await page.waitForTimeout(2000)
+    await advanceFrames(page, 240)
     await page.keyboard.up('Space')
-    await page.waitForTimeout(1000)
+    await advanceFrames(page, 120)
 
     const hook = await readHook(page)
     expect(hook!.roundsFired, '撃てていない').toBeGreaterThan(0)
@@ -1787,9 +1796,25 @@ test.describe('シェーダの事前コンパイル', () => {
       { timeout: waitBudgetMs(300_000) },
     )
     const hook = await readHook(page)
-    // 実測で 119 個。1 段ぶんだけなら 43 個だった
-    expect(hook!.programs, '事前コンパイルが効いていない').toBeGreaterThan(90)
-    expect(hook!.compileMs, 'コンパイルの時間が記録されていない').toBeGreaterThan(0)
+
+    // **`programs` の数で効きを見られるのは GLSL 経路だけ。**
+    //
+    // 実測（2026-09-14、SwiftShader、`?script=mission-01`）。
+    //
+    // | 経路 | 4 段ぶん | 事前コンパイルなし |
+    // |---|---|---|
+    // | GLSL | 119 | 25 |
+    // | node | **63** | **67** |
+    //
+    // node 経路は作るほうが**少ない。**プリセットを跨いでパイプラインが
+    // 共有されるらしく、数が事前コンパイルの効きを表していない。
+    // **意味の分からない数を検査の根拠にしない。**node 側は
+    // `compileAllPresets` を通ったこと自体を `compileMs` で見る
+    // （`?precompile=0` なら 0 になることを実測で確かめた）
+    if (!onNodePath()) {
+      expect(hook!.programs, '事前コンパイルが効いていない').toBeGreaterThan(90)
+    }
+    expect(hook!.compileMs, '4 段ぶんのコンパイルを通っていない').toBeGreaterThan(0)
   })
 
   /**
@@ -2190,9 +2215,13 @@ test.describe('雲影の分布', () => {
     // **GLSL 側が TSL との突き合わせの参照値を作るための口。**node 経路では
     // 相手がいないので `readShadowHistogram` は投げる（空を返すと「一致した」と
     // 読める結果が出てしまう）。node 側の分布は `node-path.spec.ts` が
-    // `?nodeshadow=1` で見る（段 20a-3）
-    test.skip(onNodePath(), 'プローブの参照値は GLSL 側の口')
+    // `?nodeshadow=1` で見る（段 20a-3）。
+    //
+    // **以前は `test.skip(onNodePath())` で飛ばしていた。**既定が node に
+    // なると、既定の回し方で一度も回らない（`WEBGL=1` を付けたときだけ）。
+    // `webgl: true` で経路を名指しして、どちらの既定でも回す
     const hook = await capture(page, {
+      webgl: true,
       script: 'level',
       frame: 240,
       hour: 16,
@@ -2226,10 +2255,11 @@ test.describe('雲影の分布', () => {
     // **GLSL 側が TSL との突き合わせの参照値を作るための口。**node 経路では
     // 相手がいないので `readShadowHistogram` は投げる（空を返すと「一致した」と
     // 読める結果が出てしまう）。node 側の分布は `node-path.spec.ts` が
-    // `?nodeshadow=1` で見る（段 20a-3）
-    test.skip(onNodePath(), 'プローブの参照値は GLSL 側の口')
+    // `?nodeshadow=1` で見る（段 20a-3）。`webgl: true` で経路を名指しする
+    // （以前は `test.skip(onNodePath())` で、既定が node だと回らなかった）
     // 検査が働くことの確認。雲が無ければ透過率 1 の側だけが埋まる
     const hook = await capture(page, {
+      webgl: true,
       script: 'level',
       frame: 240,
       hour: 16,

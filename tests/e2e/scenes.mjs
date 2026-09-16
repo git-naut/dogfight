@@ -33,6 +33,9 @@ export function captureParams(query = {}) {
   }
   if (query.hud !== undefined) params.set('hud', query.hud ? '1' : '0')
   if (query.shadowProbe === true) params.set('shadowprobe', '1')
+  // **GLSL 経路を名指しする。**既定が node になったので、GLSL 側のプローブを
+  // 読む検査は経路を指定しないと相手が居ない（`capture.webgl`）
+  if (query.webgl === true) params.set('webgl', '1')
   return params
 }
 

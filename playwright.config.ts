@@ -1,11 +1,11 @@
 import os from 'node:os'
 import { defineConfig, devices } from '@playwright/test'
 import {
-  SWIFTSHADER_ARGS,
-  WEBGPU_ARGS,
+  launchArgsFor,
   VIEWPORT,
   DEFAULT_PROJECT,
 } from './tests/e2e/launch.mjs'
+import { DEFAULT_BACKEND } from './src/render/pipeline/types'
 
 // スクリーンショット回帰を環境差から守るため、GPU を使わず
 // Chromium 内蔵のソフトウェアレンダラ SwiftShader に固定する。
@@ -74,6 +74,18 @@ export default defineConfig({
     : [['list']],
 
   expect: {
+    /**
+     * `toHaveScreenshot` の既定は 5 秒。**node 経路には短すぎる。**
+     *
+     * 1 フレーム 800 ms 前後（SwiftShader の WebGPU）なので、収束を待つ
+     * あいだに切られる。実測で 42 枚のうち 36 枚が `Timeout 5000ms` で
+     * 落ちた。**`--update-snapshots=all` でも落ちる**ので、撮り直しが
+     * 静かに 6 枚しか進まない。
+     *
+     * 段 20b で 60 秒へ上げたが、段 20c で既定を戻したときに一緒に消えて
+     * いた。**切り替えに付随する設定は 1 か所にまとめられていない。**
+     */
+    timeout: 60_000,
     toHaveScreenshot: {
       /**
        * 1 画素あたりの許容差。既定の 0.2 では緩すぎる。
@@ -131,48 +143,69 @@ export default defineConfig({
 
   projects: [
     {
+      // **主の project。既定が node 経路なので WebGPU の引数が要る。**
+      // 基準画像 42 枚はこの名前で撮る（`*-chromium-webgpu-linux.png`）
       name: DEFAULT_PROJECT,
+      // **退避路の検査は拾わない。**WebGPU の起動引数を渡す project なので
+      // 「WebGPU が無い」状況を作れず、`backend` が `node-webgpu` になって
+      // 落ちる。あの検査は `chromium-node-gl` の担当。
+      //
+      // `node-path.spec.ts` はここでも `chromium-node` でも回る（25 件が
+      // 二重）。**既定が node になって同じ経路・同じ引数になったので、
+      // いまは重複。**外せば通しが 25 件ぶん短くなるが、`DEFAULT_BACKEND`
+      // を戻したときに「既定を見る検査」の置き場が無くなるので触っていない
+      testIgnore: /node-fallback\.spec\.ts/,
+      // **経路はここが正本。**`onNodePath()` はこの値を読む。project 名で
+      // 判定すると、既定を切り替えたときに追随しない（実際に外した）
+      metadata: { nodePath: DEFAULT_BACKEND === 'node', webgpu: true },
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: { args: [...SWIFTSHADER_ARGS] },
+        launchOptions: { args: launchArgsFor(DEFAULT_PROJECT) },
       },
     },
-    // **画素に依存しない検査を node 経路でも回す（段 20a-3）。**
+    {
+      // node 経路の突き合わせ。`?gpu=1|2` のプローブを回す
+      name: 'chromium-node',
+      testMatch: /node-path\.spec\.ts/,
+      // 既定が何であれ `?gpu=1|2|3` で node 経路を名指しする
+      metadata: { nodePath: true, webgpu: true },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { args: launchArgsFor('chromium-node') },
+      },
+    },
+    {
+      // **退避路が生きているかを数で見る（段 20b）。**
+      //
+      // `createNodePipeline` は WebGPU が無ければ `WebGPUUnavailable` を
+      // 投げ、`createScene` が受けて GLSL 経路へ落とす。**WebGPU の起動
+      // 引数を渡さない project をわざわざ作る。**渡すと「WebGPU が無い」
+      // 状況を作れず、退避路の検査が空振りする
+      name: 'chromium-node-gl',
+      testMatch: /node-fallback\.spec\.ts/,
+      // **退避した先は GLSL。**node 経路として扱うと検査が逆を見る
+      metadata: { nodePath: false, webgpu: false },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: { args: launchArgsFor('chromium-node-gl') },
+      },
+    },
+    // **旧経路は `WEBGL=1` のときだけ回す。**
     //
-    // 計画は段 20b の前提に「画素に依存しないテストが両経路で緑」を置く。
-    // 緑なら「絵の内容は同じで画素の量子化だけが違う」と言える。赤いなら
-    // バックエンドの差か移植の欠陥か、値の置き場所の違いのどれか。
-    //
-    // **既定では回さない。**`smoke.spec.ts` の 225 件を node 経路で足すと
-    // E2E の所要がおよそ倍になる（node 経路の定常は GLSL 経路の 1.96 倍）。
-    // 門として通すためのものなので `NODEPATH=1` で明示的に回す。段 20b で
-    // 既定が node になれば、この project は畳んで `chromium-swiftshader` の
-    // 側が node 経路になる。`MUTATE=1` と同じ作法
-    ...(process.env.NODEPATH === '1'
+    // 旧 42 枚（`*-chromium-swiftshader-linux.png`）はファイルとして残って
+    // いるので、戻り道は絵の側にもある。既定では回さない（所要が倍になる）
+    ...(process.env.WEBGL === '1'
       ? [
           {
-            name: 'chromium-node',
-            testMatch: /smoke\.spec\.ts/,
+            name: 'chromium-swiftshader',
+            metadata: { nodePath: false, webgpu: false },
             use: {
               ...devices['Desktop Chrome'],
-              launchOptions: { args: [...WEBGPU_ARGS] },
+              launchOptions: { args: launchArgsFor('chromium-swiftshader') },
             },
           },
         ]
       : []),
-    {
-      // node 経路だけを WebGPU の起動引数で回す。
-      //
-      // **全件を 2 周させない。**基準画像 42 枚は `chromium-swiftshader` の
-      // ものなので、こちらで撮ると別物になる。`testMatch` で 1 本に絞る。
-      // 段 18 で撮り直すときにこの分け方を畳む
-      name: 'chromium-webgpu',
-      testMatch: /node-path\.spec\.ts/,
-      use: {
-        ...devices['Desktop Chrome'],
-        launchOptions: { args: [...WEBGPU_ARGS] },
-      },
-    },
   ],
 
   webServer: {

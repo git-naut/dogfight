@@ -18,7 +18,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { chromium } from '@playwright/test'
 import { PNG } from 'pngjs'
 import { SCENES, captureParams } from '../tests/e2e/scenes.mjs'
-import { SWIFTSHADER_ARGS, VIEWPORT, DEFAULT_PROJECT, snapshotSuffix } from '../tests/e2e/launch.mjs'
+import { launchArgsFor, VIEWPORT, DEFAULT_PROJECT, snapshotSuffix } from '../tests/e2e/launch.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SNAP = fileURLToPath(new URL('../tests/e2e/smoke.spec.ts-snapshots', import.meta.url))
@@ -58,7 +58,9 @@ const server = spawn(
   { cwd: ROOT, stdio: 'ignore', detached: true },
 )
 
-const browser = await chromium.launch({ args: [...SWIFTSHADER_ARGS] })
+// **`--project` と起動引数を揃える。**固定していたせいで、WebGPU で撮った
+// 基準画像を WebGPU の立たないブラウザで比べていた
+const browser = await chromium.launch({ args: launchArgsFor(PROJECT) })
 
 /** 2 枚の PNG で違う画素を数える。差の最大階調と差分の外接矩形も返す */
 function compare(a, b) {

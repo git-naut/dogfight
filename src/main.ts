@@ -376,7 +376,13 @@ async function main(): Promise<void> {
   const view = await createScene(canvas!, {
     preset: initialSettings.preset,
     hour: initialSettings.hour,
-    ...(capture.gpu === 3 ? { pipeline: 'node' as const } : {}),
+    // **経路の名指し。**`?webgl=1` が GLSL、`?gpu=3` が node。どちらも
+    // 無ければ `DEFAULT_BACKEND` に従う（`createScene`）
+    ...(capture.webgl
+      ? { pipeline: 'webgl' as const }
+      : capture.gpu === 3
+        ? { pipeline: 'node' as const }
+        : {}),
     texturesUrl: TEXTURES_URL,
     aircraftUrl: AIRCRAFT_URL,
     enemyUrl: ENEMY_URL,

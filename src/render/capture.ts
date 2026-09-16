@@ -144,17 +144,32 @@ export interface CaptureConfig {
   /**
    * 描画バックエンドの経路。`?gpu=0|1|2|3`。
    *
-   * 0 は既定（GLSL）、1 と 2 は node 経路の自己診断（`runNodeProbe`）、
-   * **3 は本番の場面を node 経路で描く**（段 20a-2-3 の `createNodePipeline`）。
+   * **0 は「指定しない」であって GLSL ではない。**`DEFAULT_BACKEND` に
+   * 従う。2026-09-14 にその既定が `'node'` へ変わったので、`?gpu=0` は
+   * いま node 経路を意味する。1 と 2 は node 経路の自己診断
+   * （`runNodeProbe`）、**3 は本番の場面を node 経路で名指しする**。
    *
-   * 0 が既定で、いままでどおり `WebGLRenderer` を直に立てる。1 と 2 は
-   * `WebGPURenderer` を立てる第 2 経路で、1 は `forceWebGL: true` で
-   * WebGL2 バックエンドへ落とし、2 は WebGPU を要求する。
+   * 1 は `forceWebGL: true` で WebGL2 バックエンドへ落とし、2 は WebGPU を
+   * 要求する。3 は `createNodePipeline` を通す。
    *
-   * **既定の絵には触らない。**移行が終わるまで 1 と 2 は自己診断であって、
-   * 基準画像 42 枚は 0 の経路だけを見る
+   * GLSL 経路を名指しするのは `?webgl=1`（すぐ下）
    */
   gpu: number
+  /**
+   * GLSL 経路を名指しするか。`?webgl=1`。
+   *
+   * **`?gpu` では GLSL を指定できない。**0 は「指定しない」で
+   * `DEFAULT_BACKEND` に従うため、既定が node になった 2026-09-14 以降は
+   * GLSL を要求する手段が無くなっていた。`readOverlayProbe` や
+   * `readMarchProbe` は GLSL 側が持つ参照値の口で、TSL 版と突き合わせる
+   * 相手がここにいる。**相手を名指しできないと、突き合わせの基準を取る
+   * ページが node で立って固まる**（実測でプローブ系 11 件が 7 分の
+   * タイムアウト）。
+   *
+   * `?gpu=3` と両方渡したときは GLSL が勝つ。名指しどうしがぶつかったら
+   * 退避しない側を採る
+   */
+  webgl: boolean
   /** 足し込みのプローブで代表点を出すか。`?uvmode=world` */
   uvProbeMode: 'world' | undefined
   /**
@@ -344,6 +359,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       : params.get('capture') !== '1',
     audioProbe: params.get('audioprobe') === '1',
     gpu: clampInt(params.get('gpu'), 0, 3, 0),
+    webgl: params.get('webgl') === '1',
     // **足し込みのプローブで代表点を出す。**`?uvmode=world`。
     // `prevUv` がずれる前の段階を見るため（2026-09-14）
     uvProbeMode: params.get('uvmode') === 'world' ? ('world' as const) : undefined,

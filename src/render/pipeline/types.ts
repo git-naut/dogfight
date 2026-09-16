@@ -123,24 +123,37 @@ export interface MeasureConfig {
 }
 
 /**
- * 既定の描画経路。**段 20c で `node` から `webgl` へ戻した。**
+ * 既定の描画経路。**2026-09-14 に `node` へ切り替えた（段 20b の再実施）。**
  *
- * 段 20b で node へ切り替えたが、**ライブ飛行中に描画ループごと止まる**
- * ことが分かったので戻した。品質の自動降格で `clouds.setQuality` が
- * マーチの材質を組み直すと、その材質を最初に描く `createBindGroup` が
- * `Cannot read properties of undefined (reading 'mipLevelCount')` で落ちる。
- * 実測で降格を止めれば 4,148 フレーム回り、許せば約 450 フレームで死ぬ。
- * 切り分けは `docs/measuring.md` の段 20c に 9 手ぶん残した。
+ * 段 20b で一度 node にしたが、ライブ飛行中に描画ループごと止まるので
+ * 段 20c で戻した。**根本は three 側の欠落だった。**0.184 の `Textures.js`
+ * は破棄したテクスチャを指す bind group のキャッシュを捨てず、鍵も
+ * `cacheIndex * 10 + texture.id` で衝突する。three 0.186 で両方直り、
+ * 回避策（`historyNeedsFill`）を外しても段 20c の検査 2 本が緑になる。
  *
- * **node の基準画像 42 枚（`*-chromium-webgpu-linux.png`）は消さない。**
- * 直して切り替え直すときにそのまま使う。旧 42 枚は
- * `*-chromium-swiftshader-linux.png`。
+ * 切り替えの関門（段 20b と同じ）。
  *
- * 切り替え直す前に段 20c の検査（ライブループを数百フレーム回して降格まで
- * 通す）が要る。**キャプチャモードは 1 枚描いて止まるので、この経路を
- * 一度も通らない。**E2E 277 件が全部緑のまま公開まで抜けた理由がそれ。
+ * | 関門 | 結果 |
+ * |---|---|
+ * | 画素に依存しない検査が両経路で緑 | node 経路 183 件 + `node-path` 25 件 |
+ * | 理由の付かない差分が 1 枚も無い | 主因は大気の経路で 96%（段 20a-4 の台帳） |
+ * | ライブループを降格まで通す検査 | 段 20c で 2 本入れた |
+ * | 基準画像 42 枚が 2 回撮って画素一致 | 2026-09-14（`npm run exact`） |
+ * | 戻り先のタグ | `phase-8-before-flip-2` |
+ *
+ * 旧 42 枚（`*-chromium-swiftshader-linux.png`）はファイルとして残る。
+ * `WEBGL=1` で回すと一致する。**戻り道は絵の側にも残っている。**
+ *
+ * **この定数を読むのは `createScene` 1 か所。**`options.pipeline` が
+ * 指定されていないときの既定を決める。`?gpu=3` は名指しなのでここを見ない。
+ *
+ * 戻すときは 3 か所。この定数、`DEFAULT_PROJECT`（基準画像の名前が
+ * 経路と食い違うのを避ける）、`playwright.config.ts` の
+ * `chromium-swiftshader` を `WEBGL=1` の枠から出して先頭へ移す。
+ * `tests/tools/e2eConfig.test.ts` が噛み合わせを検査するので、
+ * 1 か所だけ直すと `npm test` が落ちる。
  */
-export const DEFAULT_BACKEND: 'webgl' | 'node' = 'webgl'
+export const DEFAULT_BACKEND: 'webgl' | 'node' = 'node'
 
 export interface SceneOptions {
   preset: PresetName

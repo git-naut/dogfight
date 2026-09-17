@@ -223,6 +223,20 @@ export async function runBenchSweep(
    * 16.22 ms、ばらつき 0.35 → 6.01 ms）。知りたい条件だけを回せば、
    * 総量が減って熱が乗らない。
    */
+  /**
+   * **ポストの段はここに足せない。**
+   *
+   * `MeasureConfig` のトグルは uniform で 0 にする形なので、鎖に入った段は
+   * 評価そのものが走ったまま。`sky` について同じことが `nodeScene.ts` に
+   * 書いてある。鎖を組み直せば切れるが、掃引の最中に組み直すと測っている
+   * 対象が変わる。
+   *
+   * ポストの費用は **2 回走らせて基準の行を引く。**
+   *
+   *   ?bloom=0&sweep=1&only=base   と   ?sweep=1&only=base
+   *
+   * `only=base` にするのは、熱を乗せないため（この注記の上）。
+   */
   const all: BenchCase[] = [
     { key: 'base', label: '基準', config: base },
     { key: 'sky', label: '空なし', config: { ...base, sky: false } },

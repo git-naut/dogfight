@@ -2,6 +2,7 @@ import type { Texture } from 'three'
 import { Fn, pass } from 'three/tsl'
 import type { Camera, Node, Scene } from 'three/webgpu'
 import { overlayCompositeNode } from '../overlayNodes'
+import type { QualitySettings } from '../quality'
 
 /**
  * node 経路の出力ノードを組む。
@@ -56,6 +57,14 @@ export interface NodeOutputInput {
   scenePass: ScenePassLike
   /** 雲の色。`CloudsNodePass.node` */
   cloudNode: Node<'vec4'>
+  /**
+   * 品質の設定。**鎖の段数がここで決まる。**
+   *
+   * プリセットが変わったら呼ぶ側が組み直す（`nodeScene.ts` の `buildOutput`）。
+   * ポストの段を足すときは `quality.ts` の表に列を作ってからここへ渡す
+   * （`CLAUDE.md` の規約）。
+   */
+  quality: QualitySettings
 }
 
 export interface NodeOutput {

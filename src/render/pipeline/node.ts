@@ -1394,6 +1394,7 @@ export async function runNodeProbe(
       smaa: smaa as unknown as (node: import('three/webgpu').Node) => import('three/webgpu').Node,
       scenePass,
       cloudNode: clouds.node,
+      quality: options.quality,
     })
 
     // **順序を知っているのは `nodeBuild.ts` だけ。**`setMRT()` と

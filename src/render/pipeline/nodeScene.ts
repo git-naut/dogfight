@@ -32,6 +32,7 @@ import {
   applyQualityOverride,
   getQuality,
   type PresetName,
+  type QualitySettings,
 } from '../quality'
 import {
   DEFAULT_COVERAGE,
@@ -266,15 +267,32 @@ export async function createNodePipeline(
    * 差が出ず、雲が 1/9 しかないという誤った読みを出した（2026-09-14）
    */
   const cloudVisibility = uniform(1)
-  const output = createNodeOutputNode({
-    atmos,
-    smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
-    scenePass,
-    cloudNode: clouds.node.mul(cloudVisibility) as unknown as webgpu.Node<'vec4'>,
-  })
-  // **`?smaa=0` で外せる。**42 枚は全画素が動くので、原因ごとの寄与は
-  // 1 つずつ振って測るしかない（段 20a-4 の差分の台帳）
-  const outputNode = (options.smaa ?? true) ? output.outputNode : output.composite
+
+  /**
+   * ポストの鎖を組む。**プリセットが変わったら組み直す。**
+   *
+   * 切り出したのは、品質でポストの段を出し入れするため。`applyPreset` は
+   * これまで鎖に触らなかったので、プリセットに載せた設定を鎖が読めなかった。
+   * GLSL 側は `composer.ts` の `buildEffectPass(quality)` が既にこの形。
+   *
+   * **`RenderPipeline` は `outputNode` の差し替えを正式に受ける。**
+   * `needsUpdate` を立てると `_updateContext` が組み直す（`RenderPipeline.js`）。
+   * 同じ形の前例が環境反射（`applyPreset` の中）と `?env=0` の切り替えにある。
+   */
+  function buildOutput(q: QualitySettings): webgpu.Node {
+    const built = createNodeOutputNode({
+      atmos,
+      smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
+      scenePass,
+      cloudNode: clouds.node.mul(cloudVisibility) as unknown as webgpu.Node<'vec4'>,
+      quality: q,
+    })
+    // **`?smaa=0` で外せる。**42 枚は全画素が動くので、原因ごとの寄与は
+    // 1 つずつ振って測るしかない（段 20a-4 の差分の台帳）
+    return (options.smaa ?? true) ? built.outputNode : built.composite
+  }
+
+  const outputNode = buildOutput(quality)
 
   const built = await buildNodePipeline({
     renderer,
@@ -397,6 +415,11 @@ export async function createNodePipeline(
       sceneNodes.environmentNode = wantedEnv > 0 ? atmos.skyEnvironment(wantedEnv) : null
       pipeline.needsUpdate = true
     }
+    // **ポストの鎖もプリセットで変わる。**組み直さないと、表に載せた設定を
+    // 鎖が読まないまま降格する。実測で `品質を 4 段切り替えても描画が続く` と
+    // `1,200 フレーム飛んでも描画が止まらない` の 2 本がここを通る
+    pipeline.outputNode = buildOutput(quality)
+    pipeline.needsUpdate = true
     applySize()
   }
 

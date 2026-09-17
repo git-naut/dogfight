@@ -31,6 +31,23 @@ export interface QualitySettings {
   anisotropy: number
 
   /**
+   * ブルームの強さ。0 で掛けない。
+   *
+   * **閾値は露出前の値で渡す。**`createNodeOutputNode` が組む鎖はすべて
+   * 露出の前にある。`RenderPipeline._updateContext` が戻り値を
+   * `renderOutput()` で包み、その中の `ToneMappingNode` が AgX の関数へ
+   * 露出を渡して `colortone.mulAssign(exposure)` が最初に走る。
+   *
+   * 空の線形値は 0.1365 / 0.1602 / 0.1844（`weapons/explosions.ts` に
+   * rgb(195,201,206) の逆算として記録）。露出 6 を掛けた 1.11 がトーン
+   * マッピングの入口に立つ値で、**ブルームが見るのは 0.1844 のほう。**
+   * 「露出後で 1.2 を狙う」なら渡す閾値は 0.20 になる。
+   *
+   * 強さの段は掃引で決める。low は 0（掛けない）。
+   */
+  bloomStrength: number
+
+  /**
    * 雲のレイマーチを走らせる解像度の倍率。
    *
    * 当初の案では Low をビルボード、Medium をメッシュクラスタ、High 以上を
@@ -218,6 +235,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 1,
     smaa: false,
     anisotropy: 1,
+    // **掃引で決める。**空をブルームさせない閾値と対で測る
+    bloomStrength: 0,
     cloudResolutionScale: 0.125,
     cloudMaxSteps: 27,
     cloudLightSteps: 2,
@@ -246,6 +265,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 1.5,
     smaa: true,
     anisotropy: 4,
+    // **掃引で決める。**空をブルームさせない閾値と対で測る
+    bloomStrength: 0.35,
     cloudResolutionScale: 0.25,
     cloudMaxSteps: 51,
     cloudLightSteps: 3,
@@ -274,6 +295,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 2,
     smaa: true,
     anisotropy: 8,
+    // **掃引で決める。**空をブルームさせない閾値と対で測る
+    bloomStrength: 0.55,
     // 実機（Intel Arc 140V）の実測で、1/4 解像度のとき雲パスは 2.7 ms、
     // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
     // 雲 10.8 ms、合計 13 ms 前後に収まる
@@ -308,6 +331,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 2,
     smaa: true,
     anisotropy: 16,
+    // **掃引で決める。**空をブルームさせない閾値と対で測る
+    bloomStrength: 0.70,
     // High より上の段。実機で 60fps は狙わない位置づけ。
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
     cloudResolutionScale: 1,

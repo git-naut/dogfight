@@ -307,3 +307,83 @@ r186 のリリースノートに理由が並んでいる。
 `tools/exact.mjs` に `--save` を足した。動いたカットの実物・基準・差分を
 書き出す。**枚数と外接だけでは何が動いたか読めない。**今回は差分の絵を見て
 初めて「PBR のマテリアルだけ」と分かった。
+
+## 既定を node 経路へ切り替え直した（2026-09-17、段 20 の決着）
+
+three 0.186 で段 20c の根本（`Textures.js` の bind group の破棄漏れと鍵の衝突）が
+直ったので、既定を node へ戻した。**ただし切り替えは 3 日間効いていなかった。**
+
+### 定数だけが切り替わっていた
+
+`DEFAULT_BACKEND` を `'node'` に書き換えてあったが、**それを読むコードが 1 か所も
+無かった。**`createScene` は `options.pipeline === 'node'`（`?gpu=3`）しか見ておらず、
+既定は GLSL のまま。`grep DEFAULT_BACKEND src/` がコメント 2 件しか返さなかったことで
+気づいた。
+
+その状態で基準画像 42 枚を `chromium-webgpu` の名前で撮り直し（**中身は GLSL**）、
+退避路の検査（`node-fallback.spec.ts`）も node が立っていないので当然の緑だった。
+**どの検査も嘘をついていないのに、全体として嘘だった。**
+
+`createScene` が `DEFAULT_BACKEND` を読む形にし、`tests/tools/e2eConfig.test.ts` が
+「`src/render/scene.ts` が式の中でこの定数を読む」ことを `npm test` で見張る。
+**宣言だけが切り替わっている状態を機械で止める。**
+
+### 退避はキャンバスを掴む前に判定する
+
+WebGPU が無いときの退避を「`createNodePipeline` が投げる `WebGPUUnavailable` を
+`createScene` で受けて `WebGLRenderer` を作り直す」形で書いたら、退避路の検査が
+180 秒で固まった。
+
+`WebGPURenderer.init()` がキャンバスのコンテキストを取っており、`dispose()` しても
+戻らない。**1 つのキャンバスは 1 種類のコンテキストしか持てない。**
+
+`navigator.gpu.requestAdapter()` で**掴む前に訊く**形へ直した（`webgpuAvailable`）。
+名指し（`?gpu=3`）のときは退避せずに投げる。**立たないことを絵で隠さない。**
+
+### GLSL 経路を名指しする口を足した
+
+`?gpu` は 0..3 で 0 が「指定しない」なので、既定が node になると **GLSL を要求する
+値が無くなる。**TSL 版の検査 11 件は GLSL 側のプローブ（`readMarchProbe`
+`readOverlayProbe` `readSurfaceProbe`）から参照値を取るので、相手を名指しできずに
+7 分のタイムアウトで落ちた。
+
+`?webgl=1` を足した（`capture.webgl` → `pipeline: 'webgl'`）。参照値を取る 13 か所に
+付ける。名指しどうしがぶつかったら GLSL が勝つ（退避しない側を採る）。
+
+これで `smoke.spec.ts` の雲影プローブ 2 件も `test.skip(onNodePath())` を外せた。
+**既定が変わると回らなくなる検査が、既定の宣言から独立した。**
+
+### 経路の判定を project 名から metadata へ
+
+`onNodePath()` は project 名が `chromium-node` かを見ていて、`node-path.spec.ts` は
+`chromium-webgpu` かを見ていた。**どちらも既定の切り替えに追随せず、黙って逆を返した。**
+主 project は node 経路で走るのに `onNodePath()` が false を返し、`?gpu=3` が付かず、
+それを条件にした `test.skip` が 3 か所すり抜けた。
+
+project 側が `metadata: { nodePath, webgpu }` で宣言し、テストはそれを読む形にした。
+`tests/tools/e2eConfig.test.ts` が起動引数と宣言の食い違いを見張る。
+
+### 関門（段 20b に 1 行足した）
+
+| 関門 | 結果 |
+|---|---|
+| 画素に依存しない検査が両経路で緑 | vitest 1,402 件 + E2E 328 件 |
+| 基準画像 42 枚が 2 回撮って画素一致 | 921,600 画素すべて（`npm run exact`） |
+| `?gpu=3`（名指し）と `?gpu` 無し（既定）が同じ絵 | 完全一致。**配線と決定論の両方を証明する** |
+| CI | success。最長の台 13 分 36 秒（上限 18 分） |
+| 実機（Intel Xe-2LPG） | `node-webgpu`・high で 60 fps・GPU 8.9 / 最大 11.4 ms |
+| 戻り先のタグ | `phase-8-before-flip-2`（`3e317c4`） |
+
+### 実機で初めて見えたこと
+
+SwiftShader では分からなかったものが 2 つ出た。
+
+ultra は 33 fps で始まり、17 秒で high へ降格して 60 fps になる。降格は正常に働く。
+ultra が重いのはレンダースケールが違うため（3000x1479 対 2400x1183 で画素数 1.56 倍）。
+
+high は最初から 60 fps で GPU 8.9〜13.4 ms。**基準「Intel Arc 140V で High・1080p・
+60fps」を、1080p より広い 2400x1183 で満たしている。**
+
+測り方を 1 度誤った。既定の 1280x720 / DPR 1 で測ると人の画面の 3.1 分の 1 の画素数で、
+`PerformanceGovernor` の条件（55 fps を 3 秒）に入らない。**「降格が効いていない」と
+読みかけた。**`tools/win-perf.mjs` の既定を 1600x789 / DPR 1.5 にした。

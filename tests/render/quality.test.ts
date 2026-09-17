@@ -165,6 +165,21 @@ describe('品質プリセットの表', () => {
     expect(QUALITY_PRESETS.ultra.smaa).toBe(true)
   })
 
+  it('ブルームの強さが段ごとに下がらず、low だけ 0', () => {
+    // **low は掛けない。**全画面に掛かるので、いちばん弱い機械で最初に外す
+    expect(QUALITY_PRESETS.low.bloomStrength).toBe(0)
+    for (const name of ['medium', 'high', 'ultra'] as const) {
+      expect(QUALITY_PRESETS[name].bloomStrength).toBeGreaterThan(0)
+    }
+    // 段が逆転していないこと。**表の上下と絵の強さを揃える**
+    let previous = -1
+    for (const name of PRESET_ORDER) {
+      const value = QUALITY_PRESETS[name].bloomStrength
+      expect(value, `${name} が前の段より弱い`).toBeGreaterThanOrEqual(previous)
+      previous = value
+    }
+  })
+
   it('既定は high', () => {
     expect(DEFAULT_PRESET).toBe('high')
     expect(getQuality(DEFAULT_PRESET).renderScale).toBe(1)
@@ -255,6 +270,8 @@ describe('品質プリセットの表', () => {
       'flareSprites',
       // 空から焼く環境反射。low では焼かない
       'skyEnvironmentSize',
+      // ブルーム。low では掛けない
+      'bloomStrength',
     ])
     for (const name of PRESET_ORDER) {
       const q = QUALITY_PRESETS[name]

@@ -16,6 +16,15 @@
 // `?nodegrade=1` を忘れない。プリセットをまたぐと `maxPixelRatio` も変わる
 // （high 2 / medium 1.5）ので、固定しないと比較にならない。
 //
+// ## `only=` で絞る
+//
+// **21 条件を全部回すと終わらない。**実機で `bench=60` を試して 30 分の
+// 上限に当たった（`captureReady` が立たない）。`src/render/bench.ts` の
+// 注記にもある「全部回すと機械が熱で遅くなる。基準そのものが 6.14 →
+// 16.22 ms へ動いた」と同じ理由で、**知りたい条件だけを回す。**
+//
+// 配分を取るだけなら `only=base,clouds,terrain,water,aircraft` で足りる。
+//
 // ## 使い方
 //
 //   cp tools/win-sweep.mjs /mnt/c/Windows/Temp/dg-pw/sweep.mjs

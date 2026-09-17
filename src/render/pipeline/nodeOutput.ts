@@ -65,7 +65,43 @@ export interface NodeOutputInput {
    * （`CLAUDE.md` の規約）。
    */
   quality: QualitySettings
+  /**
+   * `three/examples/jsm/tsl/display/BloomNode.js` の `bloom`。
+   *
+   * **`nodeOutput.ts` で動的 import しない。**呼ぶ側が読んで渡す（`smaa` と
+   * 同じ形）。SMAA は 53 KB の別チャンクになっていて、既定のバンドルに
+   * 載せない方針をブルームにも当てる。
+   */
+  bloom?: BloomFactory
+  /** ブルームの強さ。`quality.bloomStrength` を uniform で包んだもの */
+  bloomStrength?: Node<'float'>
+  /**
+   * ブルームの閾値。**露出前の値。**
+   *
+   * `createNodeOutputNode` が組む鎖は `renderOutput` の内側に無いので、
+   * ここを流れる値には露出が掛かっていない（`quality.ts` の
+   * `bloomStrength` の注記に経緯）。空の線形値の最大は 0.1844。
+   */
+  bloomThreshold?: Node<'float'>
+  /** ブルームを鎖に入れるか。`?bloom=0` で外す */
+  showBloom?: boolean
+  /**
+   * 強さが 0 より大きいか。**呼ぶ側が決める。**
+   *
+   * `quality.bloomStrength` を直に見ない。`?bloomstrength=` の上書きが
+   * あるので、どちらが効いているかを知っているのは呼ぶ側（`nodeScene.ts`）。
+   * ここで表の値だけを見ると、low で上書きしても鎖に入らない
+   */
+  bloomActive?: boolean
 }
+
+/** `bloom(node, strength, radius, threshold)` の形だけ見る */
+export type BloomFactory = (
+  node: Node,
+  strength: unknown,
+  radius: unknown,
+  threshold: unknown,
+) => Node
 
 export interface NodeOutput {
   /**
@@ -92,5 +128,39 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
     )
   })() as unknown as Node
 
-  return { composite, outputNode: input.smaa(composite) }
+  // **ブルームは SMAA より前。**HDR の値に掛ける。トーンマッピングの後ろへ
+  // 回すと、AgX が潰したあとの階調からハイライトを探すことになる。
+  //
+  // **`quality.bloomStrength` が 0 なら鎖に入れない。**0 を渡しても
+  // `BloomNode` は 5 段のガウシアンぼかしを焼く（`BloomNode.js` の
+  // `_renderTargetsHorizontal` / `Vertical` が各 5 枚）。low で切る意味が
+  // 費用の側にあるので、段そのものを外す。
+  const bloomEnabled =
+    input.bloom !== undefined && (input.showBloom ?? true) && (input.bloomActive ?? false)
+
+  // **`bloom()` は成分だけを返す。足すのは呼ぶ側。**three の doc の例も
+  // `renderPipeline.outputNode = scenePassColor.add( bloomPass )` の形。
+  // 足さずに渡すと**元の絵が消えてぼかしたハイライトだけになる**（実測。
+  // 全画面が最大 215 階調動いて、黒地に光る筋だけの絵が出た）
+  const bloomed = bloomEnabled
+    ? (composite as unknown as { add(n: Node): Node }).add(
+        (input.bloom as BloomFactory)(
+          composite,
+          input.bloomStrength,
+          BLOOM_RADIUS,
+          input.bloomThreshold,
+        ),
+      )
+    : composite
+
+  return { composite, outputNode: input.smaa(bloomed) }
 }
+
+/**
+ * ブルームのぼかしの広がり。
+ *
+ * `BloomNode` は 5 段のミップを `lerpBloomFactor(factor, radius)` で混ぜる。
+ * 0 なら細かい段が強く出て輪郭のすぐ外だけが光り、1 なら粗い段が強く出て
+ * 広く滲む。**強さと閾値とは独立に効く**ので、掃引では固定して 2 つだけ振る。
+ */
+const BLOOM_RADIUS = 0.35

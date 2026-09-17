@@ -193,7 +193,13 @@ describe('docs/lessons.md', () => {
     // 埋めた。Windows 側の node から playwright-core で Chrome を操作すると
     // 実 GPU に届く（`tools/win-measure.mjs`）。
     //
+    // 2026-09-17 に 13 へ。**node 経路では `?sweep=1` の値を信用できない。**
+    // `only=base` が全条件へ戻る欠陥（`selectBenchCases`）を直して掃引は
+    // 動くようになったが、出た表で「切ったほうが遅い」行が 3 つ並んだ。
+    // 基準もライブの 2.3 倍。**要素ごとの配分を掃引で取る手段が無い。**
+    // 配分はライブループの引き算で取っている。
+    //
     // **減らしたときは下げる。増やすときは理由を書く。**
-    expect(holes).toBeLessThanOrEqual(12)
+    expect(holes).toBeLessThanOrEqual(13)
   })
 })

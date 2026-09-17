@@ -26,6 +26,7 @@ export type ToggleKey =
   | 'missiles'
   | 'smoke'
   | 'explosions'
+  | 'bloom'
 
 /** トグルの内部名と URL のパラメータ名の対 */
 export declare const TOGGLES: readonly (readonly [ToggleKey, string])[]

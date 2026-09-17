@@ -61,6 +61,9 @@ export const TOGGLES = [
   ['missiles', 'missiles'],
   ['smoke', 'smoke'],
   ['explosions', 'explosions'],
+  // **ポストの段。**全画面に掛かるので、切ると 42 枚すべてが動く。
+  // それでも載せるのは、載せないと `pixel-mutate` の逆テストが回らないため
+  ['bloom', 'bloom'],
 ]
 
 /**
@@ -97,7 +100,7 @@ export const SCENES = [
   // バンク 66 度・3.27 G・揚力係数 0.449 なので翼端渦が 0.30 の濃さで出る。
   // 荷重倍数で判定していたころは出なかった
   { name: 'bank-left-dusk', script: 'bank-left', frame: 420, hour: 18.3, coverage: 0.29, watches: ['aircraft'] },
-  { name: 'low-pass-afternoon', script: 'low-pass', frame: 240, hour: 16, coverage: 0.29, watches: ['terrain', 'water', 'aircraft'] },
+  { name: 'low-pass-afternoon', script: 'low-pass', frame: 240, hour: 16, coverage: 0.29, watches: ['terrain', 'water', 'aircraft', 'bloom'] },
   // 雲を主題にした構図
   { name: 'clouds-climb', script: 'pull-up', frame: 200, hour: 16, coverage: 0.29, watches: ['aircraft'] },
   { name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.8, watches: ['aircraft'] },
@@ -150,7 +153,7 @@ export const SCENES = [
   { name: 'missile-smoke-near', script: 'missile-near', frame: 841, hour: 16, coverage: 0, watches: ['smoke'] },
   // 爆発。機銃で落とした 0.13 秒後。火球が膨らみ切る手前。
   // **耐久を 60 へ上げて撃墜が 0.95 秒になったので f90 から f130 へ移した**
-  { name: 'explosion-gun', script: 'gun-pass', frame: 130, hour: 16, coverage: 0, watches: ['explosions'] },
+  { name: 'explosion-gun', script: 'gun-pass', frame: 130, hour: 16, coverage: 0, watches: ['explosions', 'bloom'] },
   // ミサイルの命中。弾頭の炸裂と撃墜の 2 つが重なる。
   // **台本を 1,200 m へ寄せたので命中が 5.56 秒 = f667 になった**
   //
@@ -200,7 +203,7 @@ export const SCENES = [
   // f10 は経過 0.075 秒にあたる。**この 1 枚が閃光の見張り。**
   // 実測で寄与は 119 画素・最大 169 階調（定常の 64 より強い）。
   // **閃光を落とすとここが暗くなる。**色ではなく明るさで見張る
-  { name: 'enemy-flare-flash', script: 'enemy-flare', frame: 10, hour: 16, coverage: 0, watches: ['flares'] },
+  { name: 'enemy-flare-flash', script: 'enemy-flare', frame: 10, hour: 16, coverage: 0, watches: ['flares', 'bloom'] },
   // ミッションの時計と残敵。**走行中は HUD 緑。**左上に置く（中央上部は
   // 方位テープとその上の現在方位・三角、さらに上へピッチラダーの目盛が
   // 来て埋まっている）。

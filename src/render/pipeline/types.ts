@@ -40,6 +40,22 @@ import type { PresetName, QualityOverride, QualitySettings } from '../quality'
 export const DEFAULT_EXPOSURE = 6
 
 /**
+ * ブルームが光り始める明るさ。**露出を掛けたあとの値で言う。**
+ *
+ * 空の線形値は 0.1365 / 0.1602 / 0.1844（`weapons/explosions.ts` に
+ * rgb(195,201,206) の逆算として記録）。露出 6 を掛けると 0.82 / 0.96 / 1.11。
+ * **空をブルームさせないので、これより上に置く。**
+ *
+ * 鎖へ渡すときは露出で割る（`nodeScene.ts` の `bloomThresholdFor`）。
+ * `createNodeOutputNode` が組む鎖は `renderOutput` の内側に無いので、
+ * そこを流れる値には露出が掛かっていない。**この 1 段を忘れると 6 倍ずれて、
+ * 「ブルームが壊れている」に見える。**
+ *
+ * 値は掃引で決める（`docs/measuring.md`）。
+ */
+export const BLOOM_THRESHOLD_AFTER_EXPOSURE = 1.2
+
+/**
  * 既定の雲量。点在する積雲になる値。
  *
  * **0.3 から 0.29 へ下げた。**密度の側は `threshold = 1 - coverage` を
@@ -206,6 +222,18 @@ export interface SceneOptions {
    * 動くので、原因ごとの寄与は 1 つずつ振って測るしかない
    */
   smaa?: boolean
+  /**
+   * ポストの鎖にブルームを掛けるか。既定は true。
+   *
+   * **`quality.bloomStrength` が 0 なら、この値に関わらず鎖に入らない。**
+   * low は表の側で切ってある。ここは差分の帰属を測るための口で、
+   * `?bloom=0` で外して「ブルームの寄与」だけを数える（段 20a-4 の作法）
+   */
+  bloom?: boolean
+  /** ブルームの閾値の上書き（**露出後の値**）。掃引のための口 */
+  bloomThreshold?: number
+  /** ブルームの強さの上書き。掃引のための口。プリセットの値を踏み潰す */
+  bloomStrength?: number
   /**
    * 地表と海面のライティングを大気の LUT から引くか。既定は true。
    *

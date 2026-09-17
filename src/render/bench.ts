@@ -176,7 +176,19 @@ export function selectBenchCases(all: readonly BenchCase[], keys: string): Bench
   if (wanted.length === 0) return [...all]
   const set = new Set(wanted)
   const picked = all.filter((c) => c.key === 'base' || set.has(c.key))
-  // 基準しか残らなかったら絞り込みが噛んでいない。全条件へ戻す
+  // **綴りを間違えたら全条件へ戻す。**`only=cluods` のような打ち間違いで
+  // 基準 1 行だけの表が出ると、差が 0 なのか絞り込みが外れたのかが読めない。
+  //
+  // **ただし `only=base` は打ち間違いではない。**基準だけを測りたいときが
+  // ある（ポストの段の費用を `?bloom=0` との 2 回で引き算する形。この
+  // ファイルの `all` の注記）。名前がすべて実在するなら、1 行でもそのまま返す。
+  //
+  // 以前は「1 行なら全条件へ」だけだったので、`only=base` が 21 条件へ
+  // 戻っていた。node 経路は `sky: false` で例外を投げるので、**実機の掃引が
+  // 30 分の上限まで固まり、原因が「遅い」に見えた**（2026-09-17）
+  const known = new Set(all.map((c) => c.key))
+  const allKnown = wanted.every((k) => known.has(k))
+  if (allKnown) return picked
   return picked.length > 1 ? picked : [...all]
 }
 

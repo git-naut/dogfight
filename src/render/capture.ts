@@ -66,6 +66,25 @@ export interface CaptureConfig {
    */
   smaa: boolean
   /**
+   * ポストの鎖にブルームを掛けるか。`?bloom=0` で外す。
+   *
+   * **差分の帰属を測るための口。**全画面に掛かるので 42 枚が全部動く。
+   * 「ブルームの寄与」を数えるには外した絵と引き算するしかない。
+   * `low` プリセットは `quality.bloomStrength` が 0 なので、この値に
+   * 関わらず掛からない
+   */
+  bloom: boolean
+  /**
+   * ブルームの閾値を上書きする。`?bloomthreshold=`（**露出後の値**）。
+   *
+   * 掃引のための口。省略すると `BLOOM_THRESHOLD_AFTER_EXPOSURE`。
+   * 鎖へ渡すときに露出で割る（`nodeScene.ts` の `bloomThresholdFor`）ので、
+   * ここでは「露出後で何から光らせたいか」をそのまま書く
+   */
+  bloomThreshold: number | null
+  /** ブルームの強さを上書きする。`?bloomstrength=`。掃引のための口 */
+  bloomStrength: number | null
+  /**
    * 地表と海面のライティングを大気の LUT から引くか。`?illum=0` で段 17b の
    * 形（`surfaceState` の放射輝度）へ戻す。
    *
@@ -339,6 +358,13 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showWater: params.get('water') !== '0',
     showEnvironment: params.get('env') !== '0',
     smaa: params.get('smaa') !== '0',
+    bloom: params.get('bloom') !== '0',
+    bloomThreshold: params.has('bloomthreshold')
+      ? clampNumber(params.get('bloomthreshold'), 0, 100, 0)
+      : null,
+    bloomStrength: params.has('bloomstrength')
+      ? clampNumber(params.get('bloomstrength'), 0, 10, 0)
+      : null,
     illuminance: params.get('illum') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',

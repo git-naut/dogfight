@@ -235,7 +235,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 1,
     smaa: false,
     anisotropy: 1,
-    // **掃引で決める。**空をブルームさせない閾値と対で測る
+    // 掛けない。全画面に掛かるので、いちばん弱い機械で最初に外す
     bloomStrength: 0,
     cloudResolutionScale: 0.125,
     cloudMaxSteps: 27,
@@ -265,8 +265,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 1.5,
     smaa: true,
     anisotropy: 4,
-    // **掃引で決める。**空をブルームさせない閾値と対で測る
-    bloomStrength: 0.35,
+    // **掃引で決めた。**high の 1.0 に対して控えめ（`docs/measuring.md`）
+    bloomStrength: 0.65,
     cloudResolutionScale: 0.25,
     cloudMaxSteps: 51,
     cloudLightSteps: 3,
@@ -295,8 +295,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 2,
     smaa: true,
     anisotropy: 8,
-    // **掃引で決める。**空をブルームさせない閾値と対で測る
-    bloomStrength: 0.55,
+    // **掃引で決めた値。**閾値 1.2（露出後）と組で、空の中央値 +1.3% に
+    // 対して排気口の外周が +25.0%。0.55 では外周が +15.0% にしかならず、
+    // 1.6 では砂浜が白く滲んだ（`docs/measuring.md`）
+    bloomStrength: 1.0,
     // 実機（Intel Arc 140V）の実測で、1/4 解像度のとき雲パスは 2.7 ms、
     // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
     // 雲 10.8 ms、合計 13 ms 前後に収まる
@@ -331,8 +333,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     maxPixelRatio: 2,
     smaa: true,
     anisotropy: 16,
-    // **掃引で決める。**空をブルームさせない閾値と対で測る
-    bloomStrength: 0.70,
+    // **掃引で決めた。**high より強く、砂浜が滲む 1.6 の手前
+    bloomStrength: 1.3,
     // High より上の段。実機で 60fps は狙わない位置づけ。
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
     cloudResolutionScale: 1,

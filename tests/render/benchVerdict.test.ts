@@ -270,8 +270,20 @@ describe('条件の絞り込み', () => {
     expect(selectBenchCases(all, 'nosuch').map((c) => c.key)).toHaveLength(4)
   })
 
-  it('基準だけを選んでも全条件へ戻す', () => {
-    expect(selectBenchCases(all, 'base').map((c) => c.key)).toHaveLength(4)
+  /**
+   * **`only=base` は打ち間違いではない。**
+   *
+   * 以前は「1 行なら絞り込みが噛んでいない」として全条件へ戻していた。
+   * だがポストの段の費用は `?bloom=0&sweep=1&only=base` と
+   * `?sweep=1&only=base` の 2 回で引き算する（`bench.ts` の注記）。
+   * 基準だけを測りたい場面が実際にある。
+   *
+   * 戻していたせいで実機の掃引が固まった。node 経路は `sky: false` で
+   * 例外を投げるので、全条件へ戻ると 21 条件のうち 2 つ目で落ちる。
+   * **30 分の上限まで待って「遅い」に見えた**（2026-09-17）。
+   */
+  it('基準だけを選んだら基準だけを返す', () => {
+    expect(selectBenchCases(all, 'base').map((c) => c.key)).toEqual(['base'])
   })
 
   it('知らない名前が混ざっても、分かるものは残す', () => {

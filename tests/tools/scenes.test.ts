@@ -57,8 +57,13 @@ describe('基準画像の構図', () => {
     // 何も見張っていない（数値の検査が担う）。
     //
     // 増やしたら `MUTATE=1 npx playwright test pixel-mutate` で確かめる。
+    //
+    // 段 22 で 52 件へ。ブルームを 3 枚に足した（`low-pass-afternoon` の
+    // 海面スペキュラ、`explosion-gun` の芯、`enemy-flare-flash` の閃光）。
+    // **3 枚とも実測で発火した。**候補には `catapult`（アフターバーナー）も
+    // あったが、甲板が主題で輝点が小さいので載せていない。
     const total = SCENES.reduce((sum, s) => sum + (s.watches?.length ?? 0), 0)
-    expect(total).toBe(49)
+    expect(total).toBe(52)
     const empty = SCENES.filter((s) => (s.watches ?? []).length === 0).map((s) => s.name)
     expect(empty).toEqual([
       'aircraft-vortex-fade',

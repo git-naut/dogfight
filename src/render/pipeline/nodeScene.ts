@@ -5,7 +5,7 @@ import { createChaseCamera } from '../camera'
 import { createNodeBackend } from './nodeBackend'
 import { advanceNodeFrame, buildNodePipeline } from './nodeBuild'
 import { configureNodeAircraftShadow, followAircraftShadow } from './nodeShadow'
-import { createNodeOutputNode, createScenePass } from './nodeOutput'
+import { createNodeOutputNode, createScenePass, type BloomFactory } from './nodeOutput'
 import { createSceneViews } from './views'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
@@ -35,6 +35,7 @@ import {
   type QualitySettings,
 } from '../quality'
 import {
+  BLOOM_THRESHOLD_AFTER_EXPOSURE,
   DEFAULT_COVERAGE,
   DEFAULT_EXPOSURE,
   type ScenePipeline,
@@ -57,6 +58,24 @@ import {
  * 実測）。計画は `forceWebGL: true` を退避路に当てていたが効かない。
  */
 const RADIANCE_SIDE = 2
+
+/**
+ * 露出から、鎖へ渡すブルームの閾値を出す。
+ *
+ * **鎖の中は露出前。**`createNodeOutputNode` の戻り値を
+ * `RenderPipeline._updateContext` が `renderOutput()` で包み、その中の
+ * `ToneMappingNode` が AgX へ露出を渡す。AgX は
+ * `colortone.mulAssign(exposure)` を最初に走らせる。
+ *
+ * だから「露出後で 1.2 から光らせたい」なら、渡す値は 1.2 / 6 = 0.20。
+ * 空の線形値の最大は 0.1844（`weapons/explosions.ts`）なので、この値なら
+ * 空は光らず、それより明るいものだけが立つ。
+ *
+ * `BLOOM_THRESHOLD_AFTER_EXPOSURE` の値は掃引で決めた（`docs/measuring.md`）。
+ */
+function bloomThresholdFor(exposure: number, afterExposure: number): number {
+  return afterExposure / Math.max(exposure, 1e-6)
+}
 
 /**
  * WebGPU が無いので node 経路の場面を立てられない。
@@ -119,6 +138,8 @@ export async function createNodePipeline(
 
   const atmos = await import('@takram/three-atmosphere/webgpu')
   const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
+  // **ブルームも別チャンクにする。**SMAA と同じ方針（`nodeOutput.ts` の注記）
+  const { bloom } = await import('three/examples/jsm/tsl/display/BloomNode.js')
 
   const atmosphere = setupAtmosphereNodes(atmos, {
     renderer,
@@ -269,6 +290,19 @@ export async function createNodePipeline(
   const cloudVisibility = uniform(1)
 
   /**
+   * ブルームの強さと閾値。**露出が変わったら閾値も動かす。**
+   *
+   * 閾値は露出前の値で渡す（`quality.ts` の `bloomStrength` の注記）。
+   * `?exposure=` と `setExposure` で露出が実行時に変わるので、定数で焼くと
+   * 露出を振った瞬間に「どの明るさから光るか」の意味がずれる。
+   */
+  const bloomStrength = uniform(options.bloomStrength ?? quality.bloomStrength)
+  const bloomAfterExposure = options.bloomThreshold ?? BLOOM_THRESHOLD_AFTER_EXPOSURE
+  const bloomThreshold = uniform(
+    bloomThresholdFor(renderer.toneMappingExposure, bloomAfterExposure),
+  )
+
+  /**
    * ポストの鎖を組む。**プリセットが変わったら組み直す。**
    *
    * 切り出したのは、品質でポストの段を出し入れするため。`applyPreset` は
@@ -280,12 +314,22 @@ export async function createNodePipeline(
    * 同じ形の前例が環境反射（`applyPreset` の中）と `?env=0` の切り替えにある。
    */
   function buildOutput(q: QualitySettings): webgpu.Node {
+    // **強さは鎖の外で持つ。**プリセットが変わっても組み直さずに済む値は
+    // uniform にして、組み直しは段の出し入れだけに絞る
+    // **掃引の上書きが勝つ。**プリセットの値は表の側の既定で、`?bloomstrength=`
+    // は「その値を振って決めるため」の口
+    bloomStrength.value = options.bloomStrength ?? q.bloomStrength
     const built = createNodeOutputNode({
       atmos,
       smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
       scenePass,
       cloudNode: clouds.node.mul(cloudVisibility) as unknown as webgpu.Node<'vec4'>,
       quality: q,
+      bloom: bloom as unknown as BloomFactory,
+      bloomStrength: bloomStrength as unknown as webgpu.Node<'float'>,
+      bloomThreshold: bloomThreshold as unknown as webgpu.Node<'float'>,
+      showBloom: options.bloom ?? true,
+      bloomActive: (options.bloomStrength ?? q.bloomStrength) > 0,
     })
     // **`?smaa=0` で外せる。**42 枚は全画素が動くので、原因ごとの寄与は
     // 1 つずつ振って測るしかない（段 20a-4 の差分の台帳）
@@ -620,6 +664,9 @@ export async function createNodePipeline(
     setQuality: applyPreset,
     setExposure(value) {
       renderer.toneMappingExposure = value
+      // **閾値も動かす。**鎖の中は露出前なので、露出を変えると「露出後で
+      // どの明るさから光るか」がずれる（`quality.ts` の注記）
+      bloomThreshold.value = bloomThresholdFor(value, bloomAfterExposure)
     },
 
     async compile() {

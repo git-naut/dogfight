@@ -55,10 +55,21 @@ const STRENGTHS = (arg('--strengths', null) ?? arg('--strength', ''))
  * 矩形を置ける。**ただし絵を見て置く。**この矩形は `clouds-clear` の
  * 実物を見て選んだ（空は上から 25%、機体は中央下）。
  */
-const SCENE_NAME = arg('--scene', 'clouds-clear')
+const SCENE_NAME = arg('--scene', 'low-pass-afternoon')
 const REGIONS = {
   // 空だけ。島も海も機体も入らない帯
   sky: { x: 0, y: 40, w: 1280, h: 140 },
+  /**
+   * 雲。**ここを見ていなかった。**
+   *
+   * 最初は `clouds-clear`（雲量 0）で掃引したので、**ブルームさせたくない
+   * 最大のものが構図に入っていなかった。**決めた値（閾値 1.2・強さ 1.0）を
+   * 実機の雲のある絵に当てると、積雲が白飛びして輪郭が消えた。
+   *
+   * 雲は空より明るい（白）ので閾値 1.2 を軽く超える。空が +0.3% でも
+   * 雲は大きく動く。**空と雲は別に測る。**
+   */
+  cloud: { x: 0, y: 150, w: 1280, h: 190 },
   /**
    * 排気口の**外周**。
    *
@@ -136,18 +147,22 @@ try {
   // 基準はブルームを切った絵。**同じビルドで撮る。**旧基準画像と比べると
   // 他の変更も混ざる
   const off = await shoot({ bloom: 0 })
-  const base = { sky: stats(off, REGIONS.sky), glow: stats(off, REGIONS.glow) }
+  const base = {
+    sky: stats(off, REGIONS.sky),
+    cloud: stats(off, REGIONS.cloud),
+    glow: stats(off, REGIONS.glow),
+  }
 
   console.log(`構図 ${SCENE_NAME}`)
   console.log(
-    `  ブルームなし: 空の中央値 ${base.sky.median.toFixed(4)}  ` +
-      `外周の中央値 ${base.glow.median.toFixed(4)}`,
+    `  ブルームなし: 空 ${base.sky.median.toFixed(4)}  ` +
+      `雲 ${base.cloud.median.toFixed(4)}  外周 ${base.glow.median.toFixed(4)}`,
   )
   console.log('')
   console.log(
     STRENGTHS.length > 0
-      ? `  強さ（閾値 ${THRESHOLDS[0]}）  空の中央値     外周の中央値      判定`
-      : '  閾値   空の中央値     外周の中央値      判定',
+      ? `  強さ（閾値 ${THRESHOLDS[0]}）   空        雲        外周      判定`
+      : '  閾値    空        雲        外周      判定',
   )
 
   // 片方だけを振る。両方振ると組み合わせの数だけ撮ることになる
@@ -162,16 +177,20 @@ try {
       ...(strength !== null ? { bloomstrength: strength } : {}),
     })
     const sky = stats(png, REGIONS.sky)
+    const cloud = stats(png, REGIONS.cloud)
     const hi = stats(png, REGIONS.glow)
-    const skyRise = (sky.median / base.sky.median - 1) * 100
-    const hiRise = (hi.median / base.glow.median - 1) * 100
-    // **2 条件の組。**空が上がらず、輝点だけが上がる
-    const ok = skyRise <= 2 && hiRise >= 25
+    const rise = (now, was) => (now / was - 1) * 100
+    const skyRise = rise(sky.median, base.sky.median)
+    const cloudRise = rise(cloud.median, base.cloud.median)
+    const hiRise = rise(hi.median, base.glow.median)
+    // **3 条件の組。**空も雲も上がらず、輝点だけが上がる。
+    // 雲を見ていなかったせいで、実機の絵で積雲が白飛びした（2026-09-17）
+    const ok = skyRise <= 2 && cloudRise <= 3 && hiRise >= 25
+    const why = skyRise > 2 ? '空が光る' : cloudRise > 3 ? '**雲が飛ぶ**' : '輝点が立たない'
+    const pct = (v) => ((v >= 0 ? '+' : '') + v.toFixed(1) + '%').padStart(7)
     console.log(
       `  ${(strength ?? threshold).toFixed(2).padStart(5)}  ` +
-        `${sky.median.toFixed(4)} (${(skyRise >= 0 ? '+' : '') + skyRise.toFixed(1)}%)  ` +
-        `${hi.median.toFixed(4)} (${(hiRise >= 0 ? '+' : '') + hiRise.toFixed(1)}%)  ` +
-        `${ok ? '**両立**' : skyRise > 2 ? '空が光る' : '輝点が立たない'}`,
+        `${pct(skyRise)}  ${pct(cloudRise)}  ${pct(hiRise)}  ${ok ? '**両立**' : why}`,
     )
   }
 } finally {

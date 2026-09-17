@@ -44,7 +44,22 @@ export const DEFAULT_EXPOSURE = 6
  *
  * 空の線形値は 0.1365 / 0.1602 / 0.1844（`weapons/explosions.ts` に
  * rgb(195,201,206) の逆算として記録）。露出 6 を掛けると 0.82 / 0.96 / 1.11。
- * **空をブルームさせないので、これより上に置く。**
+ * **空だけでなく雲も見る。**最初は雲量 0 の構図で掃引して 1.2 を採ったが、
+ * 雲のある絵に当てると積雲が白飛びして輪郭が消えた（実機、2026-09-17）。
+ * 雲は空より明るいので、空が +0.3% でも雲は大きく動く。
+ *
+ * `low-pass-afternoon`（雲量 0.29、順光）で測り直すと、空と雲がどちらも
+ * +0.0% になるのは 4.5 から。3.0 では空 +6.2% / 雲 +5.0% でまだ拾っている。
+ *
+ * **逆光ではさらに上が要る。**`level-backlit`（hour 8）は太陽そのものが空に
+ * あるので、4.5 でも空 +25.0% / 雲 +20.6%。実機の絵で積雲の輪郭が消えた。
+ * 8 まで上げると雲が残り、太陽の周りだけが滲む。
+ *
+ * **その代わり順光の排気口は拾わない**（`low-pass-afternoon` で外周 +0.0%）。
+ * 排気口の線形輝度は 0.92 で、雲の明るい部分と近い。**閾値だけでは分けられ
+ * ない。**発光体だけを光らせるには emissive を MRT へ出す選択的ブルームが
+ * 要る（three の `BloomNode` の doc にその形が載っている）。段 27 で MRT を
+ * 入れたら測り直す。
  *
  * 鎖へ渡すときは露出で割る（`nodeScene.ts` の `bloomThresholdFor`）。
  * `createNodeOutputNode` が組む鎖は `renderOutput` の内側に無いので、
@@ -53,7 +68,7 @@ export const DEFAULT_EXPOSURE = 6
  *
  * 値は掃引で決める（`docs/measuring.md`）。
  */
-export const BLOOM_THRESHOLD_AFTER_EXPOSURE = 1.2
+export const BLOOM_THRESHOLD_AFTER_EXPOSURE = 8
 
 /**
  * 既定の雲量。点在する積雲になる値。

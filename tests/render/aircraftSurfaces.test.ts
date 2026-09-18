@@ -4,6 +4,8 @@ import { createControlSurfaces } from '@render/aircraft/surfaces'
 import type { AircraftHinge } from '@render/aircraft/model'
 import { F18_HINGES, xmlToWorld } from '../../tools/f18-hinges.mjs'
 import { F16_HINGES } from '../../tools/f16-hinges.mjs'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath, URL } from 'node:url'
 
 /**
  * 舵の向きの検算。
@@ -171,6 +173,103 @@ describe.each(CRAFT)('$id の舵面の向き', (craft) => {
     surfaces.update(0, 0, 0)
     for (const hinge of hinges) {
       expect(nodes.get(hinge.node)!.quaternion.w).toBeCloseTo(1, 12)
+    }
+  })
+})
+
+/**
+ * F/A-18E の舵の向き。
+ *
+ * **glb の extras から読む。**F/A-18C と F-16 は `tools/*-hinges.mjs` が
+ * XML 座標を持っていて、この検査が変換を再現していた。F/A-18E は原本に XML が
+ * 無く、`tools/f18e-hinges.mjs` が bbox から軸を導いて
+ * `tools/f18e-to-glb.mjs` が座標系を回す。**変換の再現ではなく、出来上がった
+ * glb を読んで確かめる。**
+ *
+ * これで「舵面の同定」「ヒンジの軸」「座標系の回転」の 3 つが通しで見える。
+ * 途中のどれかを間違えると後縁が逆へ動く。
+ */
+describe('f18e の舵面の向き（glb の extras から）', () => {
+  const glbHinges = (() => {
+    const path = fileURLToPath(new URL('../../public/aircraft/f18e.glb', import.meta.url))
+    const buf = readFileSync(path)
+    const jsonLength = buf.readUInt32LE(12)
+    const gltf = JSON.parse(buf.subarray(20, 20 + jsonLength).toString('utf8'))
+    return gltf.scenes[0].extras.hinges as AircraftHinge[]
+  })()
+
+  function buildFromGlb() {
+    const nodes = new Map<string, THREE.Object3D>()
+    for (const h of glbHinges) {
+      const node = new THREE.Object3D()
+      node.name = h.node
+      nodes.set(h.node, node)
+    }
+    return { nodes, surfaces: createControlSurfaces(nodes, glbHinges) }
+  }
+
+  it('8 面が載っている', () => {
+    expect(glbHinges.length).toBe(8)
+    expect(glbHinges.map((h) => h.node).sort()).toEqual(
+      [
+        'AileronLeft',
+        'AileronRight',
+        'FlapLeft',
+        'FlapRight',
+        'RudderLeft',
+        'RudderRight',
+        'StabilatorLeft',
+        'StabilatorRight',
+      ].sort(),
+    )
+  })
+
+  it('エルロンの軸が左右で逆を向く', () => {
+    const left = glbHinges.find((h) => h.node === 'AileronLeft')!
+    const right = glbHinges.find((h) => h.node === 'AileronRight')!
+    // **同じ符号で逆に回るために逆向きが要る。**揃っていると両翼が同じ方向へ
+    // 動いてロールしない
+    expect(left.axis[0]! * right.axis[0]!).toBeLessThan(0)
+  })
+
+  it('ロールで左右のエルロンが逆へ動く', () => {
+    const { nodes, surfaces } = buildFromGlb()
+    surfaces.update(0, -1, 0)
+    const a = trailingEdge(nodes.get('AileronLeft')!).y
+    const b = trailingEdge(nodes.get('AileronRight')!).y
+    // **どちらが上がるかはここでは問わない。**左右の割り当ては座標系を回した
+    // ときに入れ替わりうるので、`tools/f18e-to-glb.mjs` の `MIRROR_SIDES` で
+    // 決める。ここが見張るのは「逆へ動く」こと
+    expect(a * b, `左 ${a.toFixed(2)} 右 ${b.toFixed(2)} が同じ向き`).toBeLessThan(0)
+    expect(Math.abs(a)).toBeGreaterThan(0.3)
+    expect(Math.abs(b)).toBeGreaterThan(0.3)
+  })
+
+  it('機首上げでスタビレータの後縁が左右そろって上がる', () => {
+    const { nodes, surfaces } = buildFromGlb()
+    surfaces.update(1, 0, 0)
+    const a = trailingEdge(nodes.get('StabilatorLeft')!).y
+    const b = trailingEdge(nodes.get('StabilatorRight')!).y
+    // 水平尾翼は左右同じ方向。**逆へ動いたら軸の向きが揃っていない**
+    expect(a * b, `左 ${a.toFixed(2)} 右 ${b.toFixed(2)} が逆向き`).toBeGreaterThan(0)
+    expect(a).toBeGreaterThan(0.3)
+  })
+
+  it('ヨーでラダーが左右そろって振れる', () => {
+    const { nodes, surfaces } = buildFromGlb()
+    surfaces.update(0, 0, 1)
+    const a = trailingEdge(nodes.get('RudderLeft')!).x
+    const b = trailingEdge(nodes.get('RudderRight')!).x
+    expect(a * b, `左 ${a.toFixed(2)} 右 ${b.toFixed(2)} が逆向き`).toBeGreaterThan(0)
+    expect(Math.abs(a)).toBeGreaterThan(0.3)
+  })
+
+  it('舵角が定義した上限に収まる', () => {
+    const { nodes, surfaces } = buildFromGlb()
+    surfaces.update(1, 1, 1)
+    for (const h of glbHinges) {
+      const deg = angle(nodes.get(h.node)!)
+      expect(deg, `${h.node} が ${deg.toFixed(1)} 度`).toBeLessThanOrEqual(h.maxDeg + 0.01)
     }
   })
 })

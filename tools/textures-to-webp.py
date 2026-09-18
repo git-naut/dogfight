@@ -35,6 +35,22 @@ QUALITY = 95
 CRAFT = {
     "f18": ["f18top.rgb", "f18tail.rgb", "f18cockpit.rgb"],
     "f16": ["f16.png", "f16trans.png", "canopy2.png", "nozzle-ring.png"],
+    # F/A-18E は原本が glTF で、テクスチャが textures/ の下に 12 枚ある。
+    # 名前は Sketchfab の変換が付けた Material.NNN_baseColor.png
+    "f18e": [f"textures/{name}" for name in (
+        "Material_baseColor.png",
+        "Material.001_baseColor.png",
+        "Material.002_baseColor.png",
+        "Material.004_baseColor.png",
+        "Material.005_baseColor.png",
+        "Material.006_baseColor.png",
+        "Material.007_baseColor.png",
+        "Material.008_baseColor.png",
+        "Material.009_baseColor.png",
+        "Material.010_baseColor.png",
+        "Material.011_baseColor.png",
+        "Material.012_baseColor.png",
+    )],
 }
 
 

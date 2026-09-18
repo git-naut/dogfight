@@ -89,7 +89,15 @@ const capture = readCaptureConfig(window.location.search)
 // GitHub Pages ではサイトが /dogfight/ 配下に出るので BASE_URL を挟む
 const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
 // 機体は tools/ac3d-to-glb.mjs が public/aircraft/ へ置く
-const AIRCRAFT_URL = `${import.meta.env.BASE_URL}aircraft/f18.glb`
+/**
+ * 自機のモデル。`?craft=f18e` で F/A-18E へ差し替えられる。
+ *
+ * **差し替えの途中の口。**左右の割り当てが座標系の回転で入れ替わりうるので、
+ * 絵で確かめるために両方を読めるようにしてある（`tools/f18e-to-glb.mjs` の
+ * `MIRROR_SIDES`）。確定したら既定を差し替えて、この分岐は畳む。
+ */
+const CRAFT_ID = new URLSearchParams(window.location.search).get('craft') === 'f18e' ? 'f18e' : 'f18'
+const AIRCRAFT_URL = `${import.meta.env.BASE_URL}aircraft/${CRAFT_ID}.glb`
 const ENEMY_URL = `${import.meta.env.BASE_URL}aircraft/f16.glb`
 const CARRIER_URL = `${import.meta.env.BASE_URL}aircraft/nimitz.glb`
 

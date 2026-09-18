@@ -50,7 +50,11 @@ export const MAX_DEG = {
 export const SIGN = {
   aileron: -1,
   flap: -1,
-  stabilator: -1,
+  // **C 型は −1 だが E/F は +1。**軸の向きが違う。C 型（FlightGear の XML）は
+  // エレベータの軸が左右で同じ向きに −X を向いていた。こちらは bbox の
+  // min→max で +Z（変換後 −X）を向くので、同じ符号だと後縁が下がる。
+  // 実測で −0.407（後縁が下がる）が出たので反転した
+  stabilator: 1,
   rudder: 1,
 }
 

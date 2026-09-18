@@ -1,6 +1,10 @@
 # アセットの出典
 
-このプロジェクトで使うアセットは CC0、パブリックドメイン、OFL、MIT、GPLv2+ のみ。取得したものは URL、作者、ライセンス、取得日をここに記録する。記録のないアセットはコミットしない。
+このプロジェクトで使うアセットは CC0、パブリックドメイン、OFL、MIT、GPLv2+、CC BY 4.0 のみ。取得したものは URL、作者、ライセンス、取得日をここに記録する。記録のないアセットはコミットしない。
+
+**CC BY 4.0 を足した（2026-09-18）。**F/A-18E のモデルを入れるため。CC BY 4.0 は GPLv3 と一方向互換で、このリポジトリは GPLv2+（v2 or later）なので取り込める。表示義務はこの表への記載で果たす。
+
+**CC BY-NC は入れない。**NC は商用利用を禁じるが、GPL は受け取った誰もが商用利用できることを保証する。同梱すると矛盾する。**自分が商用利用するかどうかとは別の問題で、公開した時点で第三者に GPL の権利を渡すため。**2026-09-18 に F/A-18E の候補を 6 件測り、2 件（`bohmerang` と `42manako`）をこの理由で落とした。
 
 GPLv2+ を許すのは、このリポジトリ自体を GPLv2+ にしたため（`LICENSE`）。GPL のアセットは改変前の原本を `assets/upstream/` にコミットする。GPLv2 が改変に適した形式の提供を求めるので、生成物だけでは足りない。
 
@@ -16,8 +20,20 @@ GPLv2+ を許すのは、このリポジトリ自体を GPLv2+ にしたため�
 | assets/upstream/nimitz/nimitz.ac | 空母 USS Nimitz (CVN-68) | Vivian Meazza | GPLv2 | [FlightGear fgdata](https://sourceforge.net/p/flightgear/fgdata/ci/next/tree/Models/Geometry/Nimitz/) `Models/Geometry/Nimitz/nimitz.ac` | 2026-08-31 |
 | assets/upstream/nimitz/nimitz.xml | 同モデルの FlightGear 定義。カタパルトと拘束索の割り当て | 同上 | GPLv2 | 同上 `nimitz.xml` | 2026-08-31 |
 | assets/upstream/nimitz/*.png（10 枚） | 同モデルのテクスチャ | 大部分は Javier Fernandez（下記） | GPLv2 | 同上 | 2026-08-31 |
+| assets/upstream/f18e/scene.gltf ほか | Boeing F/A-18E "Super Hornet" | KOG_THORNS | **CC BY 4.0** | [Sketchfab](https://sketchfab.com/3d-models/boeing-fa-18e-super-hornet-9e852037bf2141dcb3fda17013958131) | 2026-09-18 |
 
 F/A-18C は 201 オブジェクト、18,634 三角形、12,260 頂点。F-16 は 125 オブジェクト、18,042 三角形、10,627 頂点。`tools/ac3d-to-glb.mjs` が `public/aircraft/` へ変換する。
+
+F/A-18E は 220 部品、77,840 三角形。全長 18.31 m / 翼幅 13.19 m / 全高 4.91 m（公称 18.31 / 13.62 / 4.88 と 3.2% 以内で一致）。**舵面が名前で分かれていない**ので、`tools/f18e-parts.mjs` が位置と寸法で同定する（`tests/tools/f18eParts.test.ts` が結果を固定）。
+
+CC BY 4.0 の表示。原文のまま載せる（`assets/upstream/f18e/license.txt` の指定）。
+
+```
+This work is based on "Boeing F/A-18E "Super Hornet""
+(https://sketchfab.com/3d-models/boeing-fa-18e-super-hornet-9e852037bf2141dcb3fda17013958131)
+by KOG_THORNS (https://sketchfab.com/ioai25312)
+licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+```
 
 F-16 の作者は `f16-block-50-set.xml` の `<author>` にある一覧。
 

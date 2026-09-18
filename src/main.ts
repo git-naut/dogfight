@@ -92,9 +92,9 @@ const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
 /**
  * 自機のモデル。`?craft=f18e` で F/A-18E へ差し替えられる。
  *
- * **差し替えの途中の口。**左右の割り当てが座標系の回転で入れ替わりうるので、
- * 絵で確かめるために両方を読めるようにしてある（`tools/f18e-to-glb.mjs` の
- * `MIRROR_SIDES`）。確定したら既定を差し替えて、この分岐は畳む。
+ * **差し替えの途中の口。**飛行モデルがまだ C 型の値（主翼面積 37.16 m²、
+ * 推力 157.47 kN）なので、絵だけ先に差し替えて見比べられるようにしてある。
+ * E/F の係数を入れたら既定を差し替えて、この分岐は畳む。
  */
 const CRAFT_ID = new URLSearchParams(window.location.search).get('craft') === 'f18e' ? 'f18e' : 'f18'
 const AIRCRAFT_URL = `${import.meta.env.BASE_URL}aircraft/${CRAFT_ID}.glb`

@@ -51,7 +51,8 @@ export interface MetricPart {
   raw: RawPart
 }
 
-export type PartRole = 'aileron' | 'flap' | 'stabilator' | 'rudder'
+export type PartRole = 'aileron' | 'stabilator' | 'rudder'
+/** **原本は +Z が左**（`La1`／`Lw1`／`Rw1` の名前で確定した） */
 export type PartSide = 'left' | 'right'
 
 /** 同定できた舵面。親ノード単位でまとめてある */

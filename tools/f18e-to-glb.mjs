@@ -35,8 +35,8 @@
 //   (x, y, z) → (−z, y, x)
 //
 // **鏡映は使えない。**左右を合わせるために鏡映すると、テクスチャの文字
-// （`VFA-143` や機番）が裏返る。回転で機首を合わせ、**左右の割り当ては絵を
-// 見て決める**（`MIRROR_SIDES`）。
+// （`VFA-143` や機番）が裏返る。回転だけで機首を合わせる。左右の割り当ては
+// この回転で保たれる（`tools/f18e-parts.mjs` の座標系の表）。
 import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
@@ -50,19 +50,14 @@ const OUT_DIR = join(ROOT, 'public/aircraft')
 const OUT_NAME = 'f18e'
 
 /**
- * 左右の割り当てを入れ替えるか。
+ * 原本の軸 → この作品の軸。Y 軸まわりに −90 度で機首 −X が −Z を向く。
  *
- * 座標系を回すと、原本の「Z が負の側」が変換後の右（+X）になる。それが
- * 実際の右翼かどうかは**絵を見ないと分からない。**確認したら値を固定する。
- *
- * 入れ替えが要るなら、同定した `side` を反転して名前を付ける。ヒンジの軸の
- * 向きも一緒に反転する（左右で逆を向いている必要があるため）。
+ * **左右は入れ替わらない。**原本は +Z が左（`tools/f18e-parts.mjs` の表）。
+ * この回転で +Z は −X へ移り、機首 −Z・上 +Y の右手系では −X が左になる。
+ * 割り当ては `tools/f18e-parts.mjs` の `PART_RULES` が決めていて、ここでは
+ * 名前を触らない。
  */
-const MIRROR_SIDES = false
-
-
 function rotateToWorld([x, y, z]) {
-  // Y 軸まわりに −90 度。機首 −X → −Z
   return [-z, y, x]
 }
 
@@ -313,7 +308,6 @@ function main() {
 
   console.log(`${OUT_NAME}.glb  ${(glb.byteLength / 1024 / 1024).toFixed(2)} MB  ${triangles.toLocaleString()} 三角形`)
   console.log(`  舵面 ${hingeInfo.length} 件  脚 ${gearNodes.size} ノード  テクスチャ ${renamed.size} 枚`)
-  console.log(`  左右の入れ替え: ${MIRROR_SIDES ? 'する' : 'しない'}（絵で確かめる）`)
 }
 
 main()

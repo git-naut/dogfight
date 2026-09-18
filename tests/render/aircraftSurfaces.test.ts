@@ -208,20 +208,30 @@ describe('f18e の舵面の向き（glb の extras から）', () => {
     return { nodes, surfaces: createControlSurfaces(nodes, glbHinges) }
   }
 
-  it('8 面が載っている', () => {
-    expect(glbHinges.length).toBe(8)
+  it('6 面が載っている', () => {
+    expect(glbHinges.length).toBe(6)
     expect(glbHinges.map((h) => h.node).sort()).toEqual(
       [
         'AileronLeft',
         'AileronRight',
-        'FlapLeft',
-        'FlapRight',
         'RudderLeft',
         'RudderRight',
         'StabilatorLeft',
         'StabilatorRight',
       ].sort(),
     )
+  })
+
+  it('左の舵面が −X、右が +X にある', () => {
+    // **左右の割り当ての決め手。**原本は +Z が左（`La1`／`Lw1`／`Rw1` の名前）で、
+    // 変換 (x,y,z) → (−z,y,x) を通すと −X へ移る。この作品は機首 −Z・上 +Y の
+    // 右手系なので +X が右。**つまり左は −X。**
+    // 名前と位置がここでずれていると、絵では左へロールしながら右のエルロンが
+    // 下がる（幾何だけの検査では捕まらない）
+    for (const h of glbHinges) {
+      if (h.node.endsWith('Left')) expect(h.origin[0], `${h.node} が +X にある`).toBeLessThan(0)
+      else expect(h.origin[0], `${h.node} が −X にある`).toBeGreaterThan(0)
+    }
   })
 
   it('エルロンの軸が左右で逆を向く', () => {
@@ -232,17 +242,12 @@ describe('f18e の舵面の向き（glb の extras から）', () => {
     expect(left.axis[0]! * right.axis[0]!).toBeLessThan(0)
   })
 
-  it('ロールで左右のエルロンが逆へ動く', () => {
+  it('左ロールで左のエルロンが上がり、右が下がる', () => {
     const { nodes, surfaces } = buildFromGlb()
+    // 指令が負で左ロール（sim の setBodyRates は roll 正が右）
     surfaces.update(0, -1, 0)
-    const a = trailingEdge(nodes.get('AileronLeft')!).y
-    const b = trailingEdge(nodes.get('AileronRight')!).y
-    // **どちらが上がるかはここでは問わない。**左右の割り当ては座標系を回した
-    // ときに入れ替わりうるので、`tools/f18e-to-glb.mjs` の `MIRROR_SIDES` で
-    // 決める。ここが見張るのは「逆へ動く」こと
-    expect(a * b, `左 ${a.toFixed(2)} 右 ${b.toFixed(2)} が同じ向き`).toBeLessThan(0)
-    expect(Math.abs(a)).toBeGreaterThan(0.3)
-    expect(Math.abs(b)).toBeGreaterThan(0.3)
+    expect(trailingEdge(nodes.get('AileronLeft')!).y).toBeGreaterThan(0.3)
+    expect(trailingEdge(nodes.get('AileronRight')!).y).toBeLessThan(-0.3)
   })
 
   it('機首上げでスタビレータの後縁が左右そろって上がる', () => {

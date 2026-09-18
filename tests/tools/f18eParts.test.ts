@@ -5,13 +5,14 @@ import { identifyParts, SPEC, SCALE } from '../../tools/f18e-parts.mjs'
 /**
  * F/A-18E の部品の同定。
  *
- * **名前で拾えないモデルを幾何で当てている。**Sketchfab が FBX から変換した
- * glTF なので、ノード名は `Meshpart126_Material.001_0` のような自動生成名。
- * 意味のある名前は `Canopy1` と `Tailhook1/2` の 3 つだけで、舵面は 1 つも
- * 名前を持たない。
+ * **名前でほとんど拾えないモデルを幾何で当てている。**Sketchfab が FBX から
+ * 変換した glTF なので、ノード名は `Meshpart126_Material.001_0` のような
+ * 自動生成名。舵面で名前が残っているのは左のエルロン `La1` だけ。
  *
  * 位置と寸法で当てているので、**閾値が隣の部品を巻き込んでいないか**を
  * ここで固定する。1 つの舵面に 2 つ当たったら、それは閾値が広すぎる。
+ * **隣を拾っても bbox の検査は通る**（外翼パネルを 1 度そうやって拾った）
+ * ので、大きさそのものにも条件を置く。
  *
  * モデルは `assets/upstream/f18e/` に原本を置いてある（CC BY 4.0、
  * `assets/CREDITS.md`）。差し替えない限りこの数は動かない。
@@ -52,16 +53,15 @@ describe('舵面の同定', () => {
   }
 
   const expected = [
-    ['AileronLeft', 'Main2', 237],
-    ['AileronRight', 'Main3', 238],
-    ['FlapLeft', 'Meshpart164', 52],
-    ['FlapRight', 'Meshpart156', 52],
-    ['StabilatorLeft', 'Meshpart176', 76],
-    ['StabilatorRight', 'Meshpart126', 76],
-    // **左右で作りが違う。**左は 2 プリミティブ（94 + 49）、右は 1 つで 143。
+    // `La1` は原本に残った名前（Left aileron）。左右を決めた根拠でもある
+    ['AileronLeft', 'La1', 68],
+    ['AileronRight', 'Meshpart175', 68],
+    ['StabilatorLeft', 'Meshpart126', 76],
+    ['StabilatorRight', 'Meshpart176', 76],
+    // **左右で作りが違う。**右は 2 プリミティブ（94 + 49）、左は 1 つで 143。
     // 親ノードでまとめるので、どちらも 143 三角形になる
-    ['RudderLeft', 'Meshpart125', 143],
-    ['RudderRight', 'Meshpart174', 143],
+    ['RudderLeft', 'Meshpart174', 143],
+    ['RudderRight', 'Meshpart125', 143],
   ] as const
 
   it.each(expected)('%s は %s の 1 ノードに当たる', (name, node, triangles) => {
@@ -72,13 +72,11 @@ describe('舵面の同定', () => {
     expect(hits[0]!.triangles).toBe(triangles)
   })
 
-  it('8 面すべてが揃う', () => {
+  it('6 面すべてが揃う', () => {
     expect([...byName.keys()].sort()).toEqual(
       [
         'AileronLeft',
         'AileronRight',
-        'FlapLeft',
-        'FlapRight',
         'RudderLeft',
         'RudderRight',
         'StabilatorLeft',
@@ -87,8 +85,23 @@ describe('舵面の同定', () => {
     )
   })
 
+  it('左が +Z、右が −Z にある', () => {
+    // **原本の左右は残った名前で決めた。**`La1`（Left aileron）が Z +5.41、
+    // `Lw1`（left wing）が +4.58、`Rw1`（right wing）が −4.58。
+    // 幾何だけで当てていると符号を取り違えても検査は通るので、ここで固定する
+    const named = new Map(result.parts.map((p) => [p.raw.parent ?? p.name, p]))
+    expect(named.get('La1')!.z, 'La1 は左なので +Z').toBeGreaterThan(0)
+    expect(named.get('Lw1')!.z, 'Lw1 は左なので +Z').toBeGreaterThan(0)
+    expect(named.get('Rw1')!.z, 'Rw1 は右なので −Z').toBeLessThan(0)
+
+    for (const m of result.matched) {
+      if (m.side === 'left') expect(m.part.z, `${m.name} が −Z にある`).toBeGreaterThan(0)
+      else expect(m.part.z, `${m.name} が +Z にある`).toBeLessThan(0)
+    }
+  })
+
   it('左右の舵面が鏡像の位置にある', () => {
-    for (const role of ['aileron', 'flap', 'stabilator', 'rudder']) {
+    for (const role of ['aileron', 'stabilator', 'rudder']) {
       const left = result.matched.find((m) => m.role === role && m.side === 'left')
       const right = result.matched.find((m) => m.role === role && m.side === 'right')
       expect(left, `${role} の左が無い`).toBeDefined()
@@ -103,13 +116,30 @@ describe('舵面の同定', () => {
 
   it('舵面が機体の正しい場所にある', () => {
     const at = (name: string) => result.matched.find((m) => m.name === name)!.part
-    // エルロンはフラップより外側
-    expect(at('AileronLeft').absZ).toBeGreaterThan(at('FlapLeft').absZ)
     // スタビレータはエルロンより後ろ（機首が −X）
     expect(at('StabilatorLeft').x).toBeGreaterThan(at('AileronLeft').x)
     // 垂直尾翼はいちばん高い
     expect(at('RudderLeft').y).toBeGreaterThan(at('StabilatorLeft').y)
     expect(at('RudderLeft').y).toBeGreaterThan(at('AileronLeft').y)
+  })
+
+  it('エルロンが外翼パネルではない', () => {
+    // **1 度これを取り違えた。**主翼の外側は前縁フラップ（X 0.66）・パネル
+    // 本体（`Main2`／`Main3`、X 1.43）・エルロン（X 2.47）の 3 枚に分かれて
+    // いて、真ん中のパネルも「外翼後縁にある左右対称の薄板」の条件を満たす。
+    // 拾うとロール指令で外翼が翼端ごと 30 度傾く。
+    //
+    // 見分けるのは翼弦。エルロンは 0.88 m でパネルは 1.99 m。舵面は翼幅方向に
+    // 長いので、翼弦が翼幅の半分を超えたらそれは舵面ではない
+    for (const side of ['Left', 'Right'] as const) {
+      const p = result.matched.find((m) => m.name === `Aileron${side}`)!.part
+      expect(p.sizeX, `Aileron${side} の翼弦 ${p.sizeX.toFixed(2)} m`).toBeLessThan(1.2)
+      expect(p.sizeX / p.sizeZ, `Aileron${side} が翼幅方向に長くない`).toBeLessThan(0.5)
+    }
+
+    // パネル本体より後ろにあること（エルロンは後縁に付く）
+    const panel = result.parts.find((p) => p.raw.parent === 'Main2')!
+    expect(result.matched.find((m) => m.name === 'AileronLeft')!.part.x).toBeGreaterThan(panel.x)
   })
 })
 
@@ -140,10 +170,10 @@ describe('左右対称のペア', () => {
 })
 
 describe('ヒンジ軸', () => {
-  it('8 件そろい、軸が意図どおりの向きを向く', async () => {
+  it('6 件そろい、軸が意図どおりの向きを向く', async () => {
     const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
     const hinges = buildHinges(GLTF)
-    expect(hinges.length).toBe(8)
+    expect(hinges.length).toBe(6)
 
     const dir = (h: { from: number[]; to: number[] }) => {
       const d = [0, 1, 2].map((k) => h.to[k]! - h.from[k]!)

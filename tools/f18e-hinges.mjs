@@ -9,7 +9,6 @@
 // | 舵面 | 位置 | 軸 |
 // |---|---|---|
 // | エルロン | 前縁（機首寄りの辺） | 翼幅方向 |
-// | フラップ | 同上 | 同上 |
 // | スタビレータ | 翼弦の 30%（**全遊動**なので前縁ではない） | 翼幅方向 |
 // | ラダー | 前縁 | 垂直方向 |
 //
@@ -30,7 +29,6 @@ import { identifyParts, SCALE } from './f18e-parts.mjs'
  */
 export const MAX_DEG = {
   aileron: 30,
-  flap: 45,
   stabilator: 24,
   rudder: 30,
 }
@@ -38,22 +36,20 @@ export const MAX_DEG = {
 /**
  * 舵の向き。指令に掛ける符号。
  *
- * `tools/f18-hinges.mjs` の説明と同じ理屈。
+ * 目標の動きは `tools/f18-hinges.mjs` と同じ。左ロール（指令が負）で左の
+ * エルロンが上がって右が下がる。機首上げ（指令が正）で水平尾翼の後縁が
+ * 上がる。右ヨー（指令が正）でラダーの後縁が右へ振れる。
  *
- * エルロンは −1。左ロール（指令が負）で左のエルロンが上がり、右が下がる。
- * エレベータは −1。機首上げ（指令が正）で後縁が上がる。
- * ラダーは +1。右ヨー（指令が正）で後縁が右へ振れる。
+ * **符号は C 型から写せない。**C 型は FlightGear の XML がヒンジの 2 点を
+ * 持っていて、その向きに合わせた値だった。こちらは bbox から軸を組むので
+ * 向きが別に決まる。エルロンとスタビレータは実測でどちらも反転した
+ * （エルロンは −1 で左の後縁が −0.500、スタビレータは −1 で −0.407）。
  *
- * **軸の向きで決まるので、変換後の座標で確かめる。**左右のエルロンが同じ
- * 方向へ動いたら符号か軸が間違っている。
+ * **確かめるのは変換後の座標。**`tests/render/aircraftSurfaces.test.ts` が
+ * glb の extras を読んで、左右を名指しして見張る。
  */
 export const SIGN = {
-  aileron: -1,
-  flap: -1,
-  // **C 型は −1 だが E/F は +1。**軸の向きが違う。C 型（FlightGear の XML）は
-  // エレベータの軸が左右で同じ向きに −X を向いていた。こちらは bbox の
-  // min→max で +Z（変換後 −X）を向くので、同じ符号だと後縁が下がる。
-  // 実測で −0.407（後縁が下がる）が出たので反転した
+  aileron: 1,
   stabilator: 1,
   rudder: 1,
 }
@@ -94,13 +90,13 @@ export function buildHinges(gltfPath) {
       from = [x, y, lo[2]]
       to = [x, y, hi[2]]
     } else {
-      // エルロンとフラップ。前縁に翼幅方向の軸。
+      // エルロン。前縁に翼幅方向の軸。
       //
       // **軸の向きを左右で逆にする。**bbox の min→max で作ると両方が +Z を
       // 向き、同じ符号を与えたときに左右が同じ方向へ動く。エルロンは逆に
-      // 動かないとロールしない。内側→外側の向きに揃えると、左が −Z・右が
-      // +Z になって符号 1 つで逆向きになる（`tools/f18-hinges.mjs` が
-      // F-16 について書いているのと同じ形）
+      // 動かないとロールしない。外側→内側の向きに揃えると、左（+Z 側）が
+      // −Z・右（−Z 側）が +Z になって符号 1 つで逆向きになる
+      // （`tools/f18-hinges.mjs` が F-16 について書いているのと同じ形）
       const x = lo[0]
       const y = mid(1)
       from = m.side === 'left' ? [x, y, hi[2]] : [x, y, lo[2]]
@@ -116,9 +112,8 @@ export function buildHinges(gltfPath) {
       to,
       maxDeg: MAX_DEG[m.role],
       // `SurfaceChannel` は 'elevator' | 'aileron' | 'rudder' の 3 つ。
-      // フラップは指令を持たないので既定で 0 のまま（器だけ用意する）
-      channel:
-        m.role === 'stabilator' ? 'elevator' : m.role === 'flap' ? 'aileron' : m.role,
+      // 全遊動の水平尾翼はピッチの指令を読むので elevator へ寄せる
+      channel: m.role === 'stabilator' ? 'elevator' : m.role,
       sign: SIGN[m.role],
     })
   }

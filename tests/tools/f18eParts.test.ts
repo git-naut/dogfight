@@ -138,3 +138,48 @@ describe('左右対称のペア', () => {
     expect(result.pairs.length).toBe(43)
   })
 })
+
+describe('ヒンジ軸', () => {
+  it('8 件そろい、軸が意図どおりの向きを向く', async () => {
+    const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
+    const hinges = buildHinges(GLTF)
+    expect(hinges.length).toBe(8)
+
+    const dir = (h: { from: number[]; to: number[] }) => {
+      const d = [0, 1, 2].map((k) => h.to[k]! - h.from[k]!)
+      const n = Math.hypot(...d)
+      return d.map((v) => v / n)
+    }
+    const at = (name: string) => hinges.find((h) => h.node === name)!
+
+    // **エルロンは左右で逆を向く。**同じ符号で逆に回るため。
+    // 揃っているとロールせずに両翼が同じ方向へ動く
+    expect(dir(at('AileronLeft'))[2]).toBeCloseTo(-1, 2)
+    expect(dir(at('AileronRight'))[2]).toBeCloseTo(1, 2)
+
+    // スタビレータは左右同じ方向（機首上げで両方の後縁が上がる）
+    expect(dir(at('StabilatorLeft'))[2]).toBeCloseTo(1, 2)
+    expect(dir(at('StabilatorRight'))[2]).toBeCloseTo(1, 2)
+
+    // ラダーは鉛直
+    expect(dir(at('RudderLeft'))[1]).toBeCloseTo(1, 2)
+    expect(dir(at('RudderRight'))[1]).toBeCloseTo(1, 2)
+  })
+
+  it('ヒンジが舵面の bbox の内側にある', async () => {
+    const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
+    const { SCALE } = await import('../../tools/f18e-parts.mjs')
+    for (const h of buildHinges(GLTF)) {
+      const part = result.matched.find((m) => m.name === h.node)!.part
+      const lo = part.raw.min.map((v: number) => v * SCALE)
+      const hi = part.raw.max.map((v: number) => v * SCALE)
+      for (const p of [h.from, h.to]) {
+        for (let k = 0; k < 3; k++) {
+          // **舵面の外にヒンジを置かない。**置くと舵が離れた位置を軸に振れる
+          expect(p[k], `${h.node} の軸が bbox の外`).toBeGreaterThanOrEqual(lo[k]! - 0.01)
+          expect(p[k], `${h.node} の軸が bbox の外`).toBeLessThanOrEqual(hi[k]! + 0.01)
+        }
+      }
+    }
+  })
+})

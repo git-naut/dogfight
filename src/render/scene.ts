@@ -565,6 +565,10 @@ export async function createScene(
       )
       aircraft.object.quaternion.copy(quaternion)
       aircraft.setThrottle(sample.throttle)
+      // **風圧の演出へ荷重倍数を渡す。**`AircraftSample.loadFactor` は
+      // 「描画側で使う予備」として置かれていた口で、ここが最初の読み手。
+      // 実時間ではなく sim の値なので、キャプチャでも絵が決まる
+      pipeline.setLoadFactor(sample.loadFactor)
       // 舵面は sim が持つ位置をそのまま渡す。描画側で入力を読むと
       // キャプチャモードで再現しない
       aircraft.setControls(sample.elevator, sample.aileron, sample.rudder)

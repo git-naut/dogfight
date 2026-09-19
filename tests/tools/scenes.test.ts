@@ -53,7 +53,7 @@ describe('基準画像の構図', () => {
 
   it('watches は実測に基づく', () => {
     // **宣言ではなく測った結果を書く。**段 6 で 56 件を宣言して測り、
-    // 発火しなかった 7 件を落として 49 件になった。空の 4 枚は画素では
+    // 発火しなかった 7 件を落として 49 件になった。空の 3 枚は画素では
     // 何も見張っていない（数値の検査が担う）。
     //
     // 増やしたら `MUTATE=1 npx playwright test pixel-mutate` で確かめる。
@@ -62,15 +62,17 @@ describe('基準画像の構図', () => {
     // 海面スペキュラ、`explosion-gun` の芯、`enemy-flare-flash` の閃光）。
     // **3 枚とも実測で発火した。**候補には `catapult`（アフターバーナー）も
     // あったが、甲板が主題で輝点が小さいので載せていない。
+    //
+    // 段 23 で 62 件へ。風圧を 10 枚に足した。**載せる先は宣言ではなく
+    // `npm run exact` が動いたカットで決めた。**荷重倍数が 1.5 を割ると鎖が
+    // 恒等になるので、水平飛行の 32 枚は切っても絵が動かない。10 枚とも
+    // `MUTATE=1` で発火した。
     const total = SCENES.reduce((sum, s) => sum + (s.watches?.length ?? 0), 0)
-    expect(total).toBe(52)
+    expect(total).toBe(62)
     const empty = SCENES.filter((s) => (s.watches ?? []).length === 0).map((s) => s.name)
-    expect(empty).toEqual([
-      'aircraft-vortex-fade',
-      'hud-dlz',
-      'hud-mission-failed',
-      'missile-warning',
-    ])
+    // **段 23 で 3 枚に減った。**`aircraft-vortex-fade` は 1.9 G で風圧が
+    // 効くので `lens` が載った（渦そのものは薄すぎて載せられていない）
+    expect(empty).toEqual(['hud-dlz', 'hud-mission-failed', 'missile-warning'])
   })
 
   it('HUD を含むのは 13 枚', () => {

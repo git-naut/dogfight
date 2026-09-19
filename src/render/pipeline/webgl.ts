@@ -591,6 +591,15 @@ export async function createWebGLPipeline(
       renderer.toneMappingExposure = value
     },
 
+    /**
+     * **GLSL 経路は捨てる。**風圧の演出は node 経路の鎖にしかない。
+     *
+     * 黙って無視するのではなく、口だけ持って何もしないことを明示する。
+     * `unsupported()` で投げると、退避路（WebGPU の無いブラウザ）で
+     * 毎フレーム落ちる
+     */
+    setLoadFactor() {},
+
     dispose() {
       gpuTimer.dispose()
       views.dispose()

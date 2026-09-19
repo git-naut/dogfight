@@ -180,6 +180,16 @@ describe('品質プリセットの表', () => {
     }
   })
 
+  it('風圧は low だけ切れている', () => {
+    // **段ではなく切り替え。**3 つの効果（放射ブラー・色収差・ビネット）は
+    // 同じ荷重倍数から導く 1 つの演出なので、強さの段を持たない。持つのは
+    // 「掛ける機構があるか」だけ
+    expect(QUALITY_PRESETS.low.lensEffects).toBe(false)
+    for (const name of ['medium', 'high', 'ultra'] as const) {
+      expect(QUALITY_PRESETS[name].lensEffects).toBe(true)
+    }
+  })
+
   it('既定は high', () => {
     expect(DEFAULT_PRESET).toBe('high')
     expect(getQuality(DEFAULT_PRESET).renderScale).toBe(1)

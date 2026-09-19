@@ -85,6 +85,20 @@ export interface CaptureConfig {
   /** ブルームの強さを上書きする。`?bloomstrength=`。掃引のための口 */
   bloomStrength: number | null
   /**
+   * 風圧の演出を掛けるか。`?lens=0` で外す。
+   *
+   * **強さは荷重倍数が決める。**1 G では 0 になるので、水平飛行のカットは
+   * 切っても絵が動かない。高 G のカット（`bank-left-dusk` など）でだけ差が出る
+   */
+  lens: boolean
+  /**
+   * 風圧の鎖をどこまで組むか。`?lens=tone|blur|ab`。
+   *
+   * **差分の帰属を測る口。**1 G では 3 つとも恒等になる設計なので、絵が
+   * 動いたらどの段が動かしたのかを 1 つずつ切って見る
+   */
+  lensStage: 'tone' | 'blur' | 'ab' | 'full'
+  /**
    * 地表と海面のライティングを大気の LUT から引くか。`?illum=0` で段 17b の
    * 形（`surfaceState` の放射輝度）へ戻す。
    *
@@ -365,6 +379,11 @@ export function readCaptureConfig(search: string): CaptureConfig {
     bloomStrength: params.has('bloomstrength')
       ? clampNumber(params.get('bloomstrength'), 0, 10, 0)
       : null,
+    lens: params.get('lens') !== '0',
+    lensStage: (() => {
+      const v = params.get('lens')
+      return v === 'blur' || v === 'ab' || v === 'full' ? v : 'full'
+    })(),
     illuminance: params.get('illum') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',

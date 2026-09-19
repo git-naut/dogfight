@@ -422,6 +422,8 @@ async function main(): Promise<void> {
     bloom: capture.bloom,
     ...(capture.bloomThreshold !== null ? { bloomThreshold: capture.bloomThreshold } : {}),
     ...(capture.bloomStrength !== null ? { bloomStrength: capture.bloomStrength } : {}),
+    lens: capture.lens,
+    lensStage: capture.lensStage,
     illuminance: capture.illuminance,
     showAircraftShadow: capture.showAircraftShadow,
     showTargets: capture.showTargets,

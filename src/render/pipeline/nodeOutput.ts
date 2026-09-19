@@ -1,5 +1,5 @@
 import type { Texture } from 'three'
-import { Fn, pass } from 'three/tsl'
+import { Fn, mix, pass, uv, vec2 } from 'three/tsl'
 import type { Camera, Node, Scene } from 'three/webgpu'
 import { overlayCompositeNode } from '../overlayNodes'
 import type { QualitySettings } from '../quality'
@@ -93,6 +93,42 @@ export interface NodeOutputInput {
    * ここで表の値だけを見ると、low で上書きしても鎖に入らない
    */
   bloomActive?: boolean
+
+  /**
+   * 風圧の演出。`radialBlur` と `chromaticAberration` と自前のビネット。
+   *
+   * **トーンマップの後ろに置く。**放射ブラーと色収差は表示域の色に掛けるのが
+   * 本来で、HDR の線形値に掛けると暗部の滲みが出ない。そのため
+   * `RenderPipeline.outputColorTransform` を切って、ここで `renderOutput` を
+   * 自分で挟む（`RenderPipeline` の doc が FXAA を例に説明している形）。
+   */
+  lens?: LensEffects
+  /** 荷重倍数の uniform。**1 G で 0 になる**ので水平飛行の絵は動かない */
+  loadFactor?: Node<'float'>
+  /** 風圧を鎖に入れるか。`?lens=0` で外す */
+  showLens?: boolean
+  /**
+   * 風圧の鎖をどこまで組むか。`?lens=tone|blur|ab|1`。
+   *
+   * **差分の帰属を測る口。**1 G では 3 つとも恒等になる設計なので、絵が
+   * 動いたらどの段が動かしたのかを 1 つずつ切って見る。既定は全部。
+   */
+  lensStage?: LensStage
+}
+
+/** 風圧の鎖をどこまで組むか */
+export type LensStage = 'tone' | 'blur' | 'ab' | 'full'
+
+/** 風圧に使う three の関数。呼ぶ側が動的 import して渡す */
+export interface LensEffects {
+  radialBlur: (node: Node, options: Record<string, unknown>) => Node
+  chromaticAberration: (
+    node: Node,
+    strength: unknown,
+    center: unknown,
+    scale: unknown,
+  ) => Node
+  renderOutput: (color: Node, toneMapping?: unknown, colorSpace?: unknown) => Node
 }
 
 /** `bloom(node, strength, radius, threshold)` の形だけ見る */
@@ -114,6 +150,13 @@ export interface NodeOutput {
   composite: Node
   /** `smaa` まで掛けた出力。`RenderPipeline` へ渡す */
   outputNode: Node
+  /**
+   * 鎖が自前で `renderOutput` を挟んだか。
+   *
+   * **`buildNodePipeline` へそのまま渡す。**呼ぶ側が条件を書き写すと、
+   * 風圧の条件を直したときに片方だけ直して**トーンマッピングが 2 度掛かる**
+   */
+  ownsOutputTransform: boolean
 }
 
 export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
@@ -153,8 +196,140 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
       )
     : composite
 
-  return { composite, outputNode: input.smaa(bloomed) }
+  const antialiased = input.smaa(bloomed)
+
+  // **風圧はトーンマップの後ろ。**放射ブラーと色収差は表示域の色に掛ける。
+  // HDR の線形値に掛けると、暗部の滲みが出ないまま明部だけが暴れる。
+  //
+  // そのために `RenderPipeline.outputColorTransform` を切って、ここで
+  // `renderOutput` を自分で挟む（`RenderPipeline` の doc が FXAA を例に
+  // 説明している形）。**切り忘れるとトーンマッピングが 2 度掛かる。**
+  const lensEnabled =
+    input.lens !== undefined && (input.showLens ?? true) && input.quality.lensEffects
+
+  if (!lensEnabled) return { composite, outputNode: antialiased, ownsOutputTransform: false }
+
+  const { radialBlur, chromaticAberration, renderOutput } = input.lens as LensEffects
+  const g = input.loadFactor as Node<'float'>
+
+  // **1 G で 0 になる形にする。**水平飛行の絵を動かさないため。
+  // `LENS_FULL_G` で 1 に届く。それ以上は伸ばさない（画面が読めなくなる）
+  // **1 G ちょうどを閾値にしない。**水平飛行でも荷重倍数はトリムの残差で
+  // 1.0000 にならず、`(g - 1) / 5` が 0.00002 のような値を返す。それでも
+  // 絵は 1 階調動く（実測で 42 枚が 1.07%）。**効き始めを 1.5 G に上げて、
+  // 巡航中は完全に 0 にする。**
+  const amount = (g as unknown as { smoothstep(a: number, b: number): Node<'float'> }).smoothstep(
+    LENS_START_G,
+    LENS_FULL_G,
+  )
+
+  const stage: LensStage = input.lensStage ?? 'full'
+  const toned = renderOutput(antialiased)
+  if (stage === 'tone') return { composite, outputNode: toned, ownsOutputTransform: true }
+
+  // **強さを `exposure` で振らない。`mix` で振る。**
+  //
+  // `exposure: 0` にすれば数式の上では恒等（`radialBlur.js` の最後が
+  // `mix(blur, base.mul(2), 0.5)` なので blur が 0 なら base に戻る）。
+  // だが `radialBlur` は先頭で `convertToTexture(textureNode)` を通す。
+  // **入力が中間のテクスチャへ 1 度焼かれ、読み戻すときに量子化される。**
+  // 実測で 1 G の絵が 42 枚とも 8% ・1 階調動いた。
+  //
+  // `exposure` は固定にして、混ぜ率を G で動かす。`mix(a, b, 0)` は
+  // `a * 1 + b * 0` なので、b が有限なら a とビットまで一致する。
+  //
+  // **`mix` はメソッド形式で呼ばない。**`addMethodChaining('mix', mixElement)`
+  // の `mixElement` は `(t, e1, e2) => mix(e1, e2, t)` なので、
+  // `a.mix(b, c)` は `mix(b, c, a)` になる。**a が混ぜ率**になり、実測で
+  // 全画面が 226 階調動いた。関数形式で書く
+  const blurredRaw = radialBlur(toned, { exposure: LENS_BLUR_MAX, count: 24 })
+  const blurred = blend(toned, blurredRaw, amount)
+
+  // **`center` に `null` を渡さない。**`chromaticAberration` は既定値
+  // `center = null` を `nodeObject(null)` に通すだけなので、null がそのまま
+  // ノードとして build される。実測で
+  // `TypeError: Cannot read properties of null (reading 'build')` が出て、
+  // **例外は捕まらず画面が真っ黒になった**（`captureReady` は立つ）
+  if (stage === 'blur') return { composite, outputNode: blurred, ownsOutputTransform: true }
+
+  // **`radialBlur` と同じ理由で `mix` で振る。**`chromaticAberration` も
+  // 先頭で `convertToTexture` を通すので、`strength: 0` にしても中間の
+  // テクスチャを往復するぶん量子化される
+  const shiftedRaw = chromaticAberration(
+    blurred,
+    LENS_ABERRATION_MAX,
+    vec2(0.5, 0.5),
+    LENS_ABERRATION_SCALE,
+  )
+  const shifted = blend(blurred, shiftedRaw, amount)
+
+  if (stage === 'ab') return { composite, outputNode: shifted, ownsOutputTransform: true }
+
+  return { composite, outputNode: vignette(shifted, amount), ownsOutputTransform: true }
 }
+
+/**
+ * `a` と `b` を `t` で混ぜる。
+ *
+ * **`mix` はメソッド形式で呼ばない。**`addMethodChaining('mix', mixElement)`
+ * の `mixElement` は `(t, e1, e2) => mix(e1, e2, t)` なので、`a.mix(b, c)` は
+ * `mix(b, c, a)` になる。**a が混ぜ率**になり、実測で全画面が 226 階調動いた。
+ *
+ * `t = 0` のとき `a * 1 + b * 0` なので、b が有限なら a とビットまで一致する。
+ */
+function blend(a: Node, b: Node, t: Node<'float'>): Node {
+  return (mix as unknown as (x: unknown, y: unknown, k: unknown) => Node)(a, b, t)
+}
+
+/**
+ * 画面の四隅を暗くする。
+ *
+ * three に既製品が無いので自前。中心からの距離で `smoothstep` する。
+ * **縦横比を打ち消さない。**横長の画面では横方向に伸びた楕円になるほうが
+ * 自然に見える（レンズの口径食と同じ形）。
+ */
+function vignette(node: Node, amount: Node<'float'>): Node {
+  const color = node as unknown as { mul(n: unknown): Node }
+  const d = (uv() as unknown as { sub(v: unknown): { length(): Node<'float'> } })
+    .sub(vec2(0.5, 0.5))
+    .length()
+  const fall = (d as unknown as { smoothstep(a: number, b: number): Node<'float'> })
+    .smoothstep(VIGNETTE_INNER, VIGNETTE_OUTER)
+  const darken = (fall as unknown as { mul(n: unknown): { oneMinus(): Node<'float'> } })
+    .mul(amount.mul(VIGNETTE_MAX))
+    .oneMinus()
+  return color.mul(darken)
+}
+
+/**
+ * 演出が効き始める G。
+ *
+ * **1 G ちょうどにしない。**水平飛行でも荷重倍数は 1.0000 にならないので、
+ * 閾値を 1 に置くと巡航中の絵が 1 階調動く。1.5 G は素直な旋回でも越える
+ * 値なので、演出が出ない場面が増えるわけではない
+ */
+const LENS_START_G = 1.5
+
+/** ここまで G が掛かると演出が最大になる。実機で振って決める */
+const LENS_FULL_G = 6
+
+/** 放射ブラーの `exposure` の上限。0 で無効、既定の 5 は強すぎる */
+const LENS_BLUR_MAX = 0.22
+
+/** 色収差の強さの上限 */
+const LENS_ABERRATION_MAX = 0.6
+
+/** 色収差の放射方向の伸ばし。1 で中心のまま、1 より大きいと外へ広がる */
+const LENS_ABERRATION_SCALE = 1.08
+
+/** ビネットの内側。ここまでは暗くしない（中心からの距離） */
+const VIGNETTE_INNER = 0.18
+
+/** ビネットの外側。ここで最大に暗くなる */
+const VIGNETTE_OUTER = 0.75
+
+/** ビネットの最大の暗さ。1 で真っ黒 */
+const VIGNETTE_MAX = 0.72
 
 /**
  * ブルームのぼかしの広がり。

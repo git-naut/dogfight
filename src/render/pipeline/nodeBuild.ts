@@ -39,6 +39,13 @@ export interface NodePipelineBuildInput {
   /** 組み終えた出力のノード。`smaa()` まで掛けたもの */
   outputNode: Node
   /**
+   * 鎖が自前で `renderOutput` を挟んだか。
+   *
+   * **挟んだなら `outputColorTransform` を切る。**切らないとトーンマッピング
+   * が 2 度掛かる。風圧の段（トーンマップ後に置く効果）が立つときだけ true
+   */
+  ownsOutputTransform?: boolean
+  /**
    * 影の投げ手。**入ってくる時点で `castShadow` は false でなければ
    * ならない。**立っていたら投げる（黙って進むと落ちる場所が遠くなる）
    */
@@ -65,6 +72,7 @@ export async function buildNodePipeline(
   input: NodePipelineBuildInput,
 ): Promise<NodePipelineBuild> {
   const { renderer, scene, camera, outputNode } = input
+  const ownsOutputTransform = input.ownsOutputTransform ?? false
   const shadowLight = input.shadowLight ?? null
   const clouds = input.clouds ?? null
   const lutNode = input.lutNode ?? null
@@ -77,6 +85,14 @@ export async function buildNodePipeline(
   }
 
   const pipeline = new RenderPipeline(renderer, outputNode)
+
+  // **鎖が自前で `renderOutput` を挟んだら、ここは切る。**
+  //
+  // 既定では `_updateContext` が `renderOutput(outputNode, ...)` で包む。
+  // 風圧（放射ブラー・色収差・ビネット）はトーンマップの**後ろ**に置くので、
+  // 鎖の側が先に挟んでいる。切らないと**トーンマッピングが 2 度掛かる。**
+  // `RenderPipeline` の doc が FXAA を例に同じ形を説明している。
+  if (ownsOutputTransform) pipeline.outputColorTransform = false
 
   const started = performance.now()
 

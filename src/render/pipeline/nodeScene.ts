@@ -140,6 +140,12 @@ export async function createNodePipeline(
   const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
   // **ブルームも別チャンクにする。**SMAA と同じ方針（`nodeOutput.ts` の注記）
   const { bloom } = await import('three/examples/jsm/tsl/display/BloomNode.js')
+  // 風圧の 3 つ。`renderOutput` は three 本体にあるので `three/tsl` から
+  const [{ radialBlur }, { chromaticAberration }, tslDisplay] = await Promise.all([
+    import('three/examples/jsm/tsl/display/radialBlur.js'),
+    import('three/examples/jsm/tsl/display/ChromaticAberrationNode.js'),
+    import('three/tsl'),
+  ])
 
   const atmosphere = setupAtmosphereNodes(atmos, {
     renderer,
@@ -297,6 +303,15 @@ export async function createNodePipeline(
    * 露出を振った瞬間に「どの明るさから光るか」の意味がずれる。
    */
   const bloomStrength = uniform(options.bloomStrength ?? quality.bloomStrength)
+
+  /**
+   * 荷重倍数。風圧の演出がここから強さを決める。
+   *
+   * **uniform で持つ。**毎フレーム変わるので鎖を組み直せない。1 G では
+   * 演出が 0 になるので、水平飛行の 42 枚は動かない（動くのは高 G の
+   * カットだけ）。
+   */
+  const loadFactor = uniform(1)
   const bloomAfterExposure = options.bloomThreshold ?? BLOOM_THRESHOLD_AFTER_EXPOSURE
   const bloomThreshold = uniform(
     bloomThresholdFor(renderer.toneMappingExposure, bloomAfterExposure),
@@ -330,12 +345,24 @@ export async function createNodePipeline(
       bloomThreshold: bloomThreshold as unknown as webgpu.Node<'float'>,
       showBloom: options.bloom ?? true,
       bloomActive: (options.bloomStrength ?? q.bloomStrength) > 0,
+      lens: {
+        radialBlur: radialBlur as unknown as never,
+        chromaticAberration: chromaticAberration as unknown as never,
+        renderOutput: tslDisplay.renderOutput as unknown as never,
+      },
+      loadFactor: loadFactor as unknown as webgpu.Node<'float'>,
+      showLens: options.lens ?? true,
+      lensStage: options.lensStage ?? 'full',
     })
     // **`?smaa=0` で外せる。**42 枚は全画素が動くので、原因ごとの寄与は
     // 1 つずつ振って測るしかない（段 20a-4 の差分の台帳）
+    // **`ownsOutputTransform` を持ち出す。**鎖が `renderOutput` を挟んだ
+    // かどうかを `buildNodePipeline` が知る必要がある
+    ownsOutputTransform = built.ownsOutputTransform
     return (options.smaa ?? true) ? built.outputNode : built.composite
   }
 
+  let ownsOutputTransform = false
   const outputNode = buildOutput(quality)
 
   const built = await buildNodePipeline({
@@ -343,6 +370,7 @@ export async function createNodePipeline(
     scene,
     camera,
     outputNode,
+    ownsOutputTransform,
     // **立てていないときは渡さない。**渡すと `castShadow` が立ち、
     // low プリセットで「影が切れている」の検査が通らない
     shadowLight: shadowInfo.enabled ? shadowLight : null,
@@ -463,6 +491,11 @@ export async function createNodePipeline(
     // 鎖が読まないまま降格する。実測で `品質を 4 段切り替えても描画が続く` と
     // `1,200 フレーム飛んでも描画が止まらない` の 2 本がここを通る
     pipeline.outputNode = buildOutput(quality)
+    // **プリセットで風圧が出入りすると、色変換の持ち主も変わる。**
+    // low は `lensEffects: false` なので鎖が `renderOutput` を挟まない。
+    // 戻し忘れると**トーンマッピングが掛からないまま**リニアの絵が出る
+    // （逆に切り忘れると 2 度掛かる）
+    pipeline.outputColorTransform = !ownsOutputTransform
     pipeline.needsUpdate = true
     applySize()
   }
@@ -667,6 +700,10 @@ export async function createNodePipeline(
       // **閾値も動かす。**鎖の中は露出前なので、露出を変えると「露出後で
       // どの明るさから光るか」がずれる（`quality.ts` の注記）
       bloomThreshold.value = bloomThresholdFor(value, bloomAfterExposure)
+    },
+
+    setLoadFactor(value) {
+      loadFactor.value = value
     },
 
     async compile() {

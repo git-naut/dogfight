@@ -64,6 +64,10 @@ export const TOGGLES = [
   // **ポストの段。**全画面に掛かるので、切ると 42 枚すべてが動く。
   // それでも載せるのは、載せないと `pixel-mutate` の逆テストが回らないため
   ['bloom', 'bloom'],
+  // **風圧は高 G のカットでだけ効く。**荷重倍数が 1.5 を割ると鎖が恒等に
+  // なるので、水平飛行の構図では切っても絵が動かない。`watches` に載せるのは
+  // 実測で動いた 10 枚だけ
+  ['lens', 'lens'],
 ]
 
 /**
@@ -99,34 +103,34 @@ export const SCENES = [
   { name: 'level-backlit', script: 'level', frame: 240, hour: 8, coverage: 0.29, watches: ['terrain', 'aircraft'] },
   // バンク 66 度・3.27 G・揚力係数 0.449 なので翼端渦が 0.30 の濃さで出る。
   // 荷重倍数で判定していたころは出なかった
-  { name: 'bank-left-dusk', script: 'bank-left', frame: 420, hour: 18.3, coverage: 0.29, watches: ['aircraft'] },
+  { name: 'bank-left-dusk', script: 'bank-left', frame: 420, hour: 18.3, coverage: 0.29, watches: ['aircraft', 'lens'] },
   { name: 'low-pass-afternoon', script: 'low-pass', frame: 240, hour: 16, coverage: 0.29, watches: ['terrain', 'water', 'aircraft', 'bloom'] },
   // 雲を主題にした構図
-  { name: 'clouds-climb', script: 'pull-up', frame: 200, hour: 16, coverage: 0.29, watches: ['aircraft'] },
+  { name: 'clouds-climb', script: 'pull-up', frame: 200, hour: 16, coverage: 0.29, watches: ['aircraft', 'lens'] },
   { name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.8, watches: ['aircraft'] },
   { name: 'clouds-clear', script: 'level', frame: 240, hour: 16, coverage: 0, watches: ['terrain', 'aircraft'] },
   // 地形を主題にした構図。島を見下ろす、海岸線を低空で抜ける、雲を突き抜ける主峰
-  { name: 'terrain-overlook', script: 'island-run', frame: 2000, hour: 9, coverage: 0.29, watches: ['terrain'] },
+  { name: 'terrain-overlook', script: 'island-run', frame: 2000, hour: 9, coverage: 0.29, watches: ['terrain', 'lens'] },
   { name: 'terrain-coast', script: 'low-pass', frame: 1800, hour: 9, coverage: 0.29, watches: ['terrain', 'water'] },
   { name: 'terrain-peak', script: 'island-run', frame: 3240, hour: 17, coverage: 0.29, watches: ['terrain'] },
   // 機体を主題にした構図。斜め後方からの接写、自分の影が地面を走るカット、
   // 高 G で翼端渦が出るカット、その渦が画面の縁で切れているカット
   { name: 'aircraft-close', script: 'bank-left', frame: 30, hour: 12, coverage: 0.29, watches: ['aircraft'] },
   { name: 'aircraft-shadow', script: 'low-pass', frame: 2500, hour: 16, coverage: 0.29, watches: ['aircraftShadow', 'aircraft', 'terrain'] },
-  { name: 'aircraft-vortex', script: 'pull-up', frame: 430, hour: 12, coverage: 0.29, watches: ['trails'] },
+  { name: 'aircraft-vortex', script: 'pull-up', frame: 430, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
   // 引き起こしを続けて 7.5 秒。左右の渦が画面の下隅を突き抜ける。
   // 軌跡が空中で尻すぼみに消えていないことを、この 1 枚で見張る
-  { name: 'aircraft-vortex-long', script: 'pull-up', frame: 900, hour: 12, coverage: 0.29, watches: ['trails'] },
+  { name: 'aircraft-vortex-long', script: 'pull-up', frame: 900, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
   // 定常旋回。荷重倍数は 3.08 しかないが揚力係数 0.569 で渦が出る。
   // 荷重倍数で判定していたころは、この構図でまったく渦が出なかった
-  { name: 'aircraft-vortex-turn', script: 'bank-left', frame: 1800, hour: 12, coverage: 0.29, watches: ['trails'] },
+  { name: 'aircraft-vortex-turn', script: 'bank-left', frame: 1800, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
   // 急上昇して舵を戻した 1.3 秒後。翼端の水蒸気に減衰の時定数がないと、
   // ここで渦が 1 階調しか残らず消える。**この 1 枚が遅れの見張り。**
-  { name: 'aircraft-vortex-fade', script: 'zoom-climb', frame: 400, hour: 12, coverage: 0.29, watches: [] },
+  { name: 'aircraft-vortex-fade', script: 'zoom-climb', frame: 400, hour: 12, coverage: 0.29, watches: ['lens'] },
   // 水平から 5.4 G の旋回へ入って 9 秒。引き始めた位置に水蒸気の段差が
   // あり、その先細りが視界に入る。**この 1 枚が末端の見張り。**
   // 先細りがないと、いちばん太いところで直角に切り落とされて見える
-  { name: 'aircraft-vortex-end', script: 'turn-in', frame: 1100, hour: 12, coverage: 0.29, watches: ['trails'] },
+  { name: 'aircraft-vortex-end', script: 'turn-in', frame: 1100, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
   // 標的機。**快晴で撮る。**雲を背に置くと、実測 28 x 10 画素の機体が
   // 明るい雲に埋もれて絵で判別できない。追従カメラの垂直画角は 66.4 度
   // （速度 250 m/s）あるので、190 m の機体でもこの大きさにしかならない
@@ -138,9 +142,9 @@ export const SCENES = [
   { name: 'hud-level', script: 'target-ahead', frame: 240, hour: 16, coverage: 0, hud: true, watches: ['targets'] },
   // バンク 66 度。ピッチラダーが世界に重なって傾き、水平線が実際の
   // 水平線と一致することを、この 1 枚で見張る
-  { name: 'hud-bank', script: 'bank-left', frame: 420, hour: 16, coverage: 0, hud: true, watches: ['aircraft'] },
+  { name: 'hud-bank', script: 'bank-left', frame: 420, hour: 16, coverage: 0, hud: true, watches: ['aircraft', 'lens'] },
   // 仰角 35 度。フライトパスマーカーと機首の十字が迎角ぶん離れる
-  { name: 'hud-climb', script: 'pull-up', frame: 430, hour: 16, coverage: 0, hud: true, watches: ['aircraft'] },
+  { name: 'hud-climb', script: 'pull-up', frame: 430, hour: 16, coverage: 0, hud: true, watches: ['aircraft', 'lens'] },
   // 機銃。曳光弾の帯とガンレティクルと残弾。実測で 304 画素・最大 165 階調
   { name: 'gun-firing', script: 'gun-pass', frame: 60, hour: 16, coverage: 0, hud: true, watches: ['tracers'] },
   // 捕捉中。破線の箱と進みの帯。ロック後は hud-level が見張る（同じ台本の

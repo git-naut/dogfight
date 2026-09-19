@@ -250,6 +250,20 @@ export interface SceneOptions {
   /** ブルームの強さの上書き。掃引のための口。プリセットの値を踏み潰す */
   bloomStrength?: number
   /**
+   * 風圧の演出（放射ブラー・色収差・ビネット）を掛けるか。既定は true。
+   *
+   * **強さは荷重倍数が決める。**1 G では 0 になるので、水平飛行の絵は
+   * この値に関わらず動かない。差分の帰属を測るための口
+   */
+  lens?: boolean
+  /**
+   * 風圧の鎖をどこまで組むか。`?lens=tone|blur|ab`。既定は全部。
+   *
+   * **差分の帰属を測る口。**1 G では 3 つとも恒等になる設計なので、絵が
+   * 動いたらどの段が動かしたのかを 1 つずつ切って見る
+   */
+  lensStage?: 'tone' | 'blur' | 'ab' | 'full'
+  /**
    * 地表と海面のライティングを大気の LUT から引くか。既定は true。
    *
    * false にすると段 17b の形（`surfaceState` の放射輝度）へ戻る。
@@ -453,6 +467,15 @@ export interface ScenePipeline {
   readonly quality: QualitySettings
   setQuality(preset: PresetName): void
   setExposure(value: number): void
+  /**
+   * 荷重倍数を渡す。風圧の演出がこれで強さを決める。
+   *
+   * **毎フレーム呼ぶ。**`sync` の中から渡すので、キャプチャでも 1 回だけ
+   * 走って絵が決まる（実時間に依存しない）。
+   *
+   * GLSL 経路は受け取って捨てる。鎖が無いので効かせようがない
+   */
+  setLoadFactor(value: number): void
   compile(): Promise<void>
   compileAllPresets(
     current: PresetName,

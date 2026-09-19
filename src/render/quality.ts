@@ -48,6 +48,17 @@ export interface QualitySettings {
   bloomStrength: number
 
   /**
+   * 風圧の演出を掛けるか。放射ブラー・色収差・ビネットの 3 つをまとめる。
+   *
+   * **強さは荷重倍数が決める。**1 G では 0 になるので、水平飛行の絵は
+   * 動かない。ここは「掛ける機構を持つか」だけの切り替え。
+   *
+   * 3 つを別の列にしない。**同じ物理（機体に掛かる G）から導く 1 つの
+   * 演出**で、片方だけ切る意味がない。費用も 1 つの鎖にまとまる。
+   */
+  lensEffects: boolean
+
+  /**
    * 雲のレイマーチを走らせる解像度の倍率。
    *
    * 当初の案では Low をビルボード、Medium をメッシュクラスタ、High 以上を
@@ -237,6 +248,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 1,
     // 掛けない。全画面に掛かるので、いちばん弱い機械で最初に外す
     bloomStrength: 0,
+    lensEffects: false,
     cloudResolutionScale: 0.125,
     cloudMaxSteps: 27,
     cloudLightSteps: 2,
@@ -267,6 +279,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 4,
     // high の 2.0 に対して控えめ
     bloomStrength: 1.3,
+    lensEffects: true,
     cloudResolutionScale: 0.25,
     cloudMaxSteps: 51,
     cloudLightSteps: 3,
@@ -299,6 +312,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // 輪郭が消え、8 で残る。順光では何も拾わないので数では決められず、
     // 絵を 3 枚並べて選んだ（`docs/measuring.md`）
     bloomStrength: 2.0,
+    lensEffects: true,
     // 実機（Intel Arc 140V）の実測で、1/4 解像度のとき雲パスは 2.7 ms、
     // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
     // 雲 10.8 ms、合計 13 ms 前後に収まる
@@ -335,6 +349,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 16,
     // high より強い。外周 +36.2%（閾値 4.5）
     bloomStrength: 3.0,
+    lensEffects: true,
     // High より上の段。実機で 60fps は狙わない位置づけ。
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
     cloudResolutionScale: 1,

@@ -21,6 +21,15 @@
 //   node tools/shard-weights.mjs --dir /tmp/reports [--shards 8] [--factor 2]
 //
 // `--factor` は所要が何倍になった場合を併記するかの倍率（段 20 の見積り）。
+//
+// **分割数を変えるときは、その分割数で 1 回走らせてから取り直す。**12 分割の
+// レポートで `--shards 16` を計算して当てたら、予測 872〜916 秒に対し実測が
+// 441〜1,578 秒（開き 3.58 倍）になった。区間の切り方が変わると**どのテストが
+// どの台で同時に走るかが変わり、1 本ずつの所要も動く**（SwiftShader は CPU
+// 律速なので競合がそのまま出る）。別の分割数の実測は入力にならない。
+//
+// 予測式そのものは合っている。最大テスト秒 1,578 秒に対する予測 809 秒に対して
+// 実測 846 秒。**外れるのは入力のほう。**
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
@@ -263,4 +272,18 @@ for (const [label, arr] of [
   )
 }
 console.log(`\n台ごとのテスト秒（重み）: ${wt.map((v) => (v / 1000).toFixed(0)).join(' / ')}`)
+
+// **いま効いている重みでの分配も出す。**新しい重みだけ出しても「前がどう
+// 偏っていたか」が見えない。実測の壁時計と突き合わせるのはこちら
+if (WAS !== null) {
+  const was = spans(sizesFromWeights(WAS, order.length))
+  const mx = Math.max(...was)
+  const mn = Math.min(...was)
+  console.log(
+    `台ごとのテスト秒（いまの重み）: ${was.map((v) => (v / 1000).toFixed(0)).join(' / ')}`,
+  )
+  console.log(
+    `  最大 ${(mx / 1000).toFixed(0)} 秒 / 最小 ${(mn / 1000).toFixed(0)} 秒 / 開き ${(mx / mn).toFixed(2)} 倍`,
+  )
+}
 console.log(`\nPWTEST_SHARD_WEIGHTS: ${weights.join(':')}`)

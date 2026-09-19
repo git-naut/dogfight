@@ -11,12 +11,11 @@ export type Vec3 = [number, number, number]
 /** モデルの単位を m へ直す倍率。実測 0.2005 */
 export declare const SCALE: number
 
-/** 公称寸法 m */
+/** 公称寸法 m。主翼面積は `src/sim/flightModel.ts` が持つ */
 export declare const SPEC: {
   length: number
   span: number
   height: number
-  wingArea: number
 }
 
 /** `tools/gltf-parts.mjs` が返す生の部品 */

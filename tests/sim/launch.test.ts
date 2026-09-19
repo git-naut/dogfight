@@ -15,10 +15,7 @@ import { neutralInput } from '@sim/input'
 import { getScript } from '@sim/scripts'
 import { trimCondition } from '@sim/flightModel'
 import { airDensity } from '@sim/isa'
-import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
-import { parseAc3d, flatten, toWorld } from '../../tools/ac3d.mjs'
-import { DEFAULT_GEAR_PATTERN } from '../../tools/aircraft-assets.mjs'
 
 /**
  * カタパルト射出。
@@ -376,20 +373,19 @@ describe('速度 0 の spawn', () => {
  * 甲板に浮くか、めり込む。
  */
 describe('車輪の高さ', () => {
-  it('原本の降着装置と一致する', () => {
-    const { root } = parseAc3d(
-      readFileSync(
-        fileURLToPath(new URL('../../assets/upstream/f18/f18.ac', import.meta.url)),
-        'latin1',
-      ),
+  it('原本の降着装置と一致する', async () => {
+    // **読む原本は自機のもの。**F/A-18E へ差し替えたとき、ここが C 型の
+    // `.ac` を読んだままだと 0.13 m のずれに気づけない（実際に通っていた）
+    const { identifyParts, SCALE } = await import('../../tools/f18e-parts.mjs')
+    const { gear } = identifyParts(
+      fileURLToPath(new URL('../../assets/upstream/f18e/scene.gltf', import.meta.url)),
     )
+    expect(gear.length).toBeGreaterThan(0)
     let lowest = Infinity
-    for (const part of flatten(root)) {
-      if (!DEFAULT_GEAR_PATTERN.test(part.name)) continue
-      for (const v of part.vertices) {
-        const y = toWorld(v)[1]
-        if (y < lowest) lowest = y
-      }
+    for (const part of gear) {
+      // 原本の Y は変換後も Y のまま（座標系の回転は Y 軸まわり）
+      const y = part.raw.min[1]! * SCALE
+      if (y < lowest) lowest = y
     }
     expect(lowest).toBeLessThan(0)
     expect(GEAR_HEIGHT).toBeCloseTo(-lowest, 2)

@@ -81,11 +81,11 @@ describe('線分と線分の最短距離', () => {
 })
 
 describe('カプセルの寸法がモデルの実測の内側にある', () => {
-  // f18.ac を当プロジェクトの座標へ写した実測
+  // public/aircraft/f18e.glb の実測（脚と舵面を含む全体）
   const MODEL = {
-    x: [-5.786, 5.786],
-    y: [-1.786, 2.701],
-    z: [-7.999, 9.799],
+    x: [-6.596, 6.594],
+    y: [-1.659, 3.249],
+    z: [-10.311, 7.999],
   }
 
   it('どのカプセルも外形からはみ出さない', () => {
@@ -104,20 +104,20 @@ describe('カプセルの寸法がモデルの実測の内側にある', () => {
   it('胴体が機首から胴体の尾側の端まで、ちょうど届く', () => {
     const body = AIRCRAFT_CAPSULES[0]!
     // 端点は実測値から半径を引いて置いてあるので、丸めた先が実測に一致する
-    expect(body.a.z - body.radius).toBeCloseTo(-7.999, 9)
-    expect(body.b.z + body.radius).toBeCloseTo(6.48, 9)
+    expect(body.a.z - body.radius).toBeCloseTo(-10.311, 9)
+    expect(body.b.z + body.radius).toBeCloseTo(7.02, 9)
   })
 
   it('主翼が翼幅の 95% 以上を覆う', () => {
     const wing = AIRCRAFT_CAPSULES[1]!
-    const covered = (wing.b.x - wing.a.x + wing.radius * 2) / 11.571
+    const covered = (wing.b.x - wing.a.x + wing.radius * 2) / 13.19
     expect(covered).toBeGreaterThan(0.95)
     expect(covered).toBeLessThanOrEqual(1)
   })
 
-  it('外接半径は機首までの距離で決まる。8 m 前後', () => {
-    // 原点は機首から 8.0 m 後ろにあるので、そちらが最も遠い
-    expect(boundingRadius()).toBeCloseTo(8.0, 1)
+  it('外接半径は機首までの距離で決まる。10 m 前後', () => {
+    // 原点は機首から 10.3 m 後ろにあるので、そちらが最も遠い
+    expect(boundingRadius()).toBeCloseTo(10.3, 1)
   })
 
   it('3 本ある。胴体・主翼・水平尾翼', () => {

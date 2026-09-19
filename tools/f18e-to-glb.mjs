@@ -57,6 +57,24 @@ const OUT_NAME = 'f18e'
  * 割り当ては `tools/f18e-parts.mjs` の `PART_RULES` が決めていて、ここでは
  * 名前を触らない。
  */
+/**
+ * エンジンノズルの位置と口径 m。**この作品の座標**（機首 −Z、上 +Y、右 +X）。
+ *
+ * **原本に炎が無い。**FlightGear の F/A-18C は `ExternalFlame` という板を
+ * 持っていて `src/render/aircraftView.ts` が出し入れしていたが、Sketchfab の
+ * モデルには何も付いていない。C 型の板を glb ごと移す実装を書いて実測したが、
+ * **three が読み込んでも 1 画素も描かれなかった**（ノードもメッシュも
+ * `getObjectByName` で取れるのに絵に出ない）。原因を追うより自前で描くほうが
+ * 速く、色も作り込める。位置だけここから渡す。
+ *
+ * 測り方は `body` の Z > 6.8 の頂点を左右に分けて中心と広がりを取った。
+ * 後端は Z 7.02、Y は 0.02..0.75。
+ */
+const NOZZLES = [
+  { position: [-0.5, 0.39, 7.02], radius: 0.3 },
+  { position: [0.5, 0.39, 7.02], radius: 0.3 },
+]
+
 function rotateToWorld([x, y, z]) {
   return [-z, y, x]
 }
@@ -258,7 +276,7 @@ function main() {
   gltf.scenes[0].nodes = [rootIndex]
 
   // ---- ヒンジを載せる ----
-  gltf.scenes[0].extras = { hinges: hingeInfo }
+  gltf.scenes[0].extras = { hinges: hingeInfo, nozzles: NOZZLES }
 
   // ---- テクスチャを差し替える ----
   //
@@ -284,14 +302,14 @@ function main() {
     image.uri = out
   }
 
-  // ---- バイナリを glb へ ----
+  // ---- バイナリを読む ----
   const binUri = gltf.buffers[0].uri
   if (binUri === undefined) throw new Error('埋め込みバッファは未対応')
-  const binary = readFileSync(join(srcDir, decodeURIComponent(binUri)))
+  const binary = new Uint8Array(readFileSync(join(srcDir, decodeURIComponent(binUri))))
   delete gltf.buffers[0].uri
-  gltf.buffers[0].byteLength = binary.byteLength
 
-  const glb = packGlb(gltf, new Uint8Array(binary))
+  gltf.buffers[0].byteLength = binary.byteLength
+  const glb = packGlb(gltf, binary)
   const outGlb = join(OUT_DIR, `${OUT_NAME}.glb`)
   writeFileSync(outGlb, glb)
 

@@ -88,15 +88,15 @@ const capture = readCaptureConfig(window.location.search)
 // 大気の LUT は tools/copy-atmosphere-assets.mjs が public/atmosphere/ へ置く。
 // GitHub Pages ではサイトが /dogfight/ 配下に出るので BASE_URL を挟む
 const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
-// 機体は tools/ac3d-to-glb.mjs が public/aircraft/ へ置く
+// 機体は tools/ac3d-to-glb.mjs と tools/f18e-to-glb.mjs が public/aircraft/ へ置く
 /**
- * 自機のモデル。`?craft=f18e` で F/A-18E へ差し替えられる。
+ * 自機のモデル。既定は F/A-18E で、`?craft=f18` で C 型に戻せる。
  *
- * **差し替えの途中の口。**飛行モデルがまだ C 型の値（主翼面積 37.16 m²、
- * 推力 157.47 kN）なので、絵だけ先に差し替えて見比べられるようにしてある。
- * E/F の係数を入れたら既定を差し替えて、この分岐は畳む。
+ * **飛行モデルは E 型の諸元しか持たない**（`src/sim/flightModel.ts`）ので、
+ * C 型に戻すと見た目だけが C 型になる。絵を見比べるための口で、手ざわりは
+ * 比べられない。
  */
-const CRAFT_ID = new URLSearchParams(window.location.search).get('craft') === 'f18e' ? 'f18e' : 'f18'
+const CRAFT_ID = new URLSearchParams(window.location.search).get('craft') === 'f18' ? 'f18' : 'f18e'
 const AIRCRAFT_URL = `${import.meta.env.BASE_URL}aircraft/${CRAFT_ID}.glb`
 const ENEMY_URL = `${import.meta.env.BASE_URL}aircraft/f16.glb`
 const CARRIER_URL = `${import.meta.env.BASE_URL}aircraft/nimitz.glb`

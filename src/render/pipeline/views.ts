@@ -73,14 +73,19 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   // glb を読むのはここ 1 回だけ。自機と標的機が同じモデルを共有する。
   // 2 回読むとパースとテクスチャの復号が 2 度走り、実体が複製される
   const aircraftModel: AircraftModel = await loadAircraftModel(options.aircraftUrl)
+
+  // 標的機。複製は必要になった時点で作る。Phase 6 のミッションが敵 8 機なので
+  // 器はそこまで用意しておく。
+  //
+  // **自機の view より先に作る。**`createAircraftView` はアフターバーナーの
+  // 炎をモデルの下へ足すので、後にすると標的機の複製にも炎がぶら下がる
+  // （`visible` は false のままなので絵には出ないが、器が 8 個増える）
+  const targetViews: TargetViews = createTargetViews(aircraftModel, MAX_TARGETS)
+  targetViews.object.visible = options.showTargets ?? true
+
   const aircraft: AircraftView = createAircraftView(aircraftModel)
   aircraft.object.visible = options.showAircraft ?? true
   scene.add(aircraft.object)
-
-  // 標的機。複製は必要になった時点で作る。Phase 6 のミッションが敵 8 機なので
-  // 器はそこまで用意しておく
-  const targetViews: TargetViews = createTargetViews(aircraftModel, MAX_TARGETS)
-  targetViews.object.visible = options.showTargets ?? true
   scene.add(targetViews.object)
 
   // 敵機。自機とは別の機体（F-16）なので glb も別。**敵味方が別の形になる

@@ -37,12 +37,17 @@ import { readGltfParts, findMirrorPairs } from './gltf-parts.mjs'
  */
 export const SCALE = 18.31 / 91.32
 
-/** 公称寸法 m。米海軍 fact file / F/A-18E/F NATOPS / SAC（`assets/CREDITS.md`） */
+/**
+ * 公称寸法 m。米海軍 fact file / F/A-18E/F NATOPS / SAC（`assets/CREDITS.md`）
+ *
+ * **主翼面積はここに置かない。**飛行モデルが `src/sim/flightModel.ts` で
+ * 持っていて、こちらは誰も読まなかった。同じ数を 2 か所に書くと、片方だけ
+ * 直したときに検査が素通りする
+ */
 export const SPEC = {
   length: 18.31,
   span: 13.62,
   height: 4.88,
-  wingArea: 46.5,
 }
 
 /**

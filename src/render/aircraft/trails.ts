@@ -58,8 +58,13 @@ const SECONDS_PER_POINT = TRAIL_STRIDE * FIXED_DT
 const VORTEX_DRIVE_START = 0.25
 const VORTEX_DRIVE_FULL = 0.6
 
-/** 翼端渦を出す位置。翼幅 11.571 m の少し内側 */
-const WINGTIP_OFFSET = 5.6
+/**
+ * 翼端渦を出す位置。翼幅 13.19 m の少し内側。
+ *
+ * 渦は主翼の翼端から出る。翼端ランチャ（X ±6.59）ではなく主翼本体の端
+ * （±6.16）を基準にして、そこからさらに内側へ寄せる。**C 型のときは 5.6**
+ */
+const WINGTIP_OFFSET = 6.0
 
 /**
  * リボンの半幅 m。生まれたばかりの根元の値。

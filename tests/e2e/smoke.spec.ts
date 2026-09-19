@@ -338,10 +338,12 @@ test.describe('機体', () => {
   test('モデルが読み込めて三角形数が予算内', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 120 })
 
-    // 原本は 18,634 三角形。変換で増減していないこと
-    expect(hook.aircraftTriangles).toBe(18_634)
-    // 自機の予算。手続き生成をやめて実モデルにしたので実測値で固定する
-    expect(hook.aircraftTriangles).toBeLessThan(25_000)
+    // 原本は 77,840 三角形。変換で増減していないこと
+    expect(hook.aircraftTriangles).toBe(77_840)
+    // 自機の予算。**C 型の 18,634 から 4.2 倍に増えた**（F/A-18E は
+    // Sketchfab のモデルで、C 型の FlightGear 版より細かい）。上限そのものは
+    // 下の「シーン予算 1.5M の内側」が見ているので、ここは桁の見張り
+    expect(hook.aircraftTriangles).toBeLessThan(100_000)
   })
 
   test('影マップと環境反射が焼けている', async ({ page }) => {
@@ -368,7 +370,7 @@ test.describe('機体', () => {
     const hook = await capture(page, { script: 'pull-up', frame: 430 })
     expect(hook.crashed).toBe(false)
     // 軌跡の履歴は sim が持つ。描画側に置くとキャプチャモードで出ない
-    expect(hook.aircraftTriangles).toBe(18_634)
+    expect(hook.aircraftTriangles).toBe(77_840)
   })
 
   test('描いた三角形が予算の内側', async ({ page }) => {
@@ -1921,8 +1923,8 @@ test.describe('カタパルト射出', () => {
   test('甲板で待っている', async ({ page }) => {
     const hook = await capture(page, { script: 'catapult-launch', frame: 30 })
     expect(hook.speed, '甲板で動いている').toBe(0)
-    // 甲板の 20 m に車輪の高さ 1.786 m を足した値
-    expect(hook.altitude).toBeCloseTo(21.8, 0)
+    // 甲板の 20 m に車輪の高さ 1.659 m を足した値
+    expect(hook.altitude).toBeCloseTo(21.7, 0)
     expect(hook.gearDown, '甲板で脚が出ていない').toBe(true)
   })
 

@@ -7,7 +7,7 @@ import type { AircraftSample } from '../sim/aircraft'
  * 敵機の表示。
  *
  * 中身は FlightGear FGAddon の F-16（GPLv2+、作者は `assets/CREDITS.md`）。
- * 自機の F/A-18C とは別の glb なので、`scene.ts` が 2 本目として読む。
+ * 自機の F/A-18E とは別の glb なので、`scene.ts` が 2 本目として読む。
  *
  * **標的機との違いは舵面が動くこと。**標的機（`targetView.ts`）は直進か
  * 定常旋回しかせず、定常旋回のバンクは中立の舵で保たれるので舵を動かさない。

@@ -25,37 +25,43 @@ const DEG = Math.PI / 180
 
 describe('機体諸元', () => {
   it('アスペクト比が翼幅と翼面積から導かれている', () => {
-    // 翼幅 11.43 m、翼面積 37.16 m²
-    expect(AIRCRAFT.aspectRatio).toBeCloseTo((11.43 * 11.43) / 37.16, 10)
-    expect(AIRCRAFT.aspectRatio).toBeGreaterThan(3.5)
-    expect(AIRCRAFT.aspectRatio).toBeLessThan(3.6)
+    // 翼幅 13.62 m、翼面積 46.45 m²（500 ft²）
+    expect(AIRCRAFT.aspectRatio).toBeCloseTo((13.62 * 13.62) / 46.45, 10)
+    expect(AIRCRAFT.aspectRatio).toBeGreaterThan(3.95)
+    expect(AIRCRAFT.aspectRatio).toBeLessThan(4.05)
   })
 
   it('誘導抗力係数が 1/(π·AR·e) と一致する', () => {
     const expected =
       1 / (Math.PI * AIRCRAFT.aspectRatio * AIRCRAFT.oswaldEfficiency)
     expect(INDUCED_DRAG_FACTOR).toBeCloseTo(expected, 12)
-    expect(INDUCED_DRAG_FACTOR).toBeCloseTo(0.1132, 3)
+    expect(INDUCED_DRAG_FACTOR).toBeCloseTo(0.0996, 3)
   })
 
-  it('翼面荷重が戦闘機の妥当な範囲に入る', () => {
+  it('翼面荷重が公表値と一致する', () => {
     const wingLoading = (AIRCRAFT.mass * GRAVITY) / AIRCRAFT.wingArea
-    // F/A-18C の戦闘重量ではおよそ 4,400 N/m²。F-16 級の 3,300 より高い
-    expect(wingLoading).toBeGreaterThan(4100)
-    expect(wingLoading).toBeLessThan(4700)
+    // **公表は 459 kg/m²。**諸元表に載っている量なので範囲ではなく値で縛る。
+    // 質量・翼面積・重力加速度のどれかを動かすと落ちる
+    expect(wingLoading / GRAVITY, `${(wingLoading / GRAVITY).toFixed(1)} kg/m²`).toBeCloseTo(
+      459,
+      0,
+    )
   })
 
-  it('推力重量比が戦闘機の妥当な範囲に入る', () => {
-    // F/A-18C は戦闘重量で 0.96。1 を割るのが実機どおり。F-16 は 1.28 だった
+  it('推力重量比が公表値と一致する', () => {
+    // 44,000 lbf / 47,000 lb = 0.9362。**諸元表の 0.93 はこれの切り捨て**
+    // （0.005 の許容には収まらないので、丸める前の値で縛る）。
+    // 1 を割るのが実機どおり。C 型は 0.96、F-16 は 1.28 だった
     const ratio = AIRCRAFT.maxThrust / (AIRCRAFT.mass * GRAVITY)
-    expect(ratio).toBeGreaterThan(0.9)
-    expect(ratio).toBeLessThan(1.05)
+    expect(ratio, ratio.toFixed(4)).toBeCloseTo(0.936, 3)
   })
 })
 
 describe('揚力係数', () => {
   it('失速角までは迎角に比例する', () => {
-    for (const deg of [0, 2, 5, 10, 20, 27]) {
+    // **26 度（頭打ち）より内側だけを見る。**C 型のときは 27 度も比例部に
+    // あったが、揚力傾斜が 4.19 へ上がって頭打ちが 26.0 度へ浅くなった
+    for (const deg of [0, 2, 5, 10, 20, 25]) {
       const a = deg * DEG
       expect(liftCoefficient(a)).toBeCloseTo(AIRCRAFT.liftSlope * a, 12)
     }
@@ -66,8 +72,8 @@ describe('揚力係数', () => {
     expect(liftCoefficient(AIRCRAFT.stallAngle)).toBeCloseTo(CL_MAX, 12)
     expect(liftCoefficient(32 * DEG)).toBeCloseTo(CL_MAX, 12)
     // LEX で渦揚力が伸びる戦闘機の妥当な範囲。平坦部なしに失速角を
-    // 38 度まで伸ばすと 2.66 になり実機から外れる
-    expect(CL_MAX).toBeCloseTo(1.899, 2)
+    // 38 度まで伸ばすと 2.78 になり実機から外れる
+    expect(CL_MAX).toBeCloseTo(1.901, 2)
     expect(CL_MAX).toBeGreaterThan(1.8)
     expect(CL_MAX).toBeLessThan(2.0)
   })

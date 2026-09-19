@@ -1,15 +1,20 @@
 import * as THREE from 'three'
+import type { Nozzle } from './afterburner'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 /**
  * 機体モデルの読み込み。
  *
- * 原本は FlightGear FGAddon の F/A-18C（作者 Fabrice Kauffmann、GPLv2+）。
- * `tools/ac3d-to-glb.mjs` が当プロジェクトの座標系（機首 −Z、上 +Y、右 +X）へ
- * 移した glb を読む。座標変換は変換ツール側で済んでいるので、ここでは回さない。
+ * 原本は 3 機種。自機の F/A-18E（Sketchfab、CC BY 4.0）、`?craft=f18` で
+ * 出る F/A-18C と敵機の F-16（どちらも FlightGear FGAddon、GPLv2+）。
+ * `tools/f18e-to-glb.mjs` と `tools/ac3d-to-glb.mjs` が当プロジェクトの座標系
+ * （機首 −Z、上 +Y、右 +X）へ移した glb を読む。座標変換は変換ツール側で
+ * 済んでいるので、ここでは回さない。
  *
  * ノードの構成は変換ツールが決めている。`body` が本体、`gear` が降着装置、
- * `cockpit` が操縦席の内装、残りが舵面（`AileronLeft` など）。舵面のノードは
+ * 残りが舵面（`AileronLeft` など）。C 型と F-16 はこれに `cockpit`（操縦席の
+ * 内装）が付く。**E 型には無い**が、読み手は `getObjectByName` で探して
+ * 無ければ null にするので、機種ごとの分岐は要らない。舵面のノードは
  * 原点がヒンジの位置に移してあるので、回転を代入するだけで舵が切れる。
  */
 
@@ -29,14 +34,17 @@ export interface AircraftHinge {
    *
    * **機体ごとに違う。**ヒンジの軸がどちらを向いているかで決まるので、
    * 描画側に表を持てない。F/A-18C はエレベータの軸が左右で同じ向きなので
-   * 同じ符号、F-16 は逆向きなので左右で符号が違う。値は機体の定義
-   * （`tools/f16-hinges.mjs` など）が持ち、glb の extras 経由で届く。
+   * 同じ符号、F-16 は逆向きなので左右で符号が違う。F/A-18E は bbox から軸を
+   * 組むので、C 型から符号を写せない（実測で 2 つとも反転した）。値は機体の
+   * 定義（`tools/f18e-hinges.mjs` など）が持ち、glb の extras 経由で届く。
    */
   sign: number
 }
 
 export interface AircraftModel {
   readonly object: THREE.Object3D
+  /** エンジンノズル。原本に無ければ空。炎を描く位置 */
+  readonly nozzles: readonly Nozzle[]
   /** 降着装置のノード。原本に無ければ null */
   readonly gear: THREE.Object3D | null
   /** 舵面のノード。名前で引く */
@@ -96,6 +104,7 @@ export async function loadAircraftModel(url: string): Promise<AircraftModel> {
 
   return {
     object,
+    nozzles: readNozzles(gltf),
     gear: object.getObjectByName(GEAR_NODE) ?? null,
     surfaces,
     hinges,
@@ -111,6 +120,19 @@ export async function loadAircraftModel(url: string): Promise<AircraftModel> {
       })
     },
   }
+}
+
+/**
+ * glTF の extras からエンジンノズルを読む。
+ *
+ * **無くてもよい。**F/A-18C と F-16 は原本が炎の板を持っているので載せて
+ * いない。無い機体は自前の炎を描かず、原本の板を使う（`aircraftView.ts`）。
+ */
+function readNozzles(gltf: { parser: { json: unknown } }): Nozzle[] {
+  const json = gltf.parser.json as {
+    scenes?: { extras?: { nozzles?: Nozzle[] } }[]
+  }
+  return json.scenes?.[0]?.extras?.nozzles ?? []
 }
 
 /**

@@ -24,7 +24,24 @@ GPLv2+ を許すのは、このリポジトリ自体を GPLv2+ にしたため�
 
 F/A-18C は 201 オブジェクト、18,634 三角形、12,260 頂点。F-16 は 125 オブジェクト、18,042 三角形、10,627 頂点。`tools/ac3d-to-glb.mjs` が `public/aircraft/` へ変換する。
 
-F/A-18E は 220 部品、77,840 三角形。全長 18.31 m / 翼幅 13.19 m / 全高 4.91 m（公称 18.31 / 13.62 / 4.88 と 3.2% 以内で一致）。**舵面が名前で分かれていない**ので、`tools/f18e-parts.mjs` が位置と寸法で同定する（`tests/tools/f18eParts.test.ts` が結果を固定）。
+F/A-18E は 220 部品、77,840 三角形。全長 18.31 m / 翼幅 13.19 m / 全高 4.91 m（公称 18.31 / 13.62 / 4.88 と 3.2% 以内で一致）。
+
+**舵面がほとんど名前で分かれていない。**`tools/f18e-parts.mjs` が位置と寸法で同定し、`tests/tools/f18eParts.test.ts` が結果を固定する。名前が残っているのは左のエルロン `La1` だけ。左右の割り当てはこれと `Lw1` / `Rw1` から決めた。
+
+## 諸元の出典
+
+公表値の取得元は英語版 Wikipedia の [Boeing F/A-18E/F Super Hornet](https://en.wikipedia.org/wiki/Boeing_F/A-18E/F_Super_Hornet) の諸元表（2026-09-18 取得）。読み手はモデルの検査（`tools/f18e-parts.mjs` の `SPEC`）と飛行モデル（`src/sim/flightModel.ts`）。同表が挙げる一次資料は次の 4 つ。
+
+| 資料 | 発行 |
+|---|---|
+| U.S. Navy fact file | 米海軍 |
+| NATOPS Flight Manual, Navy Model F/A-18E/F, 165533 and up | Naval Air Systems Command |
+| Standard Aircraft Characteristics F/A-18E Super Hornet (SAC) | Naval Air Systems Command、2001-03 |
+| Selected Acquisition Report FY 2012 | Defense Acquisition Management Information Retrieval |
+
+**NAVAIR の製品ページは 403 で取れない。**Wikipedia の表を経由したのはそのため。
+
+値そのものは 2 つの導出量で裏が取れている。翼面荷重 459 kg/m² と推力重量比 0.936（44,000 lbf ÷ 47,000 lb）はどちらも諸元表に載る量。質量・翼面積・推力から独立に再現できることを `tests/sim/flightModel.test.ts` が見ている。
 
 CC BY 4.0 の表示。原文のまま載せる（`assets/upstream/f18e/license.txt` の指定）。
 

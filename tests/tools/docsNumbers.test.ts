@@ -45,8 +45,8 @@ describe('docs/flight-model.md の数値', () => {
   it('抽出そのものが働く', () => {
     // 検査が空振りしていないことを、既知の値で確かめる。
     // ここが落ちるなら表の書式が変わっている
-    expect(tableValue('質量')).toBe(16650)
-    expect(tableValue('主翼面積')).toBe(37.16)
+    expect(tableValue('質量')).toBe(21320)
+    expect(tableValue('主翼面積')).toBe(46.45)
   })
 
   it('諸元の表が実装と一致する', () => {

@@ -65,19 +65,25 @@ function avoids(range: number, flareAt: number | null, until: number): boolean {
 }
 
 /**
- * 警告を見てから撒く戦い方で、落ちるまでの秒。
+ * 警告を見てから撒く戦い方の結果。落ちるまでの秒と、残った耐久。
+ *
+ * **秒だけでは足りない。**落ちなかったときに `Infinity` しか返らないと、
+ * 「無傷で逃げ切った」と「削られて生き残った」が同じ値になる。
  *
  * @param reactAt 着弾まで何秒を切ったら撒くか。小さいほど遅い反応
  */
-function survivalSeconds(reactAt: number | null, seconds = 60): number {
+function survival(
+  reactAt: number | null,
+  seconds = 60,
+): { died: number; integrity: number } {
   const w = engagement(1800)
   for (let i = 0; i < seconds * 120; i++) {
     const threat = w.combat.threat
     const deploy = reactAt !== null && threat.active && threat.timeToImpact < reactAt
     w.step(makeInput({ throttle: trim.throttle, deployFlare: deploy }))
-    if (w.player.integrity <= 0) return i / 120
+    if (w.player.integrity <= 0) return { died: i / 120, integrity: 0 }
   }
-  return Infinity
+  return { died: Infinity, integrity: w.player.integrity }
 }
 
 /**
@@ -140,22 +146,28 @@ describe('フレアが成功する幅', () => {
 /**
  * フレアの有無で生存がどれだけ変わるか。
  *
- * **意味があるか。**実測で 5.8 秒から 40.6 秒（7 倍）。ミサイル 2 発を
+ * **意味があるか。**実測で 5.8 秒から 35.9 秒（6 倍）。ミサイル 2 発を
  * 両方避けたあと、敵が機銃の間合いへ詰めて削り切る。
  *
  * **決着は機銃でつく。**ミサイルは「避けられなければ即死」で、避ければ
  * 戦いが続く。それが駆け引きになる。
+ *
+ * この 2 つの数は当たり判定にも飛行モデルにも効く。F/A-18E へ差し替えた
+ * とき、**飛行モデルだけ先に替えて当たり判定を C 型のまま残したら、敵が
+ * 追い越して 60 秒でも決着しなくなった**（`docs/lessons.md`）。
  */
 describe('フレアの有無', () => {
   it('撒かなければ 6 秒で落ちる', () => {
-    const bare = survivalSeconds(null)
-    expect(bare).toBeLessThan(8)
+    expect(survival(null).died).toBeLessThan(8)
   })
 
-  it('警告を見て撒けば 40 秒戦える', () => {
-    const flared = survivalSeconds(2.0)
-    expect(flared).toBeGreaterThan(35)
-    expect(flared).toBeLessThan(60)
+  it('警告を見て撒けば 36 秒戦える', () => {
+    const { died, integrity } = survival(2.0)
+    expect(died).toBeGreaterThan(30)
+    expect(died).toBeLessThan(50)
+    // **削り切って終わること。**60 秒を使い切って耐久が残るなら、機銃が
+    // 決着をつけていない
+    expect(integrity).toBe(0)
   })
 
   /**
@@ -166,14 +178,16 @@ describe('フレアの有無', () => {
    * （横 90 度では効かない。`docs/weapons.md`）。
    */
   it.each([0.2, 1.0, 3.0, 5.0])('反応が %s 秒前でも結果は同じ', (reactAt) => {
-    expect(survivalSeconds(reactAt)).toBeCloseTo(survivalSeconds(2.0), 1)
+    // 秒で比べると、落ちなかった回どうしが `Infinity` で一致して素通りする。
+    // 残った耐久まで揃うことを見る
+    expect(survival(reactAt)).toEqual(survival(2.0))
   })
 
   /**
    * ミサイルを避けたあとは機銃で決まる。
    *
-   * 実測で 15 秒に敵のミサイル 2 発が尽き、そこから機銃の間合いへ詰めて
-   * 40.6 秒に削り切る。545 発撃って 60 発が当たる。
+   * 実測で 11.2 秒に敵のミサイル 2 発が尽き、そこから機銃の間合いへ詰めて
+   * 35.9 秒に削り切る。578 発撃って耐久 60 ぶんが当たる。
    */
   it('ミサイルを避けたあとは機銃の勝負になる', () => {
     const w = engagement(1800)

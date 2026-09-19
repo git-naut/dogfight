@@ -140,10 +140,11 @@ export async function createNodePipeline(
   const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
   // **ブルームも別チャンクにする。**SMAA と同じ方針（`nodeOutput.ts` の注記）
   const { bloom } = await import('three/examples/jsm/tsl/display/BloomNode.js')
-  // 風圧の 3 つ。`renderOutput` は three 本体にあるので `three/tsl` から
-  const [{ radialBlur }, { chromaticAberration }, tslDisplay] = await Promise.all([
+  // 風圧。`renderOutput` は three 本体にあるので `three/tsl` から。
+  // **色収差は入れない。**`ChromaticAberrationNode` は `convertToTexture` を
+  // もう 1 回通すので、実機で GPU が 9.7 から 14.0 ms へ上がった
+  const [{ radialBlur }, tslDisplay] = await Promise.all([
     import('three/examples/jsm/tsl/display/radialBlur.js'),
-    import('three/examples/jsm/tsl/display/ChromaticAberrationNode.js'),
     import('three/tsl'),
   ])
 
@@ -347,7 +348,6 @@ export async function createNodePipeline(
       bloomActive: (options.bloomStrength ?? q.bloomStrength) > 0,
       lens: {
         radialBlur: radialBlur as unknown as never,
-        chromaticAberration: chromaticAberration as unknown as never,
         renderOutput: tslDisplay.renderOutput as unknown as never,
       },
       loadFactor: loadFactor as unknown as webgpu.Node<'float'>,

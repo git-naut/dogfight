@@ -257,12 +257,12 @@ export interface SceneOptions {
    */
   lens?: boolean
   /**
-   * 風圧の鎖をどこまで組むか。`?lens=tone|blur|ab`。既定は全部。
+   * 風圧の鎖をどこまで組むか。`?lens=tone|blur`。既定は全部。
    *
    * **差分の帰属を測る口。**1 G では 3 つとも恒等になる設計なので、絵が
    * 動いたらどの段が動かしたのかを 1 つずつ切って見る
    */
-  lensStage?: 'tone' | 'blur' | 'ab' | 'full'
+  lensStage?: 'tone' | 'blur' | 'full'
   /**
    * 地表と海面のライティングを大気の LUT から引くか。既定は true。
    *

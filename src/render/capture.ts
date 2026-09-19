@@ -92,12 +92,12 @@ export interface CaptureConfig {
    */
   lens: boolean
   /**
-   * 風圧の鎖をどこまで組むか。`?lens=tone|blur|ab`。
+   * 風圧の鎖をどこまで組むか。`?lens=tone|blur`。
    *
    * **差分の帰属を測る口。**1 G では 3 つとも恒等になる設計なので、絵が
    * 動いたらどの段が動かしたのかを 1 つずつ切って見る
    */
-  lensStage: 'tone' | 'blur' | 'ab' | 'full'
+  lensStage: 'tone' | 'blur' | 'full'
   /**
    * 地表と海面のライティングを大気の LUT から引くか。`?illum=0` で段 17b の
    * 形（`surfaceState` の放射輝度）へ戻す。
@@ -382,7 +382,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     lens: params.get('lens') !== '0',
     lensStage: (() => {
       const v = params.get('lens')
-      return v === 'blur' || v === 'ab' || v === 'full' ? v : 'full'
+      return v === 'blur' || v === 'tone' ? v : 'full'
     })(),
     illuminance: params.get('illum') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',

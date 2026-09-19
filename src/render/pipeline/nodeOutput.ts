@@ -95,7 +95,11 @@ export interface NodeOutputInput {
   bloomActive?: boolean
 
   /**
-   * 風圧の演出。`radialBlur` と `chromaticAberration` と自前のビネット。
+   * 風圧の演出。`radialBlur` と自前のビネット。
+   *
+   * **色収差は外した。**`chromaticAberration` は `convertToTexture` をもう
+   * 1 回通すので、実機で GPU が 9.7 から 14.0 ms へ上がり FPS が 60 から
+   * 53 へ落ちた（Intel Xe-2LPG）。絵の寄与は滲みと周辺減光に比べて小さい。
    *
    * **トーンマップの後ろに置く。**放射ブラーと色収差は表示域の色に掛けるのが
    * 本来で、HDR の線形値に掛けると暗部の滲みが出ない。そのため
@@ -108,7 +112,7 @@ export interface NodeOutputInput {
   /** 風圧を鎖に入れるか。`?lens=0` で外す */
   showLens?: boolean
   /**
-   * 風圧の鎖をどこまで組むか。`?lens=tone|blur|ab|1`。
+   * 風圧の鎖をどこまで組むか。`?lens=tone|blur`。
    *
    * **差分の帰属を測る口。**1 G では 3 つとも恒等になる設計なので、絵が
    * 動いたらどの段が動かしたのかを 1 つずつ切って見る。既定は全部。
@@ -117,17 +121,11 @@ export interface NodeOutputInput {
 }
 
 /** 風圧の鎖をどこまで組むか */
-export type LensStage = 'tone' | 'blur' | 'ab' | 'full'
+export type LensStage = 'tone' | 'blur' | 'full'
 
 /** 風圧に使う three の関数。呼ぶ側が動的 import して渡す */
 export interface LensEffects {
   radialBlur: (node: Node, options: Record<string, unknown>) => Node
-  chromaticAberration: (
-    node: Node,
-    strength: unknown,
-    center: unknown,
-    scale: unknown,
-  ) => Node
   renderOutput: (color: Node, toneMapping?: unknown, colorSpace?: unknown) => Node
 }
 
@@ -209,7 +207,7 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
 
   if (!lensEnabled) return { composite, outputNode: antialiased, ownsOutputTransform: false }
 
-  const { radialBlur, chromaticAberration, renderOutput } = input.lens as LensEffects
+  const { radialBlur, renderOutput } = input.lens as LensEffects
   const g = input.loadFactor as Node<'float'>
 
   // **1 G で 0 になる形にする。**水平飛行の絵を動かさないため。
@@ -242,30 +240,12 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
   // の `mixElement` は `(t, e1, e2) => mix(e1, e2, t)` なので、
   // `a.mix(b, c)` は `mix(b, c, a)` になる。**a が混ぜ率**になり、実測で
   // 全画面が 226 階調動いた。関数形式で書く
-  const blurredRaw = radialBlur(toned, { exposure: LENS_BLUR_MAX, count: 24 })
+  const blurredRaw = radialBlur(toned, { exposure: LENS_BLUR_MAX, count: LENS_BLUR_SAMPLES })
   const blurred = blend(toned, blurredRaw, amount)
 
-  // **`center` に `null` を渡さない。**`chromaticAberration` は既定値
-  // `center = null` を `nodeObject(null)` に通すだけなので、null がそのまま
-  // ノードとして build される。実測で
-  // `TypeError: Cannot read properties of null (reading 'build')` が出て、
-  // **例外は捕まらず画面が真っ黒になった**（`captureReady` は立つ）
   if (stage === 'blur') return { composite, outputNode: blurred, ownsOutputTransform: true }
 
-  // **`radialBlur` と同じ理由で `mix` で振る。**`chromaticAberration` も
-  // 先頭で `convertToTexture` を通すので、`strength: 0` にしても中間の
-  // テクスチャを往復するぶん量子化される
-  const shiftedRaw = chromaticAberration(
-    blurred,
-    LENS_ABERRATION_MAX,
-    vec2(0.5, 0.5),
-    LENS_ABERRATION_SCALE,
-  )
-  const shifted = blend(blurred, shiftedRaw, amount)
-
-  if (stage === 'ab') return { composite, outputNode: shifted, ownsOutputTransform: true }
-
-  return { composite, outputNode: vignette(shifted, amount), ownsOutputTransform: true }
+  return { composite, outputNode: vignette(blurred, amount), ownsOutputTransform: true }
 }
 
 /**
@@ -313,14 +293,20 @@ const LENS_START_G = 1.5
 /** ここまで G が掛かると演出が最大になる。実機で振って決める */
 const LENS_FULL_G = 6
 
+/**
+ * 放射ブラーのサンプル数。
+ *
+ * **実機で 24 は高すぎた。**`?lens=0` の GPU 8.0 ms に対して 14.4 ms、
+ * FPS が 60 から 54 へ落ちた（Intel Xe-2LPG、`docs/measuring.md`）。
+ * `radialBlur` は全画面をこの数だけ引くので、そのまま費用になる。
+ *
+ * three の doc は 16〜64 を勧めるが、下限より下げる。**帯が出るかは実測で
+ * 見る**（`interleavedGradientNoise` でディザしているので 8 でも保つ）。
+ */
+const LENS_BLUR_SAMPLES = 8
+
 /** 放射ブラーの `exposure` の上限。0 で無効、既定の 5 は強すぎる */
 const LENS_BLUR_MAX = 0.22
-
-/** 色収差の強さの上限 */
-const LENS_ABERRATION_MAX = 0.6
-
-/** 色収差の放射方向の伸ばし。1 で中心のまま、1 より大きいと外へ広がる */
-const LENS_ABERRATION_SCALE = 1.08
 
 /** ビネットの内側。ここまでは暗くしない（中心からの距離） */
 const VIGNETTE_INNER = 0.18

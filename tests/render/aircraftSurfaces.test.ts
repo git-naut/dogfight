@@ -4,7 +4,7 @@ import { createControlSurfaces } from '@render/aircraft/surfaces'
 import type { AircraftHinge } from '@render/aircraft/model'
 import { F18_HINGES, xmlToWorld } from '../../tools/f18-hinges.mjs'
 import { F16_HINGES } from '../../tools/f16-hinges.mjs'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 
 /**
@@ -192,6 +192,12 @@ describe.each(CRAFT)('$id の舵面の向き', (craft) => {
 describe('f18e の舵面の向き（glb の extras から）', () => {
   const glbHinges = (() => {
     const path = fileURLToPath(new URL('../../public/aircraft/f18e.glb', import.meta.url))
+    // **`public/aircraft/` は生成物で `.gitignore` に入っている。**`npm test` は
+    // `pretest` で `npm run assets` を通すので普通は在る。`npx vitest run` で
+    // 直に呼んだときだけ無いので、何をすればよいかを書いて落とす
+    if (!existsSync(path)) {
+      throw new Error(`${path} が無い。npm run assets を走らせること`)
+    }
     const buf = readFileSync(path)
     const jsonLength = buf.readUInt32LE(12)
     const gltf = JSON.parse(buf.subarray(20, 20 + jsonLength).toString('utf8'))

@@ -7,6 +7,7 @@ import { advanceNodeFrame, buildNodePipeline } from './nodeBuild'
 import { configureNodeAircraftShadow, followAircraftShadow } from './nodeShadow'
 import { createNodeOutputNode, createScenePass, type BloomFactory } from './nodeOutput'
 import { createSceneViews } from './views'
+import { toNodeAircraftMaterial } from './nodeAircraftMaterial'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
 import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
@@ -230,6 +231,7 @@ export async function createNodePipeline(
     quality,
     options,
     sprite: createNodeRadialSprite,
+    material: toNodeAircraftMaterial(renderer),
   })
 
   // 機体の影。**投げ手の側で `castShadow` を立てる。**光の側は

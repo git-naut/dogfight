@@ -1,6 +1,11 @@
 import type { Scene } from 'three'
 import { createAircraftView, type AircraftView } from '../aircraftView'
-import { loadAircraftModel, type AircraftModel } from '../aircraft/model'
+import {
+  keepAircraftMaterial,
+  loadAircraftModel,
+  type AircraftMaterialFactory,
+  type AircraftModel,
+} from '../aircraft/model'
 import { loadCarrier, placeCarrier, type Carrier } from '../carrier'
 import { createTargetViews, type TargetViews } from '../targetView'
 import { createEnemyViews, type EnemyViews } from '../enemyView'
@@ -64,15 +69,24 @@ export interface SceneViewsInput {
    * 描かれない（例外は出ず、コンソールに 1 行出るだけ）
    */
   sprite?: RadialSpriteFactory
+  /**
+   * 機体の材質の作り手。
+   *
+   * **node 経路では TSL の材質へ写す。**渡さなければ原本のまま（恒等）。
+   * 自機・標的・敵機の全複製へ効く（`targetView.ts` の `clone()` は材質を
+   * 参照で共有するので、読み込み時の 1 回で足りる）
+   */
+  material?: AircraftMaterialFactory
 }
 
 export async function createSceneViews(input: SceneViewsInput): Promise<SceneViews> {
   const { scene, quality, options } = input
   const sprite = input.sprite ?? createGlRadialSprite
+  const material = input.material ?? keepAircraftMaterial
 
   // glb を読むのはここ 1 回だけ。自機と標的機が同じモデルを共有する。
   // 2 回読むとパースとテクスチャの復号が 2 度走り、実体が複製される
-  const aircraftModel: AircraftModel = await loadAircraftModel(options.aircraftUrl)
+  const aircraftModel: AircraftModel = await loadAircraftModel(options.aircraftUrl, material)
 
   // 標的機。複製は必要になった時点で作る。Phase 6 のミッションが敵 8 機なので
   // 器はそこまで用意しておく。
@@ -90,7 +104,7 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
 
   // 敵機。自機とは別の機体（F-16）なので glb も別。**敵味方が別の形になる
   // ので、ロックボックスが出ていなくても見分けられる**
-  const enemyModel: AircraftModel = await loadAircraftModel(options.enemyUrl)
+  const enemyModel: AircraftModel = await loadAircraftModel(options.enemyUrl, material)
   const enemyViews: EnemyViews = createEnemyViews(enemyModel, MAX_TARGETS)
   enemyViews.object.visible = options.showEnemies ?? true
   scene.add(enemyViews.object)

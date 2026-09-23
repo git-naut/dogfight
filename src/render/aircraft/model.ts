@@ -76,13 +76,69 @@ const HIDDEN_NODES = ['gear', 'stowed']
  */
 export const GEAR_NODE = 'gear'
 
-export async function loadAircraftModel(url: string): Promise<AircraftModel> {
+/**
+ * 機体の材質の作り手。
+ *
+ * **node 経路では TSL の材質へ写す。**`MeshStandardMaterial` のままでも絵は
+ * 出るが、`normalNode` と `roughnessNode` を差す口が無い。表面ディテールの
+ * 前提として、写す口だけを先に開ける。
+ *
+ * 既定は恒等（`keepAircraftMaterial`）。GLSL 経路は引数を渡さないので、
+ * **型として動かないことが保証される**（`views.ts` の `sprite` と同じ形）。
+ */
+export type AircraftMaterialFactory = (material: THREE.Material) => THREE.Material
+
+/** 原本の材質をそのまま返す。既定 */
+export const keepAircraftMaterial: AircraftMaterialFactory = (material) => material
+
+/** 写しを共有する作り手と、置き換えた原本の後始末 */
+export interface SharedAircraftMaterial {
+  convert: (source: THREE.Material | THREE.Material[]) => THREE.Material | THREE.Material[]
+  /**
+   * 置き換えた原本を捨てる。
+   *
+   * **メッシュを辿るだけでは写しにしか届かない。**原本はどこからも参照され
+   * なくなるので、対応表から捨てる。恒等なら捨てるものが無い
+   */
+  disposeSources: () => void
+}
+
+/**
+ * 原本 1 つにつき写し 1 つ。
+ *
+ * **同じ材質を参照するメッシュが複数ある。**写しをまとめないと材質の実体が
+ * 増え、描画の状態切り替えが増える。恒等のときは同じ実体が返るので、
+ * この表は素通りになる。
+ */
+export function shareAircraftMaterial(factory: AircraftMaterialFactory): SharedAircraftMaterial {
+  const made = new Map<THREE.Material, THREE.Material>()
+  const one = (source: THREE.Material): THREE.Material => {
+    const cached = made.get(source)
+    if (cached !== undefined) return cached
+    const copy = factory(source)
+    made.set(source, copy)
+    return copy
+  }
+  return {
+    convert: (source) => (Array.isArray(source) ? source.map(one) : one(source)),
+    disposeSources: () => {
+      for (const [source, copy] of made) if (source !== copy) source.dispose()
+    },
+  }
+}
+
+export async function loadAircraftModel(
+  url: string,
+  material: AircraftMaterialFactory = keepAircraftMaterial,
+): Promise<AircraftModel> {
   const loader = new GLTFLoader()
   const gltf = await loader.loadAsync(url)
 
   const object = gltf.scene
   const surfaces = new Map<string, THREE.Object3D>()
   let triangles = 0
+
+  const shared = shareAircraftMaterial(material)
 
   object.traverse((node) => {
     if (HIDDEN_NODES.includes(node.name)) node.visible = false
@@ -91,6 +147,8 @@ export async function loadAircraftModel(url: string): Promise<AircraftModel> {
     const geometry = node.geometry as THREE.BufferGeometry
     const index = geometry.getIndex()
     triangles += index ? index.count / 3 : geometry.attributes['position']!.count / 3
+
+    node.material = shared.convert(node.material as THREE.Material | THREE.Material[])
 
     // 追従カメラは機体の後方 23 m にいる。視錐台で捨てられると機体が消える
     node.frustumCulled = false
@@ -118,6 +176,7 @@ export async function loadAircraftModel(url: string): Promise<AircraftModel> {
         if (Array.isArray(material)) for (const m of material) m.dispose()
         else material.dispose()
       })
+      shared.disposeSources()
     },
   }
 }

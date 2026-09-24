@@ -851,10 +851,16 @@ test.describe('node 経路', () => {
       p.shadowChangedMax,
       `投げ手を切っても最大 ${p.shadowChangedMax} 階調しか動かない`,
     ).toBeGreaterThan(10)
+    //
+    // **閾値は雑音を除いた実測の半分。**もとは 500 で、雑音込みの約 1,900 に
+    // 支えられて通っていた。SwiftShader は撮り直すだけで約 1,800 バイトが 1
+    // 動き、0 の回もある。0 の回に本当の値だけが残って落ちた。`NOISE_FLOOR`
+    // で雑音を除くと毎回 132（F/A-18E）。C 型でも 279 で、500 は書いた時から
+    // 本当の値では一度も越えていない
     expect(
       p.shadowChanged,
       `投げ手を切って動いたのが ${p.shadowChanged} バイト`,
-    ).toBeGreaterThan(500)
+    ).toBeGreaterThan(66)
     // **パスの数では分からない。**投げ手が無くても影のパスは走る（段 15）
     expect(p.shadowFrameCalls).toBe(p.noShadowFrameCalls)
 

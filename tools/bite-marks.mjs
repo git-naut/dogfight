@@ -273,6 +273,15 @@ export const BITE_MARKS = [
     why: '長さの違う 2 枚を先頭だけ比べると「違うバイト 0 個」になる。読み戻せていない絵を一致したと読む形を作らない',
   },
   {
+    id: 'byte-difference-ignore-floor',
+    kind: '条件の固定',
+    file: 'src/render/clouds/marchProbe.ts',
+    find: '    if (d > floor) differing++',
+    replace: '    if (d > 0) differing++',
+    expect: 'tests/render/marchProbe.test.ts',
+    lesson: '「動いたバイト数」の閾値を雑音が支えていた',
+  },
+  {
     id: 'height-probe-step-on-grid',
     kind: '定数の摂動',
     file: 'src/render/terrain/heightProbe.ts',

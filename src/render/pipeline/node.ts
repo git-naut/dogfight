@@ -31,6 +31,7 @@ import {
   RESOLVE_PROBE_JITTER_B,
   RESOLVE_PROBE_PREVIOUS_CAMERA,
   byteDifference,
+  NOISE_FLOOR,
   marchExhaustedCount,
   marchSampleStats,
 } from '../clouds/marchProbe'
@@ -1085,7 +1086,7 @@ export async function runNodeProbe(
       // **区画平均では鈍すぎる。**機体の影は画面のごく一部しか覆わないので、
       // 1280x720 を 4x4 に均すと 0.0003 しか動かなかった（実測）。
       // バイトの違いを数えれば数百画素でも見える
-      changed: byteDifference(without.bytes, withShadow.bytes).differing,
+      changed: byteDifference(without.bytes, withShadow.bytes, NOISE_FLOOR).differing,
       changedMax: byteDifference(without.bytes, withShadow.bytes).max,
     }
   }
@@ -1591,7 +1592,7 @@ export async function runNodeProbe(
         if (o instanceof THREE.Mesh) o.castShadow = true
       })
       shadowLight.shadow.needsUpdate = true
-      const diff = byteDifference(withShadow, noShadowBytes)
+      const diff = byteDifference(withShadow, noShadowBytes, NOISE_FLOOR)
       shadowChanged = diff.differing
       shadowChangedMax = diff.max
     }
@@ -1648,7 +1649,7 @@ export async function runNodeProbe(
       smaaFrameCalls,
       plainFrameCalls,
       // SMAA を外すと辺の画素が変わる。0 なら鎖に入っていない
-      lightingChanged: byteDifference(pipelineBytes, legacyBytes).differing,
+      lightingChanged: byteDifference(pipelineBytes, legacyBytes, NOISE_FLOOR).differing,
       lightingChangedMax: byteDifference(pipelineBytes, legacyBytes).max,
       lightingTiles: tileMeans(
         new Uint8Array(legacyBytes),
@@ -1659,7 +1660,7 @@ export async function runNodeProbe(
       shadowChangedMax,
       shadowFrameCalls,
       noShadowFrameCalls,
-      lightingProbeChanged: byteDifference(lightBefore, lightAfter).differing,
+      lightingProbeChanged: byteDifference(lightBefore, lightAfter, NOISE_FLOOR).differing,
       lightingProbeMax: byteDifference(lightBefore, lightAfter).max,
       lightingProbeTilesBefore: tileMeans(
         new Uint8Array(lightBefore),
@@ -1676,7 +1677,7 @@ export async function runNodeProbe(
       indirectFacingSun: illumMean(indirectBytes, true),
       terrainPatches: nodeTerrainMesh.patchCount,
       terrainTriangles: nodeTerrainMesh.triangleCount,
-      smaaChanged: byteDifference(pipelineBytes, plainBytes).differing,
+      smaaChanged: byteDifference(pipelineBytes, plainBytes, NOISE_FLOOR).differing,
       smaaChangedMax: byteDifference(pipelineBytes, plainBytes).max,
       marchSourceLength: marchSourceBefore.length,
       // **並び順は見ない。**three 0.186 で `// codes` の順が揺れる

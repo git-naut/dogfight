@@ -190,14 +190,23 @@ export const RESOLVE_PROBE_PREVIOUS_CAMERA: MarchProbeCamera = {
   far: 30_000,
 }
 
+/** 撮り直しで動く差の上限。これ以下は雑音として数えない */
+export const NOISE_FLOOR = 1
+
 /**
  * 2 枚の絵のバイトの違いを数える。
  *
  * 完全一致を期待するが、外れたときに「どれくらい」を出せるようにしておく
+ *
+ * **「動いたか」を数えるときは `floor` に `NOISE_FLOOR` を渡す。**SwiftShader は
+ * 同じ状態を撮り直しても約 1,800 バイトが 1 だけ動く（実測。雑音が 0 の回も
+ * ある）。下限なしで数えると閾値を雑音で越え、影が 132 バイトしか動かない
+ * のに 500 を通していた。`max` は下限に関係なく返す
  */
 export function byteDifference(
   a: ArrayLike<number>,
   b: ArrayLike<number>,
+  floor = 0,
 ): { differing: number; max: number } {
   if (a.length !== b.length) {
     return { differing: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY }
@@ -206,7 +215,7 @@ export function byteDifference(
   let max = 0
   for (let i = 0; i < a.length; i++) {
     const d = Math.abs(a[i]! - b[i]!)
-    if (d > 0) differing++
+    if (d > floor) differing++
     if (d > max) max = d
   }
   return { differing, max }

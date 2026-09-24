@@ -120,4 +120,18 @@ describe('バイトの違い', () => {
     expect(byteDifference(new Uint8Array([5]), new Uint8Array([1])).max).toBe(4)
     expect(byteDifference(new Uint8Array([1]), new Uint8Array([5])).max).toBe(4)
   })
+
+  it('下限以下の差は数えない', () => {
+    // **SwiftShader は同じ状態を撮り直しても約 1,800 バイトが 1 だけ動く。**
+    // 「動いたか」を数える検査は、この雑音を数えると閾値を雑音で越える
+    const a = new Uint8Array([0, 10, 20, 30])
+    const b = new Uint8Array([1, 11, 22, 99])
+    expect(byteDifference(a, b, 1)).toEqual({ differing: 2, max: 69 })
+  })
+
+  it('下限は最大の差に効かない', () => {
+    const a = new Uint8Array([0, 10])
+    const b = new Uint8Array([1, 11])
+    expect(byteDifference(a, b, 1)).toEqual({ differing: 0, max: 1 })
+  })
 })

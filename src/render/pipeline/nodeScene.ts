@@ -7,7 +7,7 @@ import { advanceNodeFrame, buildNodePipeline } from './nodeBuild'
 import { configureNodeAircraftShadow, followAircraftShadow } from './nodeShadow'
 import { createNodeOutputNode, createScenePass, type BloomFactory } from './nodeOutput'
 import { createSceneViews } from './views'
-import { toNodeAircraftMaterial } from './nodeAircraftMaterial'
+import { bakeAircraftSpace, toNodeAircraftMaterial } from './nodeAircraftMaterial'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
 import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
@@ -226,12 +226,17 @@ export async function createNodePipeline(
 
   // 場面に置く物。**円形スプライトは TSL 版を差す。**`ShaderMaterial` は
   // node 経路で黙って描かれない（例外は出ず、コンソールに 1 行出るだけ）
+  //
+  // **外板の細部は判定道具の上書きが勝つ**（`?materialdetail=`）。細部を
+  // 入れるときだけ座標を焼く。入れなければ頂点属性も増えない
+  const materialDetail = options.materialDetail ?? quality.materialDetail
   const views = await createSceneViews({
     scene,
     quality,
     options,
     sprite: createNodeRadialSprite,
-    material: toNodeAircraftMaterial(renderer),
+    material: toNodeAircraftMaterial(renderer, materialDetail),
+    ...(materialDetail !== 'none' ? { prepareModel: bakeAircraftSpace } : {}),
   })
 
   // 機体の影。**投げ手の側で `castShadow` を立てる。**光の側は

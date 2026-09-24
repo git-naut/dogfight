@@ -249,6 +249,8 @@ export interface SceneOptions {
   bloomThreshold?: number
   /** ブルームの強さの上書き。掃引のための口。プリセットの値を踏み潰す */
   bloomStrength?: number
+  /** 機体の外板の細部の上書き。判定道具の口。プリセットの値を踏み潰す */
+  materialDetail?: import('../quality').MaterialDetail
   /**
    * 風圧の演出（放射ブラー・色収差・ビネット）を掛けるか。既定は true。
    *

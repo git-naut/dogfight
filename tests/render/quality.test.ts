@@ -397,6 +397,31 @@ describe('自動降格', () => {
  * **既定の経路は読まない。**段 15 の規約どおり実装より先に列を作った
  * （`CLAUDE.md`）。段 18 で経路を切り替えたとき、影が映る 12 枚がここで動く。
  */
+describe('機体の外板の細部', () => {
+  const RANK: Record<string, number> = { none: 0, procedural: 1 }
+
+  it('全プリセットが知っている値を持つ', () => {
+    for (const name of PRESET_ORDER) {
+      const detail = QUALITY_PRESETS[name].materialDetail
+      expect(RANK[detail], `${name} の materialDetail: ${detail}`).toBeDefined()
+    }
+  })
+
+  it('プリセットが上がるほど強くなる（下がらない）', () => {
+    const ranks = PRESET_ORDER.map((n) => RANK[QUALITY_PRESETS[n].materialDetail]!)
+    for (let i = 1; i < ranks.length; i++) {
+      expect(ranks[i]!, `${PRESET_ORDER[i]} が ${PRESET_ORDER[i - 1]} より弱い`)
+        .toBeGreaterThanOrEqual(ranks[i - 1]!)
+    }
+  })
+
+  it('既定のプリセットで効いている', () => {
+    // **判定道具は既定の絵で測る。**既定で切れていると、効果を入れても
+    // 基準画像にも実機にも出ない
+    expect(QUALITY_PRESETS[DEFAULT_PRESET].materialDetail).toBe('procedural')
+  })
+})
+
 describe('影のフィルタ', () => {
   // `pcfSoft` は three 0.186 で無くなったので表から落とした（`quality.ts`）。
   // **ここに残すと「表に無い値を知っている検査」になる**ので一緒に消す

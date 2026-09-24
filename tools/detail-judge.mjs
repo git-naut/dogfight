@@ -1,13 +1,15 @@
 // 機体の表面ディテールが効いたかを、機体マスクの中の統計で判定する。
 //
-// **判定は 3 条件の組で行う（計画書の表面ディテールの段）。**
+// **判定は 2 条件の組で行う。**
 //
-//   マスク内の線形輝度の中央値が +10% 以内   … 鏡になっていない
-//   マスク内の 99 パーセンタイルが +30% 以上 … ハイライトが立った
-//   局所ディテール画素数が増える              … 模様が乗った
+//   マスク内の線形輝度の中央値が ±10% 以内 … 鏡にも減光にもなっていない
+//   局所ディテール画素数が増える            … 模様が乗った
 //
-// 片方だけでは鏡（中央値も p99 も上がる）とただの減光（両方下がる）を
-// 区別できない。統計の形は `tools/bloom-sweep.mjs` と同じ。
+// 計画書は 3 条件目に「99 パーセンタイルが +30% 以上（ハイライトが立った）」を
+// 置いていた。**段 25 で外した**（`docs/decisions/0013-surface-detail.md`）。
+// 外板は粗さ 0.82 の誘電体で、艶を上げても太陽の映り込みが視線に入らず、
+// 4 構図で p99 は 0〜1.2% しか動かない。ハイライトは異方性の段で判定する。
+// p99 は記録として出し続ける。統計の形は `tools/bloom-sweep.mjs` と同じ。
 //
 // **機体マスクは撮って作る。**矩形を置く `bloom-sweep` と違い、機体の輪郭は
 // 構図ごとに形が違う。`?aircraft=0` で機体を消した絵との差をマスクにする。
@@ -23,9 +25,11 @@
 // 縮めたあとは最大の塊だけを残す（機体を消すと雲も少し動く）。
 //
 //   node tools/detail-judge.mjs [--nobuild] [--port N] [--scenes a,b]
-//     [--query k=v&k=v] [--repeat] [--out 保存先]
+//     [--base k=v&k=v] [--query k=v&k=v] [--repeat] [--out 保存先]
 //
-// `--query` を渡すと既定の絵と比べて判定する。渡さなければ基準だけを測る。
+// `--query` を渡すと基準の絵と比べて判定する。渡さなければ基準だけを測る。
+// 基準は既定の絵。既定のプリセットが効果を入れているときは `--base` で切る
+// （`--base materialdetail=none --query materialdetail=procedural`）。
 // `--repeat` は基準を 2 回撮り、統計が一致するかを見る（効果を入れる前に
 // 測り方が揺れないことを確かめる）。
 import { chromium } from '@playwright/test'
@@ -49,6 +53,8 @@ const NOBUILD = argv.includes('--nobuild')
 const REPEAT = argv.includes('--repeat')
 const OUT = arg('--out', null)
 const QUERY = arg('--query', null)
+/** 基準の側に足す引数。既定のプリセットが効果を入れているときに切る口 */
+const BASE_QUERY = arg('--base', null)
 /** 機体が大きく写る正午と、普段の 16 時 */
 const SCENE_NAMES = arg('--scenes', 'aircraft-close,level-afternoon').split(',')
 
@@ -196,17 +202,23 @@ export function maskStats(lum, mask, width, threshold = DETAIL_THRESHOLD, r = ER
   }
 }
 
-/** 3 条件の組。基準と比べた上がり幅（%）と判定を返す */
+/**
+ * 2 条件の組。基準と比べた上がり幅（%）と判定を返す。
+ *
+ * **下がる側も縛る。**粗さの中心を 0.45 へ下げた版は、逆光では +10.4%（鏡）、
+ * ほかの 3 構図では −16〜−18% だった。上だけ見ると暗くなったのを通す。
+ * p99 は判定に使わず、上がり幅だけを返す
+ */
 export function judge(base, now) {
   const rise = (a, b) => (a / b - 1) * 100
   const medianRise = rise(now.median, base.median)
   const p99Rise = rise(now.p99, base.p99)
   const detailGain = now.detail - base.detail
   const mirror = medianRise > 10
-  const flat = p99Rise < 30
+  const dim = medianRise < -10
   const plain = detailGain <= 0
-  const ok = !mirror && !flat && !plain
-  const why = mirror ? '**鏡になった**' : flat ? 'ハイライトが立たない' : plain ? '模様が乗らない' : '**両立**'
+  const ok = !mirror && !dim && !plain
+  const why = mirror ? '**鏡になった**' : dim ? '**暗くなった**' : plain ? '模様が乗らない' : '**両立**'
   return { medianRise, p99Rise, detailGain, ok, why }
 }
 
@@ -236,6 +248,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (OUT !== null) mkdirSync(OUT, { recursive: true })
 
     const extra = QUERY === null ? {} : Object.fromEntries(new URLSearchParams(QUERY))
+    const baseExtra = BASE_QUERY === null ? {} : Object.fromEntries(new URLSearchParams(BASE_QUERY))
     const pct = (v) => ((v >= 0 ? '+' : '') + v.toFixed(1) + '%').padStart(7)
     const f = (v) => v.toFixed(4)
 
@@ -257,7 +270,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       const outline = diffMask(withCraft.data, without.data, width, height)
       const mask = largestComponent(erode(outline, width, height), width, height)
 
-      const base = await shoot({})
+      const base = await shoot(baseExtra)
       const baseStats = maskStats(luminancePlane(base.data, width, height), mask, width)
       const outlinePixels = outline.reduce((s, v) => s + v, 0)
 
@@ -268,7 +281,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       )
 
       if (REPEAT) {
-        const again = await shoot({})
+        const again = await shoot(baseExtra)
         const s = maskStats(luminancePlane(again.data, width, height), mask, width)
         const same = s.median === baseStats.median && s.p99 === baseStats.p99 && s.detail === baseStats.detail
         console.log(

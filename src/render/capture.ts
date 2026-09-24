@@ -3,7 +3,7 @@ import {
   decodeShadowInputs,
   type ShadowInputs,
 } from './clouds/shadowInputs'
-import { resolvePreset, type PresetName } from './quality'
+import { resolvePreset, type MaterialDetail, type PresetName } from './quality'
 import { DEFAULT_HOUR } from './atmosphere'
 
 /**
@@ -84,6 +84,12 @@ export interface CaptureConfig {
   bloomThreshold: number | null
   /** ブルームの強さを上書きする。`?bloomstrength=`。掃引のための口 */
   bloomStrength: number | null
+  /**
+   * 機体の外板の細部を上書きする。`?materialdetail=none|procedural`。
+   * 判定道具（`tools/detail-judge.mjs`）が同じビルドで有無を撮り比べる口。
+   * 知らない値は無視してプリセットに従う
+   */
+  materialDetail: MaterialDetail | null
   /**
    * 風圧の演出を掛けるか。`?lens=0` で外す。
    *
@@ -379,6 +385,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     bloomStrength: params.has('bloomstrength')
       ? clampNumber(params.get('bloomstrength'), 0, 10, 0)
       : null,
+    materialDetail: readMaterialDetail(params.get('materialdetail')),
     lens: params.get('lens') !== '0',
     lensStage: (() => {
       const v = params.get('lens')
@@ -791,4 +798,9 @@ declare global {
 export function installTestHook(initial: TestHook): TestHook {
   window.__dogfight = initial
   return initial
+}
+
+/** `?materialdetail=` を読む。表に無い値は `null`（プリセットに従う） */
+export function readMaterialDetail(value: string | null): MaterialDetail | null {
+  return value === 'none' || value === 'procedural' ? value : null
 }

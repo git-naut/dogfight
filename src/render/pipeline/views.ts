@@ -77,6 +77,14 @@ export interface SceneViewsInput {
    * 参照で共有するので、読み込み時の 1 回で足りる）
    */
   material?: AircraftMaterialFactory
+  /**
+   * 読み込んだ機体モデルの下ごしらえ。材質を組む前に 1 度呼ぶ。
+   *
+   * **node 経路の表面ディテールだけが使う。**外板の座標を頂点属性へ焼く
+   * （`nodeAircraftMaterial.ts` の `bakeAircraftSpace`）。複製より先に呼ぶので、
+   * ジオメトリを共有する標的機と敵機の複製にも効く。渡さなければ何もしない
+   */
+  prepareModel?: (model: AircraftModel) => void
 }
 
 export async function createSceneViews(input: SceneViewsInput): Promise<SceneViews> {
@@ -87,6 +95,7 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   // glb を読むのはここ 1 回だけ。自機と標的機が同じモデルを共有する。
   // 2 回読むとパースとテクスチャの復号が 2 度走り、実体が複製される
   const aircraftModel: AircraftModel = await loadAircraftModel(options.aircraftUrl, material)
+  input.prepareModel?.(aircraftModel)
 
   // 標的機。複製は必要になった時点で作る。Phase 6 のミッションが敵 8 機なので
   // 器はそこまで用意しておく。
@@ -105,6 +114,7 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   // 敵機。自機とは別の機体（F-16）なので glb も別。**敵味方が別の形になる
   // ので、ロックボックスが出ていなくても見分けられる**
   const enemyModel: AircraftModel = await loadAircraftModel(options.enemyUrl, material)
+  input.prepareModel?.(enemyModel)
   const enemyViews: EnemyViews = createEnemyViews(enemyModel, MAX_TARGETS)
   enemyViews.object.visible = options.showEnemies ?? true
   scene.add(enemyViews.object)

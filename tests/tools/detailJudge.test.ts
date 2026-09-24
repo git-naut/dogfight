@@ -104,7 +104,7 @@ describe('マスクの中の統計', () => {
   })
 })
 
-describe('3 条件の判定', () => {
+describe('2 条件の判定', () => {
   const base = { pixels: 100, median: 0.1, p99: 0.4, detail: 50 }
 
   it('中央値が +10% を越えたら鏡', () => {
@@ -113,30 +113,31 @@ describe('3 条件の判定', () => {
     expect(j.why).toContain('鏡')
   })
 
-  it('p99 が +30% に届かなければハイライトが立たない', () => {
-    const j = judge(base, { ...base, p99: 0.5, detail: 80 })
+  it('中央値が −10% を下回ったら暗くなった', () => {
+    // **下がる側も縛る。**粗さの中心を 0.45 へ下げた版は 3 構図で −16〜−18%
+    const j = judge(base, { ...base, median: 0.083, detail: 80 })
     expect(j.ok).toBe(false)
-    expect(j.why).toBe('ハイライトが立たない')
+    expect(j.why).toContain('暗く')
   })
 
   it('ディテールが増えなければ模様が乗らない', () => {
-    const j = judge(base, { ...base, p99: 0.6 })
+    const j = judge(base, { ...base, median: 0.101 })
     expect(j.ok).toBe(false)
     expect(j.why).toBe('模様が乗らない')
   })
 
-  it('3 つ揃えば両立', () => {
-    const j = judge(base, { ...base, median: 0.105, p99: 0.6, detail: 51 })
+  it('2 つ揃えば両立。p99 は判定に使わない', () => {
+    // p99 は記録だけ（`docs/decisions/0013-surface-detail.md`）
+    const j = judge(base, { ...base, median: 0.105, p99: 0.4, detail: 51 })
     expect(j.ok).toBe(true)
     expect(j.medianRise).toBeCloseTo(5)
-    expect(j.p99Rise).toBeCloseTo(50)
+    expect(j.p99Rise).toBeCloseTo(0)
     expect(j.detailGain).toBe(1)
   })
 
-  it('減光は鏡と区別できる', () => {
-    // **両方下がる。**中央値だけ見れば「鏡になっていない」で通ってしまう
-    const j = judge(base, { ...base, median: 0.08, p99: 0.3, detail: 80 })
-    expect(j.ok).toBe(false)
-    expect(j.why).toBe('ハイライトが立たない')
+  it('±10% の内側は通す', () => {
+    // 境目ちょうどは比べない。0.11 / 0.1 - 1 は浮動小数点で 10% を僅かに越える
+    expect(judge(base, { ...base, median: 0.1099, detail: 51 }).ok).toBe(true)
+    expect(judge(base, { ...base, median: 0.0901, detail: 51 }).ok).toBe(true)
   })
 })

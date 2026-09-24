@@ -22,6 +22,15 @@ export type PresetName = 'low' | 'medium' | 'high' | 'ultra'
  */
 export type ShadowFilter = 'basic' | 'pcf'
 
+/**
+ * 機体の外板の細部。
+ *
+ * `procedural` は node 経路で汚れ・パネルごとのむら・パネルラインを差す。
+ * 計画書の `procedural-aniso`（異方性スペキュラ）は次の段で足す。
+ * **値を先に置かない。**実装が読まない値を表に持たない（`ShadowFilter`）
+ */
+export type MaterialDetail = 'none' | 'procedural'
+
 export interface QualitySettings {
   /** 描画解像度の倍率。1.0 が等倍 */
   renderScale: number
@@ -109,6 +118,14 @@ export interface QualitySettings {
   terrainLodLevels: number
   /** 地表の近距離の凹凸を法線の摂動で出すか */
   terrainDetailNormals: boolean
+  /**
+   * 機体の外板の細部（`MaterialDetail`）。
+   *
+   * **node 経路だけが読む。**GLSL 経路は機体の材質を写さないので口が無い。
+   * medium 以下は `none`。低いプリセットは機体が小さく写るので、細部は
+   * 1 画素を割って縞になるだけになる
+   */
+  materialDetail: MaterialDetail
   /** 海面に太陽のスペキュラを乗せるか */
   waterSpecular: boolean
 
@@ -258,6 +275,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainPatchCells: 16,
     terrainLodLevels: 5,
     terrainDetailNormals: false,
+    materialDetail: 'none',
     waterSpecular: false,
     lodDistanceScale: 0.5,
     aircraftShadowMapSize: 0,
@@ -289,6 +307,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainPatchCells: 24,
     terrainLodLevels: 6,
     terrainDetailNormals: true,
+    materialDetail: 'none',
     waterSpecular: true,
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
@@ -328,6 +347,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainPatchCells: 32,
     terrainLodLevels: 7,
     terrainDetailNormals: true,
+    materialDetail: 'procedural',
     waterSpecular: true,
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
@@ -363,6 +383,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // High と同じ 7 段。段数を増やすより手前を細かくするほうが効く
     terrainLodLevels: 7,
     terrainDetailNormals: true,
+    materialDetail: 'procedural',
     waterSpecular: true,
     // 1.5 だと三角形が 2.19M になり、シーン予算 1.5M を単独で超える。
     // セル数を 48 へ上げたぶん、切り替え距離は控えめにする

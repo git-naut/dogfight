@@ -1564,7 +1564,9 @@ export async function runNodeProbe(
     const smaaFrameCalls = lastPictureFrameCalls
 
     // **ライティングの置き換えでどれだけ動くか。**段 20 の差分の台帳へ
-    // 入れる数。地表は画面の大半を覆うので区画平均でも見える
+    // 入れる数。**この場面では 0 になる。**カメラに地表が写っておらず、
+    // 画面を覆うのは海面（地表を隠して 0 バイト、海面を隠して 1,254,372
+    // バイト）。地表への効きは下の矩形（`lightingProbeChanged`）で測る
     const litMaterial = nodeTerrainMesh.mesh.material
     nodeTerrainMesh.mesh.material = legacyTerrainMaterial.material
     const legacyBytes = await readPicture()

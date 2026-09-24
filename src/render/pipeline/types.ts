@@ -711,7 +711,9 @@ export interface NodeProbeResult {
     /**
      * ライティングを置き換えると動く画素の数。
      *
-     * 段 17c の差分。**0 なら `getSplitIlluminance` が効いていない**
+     * 段 17c の差分。**場面のカメラには地表が写らないので 0 になる。**地表を
+     * 隠しても 0 バイト、海面を隠すと 1,254,372 バイト動く（実測）。効いて
+     * いるかは `lightingProbeChanged`（矩形で測り直した数）で見る
      */
     lightingChanged: number
     lightingChangedMax: number

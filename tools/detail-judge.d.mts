@@ -42,4 +42,34 @@ export function maskStats(
   threshold?: number,
   r?: number,
 ): MaskStats
+export const HIGHLIGHT_FACTOR: number
+
+export interface HighlightStats {
+  /** 最大の塊の画素数 */
+  pixels: number
+  /** 外接矩形の長辺÷短辺。塊が無ければ 0 */
+  aspect: number
+  box: { x: number; y: number; w: number; h: number } | null
+  /** 最大の塊を 1 にした画像 */
+  blob: Uint8Array
+}
+
+export function highlightStats(
+  lum: Float64Array,
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  median: number,
+  factor?: number,
+): HighlightStats
 export function judge(base: MaskStats, now: MaskStats): Judgement
+export const GLOSS_RISE: number
+export function judgeGloss(
+  baseSkin: MaskStats,
+  nowSkin: MaskStats,
+  baseRegion: number,
+  nowRegion: number,
+  baseHi: HighlightStats,
+  nowHi: HighlightStats,
+): { medianRise: number; regionRise: number; gain: number; ok: boolean; why: string }
+export function maskedMedian(lum: Float64Array, mask: Uint8Array): number

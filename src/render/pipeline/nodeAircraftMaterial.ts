@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { MeshStandardNodeMaterial, type Node } from 'three/webgpu'
+import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type Node } from 'three/webgpu'
 import {
   abs,
   attribute,
@@ -55,14 +55,55 @@ export interface NodeMaterialLibrary {
 export function toNodeAircraftMaterial(
   renderer: { library: NodeMaterialLibrary },
   detail: MaterialDetail = 'none',
+  clearcoat = false,
 ): AircraftMaterialFactory {
   return (source) => {
     const copy = renderer.library.fromMaterial(source) ?? source
     if (detail === 'procedural' && wantsSurfaceDetail(source, copy)) {
       applySurfaceDetail(copy as MeshStandardNodeMaterial)
     }
+    if (clearcoat && isCanopyGlass(source, copy)) {
+      applyCanopyClearcoat(copy as MeshPhysicalNodeMaterial)
+    }
     return copy
   }
+}
+
+/**
+ * キャノピーのガラスか。**名前ではなく材質の形で見分ける。**
+ *
+ * F/A-18E で `KHR_materials_specular` を持つのは `Material.013` だけで、
+ * three はそれを `MeshPhysicalMaterial` として読む（ほかは
+ * `MeshStandardMaterial`）。塗装のテクスチャを持たない半透明の黒で、
+ * 使うメッシュの主役は風防（`Meshpart137`、266 三角形、機体の座標で
+ * x ±0.37・z −5.96〜−4.00）。残りは前面の風防と灯火の小片。
+ *
+ * F-16 の風防（`glassOutsideMat`）は拡張を持たない `MeshStandardMaterial`
+ * なので入らない。敵機は小さく写るので扱わない
+ */
+export function isCanopyGlass(source: THREE.Material, copy: THREE.Material): boolean {
+  if (!(source instanceof THREE.MeshPhysicalMaterial)) return false
+  if (!(copy instanceof MeshPhysicalNodeMaterial)) return false
+  return source.map == null
+}
+
+/** キャノピーの clearcoat の定数 */
+export const CANOPY_CLEARCOAT = {
+  /** 層の強さ。1 で全面に被せる */
+  clearcoat: 1,
+  /**
+   * 層の粗さ。磨いたアクリルの値。
+   *
+   * 下地（粗さ 0.25）より十分小さくしないと、層を重ねても映り込みが
+   * 締まらない
+   */
+  clearcoatRoughness: 0.04,
+} as const
+
+/** キャノピーに clearcoat を重ねる。下地の材質の値には触らない */
+export function applyCanopyClearcoat(material: MeshPhysicalNodeMaterial): void {
+  material.clearcoat = CANOPY_CLEARCOAT.clearcoat
+  material.clearcoatRoughness = CANOPY_CLEARCOAT.clearcoatRoughness
 }
 
 /**

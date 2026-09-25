@@ -230,12 +230,13 @@ export async function createNodePipeline(
   // **外板の細部は判定道具の上書きが勝つ**（`?materialdetail=`）。細部を
   // 入れるときだけ座標を焼く。入れなければ頂点属性も増えない
   const materialDetail = options.materialDetail ?? quality.materialDetail
+  const canopyClearcoat = options.canopyClearcoat ?? quality.canopyClearcoat
   const views = await createSceneViews({
     scene,
     quality,
     options,
     sprite: createNodeRadialSprite,
-    material: toNodeAircraftMaterial(renderer, materialDetail),
+    material: toNodeAircraftMaterial(renderer, materialDetail, canopyClearcoat),
     ...(materialDetail !== 'none' ? { prepareModel: bakeAircraftSpace } : {}),
   })
 

@@ -90,6 +90,8 @@ export interface CaptureConfig {
    * 知らない値は無視してプリセットに従う
    */
   materialDetail: MaterialDetail | null
+  /** キャノピーの clearcoat を上書きする。`?canopyclearcoat=0|1`。判定道具の口 */
+  canopyClearcoat: boolean | null
   /**
    * 風圧の演出を掛けるか。`?lens=0` で外す。
    *
@@ -386,6 +388,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? clampNumber(params.get('bloomstrength'), 0, 10, 0)
       : null,
     materialDetail: readMaterialDetail(params.get('materialdetail')),
+    canopyClearcoat: readSwitch(params.get('canopyclearcoat')),
     lens: params.get('lens') !== '0',
     lensStage: (() => {
       const v = params.get('lens')
@@ -803,4 +806,9 @@ export function installTestHook(initial: TestHook): TestHook {
 /** `?materialdetail=` を読む。表に無い値は `null`（プリセットに従う） */
 export function readMaterialDetail(value: string | null): MaterialDetail | null {
   return value === 'none' || value === 'procedural' ? value : null
+}
+
+/** `0` / `1` の切り替えを読む。それ以外は `null`（プリセットに従う） */
+export function readSwitch(value: string | null): boolean | null {
+  return value === '1' ? true : value === '0' ? false : null
 }

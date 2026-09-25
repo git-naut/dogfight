@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   diffMask,
   erode,
+  highlightStats,
   judge,
+  judgeGloss,
+  maskedMedian,
   largestComponent,
   luminance,
   maskStats,
@@ -139,5 +142,101 @@ describe('2 条件の判定', () => {
     // 境目ちょうどは比べない。0.11 / 0.1 - 1 は浮動小数点で 10% を僅かに越える
     expect(judge(base, { ...base, median: 0.1099, detail: 51 }).ok).toBe(true)
     expect(judge(base, { ...base, median: 0.0901, detail: 51 }).ok).toBe(true)
+  })
+})
+
+describe('ハイライトの形', () => {
+  // 10x6 の機体。外板は 0.1、中央値の 1.8 倍（0.18）を越える画素をハイライトと読む
+  const w = 10
+  const h = 6
+  const mask = new Uint8Array(w * h).fill(1)
+
+  it('横に長い塊の縦横比を返す', () => {
+    const lum = new Float64Array(w * h).fill(0.1)
+    for (let x = 2; x < 8; x++) lum[2 * w + x] = lum[3 * w + x] = 0.5
+    const s = highlightStats(lum, mask, w, h, 0.1)
+    expect(s.pixels).toBe(12)
+    expect(s.aspect).toBe(3)
+    expect(s.box).toEqual({ x: 2, y: 2, w: 6, h: 2 })
+  })
+
+  it('縦に長くても長辺÷短辺', () => {
+    const lum = new Float64Array(w * h).fill(0.1)
+    for (let y = 0; y < 6; y++) lum[y * w + 4] = 0.5
+    expect(highlightStats(lum, mask, w, h, 0.1).aspect).toBe(6)
+  })
+
+  it('最大の塊だけを見る', () => {
+    // 点が 1 つ離れていても、形は大きい塊で決まる
+    const lum = new Float64Array(w * h).fill(0.1)
+    for (let x = 0; x < 4; x++) lum[x] = 0.5
+    lum[5 * w + 9] = 0.5
+    const s = highlightStats(lum, mask, w, h, 0.1)
+    expect(s.pixels).toBe(4)
+    expect(s.aspect).toBe(4)
+  })
+
+  it('中央値の 1.8 倍に届かない明るさはハイライトではない', () => {
+    const lum = new Float64Array(w * h).fill(0.1)
+    lum[0] = 0.17
+    expect(highlightStats(lum, mask, w, h, 0.1).pixels).toBe(0)
+  })
+
+  it('ハイライトが無ければ縦横比は 0', () => {
+    // **NaN にしない。**比べるときに NaN は何とも等しくないので素通りする
+    const s = highlightStats(new Float64Array(w * h).fill(0.1), mask, w, h, 0.1)
+    expect(s.aspect).toBe(0)
+    expect(s.box).toBeNull()
+  })
+
+  it('マスクの外は数えない', () => {
+    const lum = new Float64Array(w * h).fill(0.1)
+    lum[0] = 0.9
+    const m = new Uint8Array(w * h).fill(1)
+    m[0] = 0
+    expect(highlightStats(lum, m, w, h, 0.1).pixels).toBe(0)
+  })
+})
+
+describe('艶の判定', () => {
+  const skin = { pixels: 100, median: 0.1, p99: 0.4, detail: 50 }
+  const none = { pixels: 0, aspect: 0, box: null, blob: new Uint8Array(0) }
+  const hi = (pixels: number) => ({ ...none, pixels, aspect: 1, box: { x: 0, y: 0, w: 1, h: 1 } })
+
+  it('変わった場所が明るくなり、外板が動かなければ両立', () => {
+    // 段 26 の実測でいちばん弱い逆光が +4%
+    const j = judgeGloss(skin, { ...skin, median: 0.101 }, 0.3, 0.312, none, none)
+    expect(j.ok).toBe(true)
+    expect(j.regionRise).toBeCloseTo(4)
+  })
+
+  it('塊の数は判定に使わず記録だけ', () => {
+    // **追従カメラのキャノピーは 100 画素ほど。**塊が立ったのは 6 構図中 1
+    const j = judgeGloss(skin, skin, 0.1, 0.12, hi(6), hi(6))
+    expect(j.ok).toBe(true)
+    expect(j.gain).toBe(0)
+  })
+
+  it('変わった場所が +3% に届かなければ艶が出ていない', () => {
+    const j = judgeGloss(skin, skin, 0.3, 0.305, none, hi(12))
+    expect(j.ok).toBe(false)
+    expect(j.why).toBe('艶が出ない')
+  })
+
+  it('変わった場所が無ければ艶が出ていない', () => {
+    // **NaN を通さない。**NaN との比較はすべて false
+    expect(judgeGloss(skin, skin, NaN, NaN, none, none).ok).toBe(false)
+  })
+
+  it('外板の中央値が ±10% を越えたら外板まで動いた', () => {
+    // **キャノピーだけに効くはず。**外板が動いたなら差す相手を間違えている
+    expect(judgeGloss(skin, { ...skin, median: 0.12 }, 0.1, 0.2, none, none).why).toContain('外板')
+    expect(judgeGloss(skin, { ...skin, median: 0.08 }, 0.1, 0.2, none, none).why).toContain('外板')
+  })
+
+  it('マスクの中の中央値', () => {
+    const lum = new Float64Array([0.1, 0.9, 0.3, 0.5])
+    expect(maskedMedian(lum, new Uint8Array([1, 0, 1, 1]))).toBeCloseTo(0.3)
+    expect(maskedMedian(lum, new Uint8Array(4))).toBeNaN()
   })
 })

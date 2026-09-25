@@ -126,6 +126,15 @@ export interface QualitySettings {
    * 1 画素を割って縞になるだけになる
    */
   materialDetail: MaterialDetail
+  /**
+   * キャノピーのガラスに clearcoat を重ねるか。
+   *
+   * **node 経路だけが読む。**外板は粗さ 0.82 の塗装で太陽の映り込みが視線に
+   * 入らない（段 25・段 26 の実測）。艶のある曲面はキャノピーだけなので、
+   * ハイライトはここで立てる。外板全体に掛けると鏡の失敗の再演になる
+   * （計画書）
+   */
+  canopyClearcoat: boolean
   /** 海面に太陽のスペキュラを乗せるか */
   waterSpecular: boolean
 
@@ -276,6 +285,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainLodLevels: 5,
     terrainDetailNormals: false,
     materialDetail: 'none',
+    canopyClearcoat: false,
     waterSpecular: false,
     lodDistanceScale: 0.5,
     aircraftShadowMapSize: 0,
@@ -308,6 +318,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainLodLevels: 6,
     terrainDetailNormals: true,
     materialDetail: 'none',
+    canopyClearcoat: true,
     waterSpecular: true,
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
@@ -348,6 +359,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainLodLevels: 7,
     terrainDetailNormals: true,
     materialDetail: 'procedural',
+    canopyClearcoat: true,
     waterSpecular: true,
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
@@ -384,6 +396,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainLodLevels: 7,
     terrainDetailNormals: true,
     materialDetail: 'procedural',
+    canopyClearcoat: true,
     waterSpecular: true,
     // 1.5 だと三角形が 2.19M になり、シーン予算 1.5M を単独で超える。
     // セル数を 48 へ上げたぶん、切り替え距離は控えめにする

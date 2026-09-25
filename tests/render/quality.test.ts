@@ -422,6 +422,20 @@ describe('機体の外板の細部', () => {
   })
 })
 
+describe('キャノピーの clearcoat', () => {
+  it('上のプリセットほど入る（一度入ったら切れない）', () => {
+    const on = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].canopyClearcoat)
+    for (let i = 1; i < on.length; i++) {
+      if (on[i - 1]) expect(on[i], `${PRESET_ORDER[i]} で切れる`).toBe(true)
+    }
+  })
+
+  it('low は入れず、既定のプリセットでは入る', () => {
+    expect(QUALITY_PRESETS.low.canopyClearcoat).toBe(false)
+    expect(QUALITY_PRESETS[DEFAULT_PRESET].canopyClearcoat).toBe(true)
+  })
+})
+
 describe('影のフィルタ', () => {
   // `pcfSoft` は three 0.186 で無くなったので表から落とした（`quality.ts`）。
   // **ここに残すと「表に無い値を知っている検査」になる**ので一緒に消す

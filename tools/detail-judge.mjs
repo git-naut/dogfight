@@ -203,6 +203,46 @@ export function maskStats(lum, mask, width, threshold = DETAIL_THRESHOLD, r = ER
 }
 
 /**
+ * ハイライトとみなす明るさ。外板の中央値に対する倍率。
+ *
+ * **構図の明暗に引きずられないよう、外板自身の明るさで決める。**固定の閾値は
+ * 逆光（中央値 0.70）と夕方（0.11）で意味が変わる
+ */
+export const HIGHLIGHT_FACTOR = 1.8
+
+/**
+ * ハイライトの形。最大の塊の画素数・外接矩形・縦横比（長辺÷短辺）。
+ *
+ * 異方性スペキュラの段の判定（縦横比 1.5 以上）に使う。塊が無ければ縦横比は
+ * 0 を返す（NaN は比較で素通りする）
+ */
+export function highlightStats(lum, mask, width, height, median, factor = HIGHLIGHT_FACTOR) {
+  const bright = new Uint8Array(width * height)
+  const limit = median * factor
+  for (let p = 0; p < bright.length; p++) if (mask[p] !== 0 && lum[p] >= limit) bright[p] = 1
+  const blob = largestComponent(bright, width, height)
+  let pixels = 0
+  let x0 = width
+  let y0 = height
+  let x1 = -1
+  let y1 = -1
+  for (let p = 0; p < blob.length; p++) {
+    if (blob[p] === 0) continue
+    pixels++
+    const x = p % width
+    const y = (p - x) / width
+    if (x < x0) x0 = x
+    if (x > x1) x1 = x
+    if (y < y0) y0 = y
+    if (y > y1) y1 = y
+  }
+  if (pixels === 0) return { pixels: 0, aspect: 0, box: null, blob }
+  const w = x1 - x0 + 1
+  const h = y1 - y0 + 1
+  return { pixels, aspect: Math.max(w, h) / Math.min(w, h), box: { x: x0, y: y0, w, h }, blob }
+}
+
+/**
  * 2 条件の組。基準と比べた上がり幅（%）と判定を返す。
  *
  * **下がる側も縛る。**粗さの中心を 0.45 へ下げた版は、逆光では +10.4%（鏡）、
@@ -220,6 +260,43 @@ export function judge(base, now) {
   const ok = !mirror && !dim && !plain
   const why = mirror ? '**鏡になった**' : dim ? '**暗くなった**' : plain ? '模様が乗らない' : '**両立**'
   return { medianRise, p99Rise, detailGain, ok, why }
+}
+
+/** 艶が出たとみなす、変わった場所の中央値の上がり幅（%） */
+export const GLOSS_RISE = 3
+
+/**
+ * 艶の判定（キャノピーの clearcoat の段）。
+ *
+ * **見るのは変わった場所の中央値。**最初はハイライトの塊が増えることで
+ * 判定したが、追従カメラのキャノピーは 60〜105 画素しかなく、塊が立ったのは
+ * 6 構図中 1 構図だった。一方で中央値は 6 構図とも上がった（+4〜+80%、
+ * 空の映り込み）。塊の数は記録として返す。
+ *
+ * **機体全体で塊を探さない。**ノズルの奥が外板のどこよりも明るく、炎を
+ * 消しても残る（材質そのものの明るさ）。
+ *
+ * 外板の中央値は ±10% で縛る。キャノピーだけに効くはずなので、外板が動いた
+ * なら差す相手を間違えている
+ */
+export function judgeGloss(baseSkin, nowSkin, baseRegion, nowRegion, baseHi, nowHi) {
+  const medianRise = (nowSkin.median / baseSkin.median - 1) * 100
+  const regionRise = (nowRegion / baseRegion - 1) * 100
+  const gain = nowHi.pixels - baseHi.pixels
+  const moved = Math.abs(medianRise) > 10
+  const dull = !(regionRise >= GLOSS_RISE)
+  const ok = !moved && !dull
+  const why = moved ? '**外板まで動いた**' : dull ? '艶が出ない' : '**両立**'
+  return { medianRise, regionRise, gain, ok, why }
+}
+
+/** マスクの中の中央値。空なら NaN */
+export function maskedMedian(lum, mask) {
+  const values = []
+  for (let p = 0; p < mask.length; p++) if (mask[p] !== 0) values.push(lum[p])
+  if (values.length === 0) return NaN
+  values.sort((a, b) => a - b)
+  return values[values.length >> 1]
 }
 
 // ---- 以下は撮影。関数だけを読み込むときは走らせない ----
@@ -279,6 +356,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.log(
         `  基準: 中央値 ${f(baseStats.median)}  p99 ${f(baseStats.p99)}  ディテール ${baseStats.detail}`,
       )
+      const baseLum = luminancePlane(base.data, width, height)
+      const hi = highlightStats(baseLum, mask, width, height, baseStats.median)
+      const shape = (s) =>
+        s.pixels === 0
+          ? 'ハイライトなし'
+          : `ハイライト ${s.pixels} 画素  ${s.box.w}x${s.box.h}  縦横比 ${s.aspect.toFixed(2)}`
+      console.log(`  基準の${shape(hi)}`)
 
       if (REPEAT) {
         const again = await shoot(baseExtra)
@@ -291,8 +375,32 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
       if (QUERY !== null) {
         const now = await shoot(extra)
-        const s = maskStats(luminancePlane(now.data, width, height), mask, width)
+        const nowLum = luminancePlane(now.data, width, height)
+        const s = maskStats(nowLum, mask, width)
         const j = judge(baseStats, s)
+        // ハイライトの閾値は基準の中央値で固定する。変えた側の中央値で測ると
+        // 明るくなったぶんだけ閾値も上がり、形の比較にならない
+        const nowHi = highlightStats(nowLum, mask, width, height, baseStats.median)
+        console.log(`  ${QUERY} の${shape(nowHi)}`)
+
+        // 艶の判定。**変わった場所の中だけで**ハイライトを探す（`judgeGloss`）
+        const changed = diffMask(base.data, now.data, width, height)
+        for (let p = 0; p < changed.length; p++) if (outline[p] === 0) changed[p] = 0
+        const changedPixels = changed.reduce((a, v) => a + v, 0)
+        const baseGlint = highlightStats(baseLum, changed, width, height, baseStats.median)
+        const nowGlint = highlightStats(nowLum, changed, width, height, baseStats.median)
+        const g = judgeGloss(
+          baseStats,
+          s,
+          maskedMedian(baseLum, changed),
+          maskedMedian(nowLum, changed),
+          baseGlint,
+          nowGlint,
+        )
+        console.log(
+          `  変わった場所 ${changedPixels} 画素  中央値 ${pct(g.regionRise)}  外板 ${pct(g.medianRise)}  ` +
+            `艶の判定 ${g.why}（塊 ${baseGlint.pixels} → ${nowGlint.pixels} 画素）`,
+        )
         console.log(
           `  ${QUERY}: 中央値 ${pct(j.medianRise)}  p99 ${pct(j.p99Rise)}  ディテール ${j.detailGain >= 0 ? '+' : ''}${j.detailGain}  ${j.why}`,
         )
@@ -301,11 +409,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
       if (OUT !== null) {
         writeFileSync(join(OUT, `${name}-base.png`), PNG.sync.write(base))
-        // マスクは白、縮めて落ちた輪郭は灰
+        // マスクは白、縮めて落ちた輪郭は灰、ハイライトの塊は赤
         const m = new PNG({ width, height })
         for (let p = 0; p < width * height; p++) {
           const v = mask[p] ? 255 : outline[p] ? 96 : 0
           m.data[p * 4] = m.data[p * 4 + 1] = m.data[p * 4 + 2] = v
+          if (hi.blob[p]) m.data[p * 4 + 1] = m.data[p * 4 + 2] = 0
           m.data[p * 4 + 3] = 255
         }
         writeFileSync(join(OUT, `${name}-mask.png`), PNG.sync.write(m))

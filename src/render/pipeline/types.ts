@@ -251,6 +251,8 @@ export interface SceneOptions {
   bloomStrength?: number
   /** 機体の外板の細部の上書き。判定道具の口。プリセットの値を踏み潰す */
   materialDetail?: import('../quality').MaterialDetail
+  /** キャノピーの clearcoat の上書き。判定道具の口。プリセットの値を踏み潰す */
+  canopyClearcoat?: boolean
   /**
    * 風圧の演出（放射ブラー・色収差・ビネット）を掛けるか。既定は true。
    *

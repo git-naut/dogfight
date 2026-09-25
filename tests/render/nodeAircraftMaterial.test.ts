@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { MeshStandardNodeMaterial } from 'three/webgpu'
+import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
 import {
   AIRCRAFT_SPACE_ATTRIBUTE,
   bakeAircraftSpace,
+  isCanopyGlass,
   toNodeAircraftMaterial,
   wantsSurfaceDetail,
 } from '@render/pipeline/nodeAircraftMaterial'
@@ -128,5 +129,51 @@ describe('外板の座標を焼く', () => {
     )
     root.add(new THREE.Mesh(geometry), new THREE.Mesh(geometry))
     expect(() => bakeAircraftSpace({ object: root })).toThrow('使い回す')
+  })
+})
+
+/** キャノピーのガラス。`KHR_materials_specular` を持つので `MeshPhysicalMaterial` になる */
+function canopy(): { source: THREE.MeshPhysicalMaterial; copy: MeshPhysicalNodeMaterial } {
+  const source = new THREE.MeshPhysicalMaterial({ transparent: true, roughness: 0.25 })
+  return { source, copy: new MeshPhysicalNodeMaterial() }
+}
+
+describe('キャノピーの clearcoat', () => {
+  it('塗装の無い physical の材質はキャノピーのガラス', () => {
+    const { source, copy } = canopy()
+    expect(isCanopyGlass(source, copy)).toBe(true)
+  })
+
+  it('外板（standard）はキャノピーではない', () => {
+    const { source, copy } = painted()
+    expect(isCanopyGlass(source, copy)).toBe(false)
+  })
+
+  it('塗装のある physical はキャノピーではない', () => {
+    const { source, copy } = canopy()
+    source.map = new THREE.Texture()
+    expect(isCanopyGlass(source, copy)).toBe(false)
+  })
+
+  it('切っていれば被せない', () => {
+    const { source, copy } = canopy()
+    toNodeAircraftMaterial({ library: { fromMaterial: () => copy } }, 'procedural', false)(source)
+    expect(copy.clearcoat).toBe(0)
+  })
+
+  it('入れていれば被せ、下地の粗さは触らない', () => {
+    const { source, copy } = canopy()
+    copy.roughness = 0.25
+    toNodeAircraftMaterial({ library: { fromMaterial: () => copy } }, 'none', true)(source)
+    expect(copy.clearcoat).toBe(1)
+    expect(copy.clearcoatRoughness).toBeLessThan(copy.roughness)
+    expect(copy.roughness).toBe(0.25)
+  })
+
+  it('外板には被せない', () => {
+    // **外板全体に掛けると鏡の失敗の再演になる**（計画書）
+    const { source, copy } = painted()
+    toNodeAircraftMaterial({ library: { fromMaterial: () => copy } }, 'procedural', true)(source)
+    expect((copy as unknown as { clearcoat?: number }).clearcoat).toBeUndefined()
   })
 })

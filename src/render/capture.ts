@@ -93,6 +93,13 @@ export interface CaptureConfig {
   /** キャノピーの clearcoat を上書きする。`?canopyclearcoat=0|1`。判定道具の口 */
   canopyClearcoat: boolean | null
   /**
+   * 場面のパスで法線も書き出すか。`?scenemrt=1`。
+   *
+   * **SSR の前提の口（段 27a）。**読む側はまだ無いので、立てても絵は
+   * 1 画素も変わらないはず。それを `npm run exact` で確かめるための口
+   */
+  sceneNormals: boolean
+  /**
    * 風圧の演出を掛けるか。`?lens=0` で外す。
    *
    * **強さは荷重倍数が決める。**1 G では 0 になるので、水平飛行のカットは
@@ -389,6 +396,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       : null,
     materialDetail: readMaterialDetail(params.get('materialdetail')),
     canopyClearcoat: readSwitch(params.get('canopyclearcoat')),
+    sceneNormals: params.get('scenemrt') === '1',
     lens: params.get('lens') !== '0',
     lensStage: (() => {
       const v = params.get('lens')

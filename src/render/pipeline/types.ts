@@ -253,6 +253,8 @@ export interface SceneOptions {
   materialDetail?: import('../quality').MaterialDetail
   /** キャノピーの clearcoat の上書き。判定道具の口。プリセットの値を踏み潰す */
   canopyClearcoat?: boolean
+  /** 場面のパスで法線も書き出すか。既定は false。SSR の前提（段 27a） */
+  sceneNormals?: boolean
   /**
    * 風圧の演出（放射ブラー・色収差・ビネット）を掛けるか。既定は true。
    *

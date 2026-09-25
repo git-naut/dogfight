@@ -175,7 +175,9 @@ export async function createNodePipeline(
   const normalTexture = createNormalTexture(terrain)
 
   // 場面のパスを先に作る。雲は深度テクスチャを要るので順が決まる
-  const { scenePass, depthTexture } = createScenePass(scene, camera)
+  const { scenePass, depthTexture } = createScenePass(scene, camera, {
+    normals: options.sceneNormals === true,
+  })
 
   // 雲の太陽光と天空光は LUT から取る。**CPU 側に値が無い**ので、
   // 原点の海面高度で 1 度だけ引く（GLSL 経路もフレームに 1 つの値を使う）

@@ -173,7 +173,14 @@ export function createTerrainNodeMaterial(
   ) as unknown as Node<'vec3'>
 
   ;(material as unknown as { positionNode: unknown }).positionNode = world
-  ;(material as unknown as { fragmentNode: unknown }).fragmentNode =
+  // **`fragmentNode` ではなく `outputNode` に差す。**`fragmentNode` を持つ
+  // 材質には three が MRT を当てない（`NodeMaterial.setup` の else の枝）。
+  // 場面のパスが法線も書き出すと（段 27a、SSR の前提）、1 本しか書かない
+  // 材質は描画の準備に失敗して消える。実測で 42 枚すべてが動き、コンソールに
+  // `Color target has no corresponding fragment stage output` が出た。
+  // 違いは `setupOutput`（霧と事前乗算）が掛からないことだけで、どちらも
+  // 使っていない（場面に霧が無い）
+  ;(material as unknown as { outputNode: unknown }).outputNode =
     terrainSurfaceNode(
       state.inputs,
       positionWorld as unknown as Node<'vec3'>,
@@ -203,7 +210,8 @@ export function createWaterNodeMaterial(
   radiance?: WaterRadianceProvider,
 ): WaterMaterial {
   const material = new MeshBasicNodeMaterial()
-  ;(material as unknown as { fragmentNode: unknown }).fragmentNode =
+  // `fragmentNode` ではなく `outputNode`。地表と同じ理由（MRT が当たらない）
+  ;(material as unknown as { outputNode: unknown }).outputNode =
     waterSurfaceNode(
       state.inputs,
       positionWorld as unknown as Node<'vec3'>,

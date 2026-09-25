@@ -94,6 +94,7 @@
 | **「動いたバイト数」の閾値を雑音が支えていた。**SwiftShader は同じ状態を撮り直すだけで約 1,800 バイトが 1 動き、0 の回もある。鎖の影の検査は 500 を閾値にしていたが、雑音を除いた本当の値は 132（F/A-18E）で、C 型でも 279。**書いた時から本当の値では一度も越えておらず**、雑音が 0 の回にだけ落ちた | 段 24 の E2E 全件で 1 件だけ落ち、単独では 11 回通った。同じ状態で 2 回撮る計測を足し、差が 2 以上のバイトを数えたら 132 で揺れなかった | 「動いたか」を数える 5 か所は `byteDifference` に `NOISE_FLOOR` を渡す。鎖の影は実測の半分の 66 を閾値にした。`tests/e2e/node-path.spec.ts` と `tests/render/marchProbe.test.ts` |
 | **溝の粗さを上げたら溝が光った。**パネルラインを沈めるつもりで溝の粗さを 0.15 上げたら、拡大した絵で溝が周りより明るい線になった。粗い面はぼけた空を映すので、この光では明るさとして出る。**「粗い＝暗い」は太陽の映り込みがある面でしか成り立たない** | 細部の有無を 3 倍に拡大して並べ、目で見た。判定道具の数字（中央値 +1.4%、ディテール +1,036）は通っていた | 溝は `aoNode` で環境光を遮って沈める。`tests/render/nodeAircraftMaterial.test.ts` が遮蔽を差したことを見る |
 | **project の `testIgnore` は上位の `testIgnore` を上書きする。足し合わせではない。**主の project が `node-fallback` を外すために自前の値を持った 2026-09-16 から、上位の「`MUTATE` が無ければ逆テストを外す」が効かなくなり、毎回の E2E で逆テスト 62 本が走っていた。通しの CPU 時間の 17%、341 本中 62 本 | 段 26 の CI で余裕が 1.17 倍に落ち、手元の通しを群ごとに集計したら最大の群が「段の終わりに手で回す」はずの逆テストだった。`--list` にも 62 本並んでいた | `playwright.config.ts` の `MUTATE_ONLY` を project の側でも展開する。`tests/tools/e2eConfig.test.ts` が全 project の実効値を見る |
+| **`fragmentNode` を持つ材質には MRT が当たらない。**three の `NodeMaterial.setup` は `fragmentNode` の枝で MRT を組まず、1 本しか書き出さない。場面のパスが法線も書き出すと（SSR の前提）、地表と海面が描画の準備に失敗して消え、**基準画像 42 枚がすべて動いた** | 段 27a で MRT を常に入れて `npm run exact` を回したら 42 枚とも全画素が動き、`node-path` の「本番の場面が node 経路で立つ」がコンソールの `Color target has no corresponding fragment stage output` で落ちた | 地表と海面は `outputNode` に差す（違いは霧と事前乗算の後処理だけで、どちらも使っていない）。`tests/render/surfaceMrt.test.ts` が `fragmentNode` が空であることを見る |
 
 ## まだ守るものがない穴
 

@@ -1,5 +1,5 @@
 import type { Texture } from 'three'
-import { Fn, mix, pass, uv, vec2 } from 'three/tsl'
+import { Fn, directionToColor, mix, mrt, normalView, output, pass, uv, vec2 } from 'three/tsl'
 import type { Camera, Node, Scene } from 'three/webgpu'
 import { overlayCompositeNode } from '../overlayNodes'
 import type { QualitySettings } from '../quality'
@@ -32,6 +32,23 @@ type AtmosphereWebgpu = typeof import('@takram/three-atmosphere/webgpu')
 export interface ScenePassLike {
   getTextureNode(name?: string): Node<'vec4'>
   renderTarget: { depthTexture: Texture }
+  setMRT?(mrt: unknown): unknown
+  getMRT?(): unknown
+}
+
+export interface ScenePassOptions {
+  /**
+   * 場面のパスで法線も書き出すか（MRT の 2 本目、名前は `normal`）。
+   *
+   * **SSR の前提。**計画書は「SSR の実装コストのほぼ全部は海面が深度と法線を
+   * 書いていないことにある」と書いている。深度は既に `depthTexture` がある
+   * ので、足すのは法線だけ。書き出すだけで、読む側はまだ無い（段 27a）。
+   *
+   * 値は `directionToColor(normalView)`（視点空間の法線を 0..1 へ詰めたもの）。
+   * three の SSR と GTAO の例と同じ形。既定は false で、false のあいだは
+   * `setMRT` を呼ばない（書き出す面が増えると帯域を払うため）
+   */
+  normals?: boolean
 }
 
 export interface ScenePassHandle {
@@ -43,11 +60,24 @@ export interface ScenePassHandle {
    * 焼くたびに `PassNode.updateBefore` が走って場面がもう 1 度描かれる
    */
   depthTexture: Texture
+  /** 法線のテクスチャのノード。`normals` を立てなければ null */
+  normalNode: Node<'vec4'> | null
 }
 
-export function createScenePass(scene: Scene, camera: Camera): ScenePassHandle {
+export function createScenePass(
+  scene: Scene,
+  camera: Camera,
+  options: ScenePassOptions = {},
+): ScenePassHandle {
   const scenePass = pass(scene, camera) as unknown as ScenePassLike
-  return { scenePass, depthTexture: scenePass.renderTarget.depthTexture }
+  let normalNode: Node<'vec4'> | null = null
+  if (options.normals === true) {
+    // **`RenderPipeline` を作る前に済ませる**（`nodeBuild.ts` の順序 1）。
+    // ここは組み立ての最初に呼ばれるので、呼ぶ側に順序を任せなくてよい
+    scenePass.setMRT!(mrt({ output, normal: directionToColor(normalView) }))
+    normalNode = scenePass.getTextureNode('normal')
+  }
+  return { scenePass, depthTexture: scenePass.renderTarget.depthTexture, normalNode }
 }
 
 export interface NodeOutputInput {

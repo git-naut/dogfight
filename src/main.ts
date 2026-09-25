@@ -425,6 +425,8 @@ async function main(): Promise<void> {
     ...(capture.materialDetail !== null ? { materialDetail: capture.materialDetail } : {}),
     ...(capture.canopyClearcoat !== null ? { canopyClearcoat: capture.canopyClearcoat } : {}),
     sceneNormals: capture.sceneNormals,
+    ...(capture.bloomEmissive !== null ? { bloomEmissive: capture.bloomEmissive } : {}),
+    ...(capture.emissiveGain !== null ? { emissiveGain: capture.emissiveGain } : {}),
     lens: capture.lens,
     lensStage: capture.lensStage,
     illuminance: capture.illuminance,

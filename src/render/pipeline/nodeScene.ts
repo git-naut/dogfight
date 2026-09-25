@@ -8,6 +8,7 @@ import { configureNodeAircraftShadow, followAircraftShadow } from './nodeShadow'
 import { createNodeOutputNode, createScenePass, type BloomFactory } from './nodeOutput'
 import { createSceneViews } from './views'
 import { bakeAircraftSpace, toNodeAircraftMaterial } from './nodeAircraftMaterial'
+import { toNodeFlameMaterial } from './nodeFlameMaterial'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
 import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
@@ -37,6 +38,7 @@ import {
 } from '../quality'
 import {
   BLOOM_THRESHOLD_AFTER_EXPOSURE,
+  EMISSIVE_BLOOM_GAIN,
   DEFAULT_COVERAGE,
   DEFAULT_EXPOSURE,
   type ScenePipeline,
@@ -175,8 +177,13 @@ export async function createNodePipeline(
   const normalTexture = createNormalTexture(terrain)
 
   // 場面のパスを先に作る。雲は深度テクスチャを要るので順が決まる
-  const { scenePass, depthTexture } = createScenePass(scene, camera, {
+  // **発光体のブルームは組み立ての時点で決める。**MRT の面は場面のパスを
+  // 作るときにしか足せない。実行中にプリセットが下がっても面は残るが、
+  // ブルームを掛けない段では誰も読まない
+  const bloomEmissive = options.bloomEmissive ?? quality.bloomEmissive
+  const { scenePass, depthTexture, emissiveNode } = createScenePass(scene, camera, {
     normals: options.sceneNormals === true,
+    emissive: bloomEmissive,
   })
 
   // 雲の太陽光と天空光は LUT から取る。**CPU 側に値が無い**ので、
@@ -240,6 +247,7 @@ export async function createNodePipeline(
     sprite: createNodeRadialSprite,
     material: toNodeAircraftMaterial(renderer, materialDetail, canopyClearcoat),
     ...(materialDetail !== 'none' ? { prepareModel: bakeAircraftSpace } : {}),
+    ...(bloomEmissive ? { flameMaterial: toNodeFlameMaterial(renderer) } : {}),
   })
 
   // 機体の影。**投げ手の側で `castShadow` を立てる。**光の側は
@@ -313,6 +321,8 @@ export async function createNodePipeline(
    * `?exposure=` と `setExposure` で露出が実行時に変わるので、定数で焼くと
    * 露出を振った瞬間に「どの明るさから光るか」の意味がずれる。
    */
+  // 発光体をブルームの入力へ足す倍率。**掃引の上書きが勝つ**（`?emissivegain=`）
+  const emissiveGain = uniform(options.emissiveGain ?? EMISSIVE_BLOOM_GAIN)
   const bloomStrength = uniform(options.bloomStrength ?? quality.bloomStrength)
 
   /**
@@ -356,6 +366,8 @@ export async function createNodePipeline(
       bloomThreshold: bloomThreshold as unknown as webgpu.Node<'float'>,
       showBloom: options.bloom ?? true,
       bloomActive: (options.bloomStrength ?? q.bloomStrength) > 0,
+      emissiveNode,
+      emissiveGain: emissiveGain as unknown as webgpu.Node<'float'>,
       lens: {
         radialBlur: radialBlur as unknown as never,
         renderOutput: tslDisplay.renderOutput as unknown as never,

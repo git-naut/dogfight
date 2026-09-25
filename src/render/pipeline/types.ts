@@ -71,6 +71,15 @@ export const DEFAULT_EXPOSURE = 6
 export const BLOOM_THRESHOLD_AFTER_EXPOSURE = 8
 
 /**
+ * 発光体（炎）をブルームの入力へ足す倍率。**初期値。掃引で決め直す。**
+ *
+ * 閾値は露出前で 8 / 6 ≈ 1.33。炎の色は線形で 0.5〜1 程度なので、2〜3 倍より
+ * 上でないと閾値を越えない。出力の絵には足さないので、上げても炎の色は
+ * 変わらず、周りの滲みだけが強くなる（`nodeOutput.ts`）
+ */
+export const EMISSIVE_BLOOM_GAIN = 4
+
+/**
  * 既定の雲量。点在する積雲になる値。
  *
  * **0.3 から 0.29 へ下げた。**密度の側は `threshold = 1 - coverage` を
@@ -255,6 +264,10 @@ export interface SceneOptions {
   canopyClearcoat?: boolean
   /** 場面のパスで法線も書き出すか。既定は false。SSR の前提（段 27a） */
   sceneNormals?: boolean
+  /** 発光体のブルームの上書き。判定道具の口。プリセットの値を踏み潰す */
+  bloomEmissive?: boolean
+  /** 発光体をブルームの入力へ足す倍率の上書き。掃引のための口 */
+  emissiveGain?: number
   /**
    * 風圧の演出（放射ブラー・色収差・ビネット）を掛けるか。既定は true。
    *

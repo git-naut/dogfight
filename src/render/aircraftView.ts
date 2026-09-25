@@ -1,7 +1,12 @@
 import * as THREE from 'three'
 import type { AircraftModel } from './aircraft/model'
 import { createControlSurfaces, type ControlSurfaces } from './aircraft/surfaces'
-import { createAfterburner, type Afterburner } from './aircraft/afterburner'
+import {
+  createAfterburner,
+  keepFlameMaterial,
+  type Afterburner,
+  type FlameMaterialFactory,
+} from './aircraft/afterburner'
 
 /**
  * 機体の表示。
@@ -44,13 +49,23 @@ export interface AircraftView {
   dispose(): void
 }
 
-export function createAircraftView(model: AircraftModel): AircraftView {
+export interface AircraftViewOptions {
+  /** 炎の材質の作り手。既定は恒等（`afterburner.ts` の `FlameMaterialFactory`） */
+  flameMaterial?: FlameMaterialFactory
+}
+
+export function createAircraftView(
+  model: AircraftModel,
+  options: AircraftViewOptions = {},
+): AircraftView {
   // 原本が炎の板を持つ機体（F/A-18C）はそれを出し入れする
   const externalFlame = model.object.getObjectByName('ExternalFlame') ?? null
   if (externalFlame !== null) externalFlame.visible = false
   // ノズルの定義がある機体（F/A-18E）は自前で描く
   const burner: Afterburner | null =
-    model.nozzles.length > 0 ? createAfterburner(model.nozzles) : null
+    model.nozzles.length > 0
+      ? createAfterburner(model.nozzles, options.flameMaterial ?? keepFlameMaterial)
+      : null
   if (burner !== null) model.object.add(burner.object)
   const gear = model.gear
 

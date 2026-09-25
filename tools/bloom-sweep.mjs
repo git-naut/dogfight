@@ -42,6 +42,14 @@ const NOBUILD = argv.includes('--nobuild')
 const THRESHOLDS = (arg('--thresholds', null) ?? arg('--threshold', '1.2'))
   .split(',')
   .map(Number)
+/**
+ * 発光体のブルームの倍率を振る（段 27）。**基準は `?bloomemissive=0`。**
+ * 閾値と強さはプリセットのまま。`--emissive-gains 1,2,4,8`
+ */
+const EMISSIVE_GAINS = (arg('--emissive-gains', '') ?? '')
+  .split(',')
+  .filter((v) => v !== '')
+  .map(Number)
 const STRENGTHS = (arg('--strengths', null) ?? arg('--strength', ''))
   .split(',')
   .filter((v) => v !== '')
@@ -80,8 +88,18 @@ const REGIONS = {
    * ブルームが光らせるのは輝点の**外側**。差分の絵を見て、排気口
    * （610-670, 525-555）の下の帯が最も動いていたのでここを採った。
    */
-  glow: { x: 560, y: 560, w: 170, h: 70 },
+  glow: { x: 585, y: 495, w: 110, h: 90 },
 }
+
+/**
+ * 外周から除く炎の芯。
+ *
+ * **外周の箱を F/A-18E の炎へ置き直した（2026-09-25、段 27）。**上の値は
+ * C 型の炎の下の帯（560, 560, 170, 70）だったが、E 型では炎の尾より下の
+ * 海面になっていた。`low-pass-afternoon` の橙の画素の外接は
+ * (615, 507)〜(664, 538)。芯は白く飛んでいて頭打ちになるので除く
+ */
+const GLOW_CORE = { x: 615, y: 507, w: 50, h: 32 }
 
 /** 線形輝度。sRGB の逆ガンマを掛けてから Rec.709 の重みで混ぜる */
 function luminance(r, g, b) {
@@ -92,11 +110,14 @@ function luminance(r, g, b) {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 }
 
-/** 矩形の中の線形輝度を集めて、中央値と 99 パーセンタイルを返す */
-function stats(png, box) {
+/** 矩形の中の線形輝度を集めて、中央値と 99 パーセンタイルを返す。`hole` の中は除く */
+function stats(png, box, hole = null) {
   const values = []
   for (let y = box.y; y < box.y + box.h; y++) {
     for (let x = box.x; x < box.x + box.w; x++) {
+      if (hole !== null && x >= hole.x && x < hole.x + hole.w && y >= hole.y && y < hole.y + hole.h) {
+        continue
+      }
       const i = (y * png.width + x) * 4
       values.push(luminance(png.data[i], png.data[i + 1], png.data[i + 2]))
     }
@@ -145,12 +166,12 @@ try {
   }
 
   // 基準はブルームを切った絵。**同じビルドで撮る。**旧基準画像と比べると
-  // 他の変更も混ざる
-  const off = await shoot({ bloom: 0 })
+  // 他の変更も混ざる。発光体の倍率を振るときは、発光体だけを切った絵
+  const off = await shoot(EMISSIVE_GAINS.length > 0 ? { bloomemissive: 0 } : { bloom: 0 })
   const base = {
     sky: stats(off, REGIONS.sky),
     cloud: stats(off, REGIONS.cloud),
-    glow: stats(off, REGIONS.glow),
+    glow: stats(off, REGIONS.glow, GLOW_CORE),
   }
 
   console.log(`構図 ${SCENE_NAME}`)
@@ -167,18 +188,24 @@ try {
 
   // 片方だけを振る。両方振ると組み合わせの数だけ撮ることになる
   const cases =
-    STRENGTHS.length > 0
+    EMISSIVE_GAINS.length > 0
+      ? EMISSIVE_GAINS.map((gain) => ({ threshold: null, strength: null, gain }))
+      : STRENGTHS.length > 0
       ? STRENGTHS.map((strength) => ({ threshold: THRESHOLDS[0], strength }))
       : THRESHOLDS.map((threshold) => ({ threshold, strength: null }))
 
-  for (const { threshold, strength } of cases) {
-    const png = await shoot({
-      bloomthreshold: threshold,
-      ...(strength !== null ? { bloomstrength: strength } : {}),
-    })
+  for (const { threshold, strength, gain } of cases) {
+    const png = await shoot(
+      gain !== undefined
+        ? { bloomemissive: 1, emissivegain: gain }
+        : {
+            bloomthreshold: threshold,
+            ...(strength !== null ? { bloomstrength: strength } : {}),
+          },
+    )
     const sky = stats(png, REGIONS.sky)
     const cloud = stats(png, REGIONS.cloud)
-    const hi = stats(png, REGIONS.glow)
+    const hi = stats(png, REGIONS.glow, GLOW_CORE)
     const rise = (now, was) => (now / was - 1) * 100
     const skyRise = rise(sky.median, base.sky.median)
     const cloudRise = rise(cloud.median, base.cloud.median)
@@ -189,7 +216,7 @@ try {
     const why = skyRise > 2 ? '空が光る' : cloudRise > 3 ? '**雲が飛ぶ**' : '輝点が立たない'
     const pct = (v) => ((v >= 0 ? '+' : '') + v.toFixed(1) + '%').padStart(7)
     console.log(
-      `  ${(strength ?? threshold).toFixed(2).padStart(5)}  ` +
+      `  ${(gain ?? strength ?? threshold).toFixed(2).padStart(5)}  ` +
         `${pct(skyRise)}  ${pct(cloudRise)}  ${pct(hiRise)}  ${ok ? '**両立**' : why}`,
     )
   }

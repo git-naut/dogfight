@@ -422,6 +422,20 @@ describe('機体の外板の細部', () => {
   })
 })
 
+describe('発光体のブルーム', () => {
+  it('ブルームを掛けないプリセットでは入らない', () => {
+    // **払わない費用を宣言しない。**ブルームが無ければ emissive を書いても誰も読まない
+    for (const name of PRESET_ORDER) {
+      const q = QUALITY_PRESETS[name]
+      if (q.bloomStrength === 0) expect(q.bloomEmissive, name).toBe(false)
+    }
+  })
+
+  it('既定のプリセットでは入る', () => {
+    expect(QUALITY_PRESETS[DEFAULT_PRESET].bloomEmissive).toBe(true)
+  })
+})
+
 describe('キャノピーの clearcoat', () => {
   it('上のプリセットほど入る（一度入ったら切れない）', () => {
     const on = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].canopyClearcoat)

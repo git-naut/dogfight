@@ -11,12 +11,11 @@ import { createScenePass } from '@render/pipeline/nodeOutput'
  */
 type MrtLike = { outputNodes: Record<string, unknown> } | null
 
-function passOf(normals: boolean | undefined) {
-  const handle = createScenePass(
-    new THREE.Scene(),
-    new THREE.PerspectiveCamera(),
-    normals === undefined ? {} : { normals },
-  )
+function passOf(normals: boolean | undefined, emissive?: boolean) {
+  const handle = createScenePass(new THREE.Scene(), new THREE.PerspectiveCamera(), {
+    ...(normals === undefined ? {} : { normals }),
+    ...(emissive === undefined ? {} : { emissive }),
+  })
   const mrt = (handle.scenePass.getMRT?.() ?? null) as MrtLike
   return { handle, mrt }
 }
@@ -37,6 +36,20 @@ describe('場面のパスの法線の書き出し', () => {
   it('入れると output と normal の 2 本を書き出す', () => {
     const { handle, mrt } = passOf(true)
     expect(Object.keys(mrt!.outputNodes).sort()).toEqual(['normal', 'output'])
+    expect(handle.normalNode).not.toBeNull()
+  })
+
+  it('発光体だけを入れると output と emissive の 2 本', () => {
+    const { handle, mrt } = passOf(undefined, true)
+    expect(Object.keys(mrt!.outputNodes).sort()).toEqual(['emissive', 'output'])
+    expect(handle.emissiveNode).not.toBeNull()
+    expect(handle.normalNode).toBeNull()
+  })
+
+  it('両方入れると 3 本', () => {
+    const { handle, mrt } = passOf(true, true)
+    expect(Object.keys(mrt!.outputNodes).sort()).toEqual(['emissive', 'normal', 'output'])
+    expect(handle.emissiveNode).not.toBeNull()
     expect(handle.normalNode).not.toBeNull()
   })
 

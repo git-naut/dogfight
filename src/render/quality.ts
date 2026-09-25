@@ -55,6 +55,15 @@ export interface QualitySettings {
    * 強さの段は掃引で決める。low は 0（掛けない）。
    */
   bloomStrength: number
+  /**
+   * 発光体だけを MRT の `emissive` へ書き出して、ブルームに拾わせるか。
+   *
+   * **閾値だけでは順光の排気口と雲を分けられない**（段 22 の宿題、
+   * `docs/decisions/0011-post-processing.md`）。炎の材質だけが `emissive` を
+   * 書き、ブルームの入力に倍率を掛けて足す。出力の絵には足さない。
+   * ブルームを掛けないプリセット（`bloomStrength` が 0）では false
+   */
+  bloomEmissive: boolean
 
   /**
    * 風圧の演出を掛けるか。放射ブラー・色収差・ビネットの 3 つをまとめる。
@@ -274,6 +283,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 1,
     // 掛けない。全画面に掛かるので、いちばん弱い機械で最初に外す
     bloomStrength: 0,
+    bloomEmissive: false,
     lensEffects: false,
     cloudResolutionScale: 0.125,
     cloudMaxSteps: 27,
@@ -307,6 +317,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 4,
     // high の 2.0 に対して控えめ
     bloomStrength: 1.3,
+    bloomEmissive: true,
     lensEffects: true,
     cloudResolutionScale: 0.25,
     cloudMaxSteps: 51,
@@ -342,6 +353,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // 輪郭が消え、8 で残る。順光では何も拾わないので数では決められず、
     // 絵を 3 枚並べて選んだ（`docs/measuring.md`）
     bloomStrength: 2.0,
+    bloomEmissive: true,
     lensEffects: true,
     // 実機（Intel Arc 140V）の実測で、1/4 解像度のとき雲パスは 2.7 ms、
     // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
@@ -381,6 +393,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     anisotropy: 16,
     // high より強い。外周 +36.2%（閾値 4.5）
     bloomStrength: 3.0,
+    bloomEmissive: true,
     lensEffects: true,
     // High より上の段。実機で 60fps は狙わない位置づけ。
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）

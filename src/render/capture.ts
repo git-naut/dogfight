@@ -99,6 +99,13 @@ export interface CaptureConfig {
    * 1 画素も変わらないはず。それを `npm run exact` で確かめるための口
    */
   sceneNormals: boolean
+  /** 発光体のブルームを上書きする。`?bloomemissive=0|1`。判定道具の口 */
+  bloomEmissive: boolean | null
+  /**
+   * 発光体をブルームの入力へ足す倍率。`?emissivegain=`。掃引のための口。
+   * 省略すると `EMISSIVE_BLOOM_GAIN`
+   */
+  emissiveGain: number | null
   /**
    * 風圧の演出を掛けるか。`?lens=0` で外す。
    *
@@ -397,6 +404,10 @@ export function readCaptureConfig(search: string): CaptureConfig {
     materialDetail: readMaterialDetail(params.get('materialdetail')),
     canopyClearcoat: readSwitch(params.get('canopyclearcoat')),
     sceneNormals: params.get('scenemrt') === '1',
+    bloomEmissive: readSwitch(params.get('bloomemissive')),
+    emissiveGain: params.has('emissivegain')
+      ? clampNumber(params.get('emissivegain'), 0, 100, 0)
+      : null,
     lens: params.get('lens') !== '0',
     lensStage: (() => {
       const v = params.get('lens')

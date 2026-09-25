@@ -190,11 +190,28 @@ function buildLayerGeometry(radius: number, layer: Layer, additive: boolean): TH
 }
 
 /**
+ * 炎の材質の作り手。
+ *
+ * **node 経路では発光体として MRT へ書かせる**（`nodeFlameMaterial.ts`）。
+ * 既定は恒等なので GLSL 経路は引数を渡さず、型として動かない（機体の材質の
+ * `AircraftMaterialFactory` と同じ形）。**返した材質の不透明度を毎フレーム
+ * 書き換える**ので、写しを返すなら写しのほうが炎の強さに追従する
+ */
+export type FlameMaterialFactory = (material: THREE.MeshBasicMaterial) => THREE.Material
+
+/** 原本をそのまま返す。既定 */
+export const keepFlameMaterial: FlameMaterialFactory = (material) => material
+
+/**
  * ノズルの数だけ炎を作る。
  *
  * @param nozzles glb の `extras.nozzles`。空なら何も描かない器を返す
+ * @param material 炎の材質の作り手。既定は恒等
  */
-export function createAfterburner(nozzles: readonly Nozzle[]): Afterburner {
+export function createAfterburner(
+  nozzles: readonly Nozzle[],
+  material: FlameMaterialFactory = keepFlameMaterial,
+): Afterburner {
   const group = new THREE.Group()
   group.name = 'afterburner'
   group.visible = false
@@ -207,8 +224,12 @@ export function createAfterburner(nozzles: readonly Nozzle[]): Afterburner {
     side: THREE.DoubleSide,
   } as const
 
-  const innerMaterial = new THREE.MeshBasicMaterial({ ...base, blending: THREE.NormalBlending })
-  const outerMaterial = new THREE.MeshBasicMaterial({ ...base, blending: THREE.AdditiveBlending })
+  const innerMaterial = material(
+    new THREE.MeshBasicMaterial({ ...base, blending: THREE.NormalBlending }),
+  )
+  const outerMaterial = material(
+    new THREE.MeshBasicMaterial({ ...base, blending: THREE.AdditiveBlending }),
+  )
 
   const geometries: THREE.BufferGeometry[] = []
   for (const nozzle of nozzles) {

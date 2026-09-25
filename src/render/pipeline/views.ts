@@ -1,5 +1,6 @@
 import type { Scene } from 'three'
 import { createAircraftView, type AircraftView } from '../aircraftView'
+import type { FlameMaterialFactory } from '../aircraft/afterburner'
 import {
   keepAircraftMaterial,
   loadAircraftModel,
@@ -85,6 +86,11 @@ export interface SceneViewsInput {
    * ジオメトリを共有する標的機と敵機の複製にも効く。渡さなければ何もしない
    */
   prepareModel?: (model: AircraftModel) => void
+  /**
+   * 炎の材質の作り手。**node 経路の発光体のブルームだけが使う**
+   * （`nodeFlameMaterial.ts`）。渡さなければ原本のまま
+   */
+  flameMaterial?: FlameMaterialFactory
 }
 
 export async function createSceneViews(input: SceneViewsInput): Promise<SceneViews> {
@@ -106,7 +112,9 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   const targetViews: TargetViews = createTargetViews(aircraftModel, MAX_TARGETS)
   targetViews.object.visible = options.showTargets ?? true
 
-  const aircraft: AircraftView = createAircraftView(aircraftModel)
+  const aircraft: AircraftView = createAircraftView(aircraftModel, {
+    ...(input.flameMaterial !== undefined ? { flameMaterial: input.flameMaterial } : {}),
+  })
   aircraft.object.visible = options.showAircraft ?? true
   scene.add(aircraft.object)
   scene.add(targetViews.object)

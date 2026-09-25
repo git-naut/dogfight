@@ -1,5 +1,18 @@
 import type { Texture } from 'three'
-import { Fn, directionToColor, mix, mrt, normalView, output, pass, uv, vec2 } from 'three/tsl'
+import {
+  Fn,
+  directionToColor,
+  luminance,
+  mix,
+  mrt,
+  normalView,
+  output,
+  pass,
+  smoothstep,
+  uv,
+  vec2,
+  vec4,
+} from 'three/tsl'
 import type { Camera, Node, Scene } from 'three/webgpu'
 import { overlayCompositeNode } from '../overlayNodes'
 import type { QualitySettings } from '../quality'
@@ -49,6 +62,14 @@ export interface ScenePassOptions {
    * `setMRT` を呼ばない（書き出す面が増えると帯域を払うため）
    */
   normals?: boolean
+  /**
+   * 発光体の色も書き出すか（MRT の名前は `emissive`）。
+   *
+   * **場面の既定は 0。**発光体（炎）だけが自分の `mrtNode` で `output` を書く
+   * （`nodeFlameMaterial.ts`）。three の `mrt.merge` は材質の側が勝つ。
+   * 半透明の煙が炎の前にあれば、煙が 0 を混ぜて光を弱める
+   */
+  emissive?: boolean
 }
 
 export interface ScenePassHandle {
@@ -62,6 +83,8 @@ export interface ScenePassHandle {
   depthTexture: Texture
   /** 法線のテクスチャのノード。`normals` を立てなければ null */
   normalNode: Node<'vec4'> | null
+  /** 発光体のテクスチャのノード。`emissive` を立てなければ null */
+  emissiveNode: Node<'vec4'> | null
 }
 
 export function createScenePass(
@@ -71,13 +94,28 @@ export function createScenePass(
 ): ScenePassHandle {
   const scenePass = pass(scene, camera) as unknown as ScenePassLike
   let normalNode: Node<'vec4'> | null = null
-  if (options.normals === true) {
+  let emissiveNode: Node<'vec4'> | null = null
+  const normals = options.normals === true
+  const emissive = options.emissive === true
+  if (normals || emissive) {
     // **`RenderPipeline` を作る前に済ませる**（`nodeBuild.ts` の順序 1）。
     // ここは組み立ての最初に呼ばれるので、呼ぶ側に順序を任せなくてよい
-    scenePass.setMRT!(mrt({ output, normal: directionToColor(normalView) }))
-    normalNode = scenePass.getTextureNode('normal')
+    scenePass.setMRT!(
+      mrt({
+        output,
+        ...(normals ? { normal: directionToColor(normalView) } : {}),
+        ...(emissive ? { emissive: vec4(0) } : {}),
+      }),
+    )
+    if (normals) normalNode = scenePass.getTextureNode('normal')
+    if (emissive) emissiveNode = scenePass.getTextureNode('emissive')
   }
-  return { scenePass, depthTexture: scenePass.renderTarget.depthTexture, normalNode }
+  return {
+    scenePass,
+    depthTexture: scenePass.renderTarget.depthTexture,
+    normalNode,
+    emissiveNode,
+  }
 }
 
 export interface NodeOutputInput {
@@ -115,6 +153,15 @@ export interface NodeOutputInput {
   bloomThreshold?: Node<'float'>
   /** ブルームを鎖に入れるか。`?bloom=0` で外す */
   showBloom?: boolean
+  /**
+   * 発光体の色（場面のパスの `emissive`）。null なら足さない。
+   *
+   * **ブルームの入力にだけ足す。**出力の絵には足さないので、光るのは炎の
+   * 周りの滲みだけで、炎そのものの色は変わらない
+   */
+  emissiveNode?: Node<'vec4'> | null
+  /** 発光体をブルームの入力へ足す倍率。uniform で包んだもの */
+  emissiveGain?: Node<'float'>
   /**
    * 強さが 0 より大きいか。**呼ぶ側が決める。**
    *
@@ -187,6 +234,35 @@ export interface NodeOutput {
   ownsOutputTransform: boolean
 }
 
+/**
+ * ブルームの閾値の関数。合成した絵には閾値を掛け、発光体はそのまま足す。
+ *
+ * 閾値の部分は three の `luminosityHighPass`（`BloomNode.js`）と同じ式。
+ * 発光体は `emissive.rgb * gain` を閾値の外で足すので、倍率に比例して滲む
+ */
+export function emissiveHighPass(emissive: Node<'vec4'>, gain: Node<'float'>) {
+  return Fn(
+    ({
+      input,
+      threshold,
+      smoothWidth,
+    }: {
+      input: Node<'vec4'>
+      threshold: Node<'float'>
+      smoothWidth: Node<'float'>
+    }) => {
+      const v = luminance((input as unknown as { rgb: Node<'vec3'> }).rgb)
+      const alpha = smoothstep(threshold, (threshold as unknown as { add(n: Node): Node<'float'> }).add(smoothWidth), v)
+      const passed = mix(vec4(0), input, alpha)
+      const glow = vec4(
+        (emissive as unknown as { rgb: { mul(n: Node): unknown } }).rgb.mul(gain) as Node<'vec3'>,
+        0,
+      )
+      return (passed as unknown as { add(n: Node): Node }).add(glow as unknown as Node)
+    },
+  )
+}
+
 export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
   const { atmos, scenePass, cloudNode } = input
 
@@ -213,16 +289,30 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
   // `renderPipeline.outputNode = scenePassColor.add( bloomPass )` の形。
   // 足さずに渡すと**元の絵が消えてぼかしたハイライトだけになる**（実測。
   // 全画面が最大 215 階調動いて、黒地に光る筋だけの絵が出た）
-  const bloomed = bloomEnabled
-    ? (composite as unknown as { add(n: Node): Node }).add(
-        (input.bloom as BloomFactory)(
-          composite,
-          input.bloomStrength,
-          BLOOM_RADIUS,
-          input.bloomThreshold,
-        ),
+  const bloomNode = bloomEnabled
+    ? (input.bloom as BloomFactory)(
+        composite,
+        input.bloomStrength,
+        BLOOM_RADIUS,
+        input.bloomThreshold,
       )
-    : composite
+    : null
+  // **発光体は閾値を通したあとに足す。**最初はブルームの入力へ倍率を掛けて
+  // 足したが、閾値（露出前 1.33）で切られて崖になった。炎の `emissive` は
+  // 0.03 前後で、倍率 40 まで外周 +0.0%、60 で +106.2%（`low-pass-afternoon`）。
+  // スロットルが少し動くだけで光ったり消えたりする。`BloomNode.highPassFn` を
+  // 差し替えて、合成した絵には閾値を、発光体にはそのまま倍率を掛ける
+  const emissive = input.emissiveNode ?? null
+  if (bloomNode !== null && emissive !== null && input.emissiveGain !== undefined) {
+    ;(bloomNode as unknown as { highPassFn: unknown }).highPassFn = emissiveHighPass(
+      emissive,
+      input.emissiveGain,
+    )
+  }
+  const bloomed =
+    bloomNode !== null
+      ? (composite as unknown as { add(n: Node): Node }).add(bloomNode)
+      : composite
 
   const antialiased = input.smaa(bloomed)
 

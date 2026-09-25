@@ -19,6 +19,9 @@ import { DEFAULT_BACKEND } from './src/render/pipeline/types'
  */
 const MUTATE_ONLY: RegExp[] = process.env.MUTATE === '1' ? [] : [/pixel-mutate\.spec\.ts/]
 
+/** 既定が node のとき、主の project で `chromium-node` と重複する spec */
+const NODE_PATH_DUPLICATE: RegExp[] = DEFAULT_BACKEND === 'node' ? [/node-path\.spec\.ts/] : []
+
 export default defineConfig({
   testDir: './tests/e2e',
   /**
@@ -159,14 +162,15 @@ export default defineConfig({
       // 「WebGPU が無い」状況を作れず、`backend` が `node-webgpu` になって
       // 落ちる。あの検査は `chromium-node-gl` の担当。
       //
-      // `node-path.spec.ts` はここでも `chromium-node` でも回る（25 件が
-      // 二重）。**既定が node になって同じ経路・同じ引数になったので、
-      // いまは重複。**外せば通しが 25 件ぶん短くなるが、`DEFAULT_BACKEND`
-      // を戻したときに「既定を見る検査」の置き場が無くなるので触っていない
+      // **既定が node のあいだは `node-path.spec.ts` を外す。**`chromium-node`
+      // と起動引数も宣言（`nodePath`・`webgpu`）も同じで、25 本を 2 回流して
+      // いた（CI の実測で 907 テスト秒、通しの 7.1%。2026-09-25 に外した）。
+      // `DEFAULT_BACKEND` を戻すとこの条件が外れ、「既定を見る検査」の置き場が
+      // ここへ戻る。`tests/tools/e2eConfig.test.ts` が 1 回だけ回ることを見る
       //
       // **上位の `testIgnore` を上書きする**ので逆テストの除外も持つ。持たずに
       // いた 2026-09-16 から毎回の E2E で逆テスト 62 本が走っていた
-      testIgnore: [/node-fallback\.spec\.ts/, ...MUTATE_ONLY],
+      testIgnore: [/node-fallback\.spec\.ts/, ...MUTATE_ONLY, ...NODE_PATH_DUPLICATE],
       // **経路はここが正本。**`onNodePath()` はこの値を読む。project 名で
       // 判定すると、既定を切り替えたときに追随しない（実際に外した）
       metadata: { nodePath: DEFAULT_BACKEND === 'node', webgpu: true },

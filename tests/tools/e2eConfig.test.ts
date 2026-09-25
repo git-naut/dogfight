@@ -71,6 +71,19 @@ describe('画素の逆テストは MUTATE のときだけ走る', () => {
     expect(ignores(byName(DEFAULT_PROJECT)!, 'tests/e2e/node-fallback.spec.ts')).toBe(true)
   })
 
+  it('node 経路の検査は 1 つの project でだけ回る', () => {
+    // **既定が node なら主の project と `chromium-node` が同じ引数・同じ宣言。**
+    // 両方で回すと 25 本を 2 回流す（2026-09-25 まで CPU の 7.1%）
+    const runners = projects.filter((p) => {
+      const match = p.testMatch
+      const matched = match === undefined || (match instanceof RegExp && match.test('tests/e2e/node-path.spec.ts'))
+      return matched && !ignores(p, 'tests/e2e/node-path.spec.ts')
+    })
+    expect(runners.map((p) => p.name)).toEqual(
+      DEFAULT_BACKEND === 'node' ? ['chromium-node'] : [DEFAULT_PROJECT, 'chromium-node'],
+    )
+  })
+
   it('基準画像の検査は外していない', () => {
     for (const p of projects) {
       expect(ignores(p, 'tests/e2e/smoke.spec.ts'), `${p.name} が smoke を外している`).toBe(false)

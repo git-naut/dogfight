@@ -53,6 +53,15 @@ const FACTOR = Number(arg('--factor', 2))
 // そのレポートを撮ったときに効いていた重み。**2 周目以降は必須。**
 // 均等割りを前提に検算すると、重みつきで撮ったレポートでは必ず外れる
 const WAS = arg('--weights', null)?.split(':').map(Number) ?? null
+/**
+ * 次の CI から外れるテストの、キーに対する正規表現。
+ *
+ * **検算はレポートを撮ったときの並びで行う。**`MUTATE` を立てて一覧を取り、
+ * 観測したシャード番号と突き合わせたあとで除く。逆テスト 62 本が毎回走って
+ * いた穴を塞いだとき（2026-09-25）に、レポートは 341 本、次の並びは 279 本に
+ * なった。除かずに釣り合わせると、抜ける区間のぶんだけ台が軽く見える
+ */
+const DROP = arg('--drop', null)
 
 if (DIR === null || !existsSync(DIR)) {
   console.error('--dir に `gh run download` で落としたレポートの置き場を渡す')
@@ -125,6 +134,8 @@ const listed = spawnSync('npx', ['playwright', 'test', '--list', '--reporter=jso
   cwd: ROOT,
   encoding: 'utf8',
   maxBuffer: 64 * 1024 * 1024,
+  // 除く指定があるときは、レポートを撮ったときの並び（逆テスト込み）で検算する
+  env: DROP === null ? process.env : { ...process.env, MUTATE: '1' },
 })
 if (listed.stdout === '') {
   console.error('playwright test --list が何も返さなかった')
@@ -200,7 +211,13 @@ if (order.length !== measured.size) {
   console.log(`並びの検算（${how}）: ${order.length} 本すべて ${observedShards} 台の観測と一致した`)
 }
 
-const ms = order.map((o) => measured.get(o.key) ?? 0)
+// 検算のあとで除く。ここから下は次の CI の並びで計算する
+const dropPattern = DROP === null ? null : new RegExp(DROP)
+const kept = dropPattern === null ? order : order.filter((o) => !dropPattern.test(o.key))
+if (dropPattern !== null) {
+  console.log(`除いた: ${order.length - kept.length} 本（/${DROP}/）、残り ${kept.length} 本`)
+}
+const ms = kept.map((o) => measured.get(o.key) ?? 0)
 const total = ms.reduce((a, b) => a + b, 0)
 
 // 連続する区間で最大を最小にする。上限を二分探索して詰める
@@ -258,7 +275,7 @@ function spans(sizes) {
 // run 34056675131 の 8 台で残差 16〜24 秒（テスト秒 451〜1221 に対して）
 const stepMs = (testMs, factor = 1) => (testMs * factor) / 2 + 20_000
 
-const eq = spans(equalSizes(order.length, SHARDS))
+const eq = spans(equalSizes(kept.length, SHARDS))
 const weights = partition(SHARDS)
 const wt = spans(weights)
 
@@ -281,7 +298,7 @@ console.log(`\n台ごとのテスト秒（重み）: ${wt.map((v) => (v / 1000).
 // **いま効いている重みでの分配も出す。**新しい重みだけ出しても「前がどう
 // 偏っていたか」が見えない。実測の壁時計と突き合わせるのはこちら
 if (WAS !== null) {
-  const was = spans(sizesFromWeights(WAS, order.length))
+  const was = spans(sizesFromWeights(WAS, kept.length))
   const mx = Math.max(...was)
   const mn = Math.min(...was)
   console.log(

@@ -10,6 +10,15 @@ import { DEFAULT_BACKEND } from './src/render/pipeline/types'
 // スクリーンショット回帰を環境差から守るため、GPU を使わず
 // Chromium 内蔵のソフトウェアレンダラ SwiftShader に固定する。
 // 遅い代わりに、どのマシンでも同じピクセルが出る。
+/**
+ * `MUTATE=1` のときだけ走らせる spec。
+ *
+ * **project が自前の `testIgnore` を持つと、上位の値は効かない**（足し合わせ
+ * ではなく上書き）。project の側でもこれを展開する。`tests/tools/e2eConfig.test.ts`
+ * が全 project の実効値を見る
+ */
+const MUTATE_ONLY: RegExp[] = process.env.MUTATE === '1' ? [] : [/pixel-mutate\.spec\.ts/]
+
 export default defineConfig({
   testDir: './tests/e2e',
   /**
@@ -19,7 +28,7 @@ export default defineConfig({
    *
    *     MUTATE=1 npx playwright test pixel-mutate
    */
-  testIgnore: process.env.MUTATE === '1' ? [] : ['**/pixel-mutate.spec.ts'],
+  testIgnore: MUTATE_ONLY,
   /**
    * 基準画像の置き場を spec ファイル名から切り離す。
    *
@@ -154,7 +163,10 @@ export default defineConfig({
       // 二重）。**既定が node になって同じ経路・同じ引数になったので、
       // いまは重複。**外せば通しが 25 件ぶん短くなるが、`DEFAULT_BACKEND`
       // を戻したときに「既定を見る検査」の置き場が無くなるので触っていない
-      testIgnore: /node-fallback\.spec\.ts/,
+      //
+      // **上位の `testIgnore` を上書きする**ので逆テストの除外も持つ。持たずに
+      // いた 2026-09-16 から毎回の E2E で逆テスト 62 本が走っていた
+      testIgnore: [/node-fallback\.spec\.ts/, ...MUTATE_ONLY],
       // **経路はここが正本。**`onNodePath()` はこの値を読む。project 名で
       // 判定すると、既定を切り替えたときに追随しない（実際に外した）
       metadata: { nodePath: DEFAULT_BACKEND === 'node', webgpu: true },

@@ -26,12 +26,57 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 type Project = {
   name?: string
   testMatch?: unknown
+  testIgnore?: unknown
   metadata?: { nodePath?: unknown; webgpu?: unknown }
   use?: { launchOptions?: { args?: string[] } }
 }
 
 const projects = (config.projects ?? []) as Project[]
 const byName = (name: string) => projects.find((p) => p.name === name)
+
+/**
+ * project に実際に効く `testIgnore`。
+ *
+ * **project の値は上位の値を上書きする。足し合わせではない。**主の project が
+ * `node-fallback` を外すために自前の `testIgnore` を持った 2026-09-16 から、
+ * 上位の「`MUTATE` が無ければ逆テストを外す」が効かなくなり、毎回の E2E で
+ * 逆テスト 62 本（通しの CPU 時間の 17%）が走っていた
+ */
+function effectiveIgnore(p: Project): unknown[] {
+  return [p.testIgnore ?? config.testIgnore ?? []].flat()
+}
+
+function ignores(p: Project, path: string): boolean {
+  return effectiveIgnore(p).some((pattern) => {
+    if (pattern instanceof RegExp) return pattern.test(path)
+    // 文字列の glob は `**/名前` の形だけを使う。それ以外は読めないので落とす
+    if (typeof pattern === 'string' && pattern.startsWith('**/')) {
+      return path.endsWith(pattern.slice(3))
+    }
+    throw new Error(`読めない testIgnore: ${String(pattern)}`)
+  })
+}
+
+describe('画素の逆テストは MUTATE のときだけ走る', () => {
+  it('MUTATE が無ければどの project も逆テストを拾わない', () => {
+    // vitest は MUTATE を立てずに回る。立てた状態の検査はここでは要らない
+    expect(process.env.MUTATE).not.toBe('1')
+    for (const p of projects) {
+      expect(ignores(p, 'tests/e2e/pixel-mutate.spec.ts'), `${p.name} が逆テストを拾う`).toBe(true)
+    }
+  })
+
+  it('主の project は退避路の検査も外したまま', () => {
+    // 逆テストを外す形に直したときに、元の除外を落とさないこと
+    expect(ignores(byName(DEFAULT_PROJECT)!, 'tests/e2e/node-fallback.spec.ts')).toBe(true)
+  })
+
+  it('基準画像の検査は外していない', () => {
+    for (const p of projects) {
+      expect(ignores(p, 'tests/e2e/smoke.spec.ts'), `${p.name} が smoke を外している`).toBe(false)
+    }
+  })
+})
 
 describe('E2E の設定と既定の描画経路', () => {
   it('基準画像を撮る project が projects[0] と揃っている', () => {

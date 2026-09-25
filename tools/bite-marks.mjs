@@ -336,6 +336,15 @@ export const BITE_MARKS = [
     lesson: '溝の粗さを上げたら溝が光った',
   },
   {
+    id: 'mutate-ignore-overridden',
+    kind: '文の削除',
+    file: 'playwright.config.ts',
+    find: '      testIgnore: [/node-fallback\\.spec\\.ts/, ...MUTATE_ONLY],',
+    replace: '      testIgnore: /node-fallback\\.spec\\.ts/,',
+    expect: 'tests/tools/e2eConfig.test.ts',
+    lesson: 'project の `testIgnore` は上位の `testIgnore` を上書きする',
+  },
+  {
     id: 'canopy-clearcoat-ignore-switch',
     kind: '条件の固定',
     file: 'src/render/pipeline/nodeAircraftMaterial.ts',

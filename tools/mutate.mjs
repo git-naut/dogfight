@@ -87,7 +87,10 @@ function makeSandbox() {
       filter: (src) => !src.includes(SNAPSHOTS),
     })
   }
-  for (const file of ['tsconfig.json', 'vitest.config.ts', 'package.json']) {
+  // **歯型が壊す相手はここに入っていないと「対象なし」になる。**
+  // `playwright.config.ts` を写していなかったので、逆テストの除外を壊す
+  // `mutate-ignore-overridden` が一度も当たらなかった（2026-09-25）
+  for (const file of ['tsconfig.json', 'vitest.config.ts', 'package.json', 'playwright.config.ts']) {
     cpSync(join(ROOT, file), join(dir, file))
   }
   symlinkSync(join(ROOT, 'node_modules'), join(dir, 'node_modules'), 'dir')

@@ -38,6 +38,20 @@ npm run build      # 型検査してから Vite ビルド
 npm run test:e2e   # Playwright。SwiftShader 固定でスクリーンショット回帰
 ```
 
+**E2E の全件は CI に任せる。**手元の通し（254 本）は 50 分かかり、機械の状態で
+1.3 倍振れる。CI は 20 分割で 8 分。手元では変えた場所に関わる spec だけを流す。
+
+| 変えたもの | 手元で流すもの |
+|---|---|
+| 描画（`src/render/`） | `npx playwright test node-path`、`npx playwright test smoke -g スクリーンショット回帰`、`npm run exact` |
+| sim・HUD・入力・台本 | `npx playwright test smoke -g '<群の名前>'` |
+| E2E の設定・分割・重み | `npx playwright test --list` と `npx vitest run tests/tools` |
+| 判断がつかない | 流さずに CI で全件 |
+
+push したら **CI の結果を見るまで次の段へ進まない。**落ちたら直すか戻す。
+画素の逆テスト（`MUTATE=1 npx playwright test pixel-mutate`）は段の終わりに手で
+回す。所要の記録は `docs/measuring.md` の「E2E の所要」。
+
 **実機の GPU で確かめるときは Windows 側の node を使う。**WSL2 の WebGPU は
 SwiftShader にしか乗らないので、実機でだけ出る欠陥（雲の上下反転など）を
 手元で追えない。手順と塞がれた道は `docs/measuring.md` の「実 GPU で測る」。

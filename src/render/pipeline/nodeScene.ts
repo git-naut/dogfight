@@ -5,12 +5,13 @@ import { createChaseCamera } from '../camera'
 import { createNodeBackend } from './nodeBackend'
 import { advanceNodeFrame, buildNodePipeline } from './nodeBuild'
 import { configureNodeAircraftShadow, followAircraftShadow } from './nodeShadow'
-import { createNodeOutputNode, createScenePass, type BloomFactory } from './nodeOutput'
+import { createNodeOutputNode, createOverlayPass, createScenePass, type BloomFactory } from './nodeOutput'
 import { createSceneViews } from './views'
 import { bakeAircraftSpace, toNodeAircraftMaterial } from './nodeAircraftMaterial'
 import { toNodeFlameMaterial } from './nodeFlameMaterial'
 import { createNodeFireballSprite } from '../weapons/fireballNodes'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
+import { sceneOcclusion } from '../weapons/sceneOcclusion'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
 import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
 import { SHADOW_EXTENT } from '../clouds/cloudsPass'
@@ -245,17 +246,28 @@ export async function createNodePipeline(
   // 入れるときだけ座標を焼く。入れなければ頂点属性も増えない
   const materialDetail = options.materialDetail ?? quality.materialDetail
   const canopyClearcoat = options.canopyClearcoat ?? quality.canopyClearcoat
+  const explosionOcclusion = sceneOcclusion(depthTexture)
   const views = await createSceneViews({
     scene,
     quality,
     options,
     sprite: createNodeRadialSprite,
+    // 爆発は場面のパスの外で描く（段 29c）。場面の物に隠される判定を材質に持たせる
+    explosionSprite: (o) => createNodeRadialSprite(o, explosionOcclusion),
     material: toNodeAircraftMaterial(renderer, materialDetail, canopyClearcoat),
     ...(materialDetail !== 'none' ? { prepareModel: bakeAircraftSpace } : {}),
     ...(bloomEmissive ? { flameMaterial: toNodeFlameMaterial(renderer) } : {}),
     // 爆発の火の玉。ノイズで輪郭が揺らぎ、橙から煤へ冷める（段 29b）
-    fireball: createNodeFireballSprite,
+    fireball: () => createNodeFireballSprite(explosionOcclusion),
   })
+
+  // **爆発は霞の後ろに重ねる**（段 29c）。場面のパスで描くと、深度を書かない
+  // 爆発の画素に下の物の深度で霞が掛かり、水平線より下の煙が海面の霞に埋もれて
+  // 水平線でまっすぐ切れた。爆発だけを別の場面へ移し、別のパスで描いて合成の最後に
+  // 重ねる。GLSL 経路は場面のパスで描いたまま
+  const overlayScene = new webgpu.Scene()
+  overlayScene.add(views.explosions.object)
+  const overlay = createOverlayPass(overlayScene, camera)
 
   // 機体の影。**投げ手の側で `castShadow` を立てる。**光の側は
   // `buildNodePipeline` が組み立てのあとで立てる。
@@ -367,6 +379,7 @@ export async function createNodePipeline(
       smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
       scenePass,
       cloudNode: clouds.node.mul(cloudVisibility) as unknown as webgpu.Node<'vec4'>,
+      overlay,
       quality: q,
       bloom: bloom as unknown as BloomFactory,
       bloomStrength: bloomStrength as unknown as webgpu.Node<'float'>,

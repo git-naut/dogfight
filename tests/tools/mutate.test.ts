@@ -77,6 +77,20 @@ describe('歯型表', () => {
     }
   })
 
+  it('expect は vitest が走らせるファイル', () => {
+    // **E2E を指すと、何も走らずに「発火」と数えられる。**`tools/mutate.mjs` は
+    // 期待先を vitest で回し、vitest は `tests/e2e/**` を除外しているので
+    // 「テストファイルなし」で終了コード 1 を返す。道具はそれを発火と読む。
+    // `lens-onset-at-one-g` と `lens-blur-by-exposure` がこの形で段 22 から
+    // 偽の発火を続けていた（段 29c で見つけた）
+    for (const m of BITE_MARKS) {
+      expect(
+        m.expect.startsWith('tests/') && !m.expect.startsWith('tests/e2e/') && m.expect.endsWith('.test.ts'),
+        `${m.id}: ${m.expect} は vitest が走らせない`,
+      ).toBe(true)
+    }
+  })
+
   it('lesson か why のどちらかを持つ', () => {
     for (const m of BITE_MARKS) {
       const has = (m.lesson ?? '') !== '' || (m.why ?? '') !== ''

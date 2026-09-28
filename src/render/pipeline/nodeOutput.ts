@@ -1,6 +1,7 @@
-import type { Texture } from 'three'
+import { Color, type Texture } from 'three'
 import {
   Fn,
+  float,
   directionToColor,
   luminance,
   mix,
@@ -118,6 +119,45 @@ export function createScenePass(
   }
 }
 
+/**
+ * 霞の後ろに重ねる物のパス（段 29c）。**爆発だけを入れた場面を描く。**
+ *
+ * 場面のパスで描くと、深度を書かない爆発の画素に下の物の深度で霞が掛かり、
+ * 水平線より下の煙が海面の霞に埋もれた。別の場面を別のパスで描き、合成の最後に
+ * 前乗算で重ねる。場面の物に隠される判定は材質が持つ（`sceneOcclusion.ts`）。
+ *
+ * **消去のアルファを 0 にする。**レンダラの既定の消去色はアルファ 1
+ * （`alpha: false` で作ったとき、`Renderer.js` の `alphaClear`）。そのままだと
+ * 爆発の無い画素まで「覆われている」になり、絵が真っ黒になる。パスを描く間だけ
+ * 消去色を透明の黒へ替えて、終わったら戻す
+ */
+export function createOverlayPass(scene: Scene, camera: Camera): Node<'vec4'> {
+  const overlayPass = pass(scene, camera) as unknown as {
+    updateBefore(frame: { renderer: ClearColorOwner }): unknown
+    getTextureNode(name?: string): Node<'vec4'>
+  }
+  const draw = overlayPass.updateBefore.bind(overlayPass)
+  const color = new Color()
+  overlayPass.updateBefore = (frame) => {
+    const renderer = frame.renderer
+    renderer.getClearColor(color)
+    const alpha = renderer.getClearAlpha()
+    renderer.setClearColor(0x000000, 0)
+    try {
+      return draw(frame)
+    } finally {
+      renderer.setClearColor(color, alpha)
+    }
+  }
+  return overlayPass.getTextureNode()
+}
+
+interface ClearColorOwner {
+  getClearColor(target: Color): Color
+  getClearAlpha(): number
+  setClearColor(color: Color | number, alpha: number): void
+}
+
 export interface NodeOutputInput {
   atmos: AtmosphereWebgpu
   /** `three/examples/jsm/tsl/display/SMAANode.js` の `smaa` */
@@ -125,6 +165,11 @@ export interface NodeOutputInput {
   scenePass: ScenePassLike
   /** 雲の色。`CloudsNodePass.node` */
   cloudNode: Node<'vec4'>
+  /**
+   * 霞と雲の後ろに重ねる物（`createOverlayPass` の出力）。rgb は前乗算、a は覆う割合。
+   * 渡さなければ重ねない
+   */
+  overlay?: Node<'vec4'> | null
   /**
    * 品質の設定。**鎖の段数がここで決まる。**
    *
@@ -270,7 +315,7 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
     // **ここで順が決まる。**場面のパスを雲より先に触る
     const sceneColor = scenePass.getTextureNode().toVar()
     const sceneDepth = scenePass.getTextureNode('depth')
-    return overlayCompositeNode(cloudNode, () => {
+    const hazed = overlayCompositeNode(cloudNode, () => {
       const aerial = atmos.aerialPerspective(sceneColor as never, sceneDepth as never)
       // **空の画素を上書きさせない。**空は場面のパスの背景に描いてある
       // （`nodeScene.ts` の `skyBackground`）。`skyNode` が null なら
@@ -278,6 +323,16 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
       ;(aerial as unknown as { skyNode: unknown }).skyNode = null
       return aerial as unknown as Node<'vec4'>
     })
+    const overlay = input.overlay ?? null
+    if (overlay === null) return hazed
+    // **霞と雲の後ろに重ねる**（段 29c）。前乗算なので `絵 × (1 − a) + rgb`。
+    // 爆発は数百 m 先なので霞は掛けない。雲より手前に置く
+    const top = (overlay as unknown as { toVar(): Node<'vec4'> }).toVar() as unknown as {
+      rgb: Node<'vec3'>
+      a: Node<'float'>
+    }
+    const base = hazed as unknown as { rgb: { mul(n: Node): { add(n: Node): Node<'vec3'> } }; a: Node<'float'> }
+    return vec4(base.rgb.mul(float(1).sub(top.a) as unknown as Node).add(top.rgb as unknown as Node), base.a)
   })() as unknown as Node
 
   // **ブルームは SMAA より前。**HDR の値に掛ける。トーンマッピングの後ろへ

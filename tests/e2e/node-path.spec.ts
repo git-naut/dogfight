@@ -1306,4 +1306,104 @@ test.describe('node 経路', () => {
     // 無効になり、フレームが描かれない（`overSky` の最初の版で踏んだ）
     expect(errors).toEqual([])
   })
+
+  /**
+   * **水平線より下の爆発が、海面の霞に埋もれない**（段 29c）。
+   *
+   * 爆発は深度を書かないので、霞は下にある海面の深度（数 km 先）で掛かる。296 m 先の
+   * 煙の下半分が海の色に塗りつぶされ、水平線でまっすぐ切れていた（ADR 0008 が
+   * 「目線より下では潰れる」と予測していたもの）。海面を消すと下半分が現れる。
+   * 同じ爆発を海面の有無で撮り、写る画素数を突き合わせる
+   */
+  test('水平線より下の爆発が海面の霞に埋もれない', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
+    test.setTimeout(600_000)
+    const shoot = async (extra: Record<string, string>) => {
+      const params = captureParams({ script: 'gun-pass', frame: 140, hour: 16, coverage: 0, aircraft: false })
+      params.set('gpu', '3')
+      params.set('bloom', '0')
+      for (const [k, v] of Object.entries(extra)) params.set(k, v)
+      await page.goto(`/dogfight/?${params.toString()}`)
+      await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 300_000 })
+      return PNG.sync.read(await page.locator('#viewport').screenshot())
+    }
+    const changed = (a: PNG, b: PNG) => {
+      let n = 0
+      for (let px = 0; px < a.width * a.height; px++) {
+        for (let c = 0; c < 3; c++) {
+          if (Math.abs(a.data[px * 4 + c]! - b.data[px * 4 + c]!) > 8) {
+            n++
+            break
+          }
+        }
+      }
+      return n
+    }
+    const overSea = changed(await shoot({}), await shoot({ explosions: '0' }))
+    const noSea = changed(await shoot({ water: '0' }), await shoot({ water: '0', explosions: '0' }))
+    expect(noSea, `海面なしで ${noSea} 画素しか写らない。構図が崩れている`).toBeGreaterThan(3000)
+    expect(overSea / noSea, `海面あり ${overSea} 画素 / なし ${noSea} 画素`).toBeGreaterThan(0.9)
+  })
+
+  /**
+   * **爆発は手前の機体に隠れる**（段 29c）。
+   *
+   * 爆発は場面のパスの外で描くので、深度のテストが効かない。隠れる判定は材質が
+   * 場面の深度を読んで持つ（`sceneOcclusion.ts`）。`mission-01` の 2,400 フレームは
+   * 自機の後ろ上方で煙が広がり、自機の上端と煙が 827 画素重なる。
+   *
+   * 自機の輪郭は「自機あり − 自機なし」の差で作り、縁を 2 画素削る（縁は SMAA で
+   * 背景と混ざるので、爆発が透けて見えて正しい）。その内側で、自機が無ければ爆発が
+   * 写る画素のうち、自機があっても爆発で変わる画素の割合を見る。実測で判定あり
+   * 2.1%（11 / 525）、判定を外すと 33.9%（178 / 525）。
+   *
+   * **最初の 2 版は何も守っていなかった。**自機の胴体の固定の枠には煙が掛かって
+   * おらず、`gun-pass` では爆発と自機が画面の上で離れていた（`explosion-judge.mjs`
+   * の注記の「自機のすぐ上に重なる」は古い）。どちらも判定を外しても通った
+   */
+  test('爆発は手前の機体に隠れる', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
+    test.setTimeout(600_000)
+    const shoot = async (extra: Record<string, string>) => {
+      const params = captureParams({ script: 'mission-01', frame: 2400, hour: 16, coverage: 0 })
+      params.set('gpu', '3')
+      params.set('bloom', '0')
+      for (const [k, v] of Object.entries(extra)) params.set(k, v)
+      await page.goto(`/dogfight/?${params.toString()}`)
+      await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 300_000 })
+      return PNG.sync.read(await page.locator('#viewport').screenshot())
+    }
+    const mask = (a: PNG, b: PNG) => {
+      const out = new Uint8Array(a.width * a.height)
+      for (let i = 0; i < out.length; i++) {
+        out[i] = [0, 1, 2].some((c) => Math.abs(a.data[i * 4 + c]! - b.data[i * 4 + c]!) > 8) ? 1 : 0
+      }
+      return out
+    }
+    const both = await shoot({})
+    const noBoom = await shoot({ explosions: '0' })
+    const noCraft = await shoot({ explosions: '0', aircraft: '0' })
+    const boomOnly = await shoot({ aircraft: '0' })
+    const w = both.width
+    const craft = mask(noBoom, noCraft)
+    const boom = mask(boomOnly, noCraft)
+    const shown = mask(both, noBoom)
+    const inside = (i: number) => {
+      const x = i % w
+      const y = (i - x) / w
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) if (craft[(y + dy) * w + x + dx] !== 1) return false
+      }
+      return true
+    }
+    let behind = 0
+    let over = 0
+    for (let i = 2 * w; i < craft.length - 2 * w; i++) {
+      if (craft[i] !== 1 || boom[i] !== 1 || !inside(i)) continue
+      behind++
+      if (shown[i] === 1) over++
+    }
+    expect(behind, `自機の後ろの爆発が ${behind} 画素しかない。構図が崩れている`).toBeGreaterThan(300)
+    expect(over / behind, `自機の後ろの爆発 ${behind} 画素のうち ${over} 画素が自機の上に写った`).toBeLessThan(0.1)
+  })
 })

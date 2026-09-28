@@ -7,6 +7,7 @@ import {
   type RadialSpriteMaterial,
   type RadialSpriteOptions,
 } from './radialSprite'
+import type { OcclusionFactory } from './sceneOcclusion'
 
 /**
  * 円形スプライトの色と不透明度を TSL で書く。
@@ -61,7 +62,12 @@ export function radialSpriteFragmentNode(
  * `Discard` は断片のノードの中にある。**両方から参照しても本体は 1 度しか
  * 生成されない**ので、捨てる判定が二重に走ることはない。
  */
-export function createNodeRadialSprite(options: RadialSpriteOptions): RadialSpriteMaterial {
+export function createNodeRadialSprite(
+  options: RadialSpriteOptions,
+  // 場面の物に隠される割合。**爆発だけが渡す**（場面のパスの外で描くため、
+  // `sceneOcclusion.ts`）。場面のパスの中で描く物は深度の判定がそのまま効く
+  occlusion: OcclusionFactory | null = null,
+): RadialSpriteMaterial {
   const opaqueCore = options.opaqueCore ?? false
   // **複製する。**参照のまま入れるとスロット全部が同じ器を指す
   const color = uniform(options.color.clone())
@@ -79,7 +85,7 @@ export function createNodeRadialSprite(options: RadialSpriteOptions): RadialSpri
 
   const material = new MeshBasicNodeMaterial()
   material.colorNode = rgba.rgb
-  material.opacityNode = rgba.a
+  material.opacityNode = occlusion === null ? rgba.a : (rgba.a as unknown as { mul(n: Node): Node<'float'> }).mul(occlusion())
   material.transparent = true
   material.blending = options.additive ? AdditiveBlending : NormalBlending
   // 不透明な芯だけ深度を書く。理由は `CORE_CUT` の節（`docs/weapons.md`）

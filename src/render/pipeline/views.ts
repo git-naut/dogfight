@@ -72,6 +72,13 @@ export interface SceneViewsInput {
    */
   sprite?: RadialSpriteFactory
   /**
+   * 爆発の円形スプライトの作り手。渡さなければ `sprite`。
+   *
+   * **node 経路は爆発を場面のパスの外で描く**（段 29c）。その材質には場面の物に
+   * 隠される判定が要るので、フレアと別の作り手を差す
+   */
+  explosionSprite?: RadialSpriteFactory
+  /**
    * 機体の材質の作り手。
    *
    * **node 経路では TSL の材質へ写す。**渡さなければ原本のまま（恒等）。
@@ -171,7 +178,7 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   const explosions: Explosions = createExplosions(
     EXPLOSION_POOL,
     quality,
-    sprite,
+    input.explosionSprite ?? sprite,
     input.fireball ?? null,
   )
   explosions.object.visible = options.showExplosions ?? true

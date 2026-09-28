@@ -2,6 +2,7 @@ import { Discard, Fn, float, length, max, mix, mx_fractal_noise_float, smoothste
 import { MeshBasicNodeMaterial, type Node } from 'three/webgpu'
 import { DoubleSide, NormalBlending, type Material } from 'three'
 import { BALL_INSET, SHAPE_AMPLITUDE } from './fireballShape'
+import type { OcclusionFactory } from './sceneOcclusion'
 
 /**
  * 火の玉の板（段 29、node 経路）。
@@ -59,7 +60,11 @@ export interface FireballSprite {
 
 export type FireballSpriteFactory = () => FireballSprite
 
-export function createNodeFireballSprite(): FireballSprite {
+export function createNodeFireballSprite(
+  // 場面の物に隠される割合（段 29c、`sceneOcclusion.ts`）。爆発は場面のパスの
+  // 外で描くので、地形や機体の後ろで隠れる判定を材質が持つ
+  occlusion: OcclusionFactory | null = null,
+): FireballSprite {
   const opacity = uniform(0)
   const heat = uniform(1)
   const seed = uniform(0)
@@ -111,7 +116,9 @@ export function createNodeFireballSprite(): FireballSprite {
 
   const material = new MeshBasicNodeMaterial()
   material.colorNode = (rgba as unknown as { rgb: Node<'vec3'> }).rgb
-  material.opacityNode = (rgba as unknown as { a: Node<'float'> }).a
+  const alpha = (rgba as unknown as { a: Node<'float'> }).a
+  material.opacityNode =
+    occlusion === null ? alpha : (alpha as unknown as { mul(n: Node): Node<'float'> }).mul(occlusion())
   material.transparent = true
   material.blending = NormalBlending
   material.depthWrite = false

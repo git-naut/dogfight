@@ -159,9 +159,13 @@ export async function createNodePipeline(
     worldToECEF: solar.worldToECEF,
     sunDirectionECEF: solar.sunDirectionECEF,
     moonDirectionECEF: solar.moonDirectionECEF,
-    // **鎖を組むので背景に空クアッドを置かない。**`AerialPerspectiveNode`
-    // が `depth >= 1` の画素で `skyNode` を評価する
-    skyBackground: false,
+    // **空は場面のパスの背景として描く**（段 29 の前提の修正、2026-09-28）。
+    // 以前は背景を置かず、`AerialPerspectiveNode` が `depth >= 1` の画素の rgb を
+    // `skyNode` で上書きしていた。深度を書かない半透明の物（爆発、飛行機雲、
+    // 煙）は空の手前にあっても上書きされて消えた。背景に描けば GLSL 経路と
+    // 同じく、半透明の物は場面のパスの中で空の上に重なる。上書きは
+    // `nodeOutput.ts` で切る（`skyNode = null`）
+    skyBackground: true,
   })
   const atmosphereNodes: AtmosphereNodes = atmosphere.nodes
 

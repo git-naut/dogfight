@@ -1,4 +1,6 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
+import { PNG } from 'pngjs'
+import { captureParams, SCENES } from './scenes.mjs'
 import { hasWebGPU, type TestHook } from './harness'
 import {
   hashProbeExpected,
@@ -1235,5 +1237,70 @@ test.describe('node 経路', () => {
     // では退避するので GLSL になる（`node-fallback.spec.ts` の担当）
     const expected = DEFAULT_BACKEND === 'node' && hasWebGPU() ? 'node-webgpu' : 'webgl'
     expect(hook?.backend, `既定の宣言は ${DEFAULT_BACKEND}`).toBe(expected)
+  })
+
+  /**
+   * **空を背にした半透明の物が、GLSL 経路と同じくらい写る**（段 29 の前提の修正）。
+   *
+   * `AerialPerspectiveNode` は `depth >= 1` の画素の rgb を空で上書きする。深度を
+   * 書かない半透明の物は、空を背にすると丸ごと消えていた。node を既定にした
+   * 2026-09-16 から 2026-09-28 まで、`aircraft-vortex-long` の飛行機雲は GLSL
+   * 13,958 画素に対して node 0 画素、撃墜の爆発も 0 画素。
+   *
+   * **基準画像の逆テストでは捕まらなかった。**あれは「消すと絵のどこかが
+   * 変わる」しか見ない。ここは経路どうしで量を突き合わせる
+   */
+  test('空を背にした半透明の物が GLSL 経路と同じくらい写る', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
+    test.setTimeout(600_000)
+    const errors: string[] = []
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text().slice(0, 200))
+    })
+
+    type Query = Parameters<typeof captureParams>[0]
+    // **経路は URL で名指しする。**`captureParams` は `webgl` しか知らない
+    const shoot = async (p: Page, query: Query, path: 'gl' | 'node', off: string | null) => {
+      const params = captureParams(query)
+      if (path === 'gl') params.set('webgl', '1')
+      else params.set('gpu', '3')
+      if (off !== null) params.set(off, '0')
+      // **ブルームは切って比べる。**太陽の方を向いた構図では、ブルームが太陽を
+      // 拾って画面を白く覆い、飛行機雲が埋もれる（`aircraft-vortex-long`、
+      // 段 22 から残る別の件）。ここで見るのは空の上書きだけ
+      params.set('bloom', '0')
+      await p.goto(`/dogfight/?${params.toString()}`)
+      await p.waitForSelector('body[data-capture-ready="1"]', { timeout: 300_000 })
+      return PNG.sync.read(await p.locator('#viewport').screenshot())
+    }
+    const changed = (a: PNG, b: PNG) => {
+      let n = 0
+      for (let px = 0; px < a.width * a.height; px++) {
+        for (let c = 0; c < 3; c++) {
+          if (Math.abs(a.data[px * 4 + c]! - b.data[px * 4 + c]!) > 1) {
+            n++
+            break
+          }
+        }
+      }
+      return n
+    }
+
+    const vortex = SCENES.find((sc: { name: string }) => sc.name === 'aircraft-vortex-long')!
+    const cases = [
+      // 撃墜から 0.23 秒。自機は爆発を隠すので消す（`tools/explosion-judge.mjs`）
+      { label: '爆発', query: { script: 'gun-pass', frame: 135, hour: 16, coverage: 0, aircraft: false }, off: 'explosions' },
+      { label: '飛行機雲', query: vortex, off: 'trails' },
+    ]
+    for (const { label, query, off } of cases) {
+      const gl = changed(await shoot(page, query, 'gl', null), await shoot(page, query, 'gl', off))
+      const node = changed(await shoot(page, query, 'node', null), await shoot(page, query, 'node', off))
+      expect(gl, `${label}: GLSL 経路で ${gl} 画素しか写らない。構図が崩れている`).toBeGreaterThan(500)
+      expect(node / gl, `${label}: node ${node} 画素 / GLSL ${gl} 画素`).toBeGreaterThan(0.5)
+      expect(node / gl, `${label}: node ${node} 画素 / GLSL ${gl} 画素`).toBeLessThan(2)
+    }
+    // **描画の準備の失敗も見張る。**varying が上限 16 を越えると命令がまとめて
+    // 無効になり、フレームが描かれない（`overSky` の最初の版で踏んだ）
+    expect(errors).toEqual([])
   })
 })

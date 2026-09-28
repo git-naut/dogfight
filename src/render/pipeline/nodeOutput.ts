@@ -270,9 +270,14 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
     // **ここで順が決まる。**場面のパスを雲より先に触る
     const sceneColor = scenePass.getTextureNode().toVar()
     const sceneDepth = scenePass.getTextureNode('depth')
-    return overlayCompositeNode(cloudNode, () =>
-      atmos.aerialPerspective(sceneColor as never, sceneDepth as never) as unknown as Node<'vec4'>,
-    )
+    return overlayCompositeNode(cloudNode, () => {
+      const aerial = atmos.aerialPerspective(sceneColor as never, sceneDepth as never)
+      // **空の画素を上書きさせない。**空は場面のパスの背景に描いてある
+      // （`nodeScene.ts` の `skyBackground`）。`skyNode` が null なら
+      // `AerialPerspectiveNode` は `depth >= 1` の画素に手を付けない
+      ;(aerial as unknown as { skyNode: unknown }).skyNode = null
+      return aerial as unknown as Node<'vec4'>
+    })
   })() as unknown as Node
 
   // **ブルームは SMAA より前。**HDR の値に掛ける。トーンマッピングの後ろへ

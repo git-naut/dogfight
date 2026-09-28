@@ -1,6 +1,7 @@
 import type { Scene } from 'three'
 import { createAircraftView, type AircraftView } from '../aircraftView'
 import type { FlameMaterialFactory } from '../aircraft/afterburner'
+import type { FireballSpriteFactory } from '../weapons/fireballNodes'
 import {
   keepAircraftMaterial,
   loadAircraftModel,
@@ -91,6 +92,11 @@ export interface SceneViewsInput {
    * （`nodeFlameMaterial.ts`）。渡さなければ原本のまま
    */
   flameMaterial?: FlameMaterialFactory
+  /**
+   * 爆発の火の玉の板の作り手（段 29b）。**node 経路だけが渡す**
+   * （`fireballNodes.ts`）。渡さなければ従来の円形スプライトの火球
+   */
+  fireball?: FireballSpriteFactory
 }
 
 export async function createSceneViews(input: SceneViewsInput): Promise<SceneViews> {
@@ -162,7 +168,12 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   scene.add(damageSmoke.object)
 
   // 爆発。同時に生きるのは撃墜が重なったときくらいなので 8 個
-  const explosions: Explosions = createExplosions(EXPLOSION_POOL, quality, sprite)
+  const explosions: Explosions = createExplosions(
+    EXPLOSION_POOL,
+    quality,
+    sprite,
+    input.fireball ?? null,
+  )
   explosions.object.visible = options.showExplosions ?? true
   scene.add(explosions.object)
 

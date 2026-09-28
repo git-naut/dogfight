@@ -9,6 +9,8 @@ import {
   fireballRadius,
   coreOpacity,
   hotCoreOpacity,
+  fireballHeat,
+  fireballBodyOpacity,
   HOT_CORE_HOLD,
   smokeOpacity,
   CORE_HOLD,
@@ -300,3 +302,30 @@ describe('白く飛んだ芯（段 29）', () => {
   })
 })
 
+
+describe('火の玉の熱と不透明度（段 29b）', () => {
+  it('熱は出始めが 1 で、0.55 秒で 0。途中で戻らない', () => {
+    expect(fireballHeat(0)).toBeCloseTo(1)
+    expect(fireballHeat(0.55)).toBe(0)
+    let previous = 1
+    for (let t = 0; t < 0.7; t += 0.02) {
+      const v = fireballHeat(t)
+      expect(v).toBeLessThanOrEqual(previous + 1e-9)
+      previous = v
+    }
+  })
+
+  it('熱が残るあいだは不透明で、冷めてから煙へ引き継いで消える', () => {
+    // **冷めた火の玉は黒い煙の塊として残る。**すぐ消すと黒煙の段が無くなる
+    expect(fireballBodyOpacity(0.05)).toBeCloseTo(1)
+    expect(fireballBodyOpacity(0.5)).toBeCloseTo(1)
+    expect(fireballBodyOpacity(1.2)).toBeGreaterThan(0)
+    expect(fireballBodyOpacity(1.8)).toBe(0)
+  })
+
+  it('負の経過と寿命の外は 0', () => {
+    expect(fireballHeat(-0.1)).toBe(0)
+    expect(fireballBodyOpacity(-0.1)).toBe(0)
+    expect(fireballBodyOpacity(10)).toBe(0)
+  })
+})

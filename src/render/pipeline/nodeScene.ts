@@ -9,6 +9,7 @@ import { createNodeOutputNode, createScenePass, type BloomFactory } from './node
 import { createSceneViews } from './views'
 import { bakeAircraftSpace, toNodeAircraftMaterial } from './nodeAircraftMaterial'
 import { toNodeFlameMaterial } from './nodeFlameMaterial'
+import { createNodeFireballSprite } from '../weapons/fireballNodes'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
 import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
@@ -252,6 +253,8 @@ export async function createNodePipeline(
     material: toNodeAircraftMaterial(renderer, materialDetail, canopyClearcoat),
     ...(materialDetail !== 'none' ? { prepareModel: bakeAircraftSpace } : {}),
     ...(bloomEmissive ? { flameMaterial: toNodeFlameMaterial(renderer) } : {}),
+    // 爆発の火の玉。ノイズで輪郭が揺らぎ、橙から煤へ冷める（段 29b）
+    fireball: createNodeFireballSprite,
   })
 
   // 機体の影。**投げ手の側で `castShadow` を立てる。**光の側は

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { centroid, judgeExplosion, rimDip } from '../../tools/explosion-judge.mjs'
+import { brightestDisk, centroid, coreLuminance, judgeExplosion, rimDip } from '../../tools/explosion-judge.mjs'
 
 /**
  * 爆発の形の判定（段 29）。
@@ -93,5 +93,83 @@ describe('爆発の形の判定（芯と縁の組）', () => {
     const hi = [0.66, 0.2, 0.5, 0.5]
     expect(judgeExplosion(lo, lo.map(gray), 0.5).hotCore).toBe(false)
     expect(judgeExplosion(hi, hi.map(gray), 0.5).hotCore).toBe(true)
+  })
+})
+
+describe('芯の明るさ', () => {
+  it('中心のまわりの円の平均で読む。細い光の線 1 本に引っぱられない', () => {
+    // **中心の 1 画素で読むと、曳光弾の線を芯と読んだ**（段 29b、0.52 秒の黒い煙で
+    // 「芯が空の 1.48 倍」と出た）
+    const w = 21
+    const lum = new Float64Array(w * w).fill(0.1)
+    for (let y = 0; y < w; y++) lum[y * w + 10] = 1 // 縦の光の線
+    const v = coreLuminance(lum, w, w, 10, 10, 4)
+    expect(v).toBeLessThan(0.3)
+  })
+
+  it('一様に明るい芯はそのまま読む', () => {
+    const w = 11
+    const lum = new Float64Array(w * w).fill(0.8)
+    expect(coreLuminance(lum, w, w, 5, 5, 3)).toBeCloseTo(0.8)
+  })
+
+  it('画面の端では内側だけで平均する', () => {
+    const w = 5
+    const lum = new Float64Array(w * w).fill(0.5)
+    expect(coreLuminance(lum, w, w, 0, 0, 3)).toBeCloseTo(0.5)
+  })
+})
+
+describe('芯の位置', () => {
+  it('塊の中でいちばん明るい円を芯とする。重心ではない', () => {
+    // **重心は芯から外れる。**段 29b の 0.03 秒で、差分の塊の重心が火球の中心から
+    // 10 画素上の空との境目に落ち、白く飛んだ芯を「空の 1.02 倍」と読んだ
+    const w = 40
+    const lum = new Float64Array(w * w).fill(0.2)
+    const mask = new Uint8Array(w * w).fill(1)
+    for (let y = 26; y <= 32; y++) for (let x = 16; x <= 22; x++) lum[y * w + x] = 1
+    const d = brightestDisk(lum, mask, w, w, 3)
+    expect(Math.abs(d.x - 19)).toBeLessThanOrEqual(1)
+    expect(Math.abs(d.y - 29)).toBeLessThanOrEqual(1)
+    expect(d.value).toBeGreaterThan(0.9)
+  })
+
+  it('細い光の線は芯にしない', () => {
+    const w = 40
+    const lum = new Float64Array(w * w).fill(0.2)
+    const mask = new Uint8Array(w * w).fill(1)
+    for (let y = 0; y < w; y++) lum[y * w + 5] = 1 // 曳光弾の線
+    for (let y = 18; y <= 24; y++) for (let x = 28; x <= 34; x++) lum[y * w + x] = 0.8
+    const d = brightestDisk(lum, mask, w, w, 3)
+    expect(d.x).toBeGreaterThan(25)
+  })
+
+  it('塊の外は探さない', () => {
+    const w = 20
+    const lum = new Float64Array(w * w).fill(0.2)
+    const mask = new Uint8Array(w * w)
+    for (let y = 0; y < 10; y++) for (let x = 0; x < 10; x++) mask[y * w + x] = 1
+    for (let y = 12; y < 20; y++) for (let x = 12; x < 20; x++) lum[y * w + x] = 1
+    const d = brightestDisk(lum, mask, w, w, 2)
+    expect(d.x).toBeLessThan(10)
+    expect(d.y).toBeLessThan(10)
+  })
+})
+
+describe('火から煤へ落ちる途中', () => {
+  it('火が空の明るさを横切る画素で打ち切らない', () => {
+    // **段 29b の 0.14 秒で、火の橙が空の 0.96 倍を横切った 1 画素を「空に着いた」と
+    // 読み、その先の煤（空の 0.28 倍）を見なかった**
+    const sky = 0.617
+    const profile = [0.94, 0.9, 0.77, 0.68, 0.59, 0.51, 0.47, 0.28, 0.17, 0.17, 0.29, 0.59, 0.62, 0.62]
+    const r = rimDip(profile, sky, 0.25)
+    expect(r.found).toBe(true)
+    expect(r.min).toBeCloseTo(0.17)
+  })
+
+  it('火から空へそのまま抜けたら谷は無い', () => {
+    const r = rimDip([1.2, 0.9, 0.7, 0.62, 0.61, 0.62, 0.62], 0.62, 0.25)
+    expect(r.found).toBe(false)
+    expect(r.reachedSky).toBe(true)
   })
 })

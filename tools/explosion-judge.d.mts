@@ -33,3 +33,19 @@ export function centroid(
   mask: Uint8Array,
   width: number,
 ): { x: number; y: number; pixels: number } | null
+export const CORE_RADIUS: number
+export function coreLuminance(
+  lum: ArrayLike<number>,
+  width: number,
+  height: number,
+  cx: number,
+  cy: number,
+  radius: number,
+): number
+export function brightestDisk(
+  lum: ArrayLike<number>,
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  radius: number,
+): { x: number; y: number; value: number }

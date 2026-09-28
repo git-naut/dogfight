@@ -17,6 +17,12 @@
 //     [--query k=v&k=v] [--out 保存先]
 //
 // 台本は `gun-pass`（フレーム 108 に 296 m 先で撃墜、強さ 1.0）。
+//
+// **ブルームを切って撮る（`bloom=0`）。**ブルームは火の橙を周りの画素へにじませる
+// ので、黒い煤の縁が茶色に染まり、色味の検査（`RIM_MAX_CHROMA`）で「火」と読まれる。
+// 段 29b の 0.03 秒で、ブルームありの縁は (156, 127, 108)・色味 0.31、なしは
+// (88, 84, 81)・色味 0.08 だった。判定は形を見るもので、にじみはレンズの効果。
+// ブルームありで見たいときは `--query bloom=1`。
 import { chromium } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -57,17 +63,16 @@ export function rimDip(profile, sky, darker = RIM_DARKER) {
       min = v
       minIndex = i
     }
-    // 谷の底を過ぎて空の明るさへ戻ったら終わり
-    if (v >= sky * 0.95 && i > start) {
-      reachedSky = true
-      break
-    }
-    // 落ちた所がそのまま空だった（谷が無い）
-    if (i === start && v >= sky * 0.95) {
+    // 空の 95% を割ったあと、また空の明るさへ戻ったら終わり。
+    // **割る前の画素で打ち切らない。**火が空の明るさを横切る途中の 1 画素を
+    // 「空に着いた」と読み、その先の煤を見なかった（段 29b の 0.14 秒）
+    if (min < sky * 0.95 && v >= sky * 0.95) {
       reachedSky = true
       break
     }
   }
+  // 一度も空を割らずに線が終わった。空の明るさのまま続いた（谷が無い）
+  if (!reachedSky && min >= sky * 0.95) reachedSky = true
   const depth = (sky - min) / sky
   return { found: reachedSky && depth >= darker, min, minIndex, depth, reachedSky }
 }
@@ -118,6 +123,47 @@ export function judgeExplosion(profile, colors, sky) {
         : '両立'
   return { hotCore, rim, chroma, ok, why }
 }
+
+/**
+ * 芯の明るさ。中心 `(cx, cy)` から半径 `radius` 画素の円の平均。
+ *
+ * **中心の 1 画素で読まない。**段 29b の最初の測りで、黒い煙の中心を通る曳光弾の
+ * 線を「芯が空の 1.48 倍」と読んだ。画面の外の画素は数えない
+ */
+export function coreLuminance(lum, width, height, cx, cy, radius) {
+  let sum = 0
+  let n = 0
+  const r2 = radius * radius
+  for (let y = Math.max(0, cy - radius); y <= Math.min(height - 1, cy + radius); y++) {
+    for (let x = Math.max(0, cx - radius); x <= Math.min(width - 1, cx + radius); x++) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 > r2) continue
+      sum += lum[y * width + x]
+      n++
+    }
+  }
+  return n === 0 ? 0 : sum / n
+}
+
+/**
+ * 芯の位置。塊（`mask`）の中で、半径 `radius` の円の平均がいちばん明るい所。
+ *
+ * **重心を芯にしない。**差分の塊はブルームのにじみや曳光弾の線を含むので、重心が
+ * 火球の中心から外れる（段 29b の 0.03 秒で 10 画素上の空との境目に落ちた）
+ */
+export function brightestDisk(lum, mask, width, height, radius) {
+  let best = { x: -1, y: -1, value: -Infinity }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (mask[y * width + x] === 0) continue
+      const value = coreLuminance(lum, width, height, x, y, radius)
+      if (value > best.value) best = { x, y, value }
+    }
+  }
+  return best
+}
+
+/** 芯を読む円の半径。塊の幅に対する割合（最低 2 画素） */
+export const CORE_RADIUS = 0.08
 
 /** 塊の画素の平均の位置。空なら null */
 export function centroid(mask, width) {
@@ -173,7 +219,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
     const shoot = async (frame, query) => {
       const params = captureParams({ script: 'gun-pass', frame, hour: 16, coverage: 0 })
-      for (const [k, v] of Object.entries({ aircraft: 0, ...extra, ...query })) params.set(k, String(v))
+      for (const [k, v] of Object.entries({ aircraft: 0, bloom: 0, ...extra, ...query })) params.set(k, String(v))
       await page.goto(`${BASE}?${params.toString()}`, { timeout: 300000 })
       await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 300000 })
       return PNG.sync.read(await page.locator('#viewport').screenshot())
@@ -191,19 +237,30 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         console.log(`  フレーム ${frame}（${age} 秒）: 爆発が写っていない`)
         continue
       }
-      // 横に塊の幅の 1.5 倍まで外へ。空の明るさは爆発を消した絵の同じ線から取る
-      let x0 = width
-      let x1 = -1
-      for (let x = 0; x < width; x++) {
-        if (blob[c.y * width + x]) {
-          x0 = Math.min(x0, x)
-          x1 = Math.max(x1, x)
+      // 芯の円の半径は、重心を通る線での塊の幅から決める
+      const rowSpan = (y) => {
+        let lo = width
+        let hi = -1
+        for (let x = 0; x < width; x++) {
+          if (blob[y * width + x]) {
+            lo = Math.min(lo, x)
+            hi = Math.max(hi, x)
+          }
         }
+        return [lo, hi]
       }
-      const half = Math.max(c.x - x0, x1 - c.x)
-      const reach = Math.round(half * 1.5) + 4
       const lum = luminancePlane(withBoom.data, width, height)
       const skyLum = luminancePlane(without.data, width, height)
+      const [w0, w1] = rowSpan(c.y)
+      const disk = brightestDisk(lum, blob, width, height, Math.max(2, Math.round((w1 - w0 + 1) * CORE_RADIUS)))
+      const core = disk.value
+      // ここから先は芯を中心にたどる
+      c.x = disk.x
+      c.y = disk.y
+      // 横に塊の幅の 1.5 倍まで外へ。空の明るさは爆発を消した絵の同じ線から取る
+      const [x0, x1] = rowSpan(c.y)
+      const half = Math.max(c.x - x0, x1 - c.x)
+      const reach = Math.round(half * 1.5) + 4
       const side = (dir) => {
         const profile = []
         const colors = []
@@ -216,6 +273,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
           skyRow.push(skyLum[c.y * width + x])
         }
         const sky = skyRow.slice(-4).reduce((a, b) => a + b, 0) / 4
+        profile[0] = core
         return { ...judgeExplosion(profile, colors, sky), sky }
       }
       const left = side(-1)
@@ -224,7 +282,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         `${j.why}（谷 ${j.rim.min === Infinity ? '-' : `空より ${(j.rim.depth * 100).toFixed(0)}%`}）`
       console.log(
         `  フレーム ${frame}（${age} 秒）: 塊 ${c.pixels} 画素、幅 ${x1 - x0 + 1} 画素、中心 (${c.x}, ${c.y})、` +
-          `芯 ${lum[c.y * width + c.x].toFixed(3)}（空の ${(lum[c.y * width + c.x] / left.sky).toFixed(2)} 倍）  左 ${fmt(left)}  右 ${fmt(right)}`,
+          `芯 ${core.toFixed(3)}（空の ${(core / left.sky).toFixed(2)} 倍）  左 ${fmt(left)}  右 ${fmt(right)}`,
       )
       if (OUT !== null) {
         const pad = reach + 10

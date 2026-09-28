@@ -1288,16 +1288,19 @@ test.describe('node 経路', () => {
 
     const vortex = SCENES.find((sc: { name: string }) => sc.name === 'aircraft-vortex-long')!
     const cases = [
-      // 撃墜から 0.23 秒。自機は爆発を隠すので消す（`tools/explosion-judge.mjs`）
-      { label: '爆発', query: { script: 'gun-pass', frame: 135, hour: 16, coverage: 0, aircraft: false }, off: 'explosions' },
-      { label: '飛行機雲', query: vortex, off: 'trails' },
+      // 撃墜から 0.23 秒。自機は爆発を隠すので消す（`tools/explosion-judge.mjs`）。
+      // **爆発は経路で絵が違う。**段 29b から node 経路はノイズの火の玉の板を置き、
+      // 煤の縁と膨らむ煙の分だけ大きく写る（実測 5,860 対 1,473 画素、3.98 倍、
+      // ADR 0015）。上限は二重に描くような崩れを捕まえる分だけ残す
+      { label: '爆発', query: { script: 'gun-pass', frame: 135, hour: 16, coverage: 0, aircraft: false }, off: 'explosions', max: 6 },
+      { label: '飛行機雲', query: vortex, off: 'trails', max: 2 },
     ]
-    for (const { label, query, off } of cases) {
+    for (const { label, query, off, max } of cases) {
       const gl = changed(await shoot(page, query, 'gl', null), await shoot(page, query, 'gl', off))
       const node = changed(await shoot(page, query, 'node', null), await shoot(page, query, 'node', off))
       expect(gl, `${label}: GLSL 経路で ${gl} 画素しか写らない。構図が崩れている`).toBeGreaterThan(500)
       expect(node / gl, `${label}: node ${node} 画素 / GLSL ${gl} 画素`).toBeGreaterThan(0.5)
-      expect(node / gl, `${label}: node ${node} 画素 / GLSL ${gl} 画素`).toBeLessThan(2)
+      expect(node / gl, `${label}: node ${node} 画素 / GLSL ${gl} 画素`).toBeLessThan(max)
     }
     // **描画の準備の失敗も見張る。**varying が上限 16 を越えると命令がまとめて
     // 無効になり、フレームが描かれない（`overSky` の最初の版で踏んだ）

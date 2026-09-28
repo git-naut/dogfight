@@ -231,6 +231,34 @@ export function hotCoreOpacity(age: number): number {
 /** 白い芯が 1 のまま保たれる秒数。**選んだ値。**判定道具で決める */
 export const HOT_CORE_HOLD = 0.1
 
+/**
+ * 火の玉の熱 0..1（段 29b、node 経路の火の玉の板）。
+ *
+ * 1 で板の 7 割が火、0 で全体が煤。**火の領域が縮んで黒い煙の塊になる**のを
+ * 熱ひとつで表す（`fireballNodes.ts`）。smoothstep で `FIREBALL_COOL` 秒に 0
+ */
+export function fireballHeat(age: number): number {
+  if (age < 0) return 0
+  const t = Math.min(1, age / FIREBALL_COOL)
+  return 1 - t * t * (3 - 2 * t)
+}
+
+/** 火の玉が冷めきる秒数。**選んだ値。**判定道具と絵で決める */
+export const FIREBALL_COOL = 0.55
+
+/**
+ * 火の玉の板の不透明度 0..1（段 29b）。
+ *
+ * 冷めたあとも黒い煙の塊として残し、1.0 秒から 0.6 秒かけて消す。そのあとは
+ * 灰色の煙（`smokeOpacity`）が引き継ぐ
+ */
+export function fireballBodyOpacity(age: number): number {
+  if (age < 0 || age >= EXPLOSION_LIFETIME) return 0
+  const rise = Math.min(1, age / 0.02)
+  if (age <= 1.0) return rise
+  return Math.max(0, 1 - (age - 1.0) / 0.6)
+}
+
 
 /**
  * 煙の不透明度 0..1。

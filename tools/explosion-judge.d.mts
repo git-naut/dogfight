@@ -12,6 +12,8 @@ export interface RimDip {
   found: boolean
   /** 谷の底の線形輝度 */
   min: number
+  /** 谷の底の位置（中心からの画素数）。谷が無ければ -1 */
+  minIndex: number
   /** 空に対してどれだけ暗いか（0..1） */
   depth: number
   /** 空の明るさへ抜けたか。抜けなければ判定できない */
@@ -20,10 +22,13 @@ export interface RimDip {
 
 export function rimDip(profile: readonly number[], sky: number, darker?: number): RimDip
 export const HOT_CORE: number
+export const RIM_BLACK_DARKER: number
+export const RIM_MAX_CHROMA: number
 export function judgeExplosion(
   profile: readonly number[],
+  colors: readonly (readonly [number, number, number])[],
   sky: number,
-): { hotCore: boolean; rim: RimDip; ok: boolean; why: string }
+): { hotCore: boolean; rim: RimDip; chroma: number; ok: boolean; why: string }
 export function centroid(
   mask: Uint8Array,
   width: number,

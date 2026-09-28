@@ -8,6 +8,8 @@ import {
   fireballOpacity,
   fireballRadius,
   coreOpacity,
+  hotCoreOpacity,
+  HOT_CORE_HOLD,
   smokeOpacity,
   CORE_HOLD,
   SMOKE_DELAY,
@@ -272,3 +274,29 @@ describe('台本越し', () => {
     expect(trace()).toEqual(trace())
   })
 })
+
+describe('白く飛んだ芯（段 29）', () => {
+  it('出始めは 1。赤い芯より先に消える', () => {
+    // **計画書の特徴の 1 つ目。**白飛びさせたい芯は加算で重ねる。赤を担うのは
+    // 通常合成の芯のまま（`coreOpacity`）
+    expect(hotCoreOpacity(0.02)).toBeCloseTo(1)
+    expect(hotCoreOpacity(HOT_CORE_HOLD)).toBeCloseTo(1)
+    expect(hotCoreOpacity(0.25)).toBe(0)
+    expect(hotCoreOpacity(CORE_HOLD)).toBeLessThan(coreOpacity(CORE_HOLD))
+  })
+
+  it('単調に下がる。途中で戻らない', () => {
+    let previous = hotCoreOpacity(HOT_CORE_HOLD)
+    for (let t = HOT_CORE_HOLD; t < 0.3; t += 0.01) {
+      const v = hotCoreOpacity(t)
+      expect(v).toBeLessThanOrEqual(previous)
+      previous = v
+    }
+  })
+
+  it('寿命の外と負の経過は 0', () => {
+    expect(hotCoreOpacity(-0.01)).toBe(0)
+    expect(hotCoreOpacity(10)).toBe(0)
+  })
+})
+

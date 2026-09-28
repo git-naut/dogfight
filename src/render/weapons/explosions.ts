@@ -4,6 +4,7 @@ import {
   EXPLOSION_LIFETIME,
   coreOpacity,
   fireballOpacity,
+  hotCoreOpacity,
   fireballRadius,
   smokeOpacity,
   type ExplosionSource,
@@ -101,6 +102,17 @@ const CORE_COLOR = new THREE.Color(0.14, 0.017, 0.004)
 
 /** 芯の半径は火球の何倍か。内側の締まった部分 */
 const CORE_SCALE = 0.55
+
+/**
+ * 白く飛んだ芯の色。**露出前の値。加算で重ねる**（段 29）。
+ *
+ * 露出 6 倍で 1 を越えて白く飛ぶ値にする。空の線形値は 0.14〜0.18 なので、
+ * 足すのは空の数倍。赤い芯（`CORE_COLOR`）の上に乗るので、縁は赤く残る
+ */
+const HOT_CORE_COLOR = new THREE.Color(1.2, 1.0, 0.75)
+
+/** 白い芯の半径は火球の何倍か。赤い芯（0.55）の内側 */
+const HOT_CORE_SCALE = 0.35
 
 /*
  * 大きさと濃さは絵で決めた。285 m の爆発を `?explosions=0` との引き算で
@@ -221,6 +233,8 @@ export function createExplosions(
   ): RadialSpriteMaterial => makeRadialSprite(sprite, { color, falloff, additive })
 
   interface Slot {
+    /** 白く飛んだ芯。加算。赤い芯の上に乗る */
+    hot: THREE.Mesh
     /** 不透明な芯。通常合成なので色が残る */
     core: THREE.Mesh
     fireball: THREE.Mesh
@@ -238,17 +252,20 @@ export function createExplosions(
     // 火球は芯が明るく縁が締まる。煙はふわりと広がる。破片は点に近い。
     // **火球も芯も煙も通常合成。**加算は赤にならない（`FIREBALL_COLOR`）。
     // 加算のまま残すのは破片だけで、こちらは点に近い光の粒として使う
+    const hotMaterial = radial(HOT_CORE_COLOR, 2.0, true)
     const coreMaterial = radial(CORE_COLOR, 2.2, false)
     const fireballMaterial = radial(FIREBALL_COLOR, 1.6, false)
     const smokeMaterial = radial(SMOKE_COLOR, 0.9, false)
     const shardMaterial = radial(SHARD_COLOR, 2.4, true)
     materials.push(
+      hotMaterial.material,
       coreMaterial.material,
       fireballMaterial.material,
       smokeMaterial.material,
       shardMaterial.material,
     )
 
+    const hot = new THREE.Mesh(quad, hotMaterial.material)
     const core = new THREE.Mesh(quad, coreMaterial.material)
     const fireball = new THREE.Mesh(quad, fireballMaterial.material)
     const smoke = new THREE.Mesh(quad, smokeMaterial.material)
@@ -260,7 +277,7 @@ export function createExplosions(
       group.add(mesh)
       return mesh
     })
-    for (const mesh of [core, fireball, smoke]) {
+    for (const mesh of [hot, core, fireball, smoke]) {
       mesh.frustumCulled = false
       mesh.visible = false
       group.add(mesh)
@@ -270,8 +287,10 @@ export function createExplosions(
     // 加算だった頃は順序が結果を変えなかった
     smoke.renderOrder = -1
     core.renderOrder = 1
+    // 白い芯はいちばん上。加算なので下の赤い芯の上に光を足す
+    hot.renderOrder = 2
 
-    const made: Slot = { core, fireball, smoke, shards }
+    const made: Slot = { hot, core, fireball, smoke, shards }
     slots[index] = made
     return made
   }
@@ -351,6 +370,15 @@ export function createExplosions(
           cameraPosition,
           cameraForward,
         )
+        // 白く飛んだ芯。**加算。**出始めだけ（`hotCoreOpacity`）
+        place(
+          s.hot,
+          center,
+          radius * HOT_CORE_SCALE,
+          hotCoreOpacity(age) * explosion.strength,
+          cameraPosition,
+          cameraForward,
+        )
         // 外側の炎。**加算を弱くする。**強いと芯を覆って白い靄になる
         place(
           s.fireball,
@@ -392,6 +420,7 @@ export function createExplosions(
       // 余った枠は隠す
       for (let i = count; i < slots.length; i++) {
         const s = slots[i]!
+        s.hot.visible = false
         s.core.visible = false
         s.fireball.visible = false
         s.smoke.visible = false

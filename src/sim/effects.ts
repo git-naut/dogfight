@@ -212,6 +212,27 @@ export function coreOpacity(age: number): number {
 export const CORE_HOLD = 0.18
 
 /**
+ * 白く飛んだ芯の不透明度 0..1（段 29）。
+ *
+ * 計画書の爆発の特徴の 1 つ目。**白飛びさせたい芯は加算で重ねる。**加算は
+ * 赤を出せない（`FIREBALL_COLOR` の注記）が、白は G と B を上げたいので加算が
+ * 正しい。赤を担うのは通常合成の芯（`coreOpacity`）のまま。
+ *
+ * 赤い芯より先に消す。出始めの `HOT_CORE_HOLD` 秒は 1 で、そのあと 0.08 秒で
+ * 消す。**残ると火球が白い塊に見える**
+ */
+export function hotCoreOpacity(age: number): number {
+  if (age < 0 || age >= EXPLOSION_LIFETIME) return 0
+  const rise = Math.min(1, age / 0.02)
+  if (age <= HOT_CORE_HOLD) return rise
+  return Math.max(0, 1 - (age - HOT_CORE_HOLD) / 0.08)
+}
+
+/** 白い芯が 1 のまま保たれる秒数。**選んだ値。**判定道具で決める */
+export const HOT_CORE_HOLD = 0.1
+
+
+/**
  * 煙の不透明度 0..1。
  *
  * 火球より遅れて出て、長く残る。寿命の終わりで 0 になる。

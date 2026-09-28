@@ -49,31 +49,49 @@ describe('塊の重心', () => {
 })
 
 describe('爆発の形の判定（芯と縁の組）', () => {
+  const gray = (v: number) => [v, v, v] as [number, number, number]
+
   it('芯が空より暗ければ、谷があっても縁と読まない', () => {
     // **赤い火球は線形輝度で空より暗い。**段 29 で最初に測ったとき、火球そのものを
     // 「空より 43〜52% 暗い谷」と読んだ
-    const j = judgeExplosion([0.3, 0.25, 0.2, 0.4, 0.5, 0.5], 0.5)
+    const j = judgeExplosion([0.3, 0.25, 0.2, 0.4, 0.5, 0.5], [0.3, 0.25, 0.2, 0.4, 0.5, 0.5].map(gray), 0.5)
     expect(j.hotCore).toBe(false)
     expect(j.ok).toBe(false)
     expect(j.why).toBe('芯が立っていない')
   })
 
   it('芯が白く飛び、外に黒い縁があれば両立', () => {
-    const j = judgeExplosion([1.2, 0.9, 0.3, 0.2, 0.45, 0.5, 0.5], 0.5)
+    const p = [1.2, 0.9, 0.3, 0.2, 0.45, 0.5, 0.5]
+    const j = judgeExplosion(p, p.map(gray), 0.5)
     expect(j.hotCore).toBe(true)
     expect(j.ok).toBe(true)
     expect(j.why).toBe('両立')
   })
 
   it('芯は立ったが縁が無い', () => {
-    const j = judgeExplosion([1.2, 0.9, 0.7, 0.55, 0.5, 0.5], 0.5)
-    expect(j.hotCore).toBe(true)
+    const p = [1.2, 0.9, 0.7, 0.55, 0.5, 0.5]
+    expect(judgeExplosion(p, p.map(gray), 0.5).why).toBe('縁が無い')
+  })
+
+  it('空より少し暗いだけの谷は縁と読まない（25% 未満）', () => {
+    // **白い芯を入れた最初の版で、桃色がかったにじみ（空より 13% 暗い）を縁と読んだ**
+    const p = [1.2, 0.9, 0.43, 0.5, 0.5]
+    expect(judgeExplosion(p, p.map(gray), 0.5).why).toBe('縁が無い')
+  })
+
+  it('赤い輪は黒煙の縁ではない', () => {
+    // 暗くても色味が強ければ火。黒煙は色味が薄い
+    const p = [1.2, 0.9, 0.3, 0.5, 0.5]
+    const colors: [number, number, number][] = [gray(1.2), gray(0.9), [0.6, 0.15, 0.1], gray(0.5), gray(0.5)]
+    const j = judgeExplosion(p, colors, 0.5)
     expect(j.ok).toBe(false)
-    expect(j.why).toBe('縁が無い')
+    expect(j.why).toBe('縁が赤い（火であって煙ではない）')
   })
 
   it('芯は空の 1.3 倍から', () => {
-    expect(judgeExplosion([0.64, 0.2, 0.5, 0.5], 0.5).hotCore).toBe(false)
-    expect(judgeExplosion([0.66, 0.2, 0.5, 0.5], 0.5).hotCore).toBe(true)
+    const lo = [0.64, 0.2, 0.5, 0.5]
+    const hi = [0.66, 0.2, 0.5, 0.5]
+    expect(judgeExplosion(lo, lo.map(gray), 0.5).hotCore).toBe(false)
+    expect(judgeExplosion(hi, hi.map(gray), 0.5).hotCore).toBe(true)
   })
 })

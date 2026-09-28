@@ -47,12 +47,16 @@ export function rimDip(profile, sky, darker = RIM_DARKER) {
       break
     }
   }
-  if (start < 0) return { found: false, min: Infinity, depth: 0, reachedSky: false }
+  if (start < 0) return { found: false, min: Infinity, minIndex: -1, depth: 0, reachedSky: false }
   let min = Infinity
+  let minIndex = -1
   let reachedSky = false
   for (let i = start; i < profile.length; i++) {
     const v = profile[i]
-    if (v < min) min = v
+    if (v < min) {
+      min = v
+      minIndex = i
+    }
     // 谷の底を過ぎて空の明るさへ戻ったら終わり
     if (v >= sky * 0.95 && i > start) {
       reachedSky = true
@@ -65,11 +69,26 @@ export function rimDip(profile, sky, darker = RIM_DARKER) {
     }
   }
   const depth = (sky - min) / sky
-  return { found: reachedSky && depth >= darker, min, depth, reachedSky }
+  return { found: reachedSky && depth >= darker, min, minIndex, depth, reachedSky }
 }
 
 /** 芯が白く飛んでいるとみなす、空に対する明るさの倍率 */
 export const HOT_CORE = 1.3
+
+/**
+ * 黒煙の縁とみなす、空より暗い割合。
+ *
+ * **白い芯を入れた最初の版で、桃色がかったにじみ（空より 13% 暗い）を縁と読んだ。**
+ * 目で見て縁と分かるのはもっと暗いもの
+ */
+export const RIM_BLACK_DARKER = 0.25
+
+/**
+ * 黒煙とみなす色味の上限。谷の底の画素で（最大 − 最小）÷ 最大。
+ *
+ * 暗くても色味が強ければ火（赤い輪）であって煙ではない
+ */
+export const RIM_MAX_CHROMA = 0.15
 
 /**
  * 爆発の形の判定。**芯が白く飛び、その外に黒い縁がある**ことの組。
@@ -79,12 +98,25 @@ export const HOT_CORE = 1.3
  * 「空より 43〜52% 暗い縁」と読んだ）。芯が空の `HOT_CORE` 倍より明るいときだけ
  * 縁を探す
  */
-export function judgeExplosion(profile, sky) {
+export function judgeExplosion(profile, colors, sky) {
   const hotCore = profile[0] >= sky * HOT_CORE
-  const rim = rimDip(profile, sky)
-  const ok = hotCore && rim.found
-  const why = !hotCore ? '芯が立っていない' : !rim.found ? '縁が無い' : '両立'
-  return { hotCore, rim, ok, why }
+  const rim = rimDip(profile, sky, RIM_BLACK_DARKER)
+  let chroma = 0
+  if (rim.minIndex >= 0) {
+    const [r, g, b] = colors[rim.minIndex]
+    const hi = Math.max(r, g, b)
+    chroma = hi > 0 ? (hi - Math.min(r, g, b)) / hi : 0
+  }
+  const colored = rim.found && chroma > RIM_MAX_CHROMA
+  const ok = hotCore && rim.found && !colored
+  const why = !hotCore
+    ? '芯が立っていない'
+    : !rim.found
+      ? '縁が無い'
+      : colored
+        ? '縁が赤い（火であって煙ではない）'
+        : '両立'
+  return { hotCore, rim, chroma, ok, why }
 }
 
 /** 塊の画素の平均の位置。空なら null */
@@ -174,14 +206,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       const skyLum = luminancePlane(without.data, width, height)
       const side = (dir) => {
         const profile = []
+        const colors = []
         const skyRow = []
         for (let k = 0; k <= reach; k++) {
           const x = Math.min(width - 1, Math.max(0, c.x + dir * k))
+          const i = (c.y * width + x) * 4
           profile.push(lum[c.y * width + x])
+          colors.push([withBoom.data[i], withBoom.data[i + 1], withBoom.data[i + 2]])
           skyRow.push(skyLum[c.y * width + x])
         }
         const sky = skyRow.slice(-4).reduce((a, b) => a + b, 0) / 4
-        return { ...judgeExplosion(profile, sky), sky }
+        return { ...judgeExplosion(profile, colors, sky), sky }
       }
       const left = side(-1)
       const right = side(1)

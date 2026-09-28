@@ -390,6 +390,15 @@ export const BITE_MARKS = [
     why: '作り手の写しを使わないと、内炎だけが MRT を書かず、不透明度も写しに届かない',
   },
   {
+    id: 'hot-core-lingers',
+    kind: '定数の摂動',
+    file: 'src/sim/effects.ts',
+    find: 'export const HOT_CORE_HOLD = 0.1',
+    replace: 'export const HOT_CORE_HOLD = 0.3',
+    expect: 'tests/sim/effects.test.ts',
+    why: '白い芯が残ると火球が白い塊に見える。赤い芯（CORE_HOLD 0.18 秒）より先に消えることを見張る',
+  },
+  {
     id: 'canopy-clearcoat-ignore-switch',
     kind: '条件の固定',
     file: 'src/render/pipeline/nodeAircraftMaterial.ts',

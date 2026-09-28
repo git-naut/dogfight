@@ -68,6 +68,25 @@ export function rimDip(profile, sky, darker = RIM_DARKER) {
   return { found: reachedSky && depth >= darker, min, depth, reachedSky }
 }
 
+/** 芯が白く飛んでいるとみなす、空に対する明るさの倍率 */
+export const HOT_CORE = 1.3
+
+/**
+ * 爆発の形の判定。**芯が白く飛び、その外に黒い縁がある**ことの組。
+ *
+ * **谷だけでは判定しない。**赤い火球は線形輝度で空より暗いので、火球そのものが
+ * 「空より暗い谷」に見える（段 29 で最初に測ったとき、0.06 秒の赤い火球を
+ * 「空より 43〜52% 暗い縁」と読んだ）。芯が空の `HOT_CORE` 倍より明るいときだけ
+ * 縁を探す
+ */
+export function judgeExplosion(profile, sky) {
+  const hotCore = profile[0] >= sky * HOT_CORE
+  const rim = rimDip(profile, sky)
+  const ok = hotCore && rim.found
+  const why = !hotCore ? '芯が立っていない' : !rim.found ? '縁が無い' : '両立'
+  return { hotCore, rim, ok, why }
+}
+
 /** 塊の画素の平均の位置。空なら null */
 export function centroid(mask, width) {
   let sx = 0
@@ -162,15 +181,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
           skyRow.push(skyLum[c.y * width + x])
         }
         const sky = skyRow.slice(-4).reduce((a, b) => a + b, 0) / 4
-        return rimDip(profile, sky)
+        return { ...judgeExplosion(profile, sky), sky }
       }
       const left = side(-1)
       const right = side(1)
-      const fmt = (r) =>
-        r.found ? `縁あり（空より ${(r.depth * 100).toFixed(0)}% 暗い）` : r.reachedSky ? `縁なし（最も暗くて空より ${(r.depth * 100).toFixed(0)}%）` : '空へ抜けない'
+      const fmt = (j) =>
+        `${j.why}（谷 ${j.rim.min === Infinity ? '-' : `空より ${(j.rim.depth * 100).toFixed(0)}%`}）`
       console.log(
         `  フレーム ${frame}（${age} 秒）: 塊 ${c.pixels} 画素、幅 ${x1 - x0 + 1} 画素、中心 (${c.x}, ${c.y})、` +
-          `芯 ${lum[c.y * width + c.x].toFixed(3)}  左 ${fmt(left)}  右 ${fmt(right)}`,
+          `芯 ${lum[c.y * width + c.x].toFixed(3)}（空の ${(lum[c.y * width + c.x] / left.sky).toFixed(2)} 倍）  左 ${fmt(left)}  右 ${fmt(right)}`,
       )
       if (OUT !== null) {
         const pad = reach + 10

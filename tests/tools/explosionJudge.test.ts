@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { centroid, rimDip } from '../../tools/explosion-judge.mjs'
+import { centroid, judgeExplosion, rimDip } from '../../tools/explosion-judge.mjs'
 
 /**
  * 爆発の形の判定（段 29）。
@@ -45,5 +45,35 @@ describe('塊の重心', () => {
 
   it('空なら null', () => {
     expect(centroid(new Uint8Array(9), 3)).toBeNull()
+  })
+})
+
+describe('爆発の形の判定（芯と縁の組）', () => {
+  it('芯が空より暗ければ、谷があっても縁と読まない', () => {
+    // **赤い火球は線形輝度で空より暗い。**段 29 で最初に測ったとき、火球そのものを
+    // 「空より 43〜52% 暗い谷」と読んだ
+    const j = judgeExplosion([0.3, 0.25, 0.2, 0.4, 0.5, 0.5], 0.5)
+    expect(j.hotCore).toBe(false)
+    expect(j.ok).toBe(false)
+    expect(j.why).toBe('芯が立っていない')
+  })
+
+  it('芯が白く飛び、外に黒い縁があれば両立', () => {
+    const j = judgeExplosion([1.2, 0.9, 0.3, 0.2, 0.45, 0.5, 0.5], 0.5)
+    expect(j.hotCore).toBe(true)
+    expect(j.ok).toBe(true)
+    expect(j.why).toBe('両立')
+  })
+
+  it('芯は立ったが縁が無い', () => {
+    const j = judgeExplosion([1.2, 0.9, 0.7, 0.55, 0.5, 0.5], 0.5)
+    expect(j.hotCore).toBe(true)
+    expect(j.ok).toBe(false)
+    expect(j.why).toBe('縁が無い')
+  })
+
+  it('芯は空の 1.3 倍から', () => {
+    expect(judgeExplosion([0.64, 0.2, 0.5, 0.5], 0.5).hotCore).toBe(false)
+    expect(judgeExplosion([0.66, 0.2, 0.5, 0.5], 0.5).hotCore).toBe(true)
   })
 })

@@ -19,6 +19,11 @@ export interface RimDip {
 }
 
 export function rimDip(profile: readonly number[], sky: number, darker?: number): RimDip
+export const HOT_CORE: number
+export function judgeExplosion(
+  profile: readonly number[],
+  sky: number,
+): { hotCore: boolean; rim: RimDip; ok: boolean; why: string }
 export function centroid(
   mask: Uint8Array,
   width: number,

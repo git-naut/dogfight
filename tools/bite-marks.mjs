@@ -747,4 +747,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/explosionTrails.test.ts',
     why: '火の玉の中でも白い煙が濃く、火の芯の上に白い筋が乗る',
   },
+  {
+    id: 'trail-camera-no-fade',
+    kind: '定数の摂動',
+    file: 'src/render/weapons/explosionTrails.ts',
+    find: 'export const TRAIL_CAMERA_FADE = { from: 20, to: 60 }',
+    replace: 'export const TRAIL_CAMERA_FADE = { from: -2, to: -1 }',
+    expect: 'tests/render/explosionTrails.test.ts',
+    why: '近い撃墜で白い筋がカメラの手前を横切り、HUD の中央まで覆う',
+  },
 ]

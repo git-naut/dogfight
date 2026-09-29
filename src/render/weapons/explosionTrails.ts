@@ -110,6 +110,23 @@ export function trailRootFade(distance: number, radius: number): number {
 }
 
 /**
+ * カメラの近くで尾を薄くする範囲 m（段 29g）。煙の点とカメラとの距離がこのあいだで
+ * 0 から 1 へ上げる。
+ *
+ * **近い撃墜で、太い白い筋がカメラの手前を横切って HUD の中央まで覆った**（段 29f の
+ * `hud-mission-failed`、48,567 画素）。描き方の誤りではない（GLSL 経路の深度テストでも
+ * 尾は自機より手前を通った）が、戦闘中の視界を塞ぐ
+ */
+export const TRAIL_CAMERA_FADE = { from: 20, to: 60 }
+
+/** カメラとの距離 m に対する尾の濃さの係数 0..1 */
+export function trailCameraFade(distance: number): number {
+  const x = (distance - TRAIL_CAMERA_FADE.from) / (TRAIL_CAMERA_FADE.to - TRAIL_CAMERA_FADE.from)
+  const c = Math.min(1, Math.max(0, x))
+  return c * c * (3 - 2 * c)
+}
+
+/**
  * 煙を放つ強さ 0..1。放ち始めは強く、燃え尽きに向けて薄くする
  *
  * @param t 放った時刻（爆発からの経過秒）
@@ -160,6 +177,7 @@ const NOT_ENABLED: ExplosionTrails = {
 
 const offset = new THREE.Vector3()
 const toCamera = new THREE.Vector3()
+const point = new THREE.Vector3()
 
 /** 1 本の尾を、リボンから見て点の列に見せる */
 class TrailSource implements RibbonSource {
@@ -175,6 +193,7 @@ class TrailSource implements RibbonSource {
   private speed = 0
   private strength = 0
   private radius = 0
+  private camera = new THREE.Vector3()
 
   bind(
     position: { x: number; y: number; z: number },
@@ -183,7 +202,9 @@ class TrailSource implements RibbonSource {
     speed: number,
     strength: number,
     age: number,
+    camera: THREE.Vector3,
   ): void {
+    this.camera.copy(camera)
     this.cx = position.x
     this.cy = position.y
     this.cz = position.z
@@ -205,6 +226,11 @@ class TrailSource implements RibbonSource {
   }
 
   positionAt(index: number, out: THREE.Vector3): void {
+    this.pointAt(index, out)
+  }
+
+  /** 点 index の世界座標 */
+  private pointAt(index: number, out: THREE.Vector3): void {
     const t = Math.max(0, this.emittedAt(index))
     trailOffset(this.direction, this.speed, t, offset)
     // 放った時刻の爆発の中心（機体の速度を引き継いで流れる）に足す
@@ -219,9 +245,11 @@ class TrailSource implements RibbonSource {
     const dx = offset.x - this.vx * lag
     const dy = offset.y - this.vy * lag
     const dz = offset.z - this.vz * lag
+    this.pointAt(index, point)
     return (
       trailEmission(t) *
       trailRootFade(Math.hypot(dx, dy, dz), this.radius) *
+      trailCameraFade(point.distanceTo(this.camera)) *
       this.strength *
       TRAIL_OPACITY
     )
@@ -302,6 +330,7 @@ export function createExplosionTrails(
             shard.speed,
             explosion.strength,
             age,
+            cameraPosition,
           )
           if (trail.count < 2) {
             ribbon.clear()

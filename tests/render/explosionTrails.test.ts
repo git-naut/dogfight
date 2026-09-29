@@ -6,6 +6,7 @@ import {
   TRAIL_FALL,
   TRAIL_ROOT_FADE,
   TRAIL_SPEED_SCALE,
+  trailCameraFade,
   trailEmission,
   trailRootFade,
   trailOffset,
@@ -45,6 +46,16 @@ describe('爆発の白い煙の尾', () => {
     expect(trailRootFade(10, 20), '半径の半分の所は火の玉の中').toBe(0)
     expect(trailRootFade(30, 20), '半径の 1.5 倍の所は外').toBe(1)
     const mid = trailRootFade(((TRAIL_ROOT_FADE.from + TRAIL_ROOT_FADE.to) / 2) * 20, 20)
+    expect(mid).toBeGreaterThan(0)
+    expect(mid).toBeLessThan(1)
+  })
+
+  it('カメラの近くの煙は薄くして、視界を覆わない', () => {
+    // **近い撃墜で、太い白い筋がカメラの手前を横切って HUD の中央まで覆った**
+    // （段 29f の hud-mission-failed、48,567 画素）。期待値は固定の数で書く
+    expect(trailCameraFade(10), '10 m は消す').toBe(0)
+    expect(trailCameraFade(80), '80 m は薄めない').toBe(1)
+    const mid = trailCameraFade(40)
     expect(mid).toBeGreaterThan(0)
     expect(mid).toBeLessThan(1)
   })

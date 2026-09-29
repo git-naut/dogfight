@@ -250,6 +250,10 @@ const center = new THREE.Vector3()
 const scratch = new THREE.Vector3()
 // 子の火の玉の中心。**`scratch` と分ける**（`placeBall` が中で `scratch` を使う）
 const blobCenter = new THREE.Vector3()
+// 破片の位置。**`scratch` と分ける。**`place()` が中で `scratch` を深度の計算に使うので、
+// `scratch` に入れて渡すと「位置 − カメラの位置」に書き換わる。2026-08-21 の最初の
+// 実装からこの形で、破片は 1 度も画面に出ていなかった（段 29e）
+const shardCenter = new THREE.Vector3()
 
 /**
  * near 面を跨がない半径を返す。
@@ -591,13 +595,13 @@ export function createExplosions(
         const shardOpacity = fireballOpacity(age) * 0.8
         for (let k = 0; k < s.shards.length; k++) {
           const shard = explosion.shards[k % explosion.shards.length]!
-          scratch
+          shardCenter
             .set(shard.direction.x, shard.direction.y, shard.direction.z)
             .multiplyScalar(shard.speed * age)
             .add(center)
           place(
             s.shards[k]!,
-            scratch,
+            shardCenter,
             SHARD_SIZE * explosion.strength,
             shardOpacity,
             cameraPosition,

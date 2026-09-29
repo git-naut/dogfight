@@ -720,4 +720,13 @@ export const BITE_MARKS = [
     expect: 'tests/tools/explosionJudge.test.ts',
     why: '谷を見ないと、平らに明るい 1 つの火の玉を離れた画素ごとに数え、連なりが出たと読む',
   },
+  {
+    id: 'shard-position-aliased',
+    kind: '条件の固定',
+    file: 'src/render/weapons/explosions.ts',
+    find: '            shardCenter,\n',
+    replace: '            scratch.copy(shardCenter),\n',
+    expect: 'tests/render/explosionShards.test.ts',
+    lesson: '爆発の破片は、2026-08-21 の最初の実装から 1 度も画面に出ていなかった',
+  },
 ]

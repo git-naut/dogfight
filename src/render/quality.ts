@@ -259,6 +259,14 @@ export interface QualitySettings {
   explosionBlobs: number
 
   /**
+   * 爆発 1 個あたりの白い煙の尾の本数（段 29f）。0 で尾なし。
+   *
+   * 燃える破片が引く煙の筋。1 本は爆発の寿命ぶん 106 点のリボン（`explosionTrails.ts`）。
+   * 向きは破片の向きを末尾から流用する。high の 3 本 x 同時 8 個で 24 本が上限
+   */
+  explosionSmokeTrails: number
+
+  /**
    * フレアの板の数。0 でフレアを描かない。
    *
    * 火と煙の 2 枚 x 同時に燃えている数。**ビルボードなので費用は小さいはず
@@ -318,6 +326,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     missileTrailSegments: 0,
     explosionSprites: 0,
     explosionBlobs: 0,
+    explosionSmokeTrails: 0,
     flareSprites: 0,
     damageSmokeSegments: 0,
   },
@@ -353,6 +362,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     missileTrailSegments: 192,
     explosionSprites: 6,
     explosionBlobs: 2,
+    explosionSmokeTrails: 2,
     flareSprites: 6,
     damageSmokeSegments: 128,
   },
@@ -396,6 +406,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     missileTrailSegments: 384,
     explosionSprites: 12,
     explosionBlobs: 4,
+    explosionSmokeTrails: 3,
     flareSprites: 12,
     damageSmokeSegments: 256,
   },
@@ -439,6 +450,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     missileTrailSegments: 512,
     explosionSprites: 12,
     explosionBlobs: 6,
+    explosionSmokeTrails: 5,
     flareSprites: 12,
     damageSmokeSegments: 384,
   },

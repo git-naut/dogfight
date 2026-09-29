@@ -161,6 +161,7 @@ export async function createWebGLPipeline(
     missileSmoke,
     damageSmoke,
     explosions,
+    explosionTrails,
     flares,
     trails,
   } = views
@@ -274,6 +275,7 @@ export async function createWebGLPipeline(
     missileSmoke.setQuality(quality)
     damageSmoke.setQuality(quality)
     explosions.setQuality(quality)
+    explosionTrails.setQuality(quality)
     environment.setQuality(quality)
     scene.environment = environment.texture
     aircraftShadow.setQuality(quality)
@@ -297,6 +299,7 @@ export async function createWebGLPipeline(
     missileSmoke,
     damageSmoke,
     explosions,
+    explosionTrails,
     flares,
     trails,
 

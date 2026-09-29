@@ -278,6 +278,8 @@ describe('品質プリセットの表', () => {
       'explosionSprites',
       // 子の火の玉。low では主の 1 個だけ
       'explosionBlobs',
+      // 白い煙の尾。low では出さない
+      'explosionSmokeTrails',
       'damageSmokeSegments',
       'flareSprites',
       // 空から焼く環境反射。low では焼かない

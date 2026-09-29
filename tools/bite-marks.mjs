@@ -729,4 +729,22 @@ export const BITE_MARKS = [
     expect: 'tests/render/explosionShards.test.ts',
     lesson: '爆発の破片は、2026-08-21 の最初の実装から 1 度も画面に出ていなかった',
   },
+  {
+    id: 'trail-emission-forever',
+    kind: '文の削除',
+    file: 'src/render/weapons/explosionTrails.ts',
+    find: '  if (t < 0 || t > TRAIL_EMIT_SECONDS) return 0\n',
+    replace: '',
+    expect: 'tests/render/explosionTrails.test.ts',
+    why: '燃え尽きたあとも破片が煙を放ち、放つ前（負の時刻）の点まで濃くなる',
+  },
+  {
+    id: 'trail-root-over-fire',
+    kind: '定数の摂動',
+    file: 'src/render/weapons/explosionTrails.ts',
+    find: 'export const TRAIL_ROOT_FADE = { from: 0.7, to: 1.3 }',
+    replace: 'export const TRAIL_ROOT_FADE = { from: -1, to: 0 }',
+    expect: 'tests/render/explosionTrails.test.ts',
+    why: '火の玉の中でも白い煙が濃く、火の芯の上に白い筋が乗る',
+  },
 ]

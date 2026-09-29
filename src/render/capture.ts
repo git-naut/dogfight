@@ -169,6 +169,8 @@ export interface CaptureConfig {
   showSmoke: boolean
   /** 爆発を描くか。`?explosions=0` で切る */
   showExplosions: boolean
+  /** 爆発の白い煙の尾を描くか。`?explosiontrails=0` で切る。尾の寄与を測るのに使う */
+  showExplosionTrails: boolean
   /**
    * HUD を出すか。
    *
@@ -425,6 +427,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     showMissiles: params.get('missiles') !== '0',
     showSmoke: params.get('smoke') !== '0',
     showExplosions: params.get('explosions') !== '0',
+    showExplosionTrails: params.get('explosiontrails') !== '0',
     showHud: params.has('hud')
       ? params.get('hud') === '1'
       : params.get('capture') !== '1',

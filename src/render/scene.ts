@@ -333,6 +333,7 @@ export async function createScene(
     missileSmoke,
     damageSmoke,
     explosions,
+    explosionTrails,
     flares,
     trails,
   } = pipeline
@@ -673,6 +674,7 @@ export async function createScene(
       // キャプチャモードで絵が固定されない
       if (explosionSource !== null) {
         explosions.update(explosionSource, frame, cameraWorld, cameraForward)
+        explosionTrails.update(explosionSource, frame, cameraWorld, cameraForward)
       }
 
       terrainMesh.update(cameraWorld.x, cameraWorld.z)

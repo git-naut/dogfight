@@ -10,6 +10,7 @@ import type { MissileViews } from '../weapons/missileView'
 import type { MissileSmoke } from '../weapons/missileSmoke'
 import type { DamageSmokeView } from '../damageSmoke'
 import type { Explosions } from '../weapons/explosions'
+import type { ExplosionTrails } from '../weapons/explosionTrails'
 import type { Flares } from '../weapons/flares'
 import type { AircraftTrails } from '../aircraft/trails'
 import type { TerrainMesh } from '../terrain/terrainMesh'
@@ -310,6 +311,8 @@ export interface SceneOptions {
   showSmoke?: boolean
   /** 爆発を描くか。差分で寄与を測るのに使う */
   showExplosions?: boolean
+  /** 爆発の白い煙の尾を描くか。`?explosiontrails=0` で切る（段 29f） */
+  showExplosionTrails?: boolean
 }
 /**
  * 組み立て済みの描画パイプライン。
@@ -355,6 +358,7 @@ export interface ScenePipeline {
   readonly missileSmoke: MissileSmoke
   readonly damageSmoke: DamageSmokeView
   readonly explosions: Explosions
+  readonly explosionTrails: ExplosionTrails
   readonly flares: Flares
   readonly trails: AircraftTrails
 

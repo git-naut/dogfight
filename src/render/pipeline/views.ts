@@ -18,6 +18,11 @@ import { createMissileSmoke, type MissileSmoke } from '../weapons/missileSmoke'
 import { createFlares, type Flares } from '../weapons/flares'
 import { FLARE_CAPACITY } from '../../sim/weapons/flare'
 import { createExplosions, type Explosions } from '../weapons/explosions'
+import {
+  createExplosionTrails,
+  type ExplosionTrails,
+  type TrailMaterialFactory,
+} from '../weapons/explosionTrails'
 import { BULLET_POOL } from '../../sim/weapons/gun'
 import { MISSILE_COUNT } from '../../sim/combat'
 import { ENEMY_MISSILE_COUNT } from '../../sim/ai/fighter'
@@ -55,6 +60,8 @@ export interface SceneViews {
   readonly missileSmoke: MissileSmoke
   readonly damageSmoke: DamageSmokeView
   readonly explosions: Explosions
+  /** 爆発の白い煙の尾（段 29f）。場面のパスで描く */
+  readonly explosionTrails: ExplosionTrails
   readonly flares: Flares
   readonly trails: AircraftTrails
   dispose(): void
@@ -78,6 +85,11 @@ export interface SceneViewsInput {
    * 隠される判定が要るので、フレアと別の作り手を差す
    */
   explosionSprite?: RadialSpriteFactory
+  /**
+   * 爆発の白い煙の尾の材質の作り手。渡さなければ `MeshBasicMaterial`。
+   * node 経路は場面の物に隠される判定を持つ材質を差す（段 29f）
+   */
+  trailMaterial?: TrailMaterialFactory
   /**
    * 機体の材質の作り手。
    *
@@ -184,6 +196,18 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   explosions.object.visible = options.showExplosions ?? true
   scene.add(explosions.object)
 
+  // 爆発の白い煙の尾。**爆発を消したら尾も消す**（`?explosions=0` の差分に尾を
+  // 残さない）。尾だけを消すのは `?explosiontrails=0`
+  // **爆発の組の子にする。**node 経路は爆発の組を霞の後ろのパスへ移すので、尾も
+  // 同じパスで火の玉と前後を決めて描かれる（`explosionTrails.ts`）
+  const explosionTrails: ExplosionTrails = createExplosionTrails(
+    EXPLOSION_POOL,
+    quality,
+    input.trailMaterial,
+  )
+  explosionTrails.object.visible = options.showExplosionTrails ?? true
+  if (quality.explosionSmokeTrails > 0) explosions.object.add(explosionTrails.object)
+
   // フレア。積んでいる数ぶんの器を作る。同時に燃えるのはもっと少ないが、
   // 器を増やさないので使い回しで足りる
   // 自機ぶん + 敵 8 機ぶん。同時に燃えるのはずっと少ないが、器を使い回す
@@ -208,11 +232,13 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
     missileSmoke,
     damageSmoke,
     explosions,
+    explosionTrails,
     flares,
     trails,
 
     dispose() {
       explosions.dispose()
+      explosionTrails.dispose()
       // **もとの `webgl.ts` はフレアを破棄していなかった。**`dispose()` は
       // 実装されているのに呼ばれておらず、板のジオメトリと材質が残る。
       // 抜き出すついでに直した（絵は動かない。破棄は終了時にしか走らない）

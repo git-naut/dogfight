@@ -285,8 +285,21 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     for (const frame of FRAMES) {
       const withBoom = await shoot(frame, {})
       const without = await shoot(frame, { explosions: 0 })
+      // 白い煙の尾（段 29f）。尾だけを消した絵との差
+      const noTrails = await shoot(frame, { explosiontrails: 0 })
       const { width, height } = withBoom
       const blob = largestComponent(diffMask(withBoom.data, without.data, width, height), width, height)
+      const trailMask = diffMask(withBoom.data, noTrails.data, width, height)
+      let trailPixels = 0
+      let trailTop = height
+      let trailBottom = -1
+      for (let p = 0; p < trailMask.length; p++) {
+        if (trailMask[p] === 0) continue
+        trailPixels++
+        const y = Math.floor(p / width)
+        trailTop = Math.min(trailTop, y)
+        trailBottom = Math.max(trailBottom, y)
+      }
       const c = centroid(blob, width)
       const age = ((frame - 108) / 120).toFixed(2)
       if (c === null) {
@@ -340,7 +353,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         `${j.why}（谷 ${j.rim.min === Infinity ? '-' : `空より ${(j.rim.depth * 100).toFixed(0)}%`}）`
       console.log(
         `  フレーム ${frame}（${age} 秒）: 塊 ${c.pixels} 画素、幅 ${x1 - x0 + 1} 画素、中心 (${c.x}, ${c.y})、` +
-          `芯 ${core.toFixed(3)}（空の ${(core / left.sky).toFixed(2)} 倍）、熱い中心 ${spots.length} 個  左 ${fmt(left)}  右 ${fmt(right)}`,
+          `芯 ${core.toFixed(3)}（空の ${(core / left.sky).toFixed(2)} 倍）、熱い中心 ${spots.length} 個、尾 ${trailPixels} 画素・縦 ${trailBottom < 0 ? 0 : trailBottom - trailTop + 1} 画素  左 ${fmt(left)}  右 ${fmt(right)}`,
       )
       if (OUT !== null) {
         const pad = reach + 10

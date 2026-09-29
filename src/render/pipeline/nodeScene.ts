@@ -12,6 +12,7 @@ import { toNodeFlameMaterial } from './nodeFlameMaterial'
 import { createNodeFireballSprite } from '../weapons/fireballNodes'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
 import { sceneOcclusion } from '../weapons/sceneOcclusion'
+import { createNodeTrailMaterial } from '../weapons/trailNodes'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
 import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
 import { SHADOW_EXTENT } from '../clouds/cloudsPass'
@@ -254,6 +255,7 @@ export async function createNodePipeline(
     sprite: createNodeRadialSprite,
     // 爆発は場面のパスの外で描く（段 29c）。場面の物に隠される判定を材質に持たせる
     explosionSprite: (o) => createNodeRadialSprite(o, explosionOcclusion),
+    trailMaterial: () => createNodeTrailMaterial(explosionOcclusion),
     material: toNodeAircraftMaterial(renderer, materialDetail, canopyClearcoat),
     ...(materialDetail !== 'none' ? { prepareModel: bakeAircraftSpace } : {}),
     ...(bloomEmissive ? { flameMaterial: toNodeFlameMaterial(renderer) } : {}),
@@ -515,6 +517,7 @@ export async function createNodePipeline(
     views.missileSmoke.setQuality(quality)
     views.damageSmoke.setQuality(quality)
     views.explosions.setQuality(quality)
+    views.explosionTrails.setQuality(quality)
     // **影は `nodeShadow` に任せる。**ここで `mapSize` を直に書くと `low` の
     // 0 がそのまま渡り、0×0 のテクスチャで描画ループごと止まる（段 20c）
     shadowInfo.setQuality(quality)
@@ -568,6 +571,7 @@ export async function createNodePipeline(
     missileSmoke: views.missileSmoke,
     damageSmoke: views.damageSmoke,
     explosions: views.explosions,
+    explosionTrails: views.explosionTrails,
     flares: views.flares,
     trails: views.trails,
 

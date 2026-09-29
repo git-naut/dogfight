@@ -1368,6 +1368,10 @@ test.describe('node 経路', () => {
       const params = captureParams({ script: 'mission-01', frame: 2400, hour: 16, coverage: 0 })
       params.set('gpu', '3')
       params.set('bloom', '0')
+      // **白い煙の尾は消して数える**（段 29f）。この爆発は自機の近くで、尾は本当に
+      // 自機とカメラのあいだを横切る。GLSL 経路（本物の深度テスト）でも自機の後ろの
+      // 4,661 画素のうち 84% が自機の上に写った。ここで見るのは火の玉と煙の隠れ方
+      params.set('explosiontrails', '0')
       for (const [k, v] of Object.entries(extra)) params.set(k, v)
       await page.goto(`/dogfight/?${params.toString()}`)
       await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 300_000 })

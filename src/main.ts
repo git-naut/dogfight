@@ -441,6 +441,7 @@ async function main(): Promise<void> {
     showMissiles: capture.showMissiles,
     showSmoke: capture.showSmoke,
     showExplosions: capture.showExplosions,
+    showExplosionTrails: capture.showExplosionTrails,
   })
 
   setBoot('描画の準備中')

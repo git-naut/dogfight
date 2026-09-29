@@ -276,6 +276,8 @@ describe('品質プリセットの表', () => {
       'trailSegments',
       'missileTrailSegments',
       'explosionSprites',
+      // 子の火の玉。low では主の 1 個だけ
+      'explosionBlobs',
       'damageSmokeSegments',
       'flareSprites',
       // 空から焼く環境反射。low では焼かない

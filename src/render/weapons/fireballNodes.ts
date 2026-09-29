@@ -54,7 +54,19 @@ export interface FireballState {
 }
 
 export interface FireballSprite {
+  /**
+   * 煤の層。輪郭の内側を煤の色で塗る。**火の層より先に描く**（段 29d）
+   */
   material: Material
+  /**
+   * 火の層。火の所だけを火の色で塗る（アルファ = 輪郭 ×（1 − 煤））。
+   *
+   * **2 層に分けるのは、子の火の玉を重ねるため。**1 枚に火と煤を混ぜて描くと、手前の
+   * 球の煤の輪が奥の球の火の上に乗り、ドーナツのような輪の模様になった。全部の球の
+   * 煤を先に描き、火をあとで描けば、火どうしが溶け合って煤が外から縁取る。
+   * 不透明な所では 1 枚のときの `mix(火, 煤, soot)` と同じ色になる
+   */
+  fireMaterial: Material
   setState(state: FireballState): void
 }
 
@@ -70,7 +82,8 @@ export function createNodeFireballSprite(
   const seed = uniform(0)
   const age = uniform(0)
 
-  const rgba = Fn(() => {
+  // 煤の層と火の層で同じ形を使う。**式を 2 度組む**（1 つの節を 2 つの材質で共有しない）
+  const shade = (layer: 'soot' | 'fire') => Fn(() => {
     const p = uv().sub(0.5).toVar()
     const d = length(p).mul(2).toVar()
     // 輪郭のうねり。低い周波数で大きく揺らす
@@ -102,7 +115,6 @@ export function createNodeFireballSprite(
       vec3(SMOKE_AGED_COLOR.r, SMOKE_AGED_COLOR.g, SMOKE_AGED_COLOR.b),
       cooled,
     )
-    const color = mix(fire, sootColor, soot)
     // 縁はノイズで揺れた輪郭の手前で柔らかく消す。**煤の帯（0.62〜0.8）を残す**
     const body = mix(float(1), float(SMOKE_AGED_OPACITY), soot.mul(cooled))
     // 板の端の手前でも消す。ノイズが −1 を割る所の保険
@@ -111,21 +123,26 @@ export function createNodeFireballSprite(
       .mul(float(1).sub(smoothstep(0.9, 1.0, d)))
       .mul(body)
       .mul(opacity)
-    return vec4(color, a)
+    return layer === 'soot' ? vec4(sootColor, a) : vec4(fire, a.mul(float(1).sub(soot)))
   })()
 
-  const material = new MeshBasicNodeMaterial()
-  material.colorNode = (rgba as unknown as { rgb: Node<'vec3'> }).rgb
-  const alpha = (rgba as unknown as { a: Node<'float'> }).a
-  material.opacityNode =
-    occlusion === null ? alpha : (alpha as unknown as { mul(n: Node): Node<'float'> }).mul(occlusion())
-  material.transparent = true
-  material.blending = NormalBlending
-  material.depthWrite = false
-  material.side = DoubleSide
+  const build = (layer: 'soot' | 'fire') => {
+    const rgba = shade(layer)
+    const material = new MeshBasicNodeMaterial()
+    material.colorNode = (rgba as unknown as { rgb: Node<'vec3'> }).rgb
+    const alpha = (rgba as unknown as { a: Node<'float'> }).a
+    material.opacityNode =
+      occlusion === null ? alpha : (alpha as unknown as { mul(n: Node): Node<'float'> }).mul(occlusion())
+    material.transparent = true
+    material.blending = NormalBlending
+    material.depthWrite = false
+    material.side = DoubleSide
+    return material
+  }
 
   return {
-    material,
+    material: build('soot'),
+    fireMaterial: build('fire'),
     setState(state) {
       opacity.value = state.opacity
       heat.value = state.heat

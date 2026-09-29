@@ -49,3 +49,13 @@ export function brightestDisk(
   height: number,
   radius: number,
 ): { x: number; y: number; value: number }
+export const HOT_SPOT_DIP: number
+export function hotSpots(
+  lum: ArrayLike<number>,
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  radius: number,
+  minLum: number,
+  minSeparation: number,
+): { x: number; y: number; value: number }[]

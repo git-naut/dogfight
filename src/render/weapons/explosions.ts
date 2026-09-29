@@ -135,6 +135,47 @@ const FIREBALL_BODY_SCALE = 1.2 * BALL_INSET
  */
 const FIREBALL_SWELL = 0.5
 
+/**
+ * 子の火の玉（段 29d、複数の球の連なり）。主の火の玉の周りに、破片の向きへ
+ * 押し出して置く。**sim の状態は増やさない。**向きは `Explosion.shards[k]` を流用し、
+ * 遅れと押し出しは経過秒から毎回出す。
+ *
+ * 参考画像の爆発は 1 つの球ではなく、火の玉がいくつも連なって膨らむ。燃料と
+ * 機体の破片がばらばらの向きに散って、それぞれが燃えるため
+ */
+/** 子の火の玉の半径は主の何倍か */
+export const BLOB_SCALE = 0.6
+/** k 番目の子が火の付く遅れ 秒（k は 0 から）。`BLOB_DELAY * (k + 1)` */
+export const BLOB_DELAY = 0.025
+/** 押し出し切ったときの中心からの距離は、主の半径の何倍か */
+export const BLOB_SPREAD = 1.0
+/** 押し出しの時定数 秒。これの 3 倍でほぼ押し出し切る */
+export const BLOB_PUSH_TIME = 0.1
+
+/** k 番目の子の火の玉の経過秒。負ならまだ火が付いていない */
+export function blobAge(age: number, k: number): number {
+  return age - BLOB_DELAY * (k + 1)
+}
+
+/**
+ * k 番目の子の火の玉の、中心からの距離 m。
+ *
+ * @param radius 主の火の玉の半径（`fireballRadius`）
+ * @param blobSeconds `blobAge` の値
+ */
+export function blobOffset(radius: number, blobSeconds: number): number {
+  if (blobSeconds <= 0) return 0
+  return radius * BLOB_SPREAD * (1 - Math.exp(-blobSeconds / BLOB_PUSH_TIME))
+}
+
+/**
+ * k 番目の子の火の玉の大きさの揺らぎ。0.8〜1.2。黄金比の端数で散らすので決定論
+ */
+export function blobSize(k: number): number {
+  const f = ((k + 1) * 0.6180339887) % 1
+  return 0.8 + 0.4 * f
+}
+
 /*
  * 大きさと濃さは絵で決めた。285 m の爆発を `?explosions=0` との引き算で
  * 測っている（`gun-pass` f130、経過 0.14 秒、強さ 1）。
@@ -207,6 +248,8 @@ const NOT_ENABLED: Explosions = {
 // 使い回す。毎フレーム作らない
 const center = new THREE.Vector3()
 const scratch = new THREE.Vector3()
+// 子の火の玉の中心。**`scratch` と分ける**（`placeBall` が中で `scratch` を使う）
+const blobCenter = new THREE.Vector3()
 
 /**
  * near 面を跨がない半径を返す。
@@ -232,6 +275,7 @@ export function createExplosions(
   fireballSprite: FireballSpriteFactory | null = null,
 ): Explosions {
   let sprites = quality.explosionSprites
+  let blobs = quality.explosionBlobs
   if (sprites === 0) return NOT_ENABLED
 
   const group = new THREE.Group()
@@ -257,11 +301,39 @@ export function createExplosions(
     additive: boolean,
   ): RadialSpriteMaterial => makeRadialSprite(sprite, { color, falloff, additive })
 
+  /** 火の玉 1 個。煤の層（`mesh`）と火の層（`fire`）を同じ所に置く（段 29d） */
+  interface BallMeshes {
+    mesh: THREE.Mesh
+    fire: THREE.Mesh
+    sprite: FireballSprite
+  }
+
+  /**
+   * 火の玉を作る。**煤は火の玉の層（0）、火は 0.5。**全部の球の煤が先に描かれ、
+   * 火はそのあと。白い芯（2）と赤い芯（1）より下
+   */
+  function makeBall(factory: FireballSpriteFactory): BallMeshes {
+    const sprite = factory()
+    const mesh = new THREE.Mesh(quad, sprite.material)
+    const fire = new THREE.Mesh(quad, sprite.fireMaterial)
+    for (const m of [mesh, fire]) {
+      m.frustumCulled = false
+      m.visible = false
+      group.add(m)
+    }
+    mesh.renderOrder = 0
+    fire.renderOrder = 0.5
+    materials.push(sprite.material, sprite.fireMaterial)
+    return { mesh, fire, sprite }
+  }
+
   interface Slot {
     /** 白く飛んだ芯。加算。赤い芯の上に乗る */
     hot: THREE.Mesh
     /** 火の玉の板。作り手が渡されたときだけ。赤い芯と外側の炎の代わり */
-    ball: { mesh: THREE.Mesh; sprite: FireballSprite } | null
+    ball: BallMeshes | null
+    /** 子の火の玉。作り手が渡されたときだけ。数は枠を作ったときの `explosionBlobs` */
+    blobs: BallMeshes[]
     /** 不透明な芯。通常合成なので色が残る */
     core: THREE.Mesh
     fireball: THREE.Mesh
@@ -309,16 +381,9 @@ export function createExplosions(
       mesh.visible = false
       group.add(mesh)
     }
-    let ball: Slot['ball'] = null
-    if (fireballSprite !== null) {
-      const made = fireballSprite()
-      const mesh = new THREE.Mesh(quad, made.material)
-      mesh.frustumCulled = false
-      mesh.visible = false
-      group.add(mesh)
-      materials.push(made.material)
-      ball = { mesh, sprite: made }
-    }
+    const ball: Slot['ball'] = fireballSprite !== null ? makeBall(fireballSprite) : null
+    const blobMeshes: Slot['blobs'] =
+      fireballSprite !== null ? Array.from({ length: blobs }, () => makeBall(fireballSprite)) : []
     // 煙を火球の後ろに置く。火球が上に乗り、芯はいちばん上。
     // **3 層すべて通常合成なので、この順序がそのまま重なりを決める。**
     // 加算だった頃は順序が結果を変えなかった
@@ -327,9 +392,7 @@ export function createExplosions(
     // 白い芯はいちばん上。加算なので下の赤い芯の上に光を足す
     hot.renderOrder = 2
 
-    // 火の玉の板は煙の前、白い芯の後ろ
-    if (ball !== null) ball.mesh.renderOrder = 0
-    const made: Slot = { hot, ball, core, fireball, smoke, shards }
+    const made: Slot = { hot, ball, blobs: blobMeshes, core, fireball, smoke, shards }
     slots[index] = made
     return made
   }
@@ -376,13 +439,13 @@ export function createExplosions(
   ): void {
     const mesh = ball.mesh
     if (state.opacity <= 0.001 || radius <= 0) {
-      mesh.visible = false
+      hideBall(ball)
       return
     }
     const depth = scratch.subVectors(position, cameraPosition).dot(cameraForward)
     const clamped = clampRadiusToNear(depth, radius)
     if (clamped <= 0) {
-      mesh.visible = false
+      hideBall(ball)
       return
     }
     mesh.position.copy(position)
@@ -392,6 +455,16 @@ export function createExplosions(
     mesh.scale.setScalar(clamped * 2)
     ball.sprite.setState(state)
     mesh.visible = true
+    // 火の層は煤の層と同じ所に置く
+    ball.fire.position.copy(mesh.position)
+    ball.fire.quaternion.copy(mesh.quaternion)
+    ball.fire.scale.copy(mesh.scale)
+    ball.fire.visible = true
+  }
+
+  function hideBall(ball: BallMeshes): void {
+    ball.mesh.visible = false
+    ball.fire.visible = false
   }
 
   return {
@@ -444,6 +517,36 @@ export function createExplosions(
             cameraPosition,
             cameraForward,
           )
+          // 子の火の玉。**プリセットが下がったら先頭から使う**（枠は作ったときの数を持つ）
+          const used = Math.min(blobs, s.blobs.length)
+          for (let k = 0; k < s.blobs.length; k++) {
+            const blob = s.blobs[k]!
+            const t = blobAge(age, k)
+            if (k >= used || t <= 0) {
+              hideBall(blob)
+              continue
+            }
+            const shard = explosion.shards[k % explosion.shards.length]!
+            const blobHeat = fireballHeat(t)
+            blobCenter
+              .set(shard.direction.x, shard.direction.y, shard.direction.z)
+              .multiplyScalar(blobOffset(radius, t))
+              .add(center)
+            placeBall(
+              blob,
+              blobCenter,
+              radius * BLOB_SCALE * blobSize(k) * FIREBALL_BODY_SCALE * (1 + FIREBALL_SWELL * (1 - blobHeat)),
+              {
+                opacity: fireballBodyOpacity(t) * explosion.strength,
+                heat: blobHeat,
+                // 子ごとに形を変える
+                seed: (explosion.frame % 997) * 0.173 + (k + 1) * 1.37,
+                age: t,
+              },
+              cameraPosition,
+              cameraForward,
+            )
+          }
         }
         // 不透明な芯。**通常合成なので色が残る。**加算の火球だけだと
         // 露出 6 倍と AgX で白い靄になる（実測）
@@ -508,7 +611,8 @@ export function createExplosions(
       for (let i = count; i < slots.length; i++) {
         const s = slots[i]!
         s.hot.visible = false
-        if (s.ball !== null) s.ball.mesh.visible = false
+        if (s.ball !== null) hideBall(s.ball)
+        for (const blob of s.blobs) hideBall(blob)
         s.core.visible = false
         s.fireball.visible = false
         s.smoke.visible = false
@@ -519,6 +623,7 @@ export function createExplosions(
 
     setQuality(next) {
       sprites = next.explosionSprites
+      blobs = next.explosionBlobs
       group.visible = sprites > 0
     },
 

@@ -702,4 +702,22 @@ export const BITE_MARKS = [
     expect: 'tests/render/fireballShape.test.ts',
     lesson: 'ノイズで削る輪郭が、板の四角い縁でまっすぐ切れた',
   },
+  {
+    id: 'blob-offset-before-ignition',
+    kind: '文の削除',
+    file: 'src/render/weapons/explosions.ts',
+    find: '  if (blobSeconds <= 0) return 0\n',
+    replace: '',
+    expect: 'tests/render/explosionBlobs.test.ts',
+    why: '火が付く前の子の火の玉が中心の反対側へ引き込まれる。見えないが、付いた瞬間に跳ぶ',
+  },
+  {
+    id: 'hot-spots-no-valley',
+    kind: '条件の固定',
+    file: 'tools/explosion-judge.mjs',
+    find: '      if (low >= avg[c] * (1 - HOT_SPOT_DIP)) {',
+    replace: '      if (false) {',
+    expect: 'tests/tools/explosionJudge.test.ts',
+    why: '谷を見ないと、平らに明るい 1 つの火の玉を離れた画素ごとに数え、連なりが出たと読む',
+  },
 ]

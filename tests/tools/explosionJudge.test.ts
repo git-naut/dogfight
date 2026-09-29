@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { brightestDisk, centroid, coreLuminance, judgeExplosion, rimDip } from '../../tools/explosion-judge.mjs'
+import { brightestDisk, centroid, coreLuminance, hotSpots, judgeExplosion, rimDip } from '../../tools/explosion-judge.mjs'
 
 /**
  * 爆発の形の判定（段 29）。
@@ -171,5 +171,51 @@ describe('火から煤へ落ちる途中', () => {
     const r = rimDip([1.2, 0.9, 0.7, 0.62, 0.61, 0.62, 0.62], 0.62, 0.25)
     expect(r.found).toBe(false)
     expect(r.reachedSky).toBe(true)
+  })
+})
+
+describe('熱い中心の数', () => {
+  const disk = (lum: Float64Array, w: number, cx: number, cy: number, r: number, v: number) => {
+    for (let y = cy - r; y <= cy + r; y++) {
+      for (let x = cx - r; x <= cx + r; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) lum[y * w + x] = v
+    }
+  }
+
+  it('重なった 2 つの火の玉は、明るさの山が 2 つある', () => {
+    // **明るい塊の数では数えられない。**火の玉が重なると明るい所がつながる
+    const w = 60
+    const lum = new Float64Array(w * w).fill(0.2)
+    const mask = new Uint8Array(w * w).fill(1)
+    disk(lum, w, 22, 30, 8, 0.7)
+    disk(lum, w, 38, 30, 8, 0.7)
+    disk(lum, w, 22, 30, 3, 1.0)
+    disk(lum, w, 38, 30, 3, 1.0)
+    expect(hotSpots(lum, mask, w, w, 2, 0.8, 6).length).toBe(2)
+  })
+
+  it('1 つの火の玉は 1 つ', () => {
+    const w = 60
+    const lum = new Float64Array(w * w).fill(0.2)
+    const mask = new Uint8Array(w * w).fill(1)
+    disk(lum, w, 30, 30, 10, 0.7)
+    disk(lum, w, 30, 30, 4, 1.0)
+    expect(hotSpots(lum, mask, w, w, 2, 0.8, 6).length).toBe(1)
+  })
+
+  it('細い光の線は数えない', () => {
+    const w = 40
+    const lum = new Float64Array(w * w).fill(0.2)
+    const mask = new Uint8Array(w * w).fill(1)
+    for (let y = 0; y < w; y++) lum[y * w + 10] = 1
+    expect(hotSpots(lum, mask, w, w, 2, 0.8, 6).length).toBe(0)
+  })
+
+  it('平らに明るい所は、山を 1 つだけ数える', () => {
+    // 同じ値が並ぶ所で、並んだ画素をそれぞれ山と数えない
+    const w = 40
+    const lum = new Float64Array(w * w).fill(0.2)
+    const mask = new Uint8Array(w * w).fill(1)
+    disk(lum, w, 20, 20, 8, 1.0)
+    expect(hotSpots(lum, mask, w, w, 2, 0.8, 6).length).toBe(1)
   })
 })

@@ -162,6 +162,62 @@ export function brightestDisk(lum, mask, width, height, radius) {
   return best
 }
 
+/** 2 つの山を別の火の玉とみなす、あいだの谷の深さ（低い方の山に対する割合） */
+export const HOT_SPOT_DIP = 0.05
+
+/**
+ * 熱い中心の位置の列（段 29d、複数の球の連なり）。
+ *
+ * 塊（`mask`）の中で、半径 `radius` の円の平均の明るさが `minLum` 以上の山を探す。
+ * 2 つの山は `minSeparation` 画素以上離れ、結ぶ線の上に `HOT_SPOT_DIP` 以上の谷が
+ * あるときだけ別に数える。
+ *
+ * **明るい塊の数では数えない。**火の玉が重なると明るい所がつながって 1 つになる。
+ * 谷を条件にするので、平らに明るい所は 1 つに数える
+ */
+export function hotSpots(lum, mask, width, height, radius, minLum, minSeparation) {
+  const avg = new Float64Array(width * height).fill(-Infinity)
+  const candidates = []
+  for (let p = 0; p < mask.length; p++) {
+    if (mask[p] === 0) continue
+    const x = p % width
+    const v = coreLuminance(lum, width, height, x, (p - x) / width, radius)
+    avg[p] = v
+    if (v >= minLum) candidates.push(p)
+  }
+  candidates.sort((a, b) => avg[b] - avg[a])
+  const peaks = []
+  for (const c of candidates) {
+    const cx = c % width
+    const cy = (c - cx) / width
+    let separate = true
+    for (const q of peaks) {
+      const dx = q.x - cx
+      const dy = q.y - cy
+      const dist = Math.hypot(dx, dy)
+      if (dist < minSeparation) {
+        separate = false
+        break
+      }
+      // 結ぶ線の上の最小。谷が浅ければ同じ山の裾
+      let low = Infinity
+      const steps = Math.ceil(dist)
+      for (let k = 1; k < steps; k++) {
+        const x = Math.round(cx + (dx * k) / steps)
+        const y = Math.round(cy + (dy * k) / steps)
+        const v = avg[y * width + x] === -Infinity ? 0 : avg[y * width + x]
+        low = Math.min(low, v)
+      }
+      if (low >= avg[c] * (1 - HOT_SPOT_DIP)) {
+        separate = false
+        break
+      }
+    }
+    if (separate) peaks.push({ x: cx, y: cy, value: avg[c] })
+  }
+  return peaks
+}
+
 /** 芯を読む円の半径。塊の幅に対する割合（最低 2 画素） */
 export const CORE_RADIUS = 0.08
 
@@ -278,11 +334,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       }
       const left = side(-1)
       const right = side(1)
+      // 熱い中心の数（段 29d）。芯と同じ半径の円で読み、互いに 6 画素以上離れた山
+      const spots = hotSpots(lum, blob, width, height, Math.max(2, Math.round((w1 - w0 + 1) * CORE_RADIUS)), left.sky * HOT_CORE, 6)
       const fmt = (j) =>
         `${j.why}（谷 ${j.rim.min === Infinity ? '-' : `空より ${(j.rim.depth * 100).toFixed(0)}%`}）`
       console.log(
         `  フレーム ${frame}（${age} 秒）: 塊 ${c.pixels} 画素、幅 ${x1 - x0 + 1} 画素、中心 (${c.x}, ${c.y})、` +
-          `芯 ${core.toFixed(3)}（空の ${(core / left.sky).toFixed(2)} 倍）  左 ${fmt(left)}  右 ${fmt(right)}`,
+          `芯 ${core.toFixed(3)}（空の ${(core / left.sky).toFixed(2)} 倍）、熱い中心 ${spots.length} 個  左 ${fmt(left)}  右 ${fmt(right)}`,
       )
       if (OUT !== null) {
         const pad = reach + 10

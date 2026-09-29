@@ -249,6 +249,16 @@ export interface QualitySettings {
   explosionSprites: number
 
   /**
+   * 爆発 1 個あたりの子の火の玉の数（段 29d、複数の球の連なり）。0 で主の 1 個だけ。
+   *
+   * **node 経路だけが読む。**GLSL 経路は WebGPU が無いときの退避路なので、円形
+   * スプライトの火球のまま。向きは破片の向き（`SHARD_COUNT` = 12 個）を先頭から
+   * 流用するので、12 を越えると同じ向きに重なる。板は 1 個 2 三角形で、high の
+   * 4 個 x 同時 8 個で 32 枚が上限
+   */
+  explosionBlobs: number
+
+  /**
    * フレアの板の数。0 でフレアを描かない。
    *
    * 火と煙の 2 枚 x 同時に燃えている数。**ビルボードなので費用は小さいはず
@@ -307,6 +317,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 0,
     missileTrailSegments: 0,
     explosionSprites: 0,
+    explosionBlobs: 0,
     flareSprites: 0,
     damageSmokeSegments: 0,
   },
@@ -341,6 +352,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 192,
     missileTrailSegments: 192,
     explosionSprites: 6,
+    explosionBlobs: 2,
     flareSprites: 6,
     damageSmokeSegments: 128,
   },
@@ -383,6 +395,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 384,
     missileTrailSegments: 384,
     explosionSprites: 12,
+    explosionBlobs: 4,
     flareSprites: 12,
     damageSmokeSegments: 256,
   },
@@ -425,6 +438,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     trailSegments: 768,
     missileTrailSegments: 512,
     explosionSprites: 12,
+    explosionBlobs: 6,
     flareSprites: 12,
     damageSmokeSegments: 384,
   },

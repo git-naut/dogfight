@@ -165,6 +165,8 @@ export interface ExplosionTrails {
     cameraForward: THREE.Vector3,
   ): void
   setQuality(quality: QualitySettings): void
+  /** 帯を 1 本、見える状態でカメラの前に張る（濃さ 0）。描画の命令を先に組むため */
+  prewarm(cameraPosition: THREE.Vector3, cameraForward: THREE.Vector3): void
   dispose(): void
 }
 
@@ -172,6 +174,7 @@ const NOT_ENABLED: ExplosionTrails = {
   object: new THREE.Group(),
   update() {},
   setQuality() {},
+  prewarm() {},
   dispose() {},
 }
 
@@ -351,6 +354,22 @@ export function createExplosionTrails(
         }
       }
       for (; r < ribbons.length; r++) ribbons[r]!.clear()
+    },
+
+    prewarm(cameraPosition, cameraForward) {
+      cameraView.position.copy(cameraPosition)
+      cameraView.forward.copy(cameraForward)
+      const ahead = cameraPosition.clone().addScaledVector(cameraForward, 300)
+      const side = new THREE.Vector3(1, 0, 0)
+      ribbons[0]!.update(
+        {
+          count: 2,
+          positionAt: (i, out) => out.copy(ahead).addScaledVector(side, i * 10),
+          strengthAt: () => 0,
+        },
+        cameraView,
+        TRAIL_PARAMS,
+      )
     },
 
     setQuality(next) {

@@ -234,6 +234,14 @@ export interface Explosions {
     cameraForward: THREE.Vector3,
   ): void
   setQuality(quality: QualitySettings): void
+  /**
+   * 板を全部、見える状態でカメラの前に置く（不透明度 0）。**描画の命令を先に組むため。**
+   *
+   * 材質は初めて描くときに組まれる。段 29 で材質の種類が増え、実機（Intel Xe-2LPG）で
+   * **最初の撃墜の 0.55 秒後に 0.4〜0.55 秒止まった**（段 29 の前は最長 50〜117 ms）。
+   * 起動時にこれを呼んで 1 度描き、次の `update()` で元に戻す
+   */
+  prewarm(cameraPosition: THREE.Vector3, cameraForward: THREE.Vector3): void
   dispose(): void
 }
 
@@ -242,6 +250,7 @@ const NOT_ENABLED: Explosions = {
   drawn: 0,
   update() {},
   setQuality() {},
+  prewarm() {},
   dispose() {},
 }
 
@@ -254,6 +263,8 @@ const blobCenter = new THREE.Vector3()
 // `scratch` に入れて渡すと「位置 − カメラの位置」に書き換わる。2026-08-21 の最初の
 // 実装からこの形で、破片は 1 度も画面に出ていなかった（段 29e）
 const shardCenter = new THREE.Vector3()
+// 描画の命令を先に組むときに板を置く所（`prewarm`）
+const warmAt = new THREE.Vector3()
 
 /**
  * near 面を跨がない半径を返す。
@@ -623,6 +634,23 @@ export function createExplosions(
         for (const shard of s.shards) shard.visible = false
       }
       drawn = count
+    },
+
+    prewarm(cameraPosition, cameraForward) {
+      const s = slot(0)
+      warmAt.copy(cameraPosition).addScaledVector(cameraForward, 300)
+      const meshes = [s.hot, s.core, s.fireball, s.smoke, ...s.shards]
+      for (const b of [...(s.ball === null ? [] : [s.ball]), ...s.blobs]) meshes.push(b.mesh, b.fire)
+      for (const mesh of meshes) {
+        mesh.position.copy(warmAt)
+        mesh.scale.setScalar(10)
+        mesh.visible = true
+        const handle = radialSpriteHandle(mesh.material as THREE.Material)
+        if (handle !== undefined) handle.setOpacity(0)
+      }
+      for (const b of [...(s.ball === null ? [] : [s.ball]), ...s.blobs]) {
+        b.sprite.setState({ opacity: 0, heat: 1, seed: 0, age: 0 })
+      }
     },
 
     setQuality(next) {

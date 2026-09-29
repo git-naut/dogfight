@@ -269,7 +269,28 @@ export async function createNodePipeline(
   // 重ねる。GLSL 経路は場面のパスで描いたまま
   const overlayScene = new webgpu.Scene()
   overlayScene.add(views.explosions.object)
-  const overlay = createOverlayPass(overlayScene, camera)
+  const { node: overlay, drawOnce: drawOverlayOnce } = createOverlayPass(overlayScene, camera)
+
+  /**
+   * 爆発の材質を先に組む（段 29 の締め）。**全部の板を不透明度 0 で、爆発のパスの
+   * 描画先へ 1 度描く。**材質は初めて描くときに組まれるので、何もしないと最初の撃墜で
+   * 組む待ちが出る。実機（Intel Xe-2LPG）で撃墜の 0.55 秒後に 0.4〜0.55 秒止まった。
+   *
+   * 描画先は毎フレーム消されるので絵に残らない。場面のパスと雲の履歴には触らないので、
+   * キャプチャの絵も動かない。**本番と同じパスの `updateBefore` を通して描く**ので、
+   * 同じ命令が組まれる
+   */
+  function prewarmExplosions(): void {
+    const forward = camera.getWorldDirection(new THREE.Vector3())
+    views.explosions.prewarm(camera.position, forward)
+    views.explosionTrails.prewarm(camera.position, forward)
+    // 本番と同じくパスの `updateBefore` を通して描く（`createOverlayPass` の注記）
+    drawOverlayOnce(renderer)
+    // 元に戻す。空の源で更新すれば、全部の枠が隠れる
+    const none = { length: 0, explosionAt: () => { throw new Error('爆発は無い') } }
+    views.explosions.update(none, 0, camera.position, forward)
+    views.explosionTrails.update(none, 0, camera.position, forward)
+  }
 
   // 機体の影。**投げ手の側で `castShadow` を立てる。**光の側は
   // `buildNodePipeline` が組み立てのあとで立てる。
@@ -422,6 +443,7 @@ export async function createNodePipeline(
     lutNode: atmosphere.context.lutNode,
   })
   const pipeline = built.pipeline
+  prewarmExplosions()
 
   const gpuTimer: GpuTimer = createGpuTimer(backend)
 

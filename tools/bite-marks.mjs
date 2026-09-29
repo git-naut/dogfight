@@ -756,4 +756,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/explosionTrails.test.ts',
     why: '近い撃墜で白い筋がカメラの手前を横切り、HUD の中央まで覆う',
   },
+  {
+    id: 'explosion-prewarm-invisible',
+    kind: '条件の固定',
+    file: 'src/render/weapons/explosions.ts',
+    find: '        mesh.scale.setScalar(10)\n        mesh.visible = true\n',
+    replace: '        mesh.scale.setScalar(10)\n        mesh.visible = false\n',
+    expect: 'tests/render/explosionPrewarm.test.ts',
+    lesson: '材質は初めて描くときに組まれ、最初の撃墜で画面が半秒止まった',
+  },
 ]

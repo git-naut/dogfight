@@ -131,10 +131,14 @@ export function createScenePass(
  * 爆発の無い画素まで「覆われている」になり、絵が真っ黒になる。パスを描く間だけ
  * 消去色を透明の黒へ替えて、終わったら戻す
  */
-export function createOverlayPass(scene: Scene, camera: Camera): Node<'vec4'> {
+export function createOverlayPass(
+  scene: Scene,
+  camera: Camera,
+): { node: Node<'vec4'>; drawOnce: (renderer: unknown) => void } {
   const overlayPass = pass(scene, camera) as unknown as {
     updateBefore(frame: { renderer: ClearColorOwner }): unknown
     getTextureNode(name?: string): Node<'vec4'>
+    renderTarget: unknown
   }
   const draw = overlayPass.updateBefore.bind(overlayPass)
   const color = new Color()
@@ -149,7 +153,16 @@ export function createOverlayPass(scene: Scene, camera: Camera): Node<'vec4'> {
       renderer.setClearColor(color, alpha)
     }
   }
-  return overlayPass.getTextureNode()
+  // **パスを 1 度だけ描く口も渡す。**起動時に爆発の材質を先に組むとき
+  // （`nodeScene.ts` の `prewarmExplosions`）、本番と同じ `updateBefore` を通す。
+  // 描画先へ `renderer.render` を直に呼んだ最初の版は、組まれる命令がわずかに違い、
+  // 以後もそれが使われて `hud-mission-failed` の尾が 42 画素・1 階調動いた
+  return {
+    node: overlayPass.getTextureNode(),
+    drawOnce: (renderer) => {
+      overlayPass.updateBefore({ renderer: renderer as ClearColorOwner })
+    },
+  }
 }
 
 interface ClearColorOwner {

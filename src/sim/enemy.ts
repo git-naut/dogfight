@@ -3,7 +3,6 @@ import { Quat } from './quat'
 import { airDensity } from './isa'
 import { trimCondition } from './flightModel'
 import { Aircraft, type AircraftSample, type StepOptions } from './aircraft'
-import { AIRCRAFT_INTENSITY } from './combatant'
 import type { Combatant, Tracked } from './combatant'
 import { FighterAi, type AiState } from './ai/fighter'
 import { Gun, ENEMY_BULLET_POOL, ENEMY_MAGAZINE, MUZZLE_OFFSET } from './weapons/gun'
@@ -88,8 +87,10 @@ const up = new Vec3()
 const BODY_RIGHT = new Vec3(1, 0, 0)
 
 export class Enemy implements Combatant {
-  /** 熱の強さ。機体の排気を 1 とする */
-  readonly intensity = AIRCRAFT_INTENSITY
+  /** 熱の強さ。機体の排気を 1 とし、アフターバーナーで上がる（段 30b） */
+  get intensity(): number {
+    return this.aircraft.intensity
+  }
 
   readonly aircraft: Aircraft
   integrity: number

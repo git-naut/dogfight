@@ -774,4 +774,13 @@ export const BITE_MARKS = [
     expect: 'tests/sim/augmentation.test.ts',
     why: 'アフターバーナーの点く境目が動くと、炎の見え方と熱源（段 30b）が一緒にずれる',
   },
+  {
+    id: 'afterburner-heat-none',
+    kind: '定数の摂動',
+    file: 'src/sim/combatant.ts',
+    find: 'export const AFTERBURNER_HEAT_GAIN = 0.3',
+    replace: 'export const AFTERBURNER_HEAT_GAIN = 0',
+    expect: 'tests/sim/exhaustIntensity.test.ts',
+    why: 'アフターバーナーで熱が上がらないと、焚いたままでも遅れたフレアが効き、駆け引きが消える',
+  },
 ]

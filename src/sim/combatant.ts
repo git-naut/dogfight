@@ -1,5 +1,6 @@
 import type { Vec3 } from './vec3'
 import type { Quat } from './quat'
+import { augmentation } from './flightModel'
 
 /**
  * 撃たれる側。
@@ -56,9 +57,30 @@ export interface HeatSource {
 /**
  * 機体の熱の強さ。これを 1 として、ほかの熱源を測る。
  *
- * エンジンの排気。アフターバーナーで増えるはずだが、そこまでは作っていない。
+ * エンジンの排気。**アフターバーナーを焚いていないときの値。**焚いたときは
+ * `exhaustIntensity` で上がる（段 30b）
  */
 export const AIRCRAFT_INTENSITY = 1
+
+/**
+ * アフターバーナー全開で熱がどれだけ上がるか。全開の熱は 1 + この値。
+ *
+ * **1.5 の手前に崖がある。**試験機の熱を振ってフレアの効き方を測った
+ * （`tests/sim/flare.test.ts`）。1.2〜1.3 で真後ろ 2.0 秒と斜め後方 1.5 秒が効かなく
+ * なり、1.5 では真後ろが 0.5 秒だけ、2 以上ではほぼ効かない。0.3 なら、早めに出した
+ * フレアは今までどおり効き、焚いたままだと遅れが許されない。敵 AI も離脱でスロットルを
+ * 1 にするので、逃げる敵にもミサイルが当たりやすくなる
+ */
+export const AFTERBURNER_HEAT_GAIN = 0.3
+
+/**
+ * 排気の熱の強さ。スロットル 0.85 まで 1、全開で 1.3
+ *
+ * @param throttle エンジンのスロットル 0..1（入力に遅れて追いつく方の値）
+ */
+export function exhaustIntensity(throttle: number): number {
+  return AIRCRAFT_INTENSITY * (1 + AFTERBURNER_HEAT_GAIN * augmentation(throttle))
+}
 
 export interface Tracked extends HeatSource {
   /** 姿勢。当たり判定のカプセルを機体座標へ戻すのに使う */

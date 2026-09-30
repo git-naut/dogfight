@@ -1,5 +1,5 @@
 import { Vec3 } from './vec3'
-import { AIRCRAFT_INTENSITY } from './combatant'
+import { exhaustIntensity } from './combatant'
 import { Quat } from './quat'
 import { GRAVITY, airDensity, dynamicPressure, speedOfSound } from './isa'
 import {
@@ -243,8 +243,15 @@ export class Aircraft {
    *
    * 敵 AI が追う相手として自機を渡すのにも要る。墜落した相手は追わない。
    */
-  /** 熱の強さ。機体の排気を 1 とする。シーカーが読む */
-  readonly intensity = AIRCRAFT_INTENSITY
+  /**
+   * 熱の強さ。機体の排気を 1 とする。シーカーが読む。
+   *
+   * **アフターバーナーで上がる**（段 30b、全開で 1.3）。エンジンのスロットルは入力に
+   * 遅れて追いつくので、焚き始めてから熱が上がるまでにも遅れがある
+   */
+  get intensity(): number {
+    return exhaustIntensity(this.throttle)
+  }
 
   get alive(): boolean {
     return this.integrity > 0 && !this.crashed

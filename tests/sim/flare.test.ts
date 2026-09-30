@@ -12,7 +12,7 @@ import {
   flashIntensity,
 } from '@sim/weapons/flare'
 import { Missile } from '@sim/weapons/missile'
-import { AIRCRAFT_INTENSITY } from '@sim/combatant'
+import { AIRCRAFT_INTENSITY, exhaustIntensity } from '@sim/combatant'
 import type { Combatant } from '@sim/combatant'
 import { Quat } from '@sim/quat'
 import { Vec3 } from '@sim/vec3'
@@ -36,7 +36,7 @@ class Plane implements Combatant {
   readonly position = new Vec3()
   readonly velocity = new Vec3()
   readonly orientation = new Quat()
-  readonly intensity = AIRCRAFT_INTENSITY
+  intensity = AIRCRAFT_INTENSITY
   integrity = 60
 
   constructor(position: Vec3, velocity: Vec3) {
@@ -71,8 +71,15 @@ type Outcome = '命中' | '囮' | '外れ'
  * @param angleDeg 180 が真後ろ、0 が正面
  * @param deployAt フレアを出す秒。null なら出さない
  */
-function engage(angleDeg: number, deployAt: number | null, range = 2500): Outcome {
+function engage(
+  angleDeg: number,
+  deployAt: number | null,
+  range = 2500,
+  // 機体の熱。既定はアフターバーナーを焚いていないとき（段 30b）
+  heat = AIRCRAFT_INTENSITY,
+): Outcome {
   const plane = new Plane(new Vec3(0, 3000, 0), new Vec3(0, 0, -250))
+  plane.intensity = heat
   const cm = new Countermeasures()
   const missile = new Missile()
 
@@ -312,6 +319,42 @@ describe('フレアが効く位置関係（強度 4 の実測）', () => {
     // 1 発がミサイル寄りに残る。1 発だったころは 2.0 秒まで効かなかった
     expect(engage(0, 1.5)).toBe('囮')
     expect(engage(0, 2.0)).toBe('囮')
+  })
+})
+
+/**
+ * **アフターバーナー全開では、遅れて出したフレアが効かない**（段 30b）。
+ *
+ * 全開の熱は 1.3（`exhaustIntensity(1)`）。熱を 1.1〜4 に振って表を取った。1.1 は
+ * 熱 1 と同じ、1.2〜1.3 で真後ろ 2.0 秒と斜め後方 1.5 秒が効かなくなり、1.5 で
+ * 真後ろは 0.5 秒だけ、2 以上ではほぼ効かない。1.5 の手前に崖があるので 1.3 を採った。
+ * 早めに出せば今までどおり効き、遅れが許されなくなる
+ */
+describe('アフターバーナー全開でのフレア（熱 1.3 の実測）', () => {
+  const full = exhaustIntensity(1)
+
+  it('全開の熱は 1.3', () => {
+    expect(full).toBeCloseTo(1.3)
+  })
+
+  it('真後ろは 1.5 秒までなら外せるが、2.0 秒では遅い', () => {
+    expect(engage(180, 0.5, 2500, full)).toBe('囮')
+    expect(engage(180, 1.0, 2500, full)).toBe('囮')
+    expect(engage(180, 1.5, 2500, full)).toBe('囮')
+    expect(engage(180, 2.0, 2500, full)).toBe('命中')
+  })
+
+  it('斜め後方 135 度は 1.5 秒で効かなくなる', () => {
+    expect(engage(135, 1.5, 2500, full)).toBe('命中')
+    expect(engage(135, 2.0, 2500, full)).toBe('外れ')
+  })
+
+  it('横・斜め前・正面は焚いていないときと同じ', () => {
+    for (const t of [0.5, 1.0, 1.5, 2.0]) expect(engage(90, t, 2500, full)).toBe('命中')
+    expect(engage(45, 0.5, 2500, full)).toBe('外れ')
+    expect(engage(45, 1.5, 2500, full)).toBe('囮')
+    expect(engage(0, 1.0, 2500, full)).toBe('命中')
+    expect(engage(0, 1.5, 2500, full)).toBe('囮')
   })
 })
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { AircraftModel } from './aircraft/model'
+import { augmentation } from '../sim/flightModel'
 import { createControlSurfaces, type ControlSurfaces } from './aircraft/surfaces'
 import {
   createAfterburner,
@@ -26,8 +27,6 @@ import {
  * 破棄も呼び出し側がモデルに対して行う。
  */
 
-/** この値を超えたらアフターバーナーの炎を出す */
-const AUGMENTATION_THROTTLE = 0.85
 
 export interface AircraftView {
   readonly object: THREE.Object3D
@@ -86,12 +85,8 @@ export function createAircraftView(
     },
 
     setThrottle(value: number) {
-      const t = Math.min(1, Math.max(0, value))
-      // 0.85 を超えた分を 0..1 へ写す。届かなければ 0（消える）
-      const strength =
-        t <= AUGMENTATION_THROTTLE
-          ? 0
-          : (t - AUGMENTATION_THROTTLE) / (1 - AUGMENTATION_THROTTLE)
+      // 0.85 を超えた分を 0..1 へ写す。届かなければ 0（消える）。境目は sim が持つ
+      const strength = augmentation(value)
 
       burner?.setStrength(strength)
 

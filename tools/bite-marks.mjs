@@ -765,4 +765,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/explosionPrewarm.test.ts',
     lesson: '材質は初めて描くときに組まれ、最初の撃墜で画面が半秒止まった',
   },
+  {
+    id: 'augmentation-threshold',
+    kind: '定数の摂動',
+    file: 'src/sim/flightModel.ts',
+    find: 'export const AUGMENTATION_THROTTLE = 0.85',
+    replace: 'export const AUGMENTATION_THROTTLE = 0.8',
+    expect: 'tests/sim/augmentation.test.ts',
+    why: 'アフターバーナーの点く境目が動くと、炎の見え方と熱源（段 30b）が一緒にずれる',
+  },
 ]

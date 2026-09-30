@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { AircraftModel } from './aircraft/model'
 import { createControlSurfaces, type ControlSurfaces } from './aircraft/surfaces'
 import type { AircraftSample } from '../sim/aircraft'
+import { augmentation } from '../sim/flightModel'
 
 /**
  * 敵機の表示。
@@ -25,9 +26,6 @@ import type { AircraftSample } from '../sim/aircraft'
  * 影も落とさない。遮蔽物を自機だけにする Phase 4 の判断を維持する
  * （`aircraftShadow` は機体 1 機を囲む正射影の箱 1 つで組んである）。
  */
-
-/** この値を超えたらアフターバーナーの炎を出す。自機と同じ閾値 */
-const AUGMENTATION_THROTTLE = 0.85
 
 export interface EnemyViews {
   readonly object: THREE.Object3D
@@ -96,13 +94,11 @@ export function createEnemyViews(model: AircraftModel, capacity: number): EnemyV
 
   function setThrottle(target: Instance, value: number): void {
     if (target.externalFlame === null) return
-    const t = Math.min(1, Math.max(0, value))
-    const lit = t > AUGMENTATION_THROTTLE
+    // 境目は sim が持つ（`augmentation`）。0 を超えたら点いている
+    const strength = augmentation(value)
+    const lit = strength > 0
     target.externalFlame.visible = lit
-    if (lit) {
-      const strength = (t - AUGMENTATION_THROTTLE) / (1 - AUGMENTATION_THROTTLE)
-      target.externalFlame.scale.set(1, 1, 0.55 + strength * 0.45)
-    }
+    if (lit) target.externalFlame.scale.set(1, 1, 0.55 + strength * 0.45)
   }
 
   return {

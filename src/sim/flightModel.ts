@@ -328,6 +328,22 @@ export function lagFactor(dt: number, tau: number): number {
 }
 
 /** ジェットエンジンの推力。空気密度にほぼ比例して落ちる。 */
+/**
+ * この値を超えたらアフターバーナーが点く（スロットル 0..1）。
+ *
+ * **sim に置く。**段 30a まで描画の 2 か所（`aircraftView.ts` と `enemyView.ts`）に
+ * 同じ値を二重に定義していた。熱源の強さ（段 30b）も読むので、1 つにした
+ */
+export const AUGMENTATION_THROTTLE = 0.85
+
+/**
+ * アフターバーナーの強さ 0..1。`AUGMENTATION_THROTTLE` までは 0、超えた分を 0..1 へ写す
+ */
+export function augmentation(throttle: number): number {
+  const t = Math.min(1, Math.max(0, throttle))
+  return t <= AUGMENTATION_THROTTLE ? 0 : (t - AUGMENTATION_THROTTLE) / (1 - AUGMENTATION_THROTTLE)
+}
+
 export function availableThrust(throttle: number, density: number): number {
   return AIRCRAFT.maxThrust * throttle * (density / SEA_LEVEL_DENSITY)
 }

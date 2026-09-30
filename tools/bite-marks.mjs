@@ -783,4 +783,13 @@ export const BITE_MARKS = [
     expect: 'tests/sim/exhaustIntensity.test.ts',
     why: 'アフターバーナーで熱が上がらないと、焚いたままでも遅れたフレアが効き、駆け引きが消える',
   },
+  {
+    id: 'flame-flicker-off',
+    kind: '条件の固定',
+    file: 'src/render/aircraft/afterburner.ts',
+    find: '      const flicker = seconds === undefined ? 1 : flameFlicker(seconds)',
+    replace: '      const flicker = 1',
+    expect: 'tests/render/flameFlicker.test.ts',
+    why: '炎が揺れず、アフターバーナーが止まった絵のように見える',
+  },
 ]

@@ -34,8 +34,13 @@ export interface AircraftView {
   readonly triangles: number
   /** 動かせた舵面の枚数。6 枚あるはず */
   readonly surfaceCount: number
-  /** アフターバーナーの強さ 0..1 */
-  setThrottle(value: number): void
+  /**
+   * アフターバーナーの強さ 0..1。
+   *
+   * @param seconds 描画の時刻（`frame × FIXED_DT`）。炎の脈動の位相（段 30e）。
+   *   渡さなければ揺らさない
+   */
+  setThrottle(value: number, seconds?: number): void
   /** 舵面の位置 −1..1。sim の AircraftSample の値をそのまま渡す */
   setControls(elevator: number, aileron: number, rudder: number): void
   /**
@@ -84,11 +89,11 @@ export function createAircraftView(
       gear.visible = down
     },
 
-    setThrottle(value: number) {
+    setThrottle(value: number, seconds?: number) {
       // 0.85 を超えた分を 0..1 へ写す。届かなければ 0（消える）。境目は sim が持つ
       const strength = augmentation(value)
 
-      burner?.setStrength(strength)
+      burner?.setStrength(strength, seconds)
 
       if (externalFlame !== null) {
         externalFlame.visible = strength > 0

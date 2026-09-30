@@ -565,7 +565,8 @@ export async function createScene(
         sample.orientation.w,
       )
       aircraft.object.quaternion.copy(quaternion)
-      aircraft.setThrottle(sample.throttle)
+      // 炎の脈動の位相はフレーム番号から出す。実時間を使うとキャプチャが固定されない
+      aircraft.setThrottle(sample.throttle, frame * FIXED_DT)
       // **風圧の演出へ荷重倍数を渡す。**`AircraftSample.loadFactor` は
       // 「描画側で使う予備」として置かれていた口で、ここが最初の読み手。
       // 実時間ではなく sim の値なので、キャプチャでも絵が決まる

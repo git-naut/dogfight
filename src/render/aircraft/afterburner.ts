@@ -49,8 +49,12 @@ export interface Nozzle {
 
 export interface Afterburner {
   readonly object: THREE.Object3D
-  /** 0..1。0 なら消える */
-  setStrength(value: number): void
+  /**
+   * 0..1。0 なら消える。
+   *
+   * @param seconds 描画の時刻（`frame × FIXED_DT`）。炎の脈動の位相に使う（段 30e）
+   */
+  setStrength(value: number, seconds?: number): void
   dispose(): void
 }
 
@@ -112,6 +116,24 @@ const OUTER: Layer = {
     { at: 0.55, rgb: [0.025, 0.002, 0.0], alpha: 1.0 },
     { at: 1.0, rgb: [0.0, 0.0, 0.0], alpha: 1.0 },
   ],
+}
+
+/**
+ * 炎の脈動の倍率。1 を中心に ±13% の内側で揺れる（段 30e）。
+ *
+ * **燃焼は一定ではない。**アフターバーナーの炎は燃料の噴き方と乱流で、長さも
+ * 明るさも細かく揺れる。周波数の違う正弦波を 3 本重ねて、繰り返しが目に付かない
+ * ようにする。位相は描画の時刻（フレーム番号から出す）から決めるので、キャプチャの
+ * 絵は決定論のまま
+ */
+export function flameFlicker(seconds: number): number {
+  const tau = Math.PI * 2
+  return (
+    1 +
+    0.06 * Math.sin(tau * 11.3 * seconds) +
+    0.04 * Math.sin(tau * 17.9 * seconds + 1.3) +
+    0.03 * Math.sin(tau * 7.1 * seconds + 2.1)
+  )
 }
 
 /** 位置 t の色と不透明度を線形に取る */
@@ -249,15 +271,20 @@ export function createAfterburner(
   return {
     object: group,
 
-    setStrength(value) {
+    setStrength(value, seconds) {
       const t = Math.min(1, Math.max(0, value))
       group.visible = t > 0
       if (t <= 0) return
+      // 脈動は長さと外炎の明るさに掛ける。内炎の不透明度は色を保つので揺らさない。
+      // **外炎の不透明度は 1 で頭打ち。**全開では暗い側にだけ揺れる（平均で 2〜3% 暗い）。
+      // 1 を越えさせると加算の係数が 1 を越える
+      // 秒を渡さなければ揺らさない（倍率 1）
+      const flicker = seconds === undefined ? 1 : flameFlicker(seconds)
       // 点火してすぐは短く、全開で伸びる
-      const length = 0.5 + t * 0.5
+      const length = (0.5 + t * 0.5) * flicker
       for (const child of group.children) child.scale.set(1, 1, length)
       innerMaterial.opacity = 0.75 + t * 0.25
-      outerMaterial.opacity = 0.5 + t * 0.5
+      outerMaterial.opacity = Math.min(1, (0.5 + t * 0.5) * flicker)
     },
 
     dispose() {

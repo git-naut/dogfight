@@ -1410,4 +1410,29 @@ test.describe('node 経路', () => {
     expect(behind, `自機の後ろの爆発が ${behind} 画素しかない。構図が崩れている`).toBeGreaterThan(300)
     expect(over / behind, `自機の後ろの爆発 ${behind} 画素のうち ${over} 画素が自機の上に写った`).toBeLessThan(0.1)
   })
+
+  /**
+   * **太陽の方を向いても、ブルームが画面を覆わない**（段 30e-1）。
+   *
+   * 太陽の円盤は空の何千倍も明るい。閾値を越えた分をそのままぼかすと、162 画素の
+   * 太陽から画面の 23%（214,162 画素）が白く飽和した（`aircraft-vortex-long`、段 22 から
+   * 基準画像に焼き付いていた）。ブルームなしでは 250 以上の画素は 162 だけ
+   */
+  test('太陽を向いてもブルームが画面を覆わない', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
+    test.setTimeout(600_000)
+    const vortex = SCENES.find((sc: { name: string }) => sc.name === 'aircraft-vortex-long')!
+    const params = captureParams(vortex)
+    params.set('gpu', '3')
+    await page.goto(`/dogfight/?${params.toString()}`)
+    await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 300_000 })
+    const png = PNG.sync.read(await page.locator('#viewport').screenshot())
+    let white = 0
+    for (let px = 0; px < png.width * png.height; px++) {
+      const i = px * 4
+      if (png.data[i]! >= 250 && png.data[i + 1]! >= 250 && png.data[i + 2]! >= 250) white++
+    }
+    const share = white / (png.width * png.height)
+    expect(share, `白く飽和した画素が ${white}（${(share * 100).toFixed(1)}%）`).toBeLessThan(0.01)
+  })
 })

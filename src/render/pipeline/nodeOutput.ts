@@ -2,6 +2,8 @@ import { Color, type Texture } from 'three'
 import {
   Fn,
   float,
+  max,
+  min,
   directionToColor,
   luminance,
   mix,
@@ -298,7 +300,11 @@ export interface NodeOutput {
  * 閾値の部分は three の `luminosityHighPass`（`BloomNode.js`）と同じ式。
  * 発光体は `emissive.rgb * gain` を閾値の外で足すので、倍率に比例して滲む
  */
-export function emissiveHighPass(emissive: Node<'vec4'>, gain: Node<'float'>) {
+export function emissiveHighPass(
+  emissive: Node<'vec4'> | null,
+  gain: Node<'float'> | null,
+  cap: number = BLOOM_INPUT_CAP,
+) {
   return Fn(
     ({
       input,
@@ -309,9 +315,18 @@ export function emissiveHighPass(emissive: Node<'vec4'>, gain: Node<'float'>) {
       threshold: Node<'float'>
       smoothWidth: Node<'float'>
     }) => {
-      const v = luminance((input as unknown as { rgb: Node<'vec3'> }).rgb)
+      const rgb = (input as unknown as { rgb: Node<'vec3'> }).rgb
+      const v = luminance(rgb)
       const alpha = smoothstep(threshold, (threshold as unknown as { add(n: Node): Node<'float'> }).add(smoothWidth), v)
-      const passed = mix(vec4(0), input, alpha)
+      // **明るさを上限で頭打ちにしてからぼかす**（段 30e-1）。上限より暗い画素では
+      // 倍率がちょうど 1 なので、太陽の無い絵はビットまで変わらない
+      const scale = min(float(1), float(cap).div(max(v, float(1e-6))))
+      const limited = vec4(
+        (rgb as unknown as { mul(n: Node): Node<'vec3'> }).mul(scale as unknown as Node),
+        (input as unknown as { a: Node<'float'> }).a,
+      )
+      const passed = mix(vec4(0), limited, alpha)
+      if (emissive === null || gain === null) return passed
       const glow = vec4(
         (emissive as unknown as { rgb: { mul(n: Node): unknown } }).rgb.mul(gain) as Node<'vec3'>,
         0,
@@ -320,6 +335,16 @@ export function emissiveHighPass(emissive: Node<'vec4'>, gain: Node<'float'>) {
     },
   )
 }
+
+/**
+ * ブルームへ入れる明るさの上限。**露出前の線形輝度。**
+ *
+ * **太陽の円盤が画面を白く覆った。**太陽は空の何千倍も明るく、閾値（露出前 1.33）を
+ * 越えた分をそのままぼかすと、162 画素の太陽から画面の 23%（214,162 画素）が飽和した
+ * （`aircraft-vortex-long`、段 22 から基準画像に焼き付いていた）。爆発の火の芯（線形輝度
+ * 2.2 前後、白い芯を含む）は下回るように置く。炎の光は発光体の経路で足すので上限を受けない
+ */
+export const BLOOM_INPUT_CAP = 4
 
 export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
   const { atmos, scenePass, cloudNode } = input
@@ -375,11 +400,13 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
   // 0.03 前後で、倍率 40 まで外周 +0.0%、60 で +106.2%（`low-pass-afternoon`）。
   // スロットルが少し動くだけで光ったり消えたりする。`BloomNode.highPassFn` を
   // 差し替えて、合成した絵には閾値を、発光体にはそのまま倍率を掛ける
+  // **上限はいつでも掛ける**ので、発光体が無いときも差し替える（段 30e-1）
   const emissive = input.emissiveNode ?? null
-  if (bloomNode !== null && emissive !== null && input.emissiveGain !== undefined) {
+  if (bloomNode !== null) {
+    const withEmissive = emissive !== null && input.emissiveGain !== undefined
     ;(bloomNode as unknown as { highPassFn: unknown }).highPassFn = emissiveHighPass(
-      emissive,
-      input.emissiveGain,
+      withEmissive ? emissive : null,
+      withEmissive ? (input.emissiveGain as Node<'float'>) : null,
     )
   }
   const bloomed =

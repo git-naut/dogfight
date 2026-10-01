@@ -13,6 +13,7 @@ import { createNodeFireballSprite } from '../weapons/fireballNodes'
 import { createNodeRadialSprite } from '../weapons/spriteNodes'
 import { sceneOcclusion } from '../weapons/sceneOcclusion'
 import { createNodeTrailMaterial } from '../weapons/trailNodes'
+import { createNodeVaporMaterial } from '../aircraft/vaporNodes'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
 import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
 import { SHADOW_EXTENT } from '../clouds/cloudsPass'
@@ -259,6 +260,8 @@ export async function createNodePipeline(
     material: toNodeAircraftMaterial(renderer, materialDetail, canopyClearcoat),
     ...(materialDetail !== 'none' ? { prepareModel: bakeAircraftSpace } : {}),
     ...(bloomEmissive ? { flameMaterial: toNodeFlameMaterial(renderer) } : {}),
+    // ベイパーコーンはノイズで雲や靄のように揺らす（段 30f の手直し）
+    vaporMaterial: createNodeVaporMaterial,
     // 爆発の火の玉。ノイズで輪郭が揺らぎ、橙から煤へ冷める（段 29b）
     fireball: () => createNodeFireballSprite(explosionOcclusion),
   })

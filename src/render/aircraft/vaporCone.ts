@@ -38,14 +38,47 @@ function smooth(a: number, b: number, x: number): number {
 
 export interface VaporCone {
   readonly object: THREE.Object3D
-  /** 0..1。0 なら隠す */
-  setStrength(value: number): void
+  /**
+   * 0..1。0 なら隠す。
+   *
+   * @param seconds 描画の時刻（`frame × FIXED_DT`）。模様を流す位相（node 経路）
+   */
+  setStrength(value: number, seconds?: number): void
   dispose(): void
 }
 
-export function createVaporCone(): VaporCone {
+/**
+ * ベイパーコーンの材質。**node 経路は差し替える**（`vaporNodes.ts`、ノイズで雲や靄の
+ * ように揺らす）。既定は頂点の色で濃さを置いた滑らかな膜（GLSL 経路）
+ */
+export interface VaporMaterial {
+  readonly material: THREE.Material
+  /** 濃さ 0..1 と描画の時刻を渡す */
+  setState(strength: number, seconds: number): void
+}
+
+export type VaporMaterialFactory = () => VaporMaterial
+
+export function createGlVaporMaterial(): VaporMaterial {
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+  return {
+    material,
+    setState(strength) {
+      material.opacity = VAPOR.opacity * strength
+    },
+  }
+}
+
+export function createVaporCone(makeMaterial: VaporMaterialFactory = createGlVaporMaterial): VaporCone {
   const positions: number[] = []
   const colors: number[] = []
+  const uvs: number[] = []
   const indices: number[] = []
   for (let ring = 0; ring <= VAPOR.rings; ring++) {
     // t = 0 が先（機首側）、1 が底（主翼側）
@@ -61,6 +94,8 @@ export function createVaporCone(): VaporCone {
       // 円周の向きで濃さを揺らし、筋状のむらを付ける。一様な膜は泡に見える
       const streak = 0.55 + 0.45 * Math.abs(Math.sin(5 * a + 1) * Math.sin(3 * a + 2.3))
       colors.push(1, 1, 1, alpha * streak)
+      // u は円周（0..1）、v は長さ（先 0、底 1）。node 経路のノイズが読む
+      uvs.push(seg / VAPOR.segments, t)
     }
   }
   const stride = VAPOR.segments + 1
@@ -73,16 +108,12 @@ export function createVaporCone(): VaporCone {
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
   geometry.setIndex(indices)
   geometry.computeBoundingSphere()
 
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    vertexColors: true,
-    transparent: true,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  })
+  const made = makeMaterial()
+  const material = made.material
   const mesh = new THREE.Mesh(geometry, material)
   mesh.name = 'vapor-cone'
   mesh.frustumCulled = false
@@ -92,10 +123,10 @@ export function createVaporCone(): VaporCone {
 
   return {
     object: mesh,
-    setStrength(value) {
+    setStrength(value, seconds = 0) {
       const v = Math.min(1, Math.max(0, value))
       mesh.visible = v > 0
-      material.opacity = VAPOR.opacity * v
+      made.setState(v, seconds)
     },
     dispose() {
       geometry.dispose()

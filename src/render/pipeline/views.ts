@@ -1,5 +1,6 @@
 import type { Scene } from 'three'
 import { createAircraftView, type AircraftView } from '../aircraftView'
+import type { VaporMaterialFactory } from '../aircraft/vaporCone'
 import type { FlameMaterialFactory } from '../aircraft/afterburner'
 import type { FireballSpriteFactory } from '../weapons/fireballNodes'
 import {
@@ -111,6 +112,8 @@ export interface SceneViewsInput {
    * （`nodeFlameMaterial.ts`）。渡さなければ原本のまま
    */
   flameMaterial?: FlameMaterialFactory
+  /** ベイパーコーンの材質の作り手。node 経路はノイズで雲や靄のように揺らす版を差す */
+  vaporMaterial?: VaporMaterialFactory
   /**
    * 爆発の火の玉の板の作り手（段 29b）。**node 経路だけが渡す**
    * （`fireballNodes.ts`）。渡さなければ従来の円形スプライトの火球
@@ -139,6 +142,7 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
 
   const aircraft: AircraftView = createAircraftView(aircraftModel, {
     ...(input.flameMaterial !== undefined ? { flameMaterial: input.flameMaterial } : {}),
+    ...(input.vaporMaterial !== undefined ? { vaporMaterial: input.vaporMaterial } : {}),
     // **判定道具の上書きが勝つ**（`?vapor=`）。組み立てのときに決まる
     vaporCone: options.vaporCone ?? quality.vaporCone,
   })

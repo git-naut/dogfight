@@ -1,7 +1,12 @@
 import * as THREE from 'three'
 import type { AircraftModel } from './aircraft/model'
 import { augmentation } from '../sim/flightModel'
-import { createVaporCone, vaporStrength, type VaporCone } from './aircraft/vaporCone'
+import {
+  createVaporCone,
+  vaporStrength,
+  type VaporCone,
+  type VaporMaterialFactory,
+} from './aircraft/vaporCone'
 import { createControlSurfaces, type ControlSurfaces } from './aircraft/surfaces'
 import {
   createAfterburner,
@@ -42,8 +47,12 @@ export interface AircraftView {
    *   渡さなければ揺らさない
    */
   setThrottle(value: number, seconds?: number): void
-  /** マッハ数。音速の近くでベイパーコーンを出す（段 30f） */
-  setMach(mach: number): void
+  /**
+   * マッハ数。音速の近くでベイパーコーンを出す（段 30f）。
+   *
+   * @param seconds 描画の時刻（`frame × FIXED_DT`）。膜の模様を流す位相
+   */
+  setMach(mach: number, seconds?: number): void
   /** 舵面の位置 −1..1。sim の AircraftSample の値をそのまま渡す */
   setControls(elevator: number, aileron: number, rudder: number): void
   /**
@@ -61,6 +70,8 @@ export interface AircraftViewOptions {
   flameMaterial?: FlameMaterialFactory
   /** ベイパーコーンを描くか（段 30f）。既定は false */
   vaporCone?: boolean
+  /** ベイパーコーンの材質の作り手。node 経路はノイズで揺らす版を差す */
+  vaporMaterial?: VaporMaterialFactory
 }
 
 export function createAircraftView(
@@ -77,7 +88,8 @@ export function createAircraftView(
       : null
   if (burner !== null) model.object.add(burner.object)
   // ベイパーコーン。音速の近くでだけ見える（段 30f）
-  const vapor: VaporCone | null = options.vaporCone === true ? createVaporCone() : null
+  const vapor: VaporCone | null =
+    options.vaporCone === true ? createVaporCone(options.vaporMaterial) : null
   if (vapor !== null) model.object.add(vapor.object)
   const gear = model.gear
 
@@ -97,8 +109,8 @@ export function createAircraftView(
       gear.visible = down
     },
 
-    setMach(mach: number) {
-      vapor?.setStrength(vaporStrength(mach))
+    setMach(mach: number, seconds?: number) {
+      vapor?.setStrength(vaporStrength(mach), seconds)
     },
 
     setThrottle(value: number, seconds?: number) {

@@ -6,7 +6,8 @@ import type { LookOffset } from '../input/mouseLook'
  * 追従カメラ。
  *
  * 速度感の大半はここで作る。機体に剛結すると動きが読めず、逆に遅らせすぎると
- * 操作が鈍く感じる。指数ラグで少し遅れて追い、速度に応じて画角を広げる。
+ * 操作が鈍く感じる。機体まわりの向きだけ指数ラグで少し遅れて追い、速いほど画角を
+ * 狭めて機体を近く大きく見せる。
  *
  * 平滑化は 1 - exp(-dt/τ) で書く。単純に係数を掛けるとフレームレートで
  * 追従の速さが変わってしまう。
@@ -28,7 +29,13 @@ import type { LookOffset } from '../input/mouseLook'
  * | 後方 23 m・上 6.8 m、画角 60→78° | 27.7%・66.5% | — |
  * | 後方 15.5 m・上 4.4 m、画角 60→78° | 44.4%・69.4% | 40.8%・73.4% |
  * | 後方 15.5 m・上 3.8 m、画角 50→68° | 54.5%・68.5% | 49.7%・72.3% |
- * | **後方 15.5 m・上 3.0 m、画角 50→38°（いま）** | **69.5%・64.7%** | **75.0%・71.0%** |
+ * | 後方 15.5 m・上 3.0 m、画角 50→38° | 69.5%・64.7% | 75.0%・71.0% |
+ *
+ * **この表はキャプチャ（`snap`、遅れ無し）で測った値。**ライブでは 2026-10-01 まで
+ * 世界の位置を遅れて追っていて、250 m/s でカメラが 36 m 後ろに残り、翼幅は表の半分
+ * ほどだった（「速くしても近づいて見えない」とユーザーの指摘）。いまは遅れを向きに
+ * だけ掛けるので、ライブも表と同じ距離に写る。画角は 150〜350 m/s で 50→36° に
+ * 狭める（`FOV_SLOW_SPEED`）。数での確かめは `tests/render/chaseCamera.test.ts`
  *
  * **距離を縮める手は捨てた。**後方 13.5 m ではアフターバーナーの内炎の先がカメラから
  * 4.4 m に入り、近い面（5 m）で丸く切れた。近い面を手前へ寄せると遠くの稜線で深度の
@@ -54,13 +61,19 @@ const ROLL_TAU = 0.14
  * 画角 度（縦）。遅いとき `FOV_BASE`、`FOV_FULL_SPEED` で `FOV_FAST`。
  *
  * **速いほど狭めて、機体を近く大きく見せる**（2026-10-01、ユーザーの指示）。以前は速いほど
- * 開いて（60→78°）、速く飛ぶほど機体が小さく写っていた。いまは 50→38° で、巡航と高速の
- * 翼幅が 69.5% と 75.0%（上の `OFFSET` の表）
+ * 開いて（60→78°）、速く飛ぶほど機体が小さく写っていた。いまは 50→36°。ライブで測ると、
+ * 翼幅（13.4 m の両端を投影）は 150 m/s で 51.8%、250 m/s で 61.3%、350 m/s で 74.3%
  */
 const FOV_BASE = 50
-const FOV_FAST = 38
-/** この速度で画角が `FOV_FAST` まで狭まる m/s */
-const FOV_FULL_SPEED = 420
+const FOV_FAST = 36
+/**
+ * 画角が狭まり始める速度と、`FOV_FAST` に届く速度 m/s。間は smoothstep。
+ *
+ * **台本と実戦の速度域（150〜350 m/s）の中で変える。**以前は 0〜420 m/s に t² で
+ * 掛けていて、150→320 m/s で翼幅が 1.14 倍にしか変わらなかった（2026-10-02）
+ */
+const FOV_SLOW_SPEED = 150
+const FOV_FULL_SPEED = 350
 
 export interface ChaseCamera {
   readonly camera: THREE.PerspectiveCamera
@@ -71,9 +84,12 @@ export interface ChaseCamera {
 }
 
 export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera {
+  /** 機体から見たカメラと注視点の位置（世界の向き）。遅れはここにだけ掛ける */
+  const currentOffset = new THREE.Vector3()
+  const currentLook = new THREE.Vector3()
+  const desiredOffset = new THREE.Vector3()
+  const desiredLook = new THREE.Vector3()
   const target = new THREE.Vector3()
-  const desiredPosition = new THREE.Vector3()
-  const desiredTarget = new THREE.Vector3()
   const up = new THREE.Vector3(0, 1, 0)
 
   const q = new THREE.Quaternion()
@@ -102,17 +118,17 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
     }
     offset.applyQuaternion(q)
 
-    desiredPosition.copy(craftPos).add(offset)
+    desiredOffset.copy(offset)
 
     forward.set(0, 0, -1).applyQuaternion(q)
-    desiredTarget.copy(craftPos).addScaledVector(forward, LOOK_AHEAD)
+    desiredLook.copy(forward).multiplyScalar(LOOK_AHEAD)
 
     bodyUp.set(0, 1, 0).applyQuaternion(q)
   }
 
   function applyFov(speed: number): void {
-    const t = Math.min(1, Math.max(0, speed / FOV_FULL_SPEED))
-    const fov = FOV_BASE + (FOV_FAST - FOV_BASE) * t * t
+    const t = Math.min(1, Math.max(0, (speed - FOV_SLOW_SPEED) / (FOV_FULL_SPEED - FOV_SLOW_SPEED)))
+    const fov = FOV_BASE + (FOV_FAST - FOV_BASE) * t * t * (3 - 2 * t)
     if (Math.abs(camera.fov - fov) > 1e-4) {
       camera.fov = fov
       camera.updateProjectionMatrix()
@@ -131,8 +147,14 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
       const kt = 1 - Math.exp(-dt / TARGET_TAU)
       const kr = 1 - Math.exp(-dt / ROLL_TAU)
 
-      camera.position.lerp(desiredPosition, kp)
-      target.lerp(desiredTarget, kt)
+      // **遅れは機体まわりの向きにだけ掛ける。**世界の位置を追わせると、等速でも
+      // 速度 × 約 0.085 秒だけ後ろに残り、250 m/s で 15.5 m の定位置が 36 m に伸びて
+      // 機体が半分の大きさに写っていた（2026-10-02 に測った。キャプチャは snap なので
+      // 基準画像には出ない）。平行移動は機体と一緒にして、距離を速度で変えない
+      currentOffset.lerp(desiredOffset, kp)
+      currentLook.lerp(desiredLook, kt)
+      camera.position.copy(craftPos).add(currentOffset)
+      target.copy(craftPos).add(currentLook)
 
       // ロールを遅らせて追う。即座に合わせると回転が読み取れない
       up.lerp(bodyUp, kr).normalize()
@@ -144,8 +166,10 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
 
     snap(sample, look) {
       computeDesired(sample, look)
-      camera.position.copy(desiredPosition)
-      target.copy(desiredTarget)
+      currentOffset.copy(desiredOffset)
+      currentLook.copy(desiredLook)
+      camera.position.copy(craftPos).add(currentOffset)
+      target.copy(craftPos).add(currentLook)
       up.copy(bodyUp)
       camera.up.copy(up)
       camera.lookAt(target)

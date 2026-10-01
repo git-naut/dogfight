@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { vaporStrength } from '../../src/render/aircraft/vaporCone'
+import { createGlVaporMaterial, vaporStrength } from '../../src/render/aircraft/vaporCone'
 
 describe('ベイパーコーンが出る速さ', () => {
   it('巡航（マッハ 0.73）では出ない', () => {
@@ -18,5 +18,14 @@ describe('ベイパーコーンが出る速さ', () => {
     expect(vaporStrength(1.5)).toBe(0)
     expect(vaporStrength(1.06)).toBeGreaterThan(0)
     expect(vaporStrength(1.06)).toBeLessThan(1)
+  })
+})
+
+describe('ベイパーコーンの濃さ', () => {
+  it('いちばん濃い所でも 2 割しか覆わない', () => {
+    // 0.3 では濃すぎた（2026-10-02、ユーザーの指摘）。node 経路も同じ定数を掛ける
+    const made = createGlVaporMaterial()
+    made.setState(1, 0)
+    expect((made.material as { opacity: number }).opacity).toBeCloseTo(0.2, 6)
   })
 })

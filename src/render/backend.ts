@@ -79,6 +79,16 @@ export interface RenderBackend {
   drain(): void
 
   /**
+   * 積んだ描画を GPU が終えるまで待つ。キャプチャの合図の前に呼ぶ。
+   *
+   * **WebGPU では `drain()` が何もしない**ので、`queue.onSubmittedWorkDone()` で
+   * 待つ。待たずに合図を出すと、収束のぶんの描画が合図のあとに GPU で走り、
+   * Playwright の撮影がその時間を丸ごと被る（CI で撮影の制限 60 秒を越えた。
+   * 0634c54）。WebGL2 は `drain()` で足りる
+   */
+  settle(): Promise<void>
+
+  /**
    * `drain()` が実際に排出できるか。
    *
    * **WebGPU バックエンドでは `getContext()` が `undefined`** なので
@@ -251,6 +261,11 @@ export function createWebGLBackend(renderer: WebGLRenderer): RenderBackend {
     drain() {
       gl.finish()
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+    },
+
+    settle() {
+      this.drain()
+      return Promise.resolve()
     },
 
     // WebGL2 は排出できる。node/WebGPU では false になる

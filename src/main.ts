@@ -104,6 +104,7 @@ const CARRIER_URL = `${import.meta.env.BASE_URL}aircraft/nimitz.glb`
 const hook = installTestHook({
   frame: 0,
   captureReady: false,
+  captureSettled: false,
   seed: DEFAULT_SEED,
   droppedSteps: 0,
   backend: '',
@@ -808,9 +809,19 @@ async function main(): Promise<void> {
     }
 
     publish(world, world.frame)
-    hook.captureReady = true
     finishBoot()
+    hook.captureReady = true
     document.body.dataset['captureReady'] = '1'
+    // **GPU が描き終えたら 2 つ目の合図を出す。**WebGPU では `view.render()` は命令を
+    // 積むだけで、収束のぶんの描画は合図のあとに GPU で走る。その間は画面のフレームが
+    // 進まず、`toHaveScreenshot` の「要素が安定する」（2 フレーム）の待ちがそれを丸ごと
+    // 被った。手元で 5〜30 秒、CI では制限 60 秒を越えて 9 本が落ちた（0634c54、
+    // run 36900767886・36902850751）。ページの中で 2 フレーム待つ手は効かなかった。
+    // `captureReady` に待ちを入れると撮影しない検査まで 1 本 6〜12 秒伸びたので分けた
+    void view.backend.settle().then(() => {
+      hook.captureSettled = true
+      document.body.dataset['captureSettled'] = '1'
+    })
     return
   }
 

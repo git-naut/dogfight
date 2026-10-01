@@ -837,4 +837,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/vaporCone.test.ts',
     why: 'ベイパーコーンの膜が濃く写る',
   },
+  {
+    id: 'capture-settle-skipped',
+    kind: '文の削除',
+    file: 'src/render/pipeline/nodeBackend.ts',
+    find: '      await internals.device?.queue.onSubmittedWorkDone()\n',
+    replace: '',
+    expect: 'tests/render/nodeBackend.test.ts',
+    why: 'キャプチャの合図が GPU の描き終わりより先に出て、撮影が収束の描画を待ち CI で 60 秒を越える',
+  },
 ]

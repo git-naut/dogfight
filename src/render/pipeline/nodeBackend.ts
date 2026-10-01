@@ -24,6 +24,7 @@ import { createNodeTimer } from './nodeTimer'
 interface NodeBackendInternals {
   isWebGPUBackend?: boolean
   gl?: WebGL2RenderingContext | null
+  device?: { queue: { onSubmittedWorkDone(): Promise<undefined> } } | null
 }
 
 export function createNodeBackend(renderer: Renderer): RenderBackend {
@@ -76,6 +77,15 @@ export function createNodeBackend(renderer: Renderer): RenderBackend {
       if (gl === null) return
       gl.finish()
       gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+    },
+
+    async settle() {
+      if (gl !== null) {
+        this.drain()
+        return
+      }
+      // 装置は初期化のあとに入るので、呼ばれたときに読む
+      await internals.device?.queue.onSubmittedWorkDone()
     },
 
     get cpuSynchronous() {

@@ -133,6 +133,17 @@ export async function capture(page: Page, query: CaptureQuery = {}): Promise<Tes
 }
 
 /**
+ * キャプチャの描画を GPU が終えるまで待つ。**`toHaveScreenshot` の前に呼ぶ。**
+ *
+ * `capture()` が返る時点では、WebGPU の収束のぶんの描画がまだ GPU に積まれている。
+ * そのまま `toHaveScreenshot` を呼ぶと、「要素が安定する」待ちがそれを被り、
+ * CI で制限 60 秒を越えた（0634c54、9 本）。この待ちはテスト全体の制限だけで縛る
+ */
+export async function waitCaptureSettled(page: Page): Promise<void> {
+  await page.waitForSelector('body[data-capture-settled="1"]', { state: 'attached' })
+}
+
+/**
  * ライブループを開いて、最初のフレームが出るまで待つ。
  *
  * goto の直後に DOM を見てはいけない。大気の LUT の読み込みとシェーダの

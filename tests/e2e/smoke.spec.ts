@@ -10,6 +10,7 @@ import {
   openLive,
   readHook,
   waitBudgetMs,
+  waitCaptureSettled,
   type TestHook,
 } from './harness'
 import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
@@ -1341,6 +1342,7 @@ test.describe('スクリーンショット回帰', () => {
       // が project 名で判定していて、主 project が node 経路になったのに
       // false を返していた（`harness.ts`）
       await capture(page, scene)
+      await waitCaptureSettled(page)
       await expect(page.locator('#viewport')).toHaveScreenshot(`${scene.name}.png`)
     })
   }

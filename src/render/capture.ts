@@ -511,6 +511,15 @@ function clampNumber(
 export interface TestHook {
   frame: number
   captureReady: boolean
+  /**
+   * キャプチャの描画を GPU が終えた。`captureReady` のあとに立つ。
+   *
+   * **撮影の前にだけ待つ。**WebGPU では `captureReady` の時点で収束のぶんの描画が
+   * まだ GPU に積まれていて、`toHaveScreenshot` の「要素が安定する」待ちがそれを
+   * 丸ごと被り、CI で制限 60 秒を越えた（0634c54）。フックを読むだけの検査まで
+   * 待たせると 1 本 6〜12 秒伸びたので、合図を 2 つに分けた
+   */
+  captureSettled: boolean
   seed: number
   droppedSteps: number
   /** 描画バックエンドの名前。`webgl` / `node-webgl` / `node-webgpu` */

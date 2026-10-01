@@ -107,6 +107,43 @@ describe('node 経路のバックエンド', () => {
     expect(log.reads).toBe(1)
   })
 
+  it('WebGPU の settle は GPU が積んだ作業を終えるまで待つ', async () => {
+    // **キャプチャの合図の前に呼ぶ。**待たないと収束のぶんの描画が合図のあとに
+    // 走り、撮影がその時間を被って CI で 60 秒を越えた（0634c54）
+    let done = 0
+    let release: () => void = () => {}
+    const device = {
+      queue: {
+        onSubmittedWorkDone: () =>
+          new Promise<undefined>((resolve) => {
+            release = () => {
+              done++
+              resolve(undefined)
+            }
+          }),
+      },
+    }
+    const backend = createNodeBackend(scripted({ isWebGPUBackend: true, device }).renderer)
+    let settled = false
+    const waiting = backend.settle().then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    release()
+    await waiting
+    expect(done).toBe(1)
+    expect(settled).toBe(true)
+  })
+
+  it('node/WebGL2 の settle は読み戻しで排出する', async () => {
+    const { gl, log } = fakeGl()
+    const backend = createNodeBackend(scripted({ gl }).renderer)
+    await backend.settle()
+    expect(log.finished).toBe(1)
+    expect(log.reads).toBe(1)
+  })
+
   it('`kind` が node-webgl でもコンテキストが無ければ版は 0', () => {
     // **ここが言い換えの見張り。**`kind` から導くとこのケースが 2 になる
     const fake = scripted({})

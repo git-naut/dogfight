@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { SCENES } from './scenes.mjs'
-import { capture } from './harness'
+import { capture, waitCaptureSettled } from './harness'
 
 /**
  * 画素の逆テスト。
@@ -39,6 +39,7 @@ test.describe('基準画像の逆テスト', () => {
     for (const toggle of scene.watches ?? []) {
       test(`${scene.name} は ${toggle} を切ると落ちる`, async ({ page }) => {
         await capture(page, { ...scene, [toggle]: false })
+        await waitCaptureSettled(page)
         let failed = false
         try {
           await expect(page.locator('#viewport')).toHaveScreenshot(`${scene.name}.png`, {

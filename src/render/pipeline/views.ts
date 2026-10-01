@@ -139,6 +139,8 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
 
   const aircraft: AircraftView = createAircraftView(aircraftModel, {
     ...(input.flameMaterial !== undefined ? { flameMaterial: input.flameMaterial } : {}),
+    // **判定道具の上書きが勝つ**（`?vapor=`）。組み立てのときに決まる
+    vaporCone: options.vaporCone ?? quality.vaporCone,
   })
   aircraft.object.visible = options.showAircraft ?? true
   scene.add(aircraft.object)

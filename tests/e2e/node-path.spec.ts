@@ -1435,4 +1435,35 @@ test.describe('node 経路', () => {
     const share = white / (png.width * png.height)
     expect(share, `白く飽和した画素が ${white}（${(share * 100).toFixed(1)}%）`).toBeLessThan(0.01)
   })
+
+  /**
+   * **ベイパーコーンは音速の近くでだけ出る**（段 30f）。
+   *
+   * `low-pass` は高度 220 m を秒速 320 m（マッハ 0.94）から全開で加速する。`level` は
+   * 巡航のマッハ 0.73 で、出てはいけない。どちらも `?vapor=0` との差で数える
+   */
+  test('ベイパーコーンは音速の近くでだけ出る', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
+    test.setTimeout(600_000)
+    const shoot = async (script: string, extra: Record<string, string>) => {
+      const params = captureParams({ script, frame: 240, hour: 16, coverage: 0 })
+      params.set('gpu', '3')
+      params.set('bloom', '0')
+      for (const [k, v] of Object.entries(extra)) params.set(k, v)
+      await page.goto(`/dogfight/?${params.toString()}`)
+      await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 300_000 })
+      return PNG.sync.read(await page.locator('#viewport').screenshot())
+    }
+    const changed = (a: PNG, b: PNG) => {
+      let n = 0
+      for (let px = 0; px < a.width * a.height; px++) {
+        if ([0, 1, 2].some((c) => Math.abs(a.data[px * 4 + c]! - b.data[px * 4 + c]!) > 4)) n++
+      }
+      return n
+    }
+    const fast = changed(await shoot('low-pass', {}), await shoot('low-pass', { vapor: '0' }))
+    const cruise = changed(await shoot('level', {}), await shoot('level', { vapor: '0' }))
+    expect(fast, `遷音速で ${fast} 画素しか変わらない`).toBeGreaterThan(2000)
+    expect(cruise, `巡航で ${cruise} 画素が変わった`).toBe(0)
+  })
 })

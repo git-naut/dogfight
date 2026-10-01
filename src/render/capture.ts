@@ -92,6 +92,8 @@ export interface CaptureConfig {
   materialDetail: MaterialDetail | null
   /** キャノピーの clearcoat を上書きする。`?canopyclearcoat=0|1`。判定道具の口 */
   canopyClearcoat: boolean | null
+  /** ベイパーコーンを上書きする。`?vapor=0|1`。判定道具の口（段 30f） */
+  vaporCone: boolean | null
   /**
    * 場面のパスで法線も書き出すか。`?scenemrt=1`。
    *
@@ -405,6 +407,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       : null,
     materialDetail: readMaterialDetail(params.get('materialdetail')),
     canopyClearcoat: readSwitch(params.get('canopyclearcoat')),
+    vaporCone: readSwitch(params.get('vapor')),
     sceneNormals: params.get('scenemrt') === '1',
     bloomEmissive: readSwitch(params.get('bloomemissive')),
     emissiveGain: params.has('emissivegain')

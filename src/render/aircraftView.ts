@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { AircraftModel } from './aircraft/model'
 import { augmentation } from '../sim/flightModel'
+import { createVaporCone, vaporStrength, type VaporCone } from './aircraft/vaporCone'
 import { createControlSurfaces, type ControlSurfaces } from './aircraft/surfaces'
 import {
   createAfterburner,
@@ -41,6 +42,8 @@ export interface AircraftView {
    *   渡さなければ揺らさない
    */
   setThrottle(value: number, seconds?: number): void
+  /** マッハ数。音速の近くでベイパーコーンを出す（段 30f） */
+  setMach(mach: number): void
   /** 舵面の位置 −1..1。sim の AircraftSample の値をそのまま渡す */
   setControls(elevator: number, aileron: number, rudder: number): void
   /**
@@ -56,6 +59,8 @@ export interface AircraftView {
 export interface AircraftViewOptions {
   /** 炎の材質の作り手。既定は恒等（`afterburner.ts` の `FlameMaterialFactory`） */
   flameMaterial?: FlameMaterialFactory
+  /** ベイパーコーンを描くか（段 30f）。既定は false */
+  vaporCone?: boolean
 }
 
 export function createAircraftView(
@@ -71,6 +76,9 @@ export function createAircraftView(
       ? createAfterburner(model.nozzles, options.flameMaterial ?? keepFlameMaterial)
       : null
   if (burner !== null) model.object.add(burner.object)
+  // ベイパーコーン。音速の近くでだけ見える（段 30f）
+  const vapor: VaporCone | null = options.vaporCone === true ? createVaporCone() : null
+  if (vapor !== null) model.object.add(vapor.object)
   const gear = model.gear
 
   const surfaces: ControlSurfaces = createControlSurfaces(model.surfaces, model.hinges)
@@ -87,6 +95,10 @@ export function createAircraftView(
     setGearDown(down) {
       if (gear === null) return
       gear.visible = down
+    },
+
+    setMach(mach: number) {
+      vapor?.setStrength(vaporStrength(mach))
     },
 
     setThrottle(value: number, seconds?: number) {
@@ -107,6 +119,7 @@ export function createAircraftView(
       // ここで消すと標的まで壊れる。破棄は scene.ts がモデルに対して 1 回。
       // **炎はこの view が作ったもの**なので、ここで捨てる
       burner?.dispose()
+      vapor?.dispose()
     },
   }
 }

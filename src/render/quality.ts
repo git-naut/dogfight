@@ -144,6 +144,11 @@ export interface QualitySettings {
    * （計画書）
    */
   canopyClearcoat: boolean
+  /**
+   * ベイパーコーンを描くか（段 30f）。音速の近く（マッハ 0.88〜1.1）で機体を包む
+   * 白い円錐の膜。24 段 x 32 分割の円錐 1 枚（1,536 三角形）。**組み立てのときに決まる**
+   */
+  vaporCone: boolean
   /** 海面に太陽のスペキュラを乗せるか */
   waterSpecular: boolean
 
@@ -314,6 +319,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainDetailNormals: false,
     materialDetail: 'none',
     canopyClearcoat: false,
+    vaporCone: false,
     waterSpecular: false,
     lodDistanceScale: 0.5,
     aircraftShadowMapSize: 0,
@@ -350,6 +356,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainDetailNormals: true,
     materialDetail: 'none',
     canopyClearcoat: true,
+    vaporCone: true,
     waterSpecular: true,
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
@@ -394,6 +401,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainDetailNormals: true,
     materialDetail: 'procedural',
     canopyClearcoat: true,
+    vaporCone: true,
     waterSpecular: true,
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
@@ -434,6 +442,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     terrainDetailNormals: true,
     materialDetail: 'procedural',
     canopyClearcoat: true,
+    vaporCone: true,
     waterSpecular: true,
     // 1.5 だと三角形が 2.19M になり、シーン予算 1.5M を単独で超える。
     // セル数を 48 へ上げたぶん、切り替え距離は控えめにする

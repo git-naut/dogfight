@@ -263,6 +263,8 @@ export interface SceneOptions {
   materialDetail?: import('../quality').MaterialDetail
   /** キャノピーの clearcoat の上書き。判定道具の口。プリセットの値を踏み潰す */
   canopyClearcoat?: boolean
+  /** ベイパーコーンの上書き。判定道具の口。プリセットの値を踏み潰す（段 30f） */
+  vaporCone?: boolean
   /** 場面のパスで法線も書き出すか。既定は false。SSR の前提（段 27a） */
   sceneNormals?: boolean
   /** 発光体のブルームの上書き。判定道具の口。プリセットの値を踏み潰す */

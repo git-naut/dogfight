@@ -792,4 +792,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/flameFlicker.test.ts',
     why: '炎が揺れず、アフターバーナーが止まった絵のように見える',
   },
+  {
+    id: 'vapor-at-cruise',
+    kind: '定数の摂動',
+    file: 'src/render/aircraft/vaporCone.ts',
+    find: '  return smooth(0.88, 0.95, mach) * (1 - smooth(1.02, 1.1, mach))',
+    replace: '  return smooth(0.5, 0.6, mach) * (1 - smooth(1.02, 1.1, mach))',
+    expect: 'tests/render/vaporCone.test.ts',
+    why: '巡航でもベイパーコーンが出て、機体がいつも白い輪に包まれる',
+  },
 ]

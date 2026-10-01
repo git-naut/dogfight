@@ -801,4 +801,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/vaporCone.test.ts',
     why: '巡航でもベイパーコーンが出て、機体がいつも白い輪に包まれる',
   },
+  {
+    id: 'hud-layout-moved',
+    kind: '定数の摂動',
+    file: 'src/hud/layout.ts',
+    find: '  const speedTape = { x: width * 0.18, centerY: height * 0.5, halfHeight: height * 0.22 }',
+    replace: '  const speedTape = { x: width * 0.19, centerY: height * 0.5, halfHeight: height * 0.22 }',
+    expect: 'tests/hud/layout.test.ts',
+    why: '器へ移すときに位置の式が 1 つでも変わると、基準画像が全部ずれる。元の式との一致を見張る',
+  },
 ]

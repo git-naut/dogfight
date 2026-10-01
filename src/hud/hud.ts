@@ -21,6 +21,13 @@ import {
   type HudReadout,
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
+import {
+  computeLayout,
+  DLZ_BAR_HEIGHT,
+  DLZ_BAR_WIDTH,
+  type HudLayout,
+  type VerticalTapeLayout,
+} from './layout'
 
 /**
  * ヘッドアップディスプレイ。
@@ -109,14 +116,11 @@ const GUN_REFERENCE_RANGE = 300
 const LOCK_BOX_MIN = 11
 const LOCK_BOX_MAX = 90
 
-/**
- * DLZ バーの高さ 画面画素。
- *
+/*
+ * DLZ バーの高さと幅は配置の器が持つ（`layout.ts` の `DLZ_BAR_HEIGHT`）。
  * ロックボックスの右に縦に置く。目盛りは距離で、下が 0、上が `rMax`。
  * 現在の距離を横棒で示す。
  */
-const DLZ_BAR_HEIGHT = 150
-const DLZ_BAR_WIDTH = 7
 
 /**
  * 武装の状態。
@@ -222,6 +226,7 @@ export function createHud(host: HTMLElement): Hud {
   let height = 720
   let dpr = 1
   let onScreen = false
+  let layout: HudLayout = computeLayout(width, height)
   let reticleOnScreen = false
   let lockOnScreen = false
   let dlzShown = false
@@ -247,6 +252,8 @@ export function createHud(host: HTMLElement): Hud {
   )
 
   function applySize(): void {
+    // 画面に固定する要素の位置は器が決める（段 31）
+    layout = computeLayout(width, height)
     canvas.width = Math.max(1, Math.round(width * dpr))
     canvas.height = Math.max(1, Math.round(height * dpr))
     canvas.style.width = `${width}px`
@@ -384,7 +391,7 @@ export function createHud(host: HTMLElement): Hud {
 
   /** 縦の目盛り。速度と高度で共有する */
   function drawVerticalTape(
-    x: number,
+    tape: VerticalTapeLayout,
     value: number,
     minor: number,
     major: number,
@@ -392,8 +399,7 @@ export function createHud(host: HTMLElement): Hud {
     label: string,
     alignRight: boolean,
   ): void {
-    const halfHeight = height * 0.22
-    const centerY = height * 0.5
+    const { x, halfHeight, centerY } = tape
     const perUnit = halfHeight / range
     const dirSign = alignRight ? -1 : 1
 
@@ -444,10 +450,8 @@ export function createHud(host: HTMLElement): Hud {
   }
 
   function drawHeadingTape(headingDeg: number): void {
-    const y = height * 0.11
-    const halfWidth = width * 0.2
+    const { y, halfWidth, centerX } = layout.headingTape
     const perDegree = halfWidth / HEADING_RANGE
-    const centerX = width * 0.5
 
     ctx!.strokeStyle = DIM
     ctx!.lineWidth = 1
@@ -664,8 +668,7 @@ export function createHud(host: HTMLElement): Hud {
     if (lock.state === 'none' || lock.dlz.rMax <= 0) return
     dlzShown = true
 
-    const x = width * 0.66
-    const bottom = height * 0.5 + DLZ_BAR_HEIGHT / 2
+    const { x, bottom } = layout.dlzBar
     const scale = DLZ_BAR_HEIGHT / lock.dlz.rMax
     const yOf = (range: number): number =>
       bottom - Math.min(DLZ_BAR_HEIGHT, Math.max(0, range * scale))
@@ -733,8 +736,7 @@ export function createHud(host: HTMLElement): Hud {
     ctx!.textAlign = 'center'
     ctx!.textBaseline = 'alphabetic'
     ctx!.fillStyle = armament.rounds > 0 ? DIM : WARN
-    const x = width * 0.5
-    const y = height * 0.9
+    const { x, y } = layout.armament
 
     // 残りを帯で見せる。数字より先に減りが目に入る
     const barWidth = 120
@@ -767,8 +769,7 @@ export function createHud(host: HTMLElement): Hud {
   function drawMission(mission: HudMission | null): void {
     if (mission === null) return
 
-    const x = width * 0.06
-    const y = height * 0.08
+    const { x, y } = layout.mission
     const settled = mission.outcome !== 'running'
     const failed = settled && mission.outcome !== 'cleared'
 
@@ -804,9 +805,7 @@ export function createHud(host: HTMLElement): Hud {
     // **置き場所は絵で決めた。**0.24 は仰角 20 度の刻みと重なり、0.58 は
     // 自機の機体と重なった。左寄せの 0.30 なら、ピッチラダーの刻み
     // （中央付近）とも機体（中央下）とも離れる
-    const cx = width * 0.3
-    const cy = height * 0.3
-    const radius = 26
+    const { cx, cy, radius } = layout.threat
 
     ctx!.strokeStyle = WARN
     ctx!.fillStyle = WARN
@@ -849,14 +848,13 @@ export function createHud(host: HTMLElement): Hud {
     ctx!.textBaseline = 'alphabetic'
     ctx!.fillStyle = DIM
 
-    const x = width * 0.18
-    const y = height * 0.78
+    const { x, y } = layout.readouts
     ctx!.fillText(`G ${readout.loadFactor.toFixed(1)}`, x, y)
     ctx!.fillText(`AOA ${readout.angleOfAttackDeg.toFixed(1)}`, x, y + 16)
     ctx!.fillText(`THR ${Math.round(readout.throttle * 100)}%`, x, y + 32)
 
     ctx!.textAlign = 'right'
-    ctx!.fillText(`AGL ${Math.round(readout.aglFt)}`, width * 0.82, y)
+    ctx!.fillText(`AGL ${Math.round(readout.aglFt)}`, layout.agl.x, layout.agl.y)
 
     const warnings: string[] = []
     if (readout.crashed) warnings.push('CRASH')
@@ -873,7 +871,7 @@ export function createHud(host: HTMLElement): Hud {
       ctx!.font = FONT
       ctx!.fillStyle = WARN
       ctx!.textAlign = 'center'
-      ctx!.fillText(warnings.join('  '), width * 0.5, height * 0.7)
+      ctx!.fillText(warnings.join('  '), layout.warnings.x, layout.warnings.y)
     }
   }
 
@@ -923,7 +921,7 @@ export function createHud(host: HTMLElement): Hud {
       drawFlightPath(viewProjection)
 
       drawVerticalTape(
-        width * 0.18,
+        layout.speedTape,
         readout.speedKt,
         SPEED_MINOR,
         SPEED_MAJOR,
@@ -932,7 +930,7 @@ export function createHud(host: HTMLElement): Hud {
         false,
       )
       drawVerticalTape(
-        width * 0.82,
+        layout.altitudeTape,
         readout.altitudeFt,
         ALTITUDE_MINOR,
         ALTITUDE_MAJOR,

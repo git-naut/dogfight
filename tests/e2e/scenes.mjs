@@ -195,6 +195,7 @@ export const SCENES = [
   { name: 'damage-smoke-near', script: 'damage-smoke-near', frame: 720, hour: 16, coverage: 0, watches: ['damageSmoke'] },
   // 敵が回避に入って撒いたフレア。**この 1 枚がフレアの見張り。**
   // **自機のフレアは追従カメラに映らない**（後方 23 m から前を向くので、
+  // （2026-10-01 に寄せる前のカメラ。いまは後方 15.5 m・上 4.4 m、`camera.ts`）
   // 撒いた 0.7 秒後にはカメラの後ろ。旋回しても視線角 155〜173 度のまま）。
   // 実測でフレアの寄与は 1,590 画素・最大 64 階調（`?flares=0` との引き算）。
   // **`FLARE_SALVO_COUNT` 段が縦に並ぶのをこの 1 枚で見張る。**外接 64x47。

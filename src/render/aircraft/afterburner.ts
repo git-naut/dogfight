@@ -263,6 +263,7 @@ export function createAfterburner(
       // 内炎を先に置く。加算の外炎はその上から光を足す
       mesh.renderOrder = i
       // 追従カメラは機体の後方 23 m。視錐台で捨てられると炎が消える
+      // （2026-10-01 に寄せる前のカメラ。いまは後方 15.5 m・上 4.4 m、`camera.ts`）
       mesh.frustumCulled = false
       group.add(mesh)
     }

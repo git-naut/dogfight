@@ -104,6 +104,7 @@ export async function createWebGLPipeline(
   const scene = new THREE.Scene()
   // near 0.5 / far 400,000 だと比が 80 万あり、地形が遠くまで伸びると遠景の
   // 稜線で z ファイティングが出る。追従カメラは機体の 23 m 後方にいるので
+  // （2026-10-01 に寄せる前のカメラ。いまは後方 15.5 m・上 4.4 m、`camera.ts`）
   // near 5 m で切れるものはない。far は地形 48 km と海面 300 km を覆えれば
   // 足りる。比が 4 万になり精度は 20 倍良くなる。
   //

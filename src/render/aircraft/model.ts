@@ -151,6 +151,7 @@ export async function loadAircraftModel(
     node.material = shared.convert(node.material as THREE.Material | THREE.Material[])
 
     // 追従カメラは機体の後方 23 m にいる。視錐台で捨てられると機体が消える
+    // （2026-10-01 に寄せる前のカメラ。いまは後方 15.5 m・上 4.4 m、`camera.ts`）
     node.frustumCulled = false
   })
 

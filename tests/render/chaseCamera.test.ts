@@ -44,8 +44,9 @@ describe('追従カメラ', () => {
     // 世界の位置を指数ラグで追っていたときは、250 m/s で 36.1 m、320 m/s で 41.8 m に伸びた
     for (const speed of [150, 250, 320]) {
       const { distance } = flyStraight(speed, fps)
-      expect(distance, `${speed} m/s`).toBeGreaterThan(15.5)
-      expect(distance, `${speed} m/s`).toBeLessThan(16.2)
+      // 定位置は後方 19.5 m・上 3.8 m（距離 19.9 m）
+      expect(distance, `${speed} m/s`).toBeGreaterThan(19.5)
+      expect(distance, `${speed} m/s`).toBeLessThan(20.3)
     }
   })
 
@@ -54,11 +55,15 @@ describe('追従カメラ', () => {
     const cruise = flyStraight(250)
     const fast = flyStraight(350)
     expect(slow.fov).toBeCloseTo(50, 5)
-    expect(fast.fov).toBeCloseTo(36, 5)
+    expect(fast.fov).toBeCloseTo(42, 5)
     expect(cruise.span).toBeGreaterThan(slow.span)
     expect(fast.span).toBeGreaterThan(cruise.span)
-    // 150→350 m/s で 51.8% → 74.3%（1.43 倍）。以前は 1.14 倍で、近づいて見えなかった
-    expect(fast.span / slow.span).toBeGreaterThan(1.35)
+    // 150→350 m/s で 41.1% → 49.9%（1.21 倍）。0〜420 m/s に掛けていたころは 1.14 倍で、
+    // 近づいて見えなかった
+    expect(fast.span / slow.span).toBeGreaterThan(1.18)
+    // 大きすぎない（15.5 m・50→36° では 51.8% と 74.3% で、大きすぎると言われた）
+    expect(slow.span).toBeLessThan(0.45)
+    expect(fast.span).toBeLessThan(0.55)
   })
 
   it('旋回では向きの遅れが残る', () => {

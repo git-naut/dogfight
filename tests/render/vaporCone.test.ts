@@ -22,10 +22,10 @@ describe('ベイパーコーンが出る速さ', () => {
 })
 
 describe('ベイパーコーンの濃さ', () => {
-  it('いちばん濃い所でも 12% しか覆わない', () => {
-    // 0.3、0.2 と濃すぎた（2026-10-02、ユーザーの指摘 2 回）。node 経路も同じ定数を掛ける
+  it('いちばん濃い所でも 6% しか覆わない', () => {
+    // 0.3、0.2、0.12 と濃すぎた（2026-10-02、ユーザーの指摘 3 回）。node 経路も同じ定数を掛ける
     const made = createGlVaporMaterial()
     made.setState(1, 0)
-    expect((made.material as { opacity: number }).opacity).toBeCloseTo(0.12, 6)
+    expect((made.material as { opacity: number }).opacity).toBeCloseTo(0.06, 6)
   })
 })

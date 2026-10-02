@@ -129,6 +129,10 @@ const tmpQuat = new Quat()
 const tmpForward = new Vec3()
 
 export class Target implements Combatant {
+  /** 機名と撃墜の点数（段 32）。決まった軌跡を飛ぶ標的機 */
+  readonly designation = 'DRONE'
+  readonly points = 200
+
   /** 熱の強さ。機体の排気を 1 とする */
   readonly intensity = AIRCRAFT_INTENSITY
 

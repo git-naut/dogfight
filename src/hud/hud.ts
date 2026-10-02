@@ -17,7 +17,8 @@ import {
 import {
   computeReadout,
   createHudReadout,
-  formatClock,
+  formatScore,
+  formatTimer,
   type HudReadout,
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
@@ -25,6 +26,7 @@ import {
   computeLayout,
   DLZ_BAR_HEIGHT,
   DLZ_BAR_WIDTH,
+  MISSION_LINE,
   type HudLayout,
   type VerticalTapeLayout,
 } from './layout'
@@ -164,6 +166,13 @@ export interface HudMission {
    * `project.ts` が守っている境界）
    */
   outcome: string
+  /** 合計の点数（段 32） */
+  score: number
+  /**
+   * 撃墜の加点の表示。撃墜から 3 秒のあいだだけ入り、それ以外は null（段 32）。
+   * 消える時刻は sim が決める（`ScoreLog.latest`）
+   */
+  kill: { designation: string; points: number } | null
 }
 
 export interface HudLock {
@@ -776,15 +785,21 @@ export function createHud(host: HTMLElement): Hud {
     ctx!.textAlign = 'left'
     ctx!.textBaseline = 'alphabetic'
 
-    // 残り時間。決着したらそこで止まる（`Mission.remainingFrames`）
+    // **参考画像（Ace Combat 7）の左上に合わせる**（段 32）。TIME、SCORE、撃墜の瞬間だけ
+    // TARGET 機名 +点。残り時間は決着したらそこで止まる（`Mission.remainingFrames`）
     ctx!.font = FONT
     ctx!.fillStyle = failed ? WARN : PRIMARY
-    ctx!.fillText(formatClock(mission.remainingFrames), x, y)
+    ctx!.fillText(`TIME ${formatTimer(mission.remainingFrames)}`, x, y)
+    ctx!.fillStyle = PRIMARY
+    ctx!.fillText(`SCORE ${formatScore(mission.score)}`, x, y + MISSION_LINE)
+    if (mission.kill !== null) {
+      ctx!.fillText(`TARGET ${mission.kill.designation} +${mission.kill.points}`, x, y + MISSION_LINE * 2)
+    }
 
-    // 残敵。0 になったら成功
+    // 残敵。0 になったら成功。レーダー（段 34）が入るまで小さく下に残す
     ctx!.font = SMALL_FONT
     ctx!.fillStyle = settled ? (failed ? WARN : PRIMARY) : DIM
-    ctx!.fillText(`ENEMY ${mission.enemiesAlive}`, x, y + 16)
+    ctx!.fillText(`ENEMY ${mission.enemiesAlive}`, x, y + MISSION_LINE * 3)
   }
 
   /**

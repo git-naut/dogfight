@@ -87,6 +87,10 @@ const up = new Vec3()
 const BODY_RIGHT = new Vec3(1, 0, 0)
 
 export class Enemy implements Combatant {
+  /** 機名と撃墜の点数（段 32）。敵は F-16 */
+  readonly designation = 'F-16'
+  readonly points = 1000
+
   /** 熱の強さ。機体の排気を 1 とし、アフターバーナーで上がる（段 30b） */
   get intensity(): number {
     return this.aircraft.intensity
@@ -121,7 +125,7 @@ export class Enemy implements Combatant {
    *
    * 当初は「敵はフレアを持たない」と決めていたが、実測で覆した。自機の
    * フレアは追従カメラ（後方 23 m から前を向く）では 0.7 秒で視界から
-   * （2026-10-01 に寄せる前のカメラ。いまは後方 15.5 m・上 4.4 m、`camera.ts`）
+   * （2026-10-01 に寄せる前のカメラ。いまは後方 19.5 m・上 3.8 m、`camera.ts`）
    * 抜ける。旋回しても視線角 155〜173 度のままで映らない。**絵の見張りを
    * 作れない。**前方の敵が撒くフレアなら正面に写る。
    */

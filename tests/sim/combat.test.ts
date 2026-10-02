@@ -30,6 +30,36 @@ describe('gun-pass — 機銃で標的を落とす', () => {
     expect(w.targets[0]!.integrity).toBeLessThanOrEqual(0)
   })
 
+  it('撃墜で点数が入り、標的機の名前と点数が 3 秒出る（段 32）', () => {
+    // 撃墜は 108 フレーム目（0.9 秒）。標的機は DRONE・200 点
+    const before = runScript(SCRIPTS['gun-pass'], SEC * 0.7)
+    expect(before.combat.score.total).toBe(0)
+    expect(before.combat.score.latest(before.frame)).toBeNull()
+
+    const w = runScript(SCRIPTS['gun-pass'], SEC * 1)
+    expect(w.combat.score.total).toBe(200)
+    expect(w.combat.score.latest(w.frame)).toMatchObject({ frame: 108, designation: 'DRONE', points: 200 })
+
+    // 撃墜から 2.6 秒（3.5 秒の時点）はまだ出ている
+    const shown = runScript(SCRIPTS['gun-pass'], SEC * 3.5)
+    expect(shown.combat.score.latest(shown.frame)).not.toBeNull()
+
+    // 落ちたあとの弾で二重に数えない。撃墜から 3.6 秒（4.5 秒の時点）
+    const later = runScript(SCRIPTS['gun-pass'], SEC * 4.5)
+    expect(later.combat.score.total).toBe(200)
+    expect(later.combat.score.latest(later.frame), '撃墜から 3 秒を過ぎたら消える').toBeNull()
+  })
+
+  it('mission-kill はミッションの中で撃墜し、決着しない（段 32 の基準画像の前提）', () => {
+    // 基準画像 hud-mission-kill は f168 を撮る。そこで加点が出ていて、時計が動いている
+    const w = runScript(SCRIPTS['mission-kill'], 168)
+    expect(w.combat.kills).toBe(1)
+    expect(w.combat.score.total).toBe(200)
+    expect(w.combat.score.latest(w.frame)).toMatchObject({ frame: 108, designation: 'DRONE' })
+    expect(w.enemiesAlive).toBe(1)
+    expect(w.mission?.outcome).toBe('running')
+  })
+
   it('撃墜に要る命中は耐久ぶん。それ以上は数えない', () => {
     const w = runScript(SCRIPTS['gun-pass'], SEC * 5)
     // 落ちたあとの弾は当たらないので、命中は耐久で止まる

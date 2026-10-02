@@ -29,6 +29,9 @@ export const DLZ_BAR_WIDTH = 7
 /** ミサイル警告の輪の半径 画面画素 */
 export const THREAT_RADIUS = 26
 
+/** ミッション欄の行の間隔 画面画素（段 32） */
+export const MISSION_LINE = 16
+
 /** 13px の等幅の字送り（0.6 em）と、11px の字送り */
 export const FONT_ADVANCE = 7.8
 export const SMALL_ADVANCE = 6.6
@@ -77,8 +80,8 @@ const LONGEST = {
   dlzLabel: 5,
   /** 兵装（`GUN 1800`） */
   armament: 8,
-  /** ミッションの残り時間（`10:00`）と敵の数（`ENEMY 8`） */
-  clock: 5,
+  /** ミッションの撃墜の加点（`TARGET F-16 +1000`、3 行の中でいちばん長い）と敵の数（`ENEMY 8`） */
+  target: 17,
   enemies: 7,
   /** 警告（`MISSILE x8`） */
   threatLabel: 10,
@@ -134,12 +137,12 @@ export function computeLayout(width: number, height: number): HudLayout {
     },
     // 兵装。幅 120 の弾数の帯（y + 6）と、その下の数字（基線 y + 24）
     armament: { x: armament.x - 60, y: armament.y + 6, w: 120, h: 21 },
-    // ミッション。残り時間（13px、基線 y）と敵の数（11px、基線 y + 16）
+    // ミッション。TIME / SCORE / TARGET（13px、基線 y から 16 ずつ）と敵の数（11px、4 行目）
     mission: {
       x: mission.x,
       y: mission.y - 11,
-      w: Math.max(LONGEST.clock * FONT_ADVANCE, LONGEST.enemies * SMALL_ADVANCE),
-      h: 11 + 16 + 3,
+      w: Math.max(LONGEST.target * FONT_ADVANCE, LONGEST.enemies * SMALL_ADVANCE),
+      h: 11 + MISSION_LINE * 3 + 3,
     },
     // ミサイル警告。輪（半径 26）と向きの三角（輪 + 10）、上に文字（中央 cy − 48）
     threat: {

@@ -245,6 +245,8 @@ describe('台本越し', () => {
     const w = runScript(SCRIPTS['missile-shot'], SEC * 9.5)
     expect(w.combat.kills).toBe(1)
     expect(w.combat.explosionCount).toBe(2)
+    // ミサイルの撃墜でも点数が入る（段 32）。命中の経路が機銃と別なので、ここでも見る
+    expect(w.combat.score.total).toBeGreaterThan(0)
   })
 
   it('外れたら 1 個も出ない', () => {

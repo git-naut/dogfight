@@ -123,15 +123,34 @@ export function computeReadout(sample: AircraftSample, out: HudReadout): HudRead
 /**
  * フレーム数を `m:ss` へ直す。
  *
- * ミッションの残り時間に使う。**フレームで受け取る。**判定側がフレームで
- * 持っているので（`sim/mission.ts`）、秒へ直すのは表示の直前だけにする。
+ * 結果画面の経過時間に使う。段 31 までは HUD の残り時間もこれだった（段 32 で
+ * `formatTimer` に替えた）。**フレームで受け取る。**判定側がフレームで持っているので
+ * （`sim/mission.ts`）、秒へ直すのは表示の直前だけにする。
  *
- * 切り上げる。残り 0.5 秒を「0:00」と出すと、まだ時間があるのに終わったように
- * 見える。0 になるのは本当に尽きたときだけにしたい。
+ * 切り上げる。残り時間に使っていたとき、残り 0.5 秒を「0:00」と出すと、まだ時間が
+ * あるのに終わったように見えたため。0 になるのは本当に尽きたときだけにしたい。
  */
 export function formatClock(frames: number): string {
   const seconds = Math.ceil(Math.max(0, frames) * FIXED_DT)
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/**
+ * ミッションの残り時間を `m:ss:cc`（1/100 秒まで）にする（段 32、参考画像の `TIME 17:21:64`）。
+ *
+ * 1/100 秒は切り捨てる。残り 0.004 秒を `0:00:01` と出さない
+ */
+export function formatTimer(frames: number): string {
+  const centis = Math.floor(Math.max(0, frames) * FIXED_DT * 100 + 1e-6)
+  const m = Math.floor(centis / 6000)
+  const s = Math.floor(centis / 100) % 60
+  const c = centis % 100
+  return `${m}:${String(s).padStart(2, '0')}:${String(c).padStart(2, '0')}`
+}
+
+/** 点数を 6 桁にする（参考画像の `SCORE 007320`）。6 桁を越えたらそのまま出す */
+export function formatScore(points: number): string {
+  return String(Math.max(0, Math.round(points))).padStart(6, '0')
 }

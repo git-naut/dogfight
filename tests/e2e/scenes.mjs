@@ -221,6 +221,9 @@ export const SCENES = [
   // 切り替わりの見張り。実測で f2284（19.0 秒）に撃墜されるので、
   // その後の f2400 を撮る（キャプチャは入力なしで飛ぶので撃たれる）
   { name: 'hud-mission-failed', script: 'mission-01', frame: 2400, hour: 16, coverage: 0, hud: true, watches: [] },
+  // 撃墜の加点（段 32）。**この 1 枚が `TARGET 機名 +点` の行の見張り。**f108 で標的機を
+  // 落とすので、0.5 秒後の f168 を撮る（3 秒で消える）
+  { name: 'hud-mission-kill', script: 'mission-kill', frame: 168, hour: 16, coverage: 0, hud: true, watches: [] },
   // ミサイル警告。方位の矢印と着弾までの秒。**この 1 枚が警告の見張り。**
   // 真後ろから来るので矢印は真下を指す
   { name: 'missile-warning', script: 'enemy-missile', frame: 600, hour: 16, coverage: 0, hud: true, watches: [] },

@@ -96,4 +96,18 @@ export interface Combatant extends Tracked {
    * 落ちたあとの弾で撃墜数を二重に数えないため、返り値で遷移を見分ける。
    */
   damage(amount: number): boolean
+  /**
+   * 機名。撃墜したときに HUD の `TARGET` の後ろへ出す（段 32）。
+   *
+   * **任意にしてある。**試験用の機体がこの型を多く実装しているので、無ければ
+   * `DEFAULT_DESIGNATION` を使う
+   */
+  readonly designation?: string
+  /** 撃墜したときの点数。無ければ `DEFAULT_POINTS` */
+  readonly points?: number
 }
+
+/** 機名の無い相手を撃墜したときの表示 */
+export const DEFAULT_DESIGNATION = 'TARGET'
+/** 点数の無い相手を撃墜したときの点数 */
+export const DEFAULT_POINTS = 100

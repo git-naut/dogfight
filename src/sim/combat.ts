@@ -1,7 +1,8 @@
 import { Vec3 } from './vec3'
 import type { Rng } from './rng'
 import type { Aircraft, TerrainSampler } from './aircraft'
-import type { Combatant, HeatSource } from './combatant'
+import { DEFAULT_DESIGNATION, DEFAULT_POINTS, type Combatant, type HeatSource } from './combatant'
+import { ScoreLog } from './score'
 import type { InputState } from './input'
 import { Gun, MUZZLE_OFFSET, type Bullet, type BulletSource } from './weapons/gun'
 import {
@@ -168,6 +169,8 @@ export class Combat {
   hits = 0
   /** 撃墜した数 */
   kills = 0
+  /** 撃墜の記録と点数（段 32）。HUD の `SCORE` と撃墜の加点が読む */
+  readonly score = new ScoreLog()
 
   /**
    * いまのフレーム。爆発の寿命の判定に使う。
@@ -326,6 +329,7 @@ export class Combat {
       )
       if (target.damage(MISSILE_DAMAGE)) {
         this.kills++
+        this.recordKill(target)
         this.effects.spawn(
           target.position,
           target.velocity,
@@ -453,6 +457,7 @@ export class Combat {
         // 20mm 弾 1 発で耐久 1
         if (target.damage(1)) {
           this.kills++
+          this.recordKill(target)
           // 撃墜の火球は機体の位置に、機体の速度を引き継いで出す
           this.effects.spawn(
             target.position,
@@ -616,6 +621,11 @@ export class Combat {
     return this.gun.roundsFired
   }
 
+  /** 撃墜を記録する。機名と点数が無い相手は既定の値 */
+  private recordKill(target: Combatant): void {
+    this.score.record(this.frame, target.designation ?? DEFAULT_DESIGNATION, target.points ?? DEFAULT_POINTS)
+  }
+
   reset(): void {
     this.gun.reset()
     this.lock.release()
@@ -631,6 +641,7 @@ export class Combat {
     this.missileHeld = false
     this.hits = 0
     this.kills = 0
+    this.score.reset()
     this.taken = 0
     this.losses = 0
   }

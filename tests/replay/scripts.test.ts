@@ -68,7 +68,7 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('36 本すべて引ける', () => {
+  it('37 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
@@ -80,6 +80,7 @@ describe('スクリプトの登録', () => {
       'target-ahead',
       'target-turn',
       'gun-pass',
+      'mission-kill',
       'missile-shot',
       'missile-miss',
       'missile-near',
@@ -115,6 +116,8 @@ describe('スクリプトの登録', () => {
   it('敵つきの台本だけが敵を持つ', () => {
     const withEnemies = SCRIPT_NAMES.filter((n) => getScript(n).enemies !== undefined)
     expect(withEnemies).toEqual([
+      // 段 32。ミッションを決着させないための遠い 1 機
+      'mission-kill',
       'enemy-ahead',
       'enemy-formation',
       'enemy-head-on',
@@ -143,6 +146,7 @@ describe('スクリプトの登録', () => {
       'target-ahead',
       'target-turn',
       'gun-pass',
+      'mission-kill',
       'missile-shot',
       'missile-miss',
       'missile-near',

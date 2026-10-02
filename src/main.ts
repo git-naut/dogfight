@@ -501,7 +501,7 @@ async function main(): Promise<void> {
     flares: 0,
     threat: createMissileThreat(),
     // 器を使い回す。ミッションのない台本では null を入れて何も描かせない
-    mission: { remainingFrames: 0, enemiesAlive: 0, outcome: 'none' },
+    mission: { remainingFrames: 0, enemiesAlive: 0, outcome: 'none', score: 0, kill: null },
   }
 
   /** HUD を 1 枚描き直して、読み取れる値をフックへ載せる */
@@ -515,12 +515,21 @@ async function main(): Promise<void> {
     const currentMission = currentWorld.mission
     if (currentMission === null) armament.mission = null
     else {
-      if (armament.mission === null) {
-        armament.mission = { remainingFrames: 0, enemiesAlive: 0, outcome: 'none' }
-      }
-      armament.mission.remainingFrames = currentMission.remainingFrames(currentWorld.frame)
-      armament.mission.enemiesAlive = currentWorld.enemiesAlive
-      armament.mission.outcome = currentMission.outcome
+      const mission = (armament.mission ??= {
+        remainingFrames: 0,
+        enemiesAlive: 0,
+        outcome: 'none',
+        score: 0,
+        kill: null,
+      })
+      mission.remainingFrames = currentMission.remainingFrames(currentWorld.frame)
+      mission.enemiesAlive = currentWorld.enemiesAlive
+      mission.outcome = currentMission.outcome
+      // 点数と撃墜の加点（段 32）。加点は撃墜から 3 秒だけ sim が返す
+      const score = currentWorld.combat.score
+      mission.score = score.total
+      const kill = score.latest(currentWorld.frame)
+      mission.kill = kill === null ? null : { designation: kill.designation, points: kill.points }
     }
     // 器は使い回す。sim が測った値をそのまま写す
     const threat = currentWorld.combat.threat

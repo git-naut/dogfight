@@ -8,6 +8,8 @@ import {
   toFeet,
   toKnots,
   formatClock,
+  formatScore,
+  formatTimer,
 } from '@hud/readout'
 import { createAircraftSample } from '@sim/aircraft'
 import { Quat } from '@sim/quat'
@@ -196,5 +198,37 @@ describe('formatClock', () => {
 
   it('負の値は 0 として扱う', () => {
     expect(formatClock(-100)).toBe('0:00')
+  })
+})
+
+describe('formatTimer（段 32、参考画像の TIME 17:21:64）', () => {
+  it('分・秒・1/100 秒で出す', () => {
+    expect(formatTimer(0)).toBe('0:00:00')
+    expect(formatTimer(120)).toBe('0:01:00')
+    expect(formatTimer(65 * 120 + 6)).toBe('1:05:05')
+    expect(formatTimer(300 * 120)).toBe('5:00:00')
+  })
+
+  it('1/100 秒は切り捨てる。残りが 1/100 秒に満たなければ 0', () => {
+    // 1 フレームは 0.83 / 100 秒
+    expect(formatTimer(1)).toBe('0:00:00')
+    expect(formatTimer(2)).toBe('0:00:01')
+    expect(formatTimer(119)).toBe('0:00:99')
+  })
+
+  it('負は 0', () => {
+    expect(formatTimer(-100)).toBe('0:00:00')
+  })
+})
+
+describe('formatScore（段 32、参考画像の SCORE 007320）', () => {
+  it('6 桁に 0 で埋める', () => {
+    expect(formatScore(0)).toBe('000000')
+    expect(formatScore(7320)).toBe('007320')
+  })
+
+  it('6 桁を越えたらそのまま、負は 0', () => {
+    expect(formatScore(1234567)).toBe('1234567')
+    expect(formatScore(-5)).toBe('000000')
   })
 })

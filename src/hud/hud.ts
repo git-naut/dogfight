@@ -23,6 +23,7 @@ import {
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
 import { RADAR_RANGE, RADAR_RINGS, radarBearing, radarPoint } from './radar'
+import { offscreenDirection } from './arrow'
 import {
   computeLayout,
   DLZ_BAR_HEIGHT,
@@ -65,6 +66,17 @@ const WARN = 'rgba(255, 150, 90, 0.95)'
 const LINE_WIDTH = 1.4
 const FONT = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 const SMALL_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+
+/** 目標の箱の半辺 画面画素（段 35） */
+const TARGET_BOX_HALF = 7
+/**
+ * 画面の外の相手を指す矢印を置く半径。画面の短い辺に対する割合（段 35）。
+ *
+ * 0.28 では真後ろを指す矢印が自機のノズルの間に重なり、炎とまぎれた（missile-warning）。
+ * 0.4 で機体の下に出る。上向きは方位の目盛りの高さに来るが、段 36 で追従視点から消す
+ */
+const ARROW_RADIUS = 0.4
+const arrowScratch = { x: 0, y: 0 }
 
 /** レーダーの地と格子の色。地は HUD の線を読みやすくする程度に暗く */
 const RADAR_FILL = 'rgba(8, 24, 16, 0.35)'
@@ -167,7 +179,7 @@ export interface HudArmament {
    * レーダーに載せる相手（段 34）。先頭の `contactCount` 件だけを読む。
    * 器は使い回す（毎フレーム配列を作らない）
    */
-  contacts: RadarContact[]
+  contacts: HudContact[]
   contactCount: number
   /** シーカーの捕捉 */
   lock: HudLock
@@ -189,12 +201,19 @@ export interface HudArmament {
   mission: HudMission | null
 }
 
-/** レーダーに載せる相手。位置は世界座標 m（水平だけ使う） */
-export interface RadarContact {
+/**
+ * レーダーと目標の箱に載せる相手（段 34・35）。位置は世界座標 m で、描画と同じ補間した位置
+ */
+export interface HudContact {
   x: number
+  y: number
   z: number
   /** 敵は四角（警告色）、標的機は菱形 */
   kind: 'enemy' | 'target'
+  /** 機名。目標の箱の下に出す（`F-16`・`DRONE`） */
+  designation: string
+  /** シーカーが捕まえている相手。目標の箱は描かず、ロックボックスに任せる */
+  locked: boolean
 }
 
 /** ミッションの表示に要る値 */
@@ -255,6 +274,12 @@ export interface Hud {
   readonly lockBoxOnScreen: boolean
   /** DLZ バーを出しているか */
   readonly dlzBarShown: boolean
+  /** SHOOT を出しているか（段 35） */
+  readonly shootShown: boolean
+  /** 目標の箱を描いた数（段 35） */
+  readonly targetBoxCount: number
+  /** 画面の外の相手を指す矢印を出しているか（段 35） */
+  readonly arrowShown: boolean
   resize(width: number, height: number, devicePixelRatio: number): void
   /**
    * 1 枚描き直す。
@@ -283,6 +308,9 @@ export function createHud(host: HTMLElement): Hud {
   let reticleOnScreen = false
   let lockOnScreen = false
   let dlzShown = false
+  let shootShown = false
+  let targetBoxCount = 0
+  let arrowShown = false
 
   // ロックボックスの計算に使う。使い回す
   const lockEdge = new Vec3()
@@ -645,6 +673,7 @@ export function createHud(host: HTMLElement): Hud {
    */
   function drawLockBox(m: Mat4, lock: HudLock): void {
     lockOnScreen = false
+    shootShown = false
     if (lock.state === 'none') return
 
     const center = projectPoint(m, lock.position.x, lock.position.y, lock.position.z, width, height, a)
@@ -704,6 +733,83 @@ export function createHud(host: HTMLElement): Hud {
       center.x + half + 6,
       center.y - half + 13,
     )
+
+    // **SHOOT（段 35）。**ロックしていて、ミサイルの射程（DLZ の最小〜最大）に入ったとき。
+    // 箱の下に出す。画面の中央は自機の機体が占めるので、固定の位置には置かない
+    shootShown = locked && lock.range >= lock.dlz.rMin && lock.range <= lock.dlz.rMax && lock.dlz.rMax > 0
+    if (shootShown) {
+      ctx!.font = FONT
+      ctx!.fillStyle = PRIMARY
+      ctx!.textAlign = 'center'
+      ctx!.textBaseline = 'top'
+      ctx!.fillText('SHOOT', center.x, center.y + half + 6)
+    }
+  }
+
+  /**
+   * 目標の箱（段 35、参考画像に合わせた）。画面に写っている相手すべてに小さな四角と機名。
+   *
+   * ロック中の相手は描かない（ロックボックスが描く）。遠い相手も箱の大きさは変えない。
+   * 交戦距離の相手は肉眼では数画素にしか写らないので、見つけるための印として置く
+   */
+  function drawTargetBoxes(m: Mat4, armament: HudArmament): void {
+    targetBoxCount = 0
+    ctx!.lineWidth = LINE_WIDTH
+    ctx!.font = SMALL_FONT
+    ctx!.textAlign = 'center'
+    ctx!.textBaseline = 'top'
+    for (let i = 0; i < armament.contactCount; i++) {
+      const c = armament.contacts[i]!
+      if (c.locked) continue
+      const p = projectPoint(m, c.x, c.y, c.z, width, height, a)
+      if (!p.inFront || p.x < 0 || p.x > width || p.y < 0 || p.y > height) continue
+      const color = c.kind === 'enemy' ? WARN : PRIMARY
+      ctx!.strokeStyle = color
+      ctx!.strokeRect(p.x - TARGET_BOX_HALF, p.y - TARGET_BOX_HALF, TARGET_BOX_HALF * 2, TARGET_BOX_HALF * 2)
+      ctx!.fillStyle = color
+      ctx!.fillText(c.designation, p.x, p.y + TARGET_BOX_HALF + 3)
+      targetBoxCount++
+    }
+  }
+
+  /**
+   * 画面の外の相手を指す矢印（段 35）。**いちばん近い相手を 1 つだけ。**
+   *
+   * 画面の中心のまわり（短い辺の 40%）に三角を置き、相手の方へ向ける。後ろの相手は
+   * 投影が折り返すので、向きの計算は `arrow.ts` に切り出してテストで固めた
+   */
+  function drawArrow(m: Mat4, sample: AircraftSample, armament: HudArmament): void {
+    arrowShown = false
+    let nearest = -1
+    let best = Infinity
+    for (let i = 0; i < armament.contactCount; i++) {
+      const c = armament.contacts[i]!
+      const d = Math.hypot(c.x - sample.position.x, c.y - sample.position.y, c.z - sample.position.z)
+      if (d < best) {
+        best = d
+        nearest = i
+      }
+    }
+    if (nearest < 0) return
+    const c = armament.contacts[nearest]!
+    const p = projectPoint(m, c.x, c.y, c.z, width, height, a)
+    const dir = offscreenDirection(p, width, height, arrowScratch)
+    if (dir === null) return
+    arrowShown = true
+
+    const r = Math.min(width, height) * ARROW_RADIUS
+    const tipX = width / 2 + dir.x * r
+    const tipY = height / 2 + dir.y * r
+    // 三角。先端が相手の方、底辺は向きに直交
+    const back = 12
+    const side = 7
+    ctx!.beginPath()
+    ctx!.moveTo(tipX, tipY)
+    ctx!.lineTo(tipX - dir.x * back - dir.y * side, tipY - dir.y * back + dir.x * side)
+    ctx!.lineTo(tipX - dir.x * back + dir.y * side, tipY - dir.y * back - dir.x * side)
+    ctx!.closePath()
+    ctx!.fillStyle = c.kind === 'enemy' ? WARN : PRIMARY
+    ctx!.fill()
   }
 
   /**
@@ -1062,6 +1168,18 @@ export function createHud(host: HTMLElement): Hud {
       return dlzShown
     },
 
+    get shootShown() {
+      return shootShown
+    },
+
+    get targetBoxCount() {
+      return targetBoxCount
+    },
+
+    get arrowShown() {
+      return arrowShown
+    },
+
     resize(w, h, ratio) {
       width = w
       height = h
@@ -1082,7 +1200,9 @@ export function createHud(host: HTMLElement): Hud {
       drawLadder(viewProjection, heading)
       drawBoresight(viewProjection)
       drawGunReticle(viewProjection, sample)
+      drawTargetBoxes(viewProjection, armament)
       drawLockBox(viewProjection, armament.lock)
+      drawArrow(viewProjection, sample, armament)
       drawDlzBar(armament.lock)
       drawFlightPath(viewProjection)
 

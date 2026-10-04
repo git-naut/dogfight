@@ -799,6 +799,10 @@ export interface TestHook {
   dlzMin: number
   /** DLZ バーを出しているか */
   hudDlzBarShown: boolean
+  /** SHOOT・目標の箱の数・画面の外の矢印（段 35） */
+  hudShootShown: boolean
+  hudTargetBoxCount: number
+  hudArrowShown: boolean
   preset: PresetName
   hour: number
   // 飛行状態

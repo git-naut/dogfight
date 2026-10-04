@@ -891,4 +891,13 @@ export const BITE_MARKS = [
     expect: 'tests/hud/radar.test.ts',
     why: 'レーダーで前の敵が下に出て、敵のいない方へ旋回させる',
   },
+  {
+    id: 'arrow-behind-not-flipped',
+    kind: '条件の固定',
+    file: 'src/hud/arrow.ts',
+    find: '  const sign = point.inFront ? 1 : -1\n',
+    replace: '  const sign = 1\n',
+    expect: 'tests/hud/arrow.test.ts',
+    why: '真後ろの敵を指すはずの矢印が前を指し、敵のいない方へ旋回させる',
+  },
 ]

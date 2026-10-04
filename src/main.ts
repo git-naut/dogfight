@@ -3,6 +3,7 @@ import { World, createWorldFromScript } from './sim/world'
 import { createAircraftSample, type AircraftSample } from './sim/aircraft'
 import { createTargetSample, type TargetSample } from './sim/target'
 import { Vec3 } from './sim/vec3'
+import { DEFAULT_DESIGNATION, type Combatant } from './sim/combatant'
 import { Quat } from './sim/quat'
 import { getScript } from './sim/scripts'
 import { spawnFromSpec } from './sim/replay'
@@ -183,6 +184,9 @@ const hook = installTestHook({
   dlzNe: 0,
   dlzMin: 0,
   hudDlzBarShown: false,
+  hudShootShown: false,
+  hudTargetBoxCount: 0,
+  hudArrowShown: false,
   preset: capture.preset,
   hour: capture.hour,
   volume: 0,
@@ -512,17 +516,34 @@ async function main(): Promise<void> {
     if (hud === null) return
     armament.rounds = currentWorld.combat.rounds
     armament.missiles = currentWorld.combat.missilesLeft
-    // レーダーの相手（段 34）。生きている敵と標的機。器は足りなければ足して使い回す
+    // レーダーと目標の箱の相手（段 34・35）。生きている敵と標的機。**位置は描画と同じ
+    // 補間したもの**（ロックボックスと同じ理由。sim の位置だと最大 1/120 秒ぶん機体からずれる）。
+    // 器は足りなければ足して使い回す
+    const lockedTarget = currentWorld.combat.lock.state === 'none' ? null : currentWorld.combat.lockedTarget
     let n = 0
-    const put = (x: number, z: number, kind: 'enemy' | 'target') => {
-      const slot = (armament.contacts[n] ??= { x: 0, z: 0, kind })
-      slot.x = x
-      slot.z = z
+    const put = (target: Combatant, at: Vec3, kind: 'enemy' | 'target') => {
+      const slot = (armament.contacts[n] ??= {
+        x: 0,
+        y: 0,
+        z: 0,
+        kind,
+        designation: '',
+        locked: false,
+      })
+      slot.x = at.x
+      slot.y = at.y
+      slot.z = at.z
       slot.kind = kind
+      slot.designation = target.designation ?? DEFAULT_DESIGNATION
+      slot.locked = target === lockedTarget
       n++
     }
-    for (const e of currentWorld.enemies) if (e.alive) put(e.position.x, e.position.z, 'enemy')
-    for (const t of currentWorld.targets) if (t.alive) put(t.position.x, t.position.z, 'target')
+    currentWorld.targets.forEach((t, i) => {
+      if (t.alive) put(t, targetSamples[i]?.position ?? t.position, 'target')
+    })
+    currentWorld.enemies.forEach((e, i) => {
+      if (e.alive) put(e, enemySamples[i]?.position ?? e.position, 'enemy')
+    })
     armament.contactCount = n
     armament.flares = currentWorld.countermeasures.left
 
@@ -588,6 +609,9 @@ async function main(): Promise<void> {
     hook.hudGunReticleOnScreen = hud.gunReticleOnScreen
     hook.hudLockBoxOnScreen = hud.lockBoxOnScreen
     hook.hudDlzBarShown = hud.dlzBarShown
+    hook.hudShootShown = hud.shootShown
+    hook.hudTargetBoxCount = hud.targetBoxCount
+    hook.hudArrowShown = hud.arrowShown
   }
 
   /**

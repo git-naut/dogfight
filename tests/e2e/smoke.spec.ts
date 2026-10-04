@@ -1020,6 +1020,44 @@ test.describe('爆発', () => {
   })
 })
 
+/**
+ * 目標の表示（段 35、参考画像に合わせた）。SHOOT・目標の箱・画面の外の矢印。
+ *
+ * **期待値は基準画像の構図を撮って測った。**絵は基準画像が見るので、ここは出る・出ないと
+ * 数を見る。HUD を出さないと何も描かないので `hud: true` で撮る
+ */
+test.describe('目標の表示', () => {
+  const scene = (name: string) => {
+    const found = SCENES.find((s) => s.name === name)
+    if (found === undefined) throw new Error(`場面 ${name} が無い`)
+    return found
+  }
+
+  test('SHOOT はロックして射程に入ると出る。捕捉の途中では出ない', async ({ page }) => {
+    // hud-dlz はロック中・距離 6.9 km で射程（DLZ の最小〜最大）の内
+    const inRange = await capture(page, scene('hud-dlz'))
+    expect(inRange.lockState).toBe('locked')
+    expect(inRange.hudShootShown).toBe(true)
+    const acquiring = await capture(page, scene('hud-acquiring'))
+    expect(acquiring.lockState).toBe('acquiring')
+    expect(acquiring.hudShootShown).toBe(false)
+  })
+
+  test('目標の箱は画面に写る相手に付き、ロック中の相手には付かない', async ({ page }) => {
+    // hud-mission は 5 機が前方にいて、1 機をロックしている
+    const hook = await capture(page, scene('hud-mission'))
+    expect(hook.lockState).toBe('locked')
+    expect(hook.hudTargetBoxCount).toBe(4)
+    expect(hook.hudArrowShown).toBe(false)
+  })
+
+  test('後ろの相手には矢印が出る', async ({ page }) => {
+    // missile-warning は敵が真後ろ。hud-mission-kill は後方 8 km
+    expect((await capture(page, scene('missile-warning'))).hudArrowShown).toBe(true)
+    expect((await capture(page, scene('hud-mission-kill'))).hudArrowShown).toBe(true)
+  })
+})
+
 test.describe('DLZ', () => {
   test('ロックすると 3 つの半径が出る', async ({ page }) => {
     const hook = await capture(page, { script: 'missile-shot', frame: 110 })

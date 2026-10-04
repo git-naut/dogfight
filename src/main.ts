@@ -497,6 +497,7 @@ async function main(): Promise<void> {
   /** HUD へ渡す武装の状態。使い回す */
   const armament: HudArmament = {
     rounds: 0,
+    missiles: 0,
     lock: createHudLock(),
     flares: 0,
     threat: createMissileThreat(),
@@ -508,6 +509,7 @@ async function main(): Promise<void> {
   const drawHud = (currentWorld: World) => {
     if (hud === null) return
     armament.rounds = currentWorld.combat.rounds
+    armament.missiles = currentWorld.combat.missilesLeft
     armament.flares = currentWorld.countermeasures.left
 
     // ミッションが無ければ null。**HUD 側は null で何も描かない**ので、

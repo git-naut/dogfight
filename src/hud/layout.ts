@@ -32,9 +32,20 @@ export const THREAT_RADIUS = 26
 /** ミッション欄の行の間隔 画面画素（段 32） */
 export const MISSION_LINE = 16
 
+/** 兵装の一覧の行の間隔と、その左に描く自機の輪郭の大きさ・間 画面画素（段 33） */
+export const ARMAMENT_LINE = 16
+export const SILHOUETTE_SIZE = 44
+export const SILHOUETTE_GAP = 14
+
 /** 13px の等幅の字送り（0.6 em）と、11px の字送り */
 export const FONT_ADVANCE = 7.8
 export const SMALL_ADVANCE = 6.6
+
+/**
+ * 兵装の一覧のいちばん長い行（`GUN 1800`・`DMG 100%`、8 文字、13px）の幅。
+ * 輪郭の位置（`hud.ts`）と外接の箱の両方がこれを使う
+ */
+export const ARMAMENT_TEXT_WIDTH = 8 * FONT_ADVANCE
 
 /** 縦の目盛り。速度（左）と高度（右） */
 export interface VerticalTapeLayout {
@@ -78,8 +89,6 @@ const LONGEST = {
   altitudeLabel: 5,
   /** DLZ の最大射程（`12.3K`） */
   dlzLabel: 5,
-  /** 兵装（`GUN 1800`） */
-  armament: 8,
   /** ミッションの撃墜の加点（`TARGET F-16 +1000`、3 行の中でいちばん長い）と敵の数（`ENEMY 8`） */
   target: 17,
   enemies: 7,
@@ -97,7 +106,8 @@ export function computeLayout(width: number, height: number): HudLayout {
   const altitudeTape = { x: width * 0.82, centerY: height * 0.5, halfHeight: height * 0.22 }
   const headingTape = { centerX: width * 0.5, y: height * 0.11, halfWidth: width * 0.2 }
   const dlzBar = { x: width * 0.66, bottom: height * 0.5 + DLZ_BAR_HEIGHT / 2 }
-  const armament = { x: width * 0.5, y: height * 0.9 }
+  // 兵装の一覧は右下（段 33、参考画像に合わせた）。x は文字の右端、y は 1 行目の基線
+  const armament = { x: width * 0.94, y: height * 0.8 }
   const mission = { x: width * 0.06, y: height * 0.08 }
   const threat = { cx: width * 0.3, cy: height * 0.3, radius: THREAT_RADIUS }
   const readouts = { x: width * 0.18, y: height * 0.78 }
@@ -135,8 +145,13 @@ export function computeLayout(width: number, height: number): HudLayout {
       w: 5 + DLZ_BAR_WIDTH + 8 + LONGEST.dlzLabel * SMALL_ADVANCE,
       h: DLZ_BAR_HEIGHT + 10,
     },
-    // 兵装。幅 120 の弾数の帯（y + 6）と、その下の数字（基線 y + 24）
-    armament: { x: armament.x - 60, y: armament.y + 6, w: 120, h: 21 },
+    // 兵装。右揃えの 4 行（13px、基線 y から 16 ずつ）と、その左の自機の輪郭
+    armament: {
+      x: armament.x - ARMAMENT_TEXT_WIDTH - SILHOUETTE_GAP - SILHOUETTE_SIZE,
+      y: armament.y - 11,
+      w: ARMAMENT_TEXT_WIDTH + SILHOUETTE_GAP + SILHOUETTE_SIZE,
+      h: 11 + ARMAMENT_LINE * 3 + 3,
+    },
     // ミッション。TIME / SCORE / TARGET（13px、基線 y から 16 ずつ）と敵の数（11px、4 行目）
     mission: {
       x: mission.x,

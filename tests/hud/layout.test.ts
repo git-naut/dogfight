@@ -49,7 +49,8 @@ describe('HUD の配置', () => {
     expect(l.altitudeTape.x).toBe(1280 * 0.82)
     expect(l.headingTape).toEqual({ centerX: 640, y: 720 * 0.11, halfWidth: 256 })
     expect(l.dlzBar).toEqual({ x: 1280 * 0.66, bottom: 435 })
-    expect(l.armament).toEqual({ x: 640, y: 720 * 0.9 })
+    // 段 33 で右下へ移した（下中央の帯をやめた）
+    expect(l.armament).toEqual({ x: 1280 * 0.94, y: 720 * 0.8 })
     expect(l.mission).toEqual({ x: 1280 * 0.06, y: 720 * 0.08 })
     expect(l.threat).toEqual({ cx: 1280 * 0.3, cy: 720 * 0.3, radius: 26 })
     expect(l.readouts).toEqual({ x: 1280 * 0.18, y: 720 * 0.78 })

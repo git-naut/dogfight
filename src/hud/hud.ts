@@ -2,7 +2,7 @@ import type { AircraftSample } from '../sim/aircraft'
 import { AIRCRAFT } from '../sim/flightModel'
 import { GRAVITY } from '../sim/isa'
 import { Vec3 } from '../sim/vec3'
-import { MAGAZINE, MUZZLE_OFFSET, bulletTimeToRange } from '../sim/weapons/gun'
+import { MUZZLE_OFFSET, bulletTimeToRange } from '../sim/weapons/gun'
 import { AIRCRAFT_SIZE } from '../sim/weapons/hitbox'
 import type { LockState } from '../sim/weapons/lock'
 import {
@@ -26,7 +26,11 @@ import {
   computeLayout,
   DLZ_BAR_HEIGHT,
   DLZ_BAR_WIDTH,
+  ARMAMENT_LINE,
+  ARMAMENT_TEXT_WIDTH,
   MISSION_LINE,
+  SILHOUETTE_GAP,
+  SILHOUETTE_SIZE,
   type HudLayout,
   type VerticalTapeLayout,
 } from './layout'
@@ -60,6 +64,16 @@ const WARN = 'rgba(255, 150, 90, 0.95)'
 const LINE_WIDTH = 1.4
 const FONT = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 const SMALL_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+
+/**
+ * 自機（F/A-18E）を上から見た輪郭。機首が上、大きさ 1 の箱の中の (x, y) の並び（段 33）。
+ * 翼・水平尾翼・機首を角で拾った粗い形で、損傷の図にだけ使う
+ */
+const SILHOUETTE = [
+  0, -0.5, 0.06, -0.3, 0.08, -0.05, 0.5, 0.12, 0.5, 0.2, 0.1, 0.16, 0.1, 0.3, 0.26, 0.42, 0.26,
+  0.48, 0.07, 0.46, 0.05, 0.5, -0.05, 0.5, -0.07, 0.46, -0.26, 0.48, -0.26, 0.42, -0.1, 0.3, -0.1,
+  0.16, -0.5, 0.2, -0.5, 0.12, -0.08, -0.05, -0.06, -0.3,
+]
 
 const DEG = Math.PI / 180
 
@@ -133,6 +147,8 @@ const LOCK_BOX_MAX = 90
 export interface HudArmament {
   /** 機銃の残弾 */
   rounds: number
+  /** ミサイルの残り（段 33） */
+  missiles: number
   /** シーカーの捕捉 */
   lock: HudLock
   /** 残りのフレア */
@@ -732,35 +748,59 @@ export function createHud(host: HTMLElement): Hud {
   }
 
   /**
-   * 残弾。機銃の帯として下部に置く。
+   * 兵装の一覧と自機の損傷（段 33、参考画像の右下に合わせた）。
    *
-   * **数字は帯の下に置く。**当初は帯の上（`height * 0.9`）に置いていたが、
-   * そこはピッチラダーの破線が通る高さで、`GUN 578` の 3 桁なら破線の隙間に
-   * 収まっていた。`MAGAZINE` を 1,800 発へ増やして 4 桁になった瞬間、
-   * 文字が左右へ 1 文字ぶん伸びて破線と角括弧に接触した（実測で差分
-   * 52 x 8 画素）。**桁数が増えると壊れる置き方だった。**
+   * 右揃えで `GUN`・`MSL`・`FLR`・`DMG` の 4 行、その左に自機を上から見た輪郭。
+   * **選択の印（参考画像の `>`）は付けない。**このゲームは機銃とミサイルを別のボタンで
+   * 撃つので、選んでいる武器が無い。
+   *
+   * 以前は下中央に機銃の帯（幅 120）と残弾を置き、損傷は中央の警告の列に
+   * `DMG xx%` として傷ついたときだけ出していた。どちらもここへ移した。尽きた兵装と
+   * 傷ついた損傷は警告色にする
    */
   function drawArmament(armament: HudArmament): void {
-    ctx!.font = SMALL_FONT
-    ctx!.textAlign = 'center'
-    ctx!.textBaseline = 'alphabetic'
-    ctx!.fillStyle = armament.rounds > 0 ? DIM : WARN
     const { x, y } = layout.armament
+    const damage = 1 - Math.max(0, Math.min(1, readout.integrityRatio))
+    const damaged = damage > 0
 
-    // 残りを帯で見せる。数字より先に減りが目に入る
-    const barWidth = 120
-    const filled = (barWidth * Math.max(0, armament.rounds)) / MAGAZINE
-    ctx!.strokeStyle = DIM
-    ctx!.lineWidth = 1
-    ctx!.strokeRect(x - barWidth / 2, y + 6, barWidth, 5)
-    if (filled > 0) {
-      ctx!.fillStyle = armament.rounds > 0 ? PRIMARY : WARN
-      ctx!.fillRect(x - barWidth / 2, y + 6, filled, 5)
+    ctx!.font = FONT
+    ctx!.textAlign = 'right'
+    ctx!.textBaseline = 'alphabetic'
+    const rows: [string, boolean][] = [
+      [`GUN ${armament.rounds}`, armament.rounds <= 0],
+      [`MSL ${armament.missiles}`, armament.missiles <= 0],
+      [`FLR ${armament.flares}`, armament.flares <= 0],
+      [`DMG ${Math.round(damage * 100)}%`, damaged],
+    ]
+    for (let i = 0; i < rows.length; i++) {
+      const [text, warn] = rows[i]!
+      ctx!.fillStyle = warn ? WARN : PRIMARY
+      ctx!.fillText(text, x, y + ARMAMENT_LINE * i)
     }
 
-    // 帯の下。ピッチラダーの破線を避ける
-    ctx!.fillStyle = armament.rounds > 0 ? DIM : WARN
-    ctx!.fillText(`GUN ${armament.rounds}`, x, y + 24)
+    // 自機の輪郭。一覧の左、4 行の縦の中央に置く
+    const size = SILHOUETTE_SIZE
+    const cx = x - ARMAMENT_TEXT_WIDTH - SILHOUETTE_GAP - size / 2
+    const cy = y - 11 + (11 + ARMAMENT_LINE * 3 + 3) / 2
+    ctx!.beginPath()
+    for (let i = 0; i < SILHOUETTE.length; i += 2) {
+      const px = cx + SILHOUETTE[i]! * size
+      const py = cy + SILHOUETTE[i + 1]! * size
+      if (i === 0) ctx!.moveTo(px, py)
+      else ctx!.lineTo(px, py)
+    }
+    ctx!.closePath()
+    // **損傷は全体で 1 つの色。**sim は部位ごとの損傷を持たない（耐久 1 本）。
+    // 傷つくほど濃く塗る
+    if (damaged) {
+      ctx!.fillStyle = WARN
+      ctx!.globalAlpha = 0.15 + 0.6 * damage
+      ctx!.fill()
+      ctx!.globalAlpha = 1
+    }
+    ctx!.strokeStyle = damaged ? WARN : PRIMARY
+    ctx!.lineWidth = 1.5
+    ctx!.stroke()
   }
 
   /**
@@ -876,12 +916,7 @@ export function createHud(host: HTMLElement): Hud {
     if (readout.stalled) warnings.push('STALL')
     if (readout.loadFactor > AIRCRAFT.gLimit * 0.95) warnings.push('G LIMIT')
     if (readout.aglFt < LOW_ALTITUDE_FT && !readout.crashed) warnings.push('LOW')
-    // **傷ついたときだけ出す。**撃たれていることが分からないと、まっすぐ
-    // 飛んでいて突然落ちる。実測で後方 1,500 m の敵は 27.3 秒で削り切る。
-    // 無傷のときは何も足さないので、既存の HUD の絵は 1 画素も変わらない
-    if (readout.integrityRatio < 1) {
-      warnings.push(`DMG ${Math.round(readout.integrityRatio * 100)}%`)
-    }
+    // 損傷はここに出さない。右下の兵装の一覧へ移した（段 33、`drawArmament`）
     if (warnings.length > 0) {
       ctx!.font = FONT
       ctx!.fillStyle = WARN

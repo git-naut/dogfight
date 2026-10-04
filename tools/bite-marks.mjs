@@ -873,4 +873,13 @@ export const BITE_MARKS = [
     expect: 'tests/sim/score.test.ts',
     why: '撃墜の加点が 30 秒も残り、次の撃墜まで出たままになる',
   },
+  {
+    id: 'hud-armament-moved',
+    kind: '定数の摂動',
+    file: 'src/hud/layout.ts',
+    find: '  const armament = { x: width * 0.94, y: height * 0.8 }',
+    replace: '  const armament = { x: width * 0.84, y: height * 0.8 }',
+    expect: 'tests/hud/layout.test.ts',
+    why: '兵装の一覧が左へずれて高度の表示（AGL）に重なる',
+  },
 ]

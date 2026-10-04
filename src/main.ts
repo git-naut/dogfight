@@ -498,6 +498,8 @@ async function main(): Promise<void> {
   const armament: HudArmament = {
     rounds: 0,
     missiles: 0,
+    contacts: [],
+    contactCount: 0,
     lock: createHudLock(),
     flares: 0,
     threat: createMissileThreat(),
@@ -510,6 +512,18 @@ async function main(): Promise<void> {
     if (hud === null) return
     armament.rounds = currentWorld.combat.rounds
     armament.missiles = currentWorld.combat.missilesLeft
+    // レーダーの相手（段 34）。生きている敵と標的機。器は足りなければ足して使い回す
+    let n = 0
+    const put = (x: number, z: number, kind: 'enemy' | 'target') => {
+      const slot = (armament.contacts[n] ??= { x: 0, z: 0, kind })
+      slot.x = x
+      slot.z = z
+      slot.kind = kind
+      n++
+    }
+    for (const e of currentWorld.enemies) if (e.alive) put(e.position.x, e.position.z, 'enemy')
+    for (const t of currentWorld.targets) if (t.alive) put(t.position.x, t.position.z, 'target')
+    armament.contactCount = n
     armament.flares = currentWorld.countermeasures.left
 
     // ミッションが無ければ null。**HUD 側は null で何も描かない**ので、

@@ -22,6 +22,7 @@ import {
   type HudReadout,
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
+import { RADAR_RANGE, RADAR_RINGS, radarBearing, radarPoint } from './radar'
 import {
   computeLayout,
   DLZ_BAR_HEIGHT,
@@ -64,6 +65,19 @@ const WARN = 'rgba(255, 150, 90, 0.95)'
 const LINE_WIDTH = 1.4
 const FONT = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 const SMALL_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+
+/** レーダーの地と格子の色。地は HUD の線を読みやすくする程度に暗く */
+const RADAR_FILL = 'rgba(8, 24, 16, 0.35)'
+const RADAR_GRID = 'rgba(126, 255, 170, 0.18)'
+/** レーダーの方位の文字 */
+const RADAR_LABELS: readonly [string, number][] = [
+  ['N', 0],
+  ['E', Math.PI / 2],
+  ['S', Math.PI],
+  ['W', (Math.PI * 3) / 2],
+]
+const radarScratch = { x: 0, y: 0 }
+const radarPointScratch = { x: 0, y: 0, clamped: false }
 
 /**
  * 自機（F/A-18E）を上から見た輪郭。機首が上、大きさ 1 の箱の中の (x, y) の並び（段 33）。
@@ -149,6 +163,12 @@ export interface HudArmament {
   rounds: number
   /** ミサイルの残り（段 33） */
   missiles: number
+  /**
+   * レーダーに載せる相手（段 34）。先頭の `contactCount` 件だけを読む。
+   * 器は使い回す（毎フレーム配列を作らない）
+   */
+  contacts: RadarContact[]
+  contactCount: number
   /** シーカーの捕捉 */
   lock: HudLock
   /** 残りのフレア */
@@ -167,6 +187,14 @@ export interface HudArmament {
    * ミッションのない台本で撮ってある。`drawThreat` と同じ作法
    */
   mission: HudMission | null
+}
+
+/** レーダーに載せる相手。位置は世界座標 m（水平だけ使う） */
+export interface RadarContact {
+  x: number
+  z: number
+  /** 敵は四角（警告色）、標的機は菱形 */
+  kind: 'enemy' | 'target'
 }
 
 /** ミッションの表示に要る値 */
@@ -836,7 +864,8 @@ export function createHud(host: HTMLElement): Hud {
       ctx!.fillText(`TARGET ${mission.kill.designation} +${mission.kill.points}`, x, y + MISSION_LINE * 2)
     }
 
-    // 残敵。0 になったら成功。レーダー（段 34）が入るまで小さく下に残す
+    // 残敵。0 になったら成功。**レーダー（段 34）が入っても残す。**レーダーは位置を見せるが、
+    // 勝ち負けに直結する残りの数は見せない
     ctx!.font = SMALL_FONT
     ctx!.fillStyle = settled ? (failed ? WARN : PRIMARY) : DIM
     ctx!.fillText(`ENEMY ${mission.enemiesAlive}`, x, y + MISSION_LINE * 3)
@@ -895,6 +924,93 @@ export function createHud(host: HTMLElement): Hud {
     // 着弾までの秒。近いほど切迫が伝わる
     ctx!.font = SMALL_FONT
     ctx!.fillText(`${threat.timeToImpact.toFixed(1)}s`, cx, cy)
+  }
+
+  /**
+   * レーダー（段 34、参考画像の左下に合わせた）。機首が上、半幅 6 km。
+   *
+   * 正方形に格子と距離の輪（2・4 km）、方位の文字、中心に自機、敵は四角、標的機は菱形。
+   * 範囲の外の相手は向きを保って縁に置く（`radarPoint`）。高度差は見ない
+   */
+  function drawRadar(sample: AircraftSample, armament: HudArmament): void {
+    const { x, y, size } = layout.radar
+    const half = size / 2
+    const cx = x + half
+    const cy = y + half
+    const heading = headingOf(readout.nose.x, readout.nose.y, readout.nose.z)
+
+    ctx!.save()
+    ctx!.beginPath()
+    ctx!.rect(x, y, size, size)
+    ctx!.fillStyle = RADAR_FILL
+    ctx!.fill()
+    ctx!.clip()
+
+    // 格子（4 等分）と距離の輪
+    ctx!.strokeStyle = RADAR_GRID
+    ctx!.lineWidth = 1
+    ctx!.beginPath()
+    for (const k of [1, 2, 3]) {
+      ctx!.moveTo(x + (size * k) / 4, y)
+      ctx!.lineTo(x + (size * k) / 4, y + size)
+      ctx!.moveTo(x, y + (size * k) / 4)
+      ctx!.lineTo(x + size, y + (size * k) / 4)
+    }
+    ctx!.stroke()
+    ctx!.strokeStyle = DIM
+    for (const ring of RADAR_RINGS) {
+      ctx!.beginPath()
+      ctx!.arc(cx, cy, (half * ring) / RADAR_RANGE, 0, Math.PI * 2)
+      ctx!.stroke()
+    }
+
+    // 方位の文字。機首が上なので、自機の向きに合わせて回る
+    ctx!.font = SMALL_FONT
+    ctx!.fillStyle = DIM
+    ctx!.textAlign = 'center'
+    ctx!.textBaseline = 'middle'
+    for (const [label, bearing] of RADAR_LABELS) {
+      const d = radarBearing(bearing, heading, radarScratch)
+      ctx!.fillText(label, cx + d.x * half * 0.86, cy + d.y * half * 0.86)
+    }
+
+    // 相手
+    for (let i = 0; i < armament.contactCount; i++) {
+      const c = armament.contacts[i]!
+      const p = radarPoint(c.x - sample.position.x, c.z - sample.position.z, heading, RADAR_RANGE, radarPointScratch)
+      // 縁に寄せた相手は、正方形の内側に収まるよう少し引く
+      const px = cx + p.x * (half - 4)
+      const py = cy + p.y * (half - 4)
+      ctx!.beginPath()
+      if (c.kind === 'enemy') {
+        ctx!.rect(px - 3, py - 3, 6, 6)
+        ctx!.fillStyle = WARN
+        ctx!.fill()
+      } else {
+        ctx!.moveTo(px, py - 4)
+        ctx!.lineTo(px + 4, py)
+        ctx!.lineTo(px, py + 4)
+        ctx!.lineTo(px - 4, py)
+        ctx!.closePath()
+        ctx!.strokeStyle = PRIMARY
+        ctx!.stroke()
+      }
+    }
+
+    // 自機。上を向いた三角
+    ctx!.beginPath()
+    ctx!.moveTo(cx, cy - 6)
+    ctx!.lineTo(cx + 4, cy + 4)
+    ctx!.lineTo(cx - 4, cy + 4)
+    ctx!.closePath()
+    ctx!.fillStyle = PRIMARY
+    ctx!.fill()
+    ctx!.restore()
+
+    // 縁は切り抜きの外から描く（内側半分が切れないように）
+    ctx!.strokeStyle = DIM
+    ctx!.lineWidth = 1
+    ctx!.strokeRect(x, y, size, size)
   }
 
   function drawReadouts(): void {
@@ -992,6 +1108,7 @@ export function createHud(host: HTMLElement): Hud {
       drawArmament(armament)
       drawMission(armament.mission)
       drawThreat(armament.threat)
+      drawRadar(sample, armament)
       drawReadouts()
     },
 

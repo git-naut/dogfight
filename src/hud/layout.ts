@@ -66,6 +66,8 @@ export interface HudLayout {
   readonly readouts: { readonly x: number; readonly y: number }
   readonly agl: { readonly x: number; readonly y: number }
   readonly warnings: { readonly x: number; readonly y: number }
+  /** レーダーの正方形。左上と一辺（段 34） */
+  readonly radar: { readonly x: number; readonly y: number; readonly size: number }
   /** 各要素の外接の箱。重なりの検査に使う */
   readonly bounds: Readonly<Record<HudElement, Rect>>
 }
@@ -81,6 +83,7 @@ export type HudElement =
   | 'readouts'
   | 'agl'
   | 'warnings'
+  | 'radar'
 
 /** 表示しうる最長の文字列の文字数。外接の箱の見積りに使う */
 const LONGEST = {
@@ -113,6 +116,9 @@ export function computeLayout(width: number, height: number): HudLayout {
   const readouts = { x: width * 0.18, y: height * 0.78 }
   const agl = { x: width * 0.82, y: height * 0.78 }
   const warnings = { x: width * 0.5, y: height * 0.7 }
+  // レーダーは左下（段 34、参考画像に合わせた）。一辺は短い辺の 22%、下端は高さの 97%
+  const radarSize = Math.min(width, height) * 0.22
+  const radar = { x: width * 0.03, y: height * 0.97 - radarSize, size: radarSize }
 
   // 外接の箱。縦の目盛りは軸の外側に現在値の箱（幅 62 + 間 2）、内側に目盛り（12）と
   // 数字（4 空けて）。縦は目盛りの範囲と、数字の半分の高さ
@@ -177,6 +183,8 @@ export function computeLayout(width: number, height: number): HudLayout {
       w: LONGEST.warnings * FONT_ADVANCE,
       h: 13,
     },
+    // レーダー。方位の文字も正方形の内側に描く
+    radar: { x: radar.x, y: radar.y, w: radar.size, h: radar.size },
   }
 
   return {
@@ -190,6 +198,7 @@ export function computeLayout(width: number, height: number): HudLayout {
     readouts,
     agl,
     warnings,
+    radar,
     bounds,
   }
 }

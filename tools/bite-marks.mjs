@@ -882,4 +882,13 @@ export const BITE_MARKS = [
     expect: 'tests/hud/layout.test.ts',
     why: '兵装の一覧が左へずれて高度の表示（AGL）に重なる',
   },
+  {
+    id: 'radar-ahead-flipped',
+    kind: '符号の反転',
+    file: 'src/hud/radar.ts',
+    find: '  let y = -ahead / range\n',
+    replace: '  let y = ahead / range\n',
+    expect: 'tests/hud/radar.test.ts',
+    why: 'レーダーで前の敵が下に出て、敵のいない方へ旋回させる',
+  },
 ]

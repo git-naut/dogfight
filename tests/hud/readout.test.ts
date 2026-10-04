@@ -10,6 +10,7 @@ import {
   formatClock,
   formatScore,
   formatTimer,
+  trendOf,
 } from '@hud/readout'
 import { createAircraftSample } from '@sim/aircraft'
 import { Quat } from '@sim/quat'
@@ -230,5 +231,16 @@ describe('formatScore（段 32、参考画像の SCORE 007320）', () => {
   it('6 桁を越えたらそのまま、負は 0', () => {
     expect(formatScore(1234567)).toBe('1234567')
     expect(formatScore(-5)).toBe('000000')
+  })
+})
+
+describe('trendOf（段 36、SPEED と ALT の増減の三角）', () => {
+  it('閾値を越えたら向き、越えなければ 0', () => {
+    expect(trendOf(4.8, 1)).toBe(1)
+    expect(trendOf(-3, 1)).toBe(-1)
+    expect(trendOf(0.5, 1)).toBe(0)
+    expect(trendOf(-0.5, 1)).toBe(0)
+    // 閾値ちょうどは出さない
+    expect(trendOf(2, 2)).toBe(0)
   })
 })

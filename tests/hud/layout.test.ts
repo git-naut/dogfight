@@ -48,7 +48,11 @@ describe('HUD の配置', () => {
     expect(l.speedTape).toEqual({ x: 1280 * 0.18, centerY: 720 * 0.5, halfHeight: 720 * 0.22 })
     expect(l.altitudeTape.x).toBe(1280 * 0.82)
     expect(l.headingTape).toEqual({ centerX: 640, y: 720 * 0.11, halfWidth: 256 })
-    expect(l.dlzBar).toEqual({ x: 1280 * 0.66, bottom: 435 })
+    // 段 36 で 0.66 から 0.74 へ移した（照準の右の ALT の箱とぶつかるため）
+    expect(l.dlzBar).toEqual({ x: 1280 * 0.74, bottom: 435 })
+    // SPEED と ALT の箱（段 36）。照準側の縁が中心から幅の 12%
+    expect(l.speedBox).toEqual({ innerX: 640 - 1280 * 0.12, centerY: 360 })
+    expect(l.altitudeBox).toEqual({ innerX: 640 + 1280 * 0.12, centerY: 360 })
     // 段 33 で右下へ移した（下中央の帯をやめた）
     expect(l.armament).toEqual({ x: 1280 * 0.94, y: 720 * 0.8 })
     expect(l.mission).toEqual({ x: 1280 * 0.06, y: 720 * 0.08 })

@@ -47,6 +47,15 @@ export const SMALL_ADVANCE = 6.6
  */
 export const ARMAMENT_TEXT_WIDTH = 8 * FONT_ADVANCE
 
+/**
+ * 照準の左右に置く SPEED と ALT の箱（段 36）。中身は 13px で最長 `SPEED 1200`・`ALT 40000`
+ * の 10 文字、左右に 7 画素の余白。外側に増減の三角（幅 8、間 5）
+ */
+export const VALUE_BOX_WIDTH = 10 * FONT_ADVANCE + 14
+export const VALUE_BOX_HEIGHT = 20
+export const TREND_GAP = 5
+export const TREND_WIDTH = 8
+
 /** 縦の目盛り。速度（左）と高度（右） */
 export interface VerticalTapeLayout {
   /** 目盛りの軸の x */
@@ -66,16 +75,24 @@ export interface HudLayout {
   readonly readouts: { readonly x: number; readonly y: number }
   readonly agl: { readonly x: number; readonly y: number }
   readonly warnings: { readonly x: number; readonly y: number }
+  /**
+   * SPEED と ALT の箱（段 36）。中心の高さと、照準側の縁の x（SPEED は右の縁、ALT は左の縁）
+   */
+  readonly speedBox: { readonly innerX: number; readonly centerY: number }
+  readonly altitudeBox: { readonly innerX: number; readonly centerY: number }
   /** レーダーの正方形。左上と一辺（段 34） */
   readonly radar: { readonly x: number; readonly y: number; readonly size: number }
   /** 各要素の外接の箱。重なりの検査に使う */
   readonly bounds: Readonly<Record<HudElement, Rect>>
 }
 
+/**
+ * 重なりを検査する要素。**追従視点で描くものだけ。**縦の目盛りと方位の目盛りは段 36 で
+ * 追従視点から外した（位置は `speedTape` などに残してある）ので、ここには入れない
+ */
 export type HudElement =
-  | 'speedTape'
-  | 'altitudeTape'
-  | 'headingTape'
+  | 'speedBox'
+  | 'altitudeBox'
   | 'dlzBar'
   | 'armament'
   | 'mission'
@@ -87,9 +104,6 @@ export type HudElement =
 
 /** 表示しうる最長の文字列の文字数。外接の箱の見積りに使う */
 const LONGEST = {
-  /** 速度の目盛りの数字（`1200`）と高度の目盛りの数字（`40000`） */
-  speedLabel: 4,
-  altitudeLabel: 5,
   /** DLZ の最大射程（`12.3K`） */
   dlzLabel: 5,
   /** ミッションの撃墜の加点（`TARGET F-16 +1000`、3 行の中でいちばん長い）と敵の数（`ENEMY 8`） */
@@ -100,15 +114,17 @@ const LONGEST = {
   /** 読み（`AOA -10.5`）と高度（`AGL 40000`） */
   readout: 9,
   agl: 9,
-  /** 警告が全部並んだとき（`CRASH  STALL  G LIMIT  LOW  DMG 100%`） */
-  warnings: 36,
+  /** 警告が全部並んだとき（`CRASH  STALL  G LIMIT  LOW`）。DMG は段 33 で右下へ移した */
+  warnings: 26,
 }
 
 export function computeLayout(width: number, height: number): HudLayout {
   const speedTape = { x: width * 0.18, centerY: height * 0.5, halfHeight: height * 0.22 }
   const altitudeTape = { x: width * 0.82, centerY: height * 0.5, halfHeight: height * 0.22 }
   const headingTape = { centerX: width * 0.5, y: height * 0.11, halfWidth: width * 0.2 }
-  const dlzBar = { x: width * 0.66, bottom: height * 0.5 + DLZ_BAR_HEIGHT / 2 }
+  // DLZ バーは段 36 で 0.66 から 0.74 へ移した。照準の右に置いた ALT の箱とぶつかるため。
+  // 高度の目盛り（0.82）が追従視点から消えて、右側が空いた
+  const dlzBar = { x: width * 0.74, bottom: height * 0.5 + DLZ_BAR_HEIGHT / 2 }
   // 兵装の一覧は右下（段 33、参考画像に合わせた）。x は文字の右端、y は 1 行目の基線
   const armament = { x: width * 0.94, y: height * 0.8 }
   const mission = { x: width * 0.06, y: height * 0.08 }
@@ -116,33 +132,28 @@ export function computeLayout(width: number, height: number): HudLayout {
   const readouts = { x: width * 0.18, y: height * 0.78 }
   const agl = { x: width * 0.82, y: height * 0.78 }
   const warnings = { x: width * 0.5, y: height * 0.7 }
+  // SPEED と ALT の箱は照準の左右（段 36、参考画像に合わせた）。中心から幅の 12% 離す
+  const speedBox = { innerX: width * 0.5 - width * 0.12, centerY: height * 0.5 }
+  const altitudeBox = { innerX: width * 0.5 + width * 0.12, centerY: height * 0.5 }
   // レーダーは左下（段 34、参考画像に合わせた）。一辺は短い辺の 22%、下端は高さの 97%
   const radarSize = Math.min(width, height) * 0.22
   const radar = { x: width * 0.03, y: height * 0.97 - radarSize, size: radarSize }
 
-  // 外接の箱。縦の目盛りは軸の外側に現在値の箱（幅 62 + 間 2）、内側に目盛り（12）と
-  // 数字（4 空けて）。縦は目盛りの範囲と、数字の半分の高さ
-  const tapeTop = speedTape.centerY - speedTape.halfHeight - 6
-  const tapeHeight = speedTape.halfHeight * 2 + 12
+  // 外接の箱。追従視点で描くものだけ（`HudElement`）
   const bounds: Record<HudElement, Rect> = {
-    speedTape: {
-      x: speedTape.x - 64,
-      y: tapeTop,
-      w: 64 + 16 + LONGEST.speedLabel * SMALL_ADVANCE,
-      h: tapeHeight,
+    // SPEED の箱。外側（左）に増減の三角
+    speedBox: {
+      x: speedBox.innerX - VALUE_BOX_WIDTH - TREND_GAP - TREND_WIDTH,
+      y: speedBox.centerY - VALUE_BOX_HEIGHT / 2,
+      w: VALUE_BOX_WIDTH + TREND_GAP + TREND_WIDTH,
+      h: VALUE_BOX_HEIGHT,
     },
-    altitudeTape: {
-      x: altitudeTape.x - 16 - LONGEST.altitudeLabel * SMALL_ADVANCE,
-      y: tapeTop,
-      w: 16 + LONGEST.altitudeLabel * SMALL_ADVANCE + 64,
-      h: tapeHeight,
-    },
-    // 方位の目盛り。上に現在値（下端が y − 28、13px）、下に数字（上端が y + 4、11px）
-    headingTape: {
-      x: headingTape.centerX - headingTape.halfWidth - 10,
-      y: headingTape.y - 28 - 13,
-      w: headingTape.halfWidth * 2 + 20,
-      h: 28 + 13 + 4 + 11,
+    // ALT の箱。外側（右）に増減の三角
+    altitudeBox: {
+      x: altitudeBox.innerX,
+      y: altitudeBox.centerY - VALUE_BOX_HEIGHT / 2,
+      w: VALUE_BOX_WIDTH + TREND_GAP + TREND_WIDTH,
+      h: VALUE_BOX_HEIGHT,
     },
     // DLZ。帯の左へ 5 はみ出す現在距離の線、右へ文字（帯 + 8 から）
     dlzBar: {
@@ -198,6 +209,8 @@ export function computeLayout(width: number, height: number): HudLayout {
     readouts,
     agl,
     warnings,
+    speedBox,
+    altitudeBox,
     radar,
     bounds,
   }

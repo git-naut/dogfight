@@ -900,4 +900,22 @@ export const BITE_MARKS = [
     expect: 'tests/hud/arrow.test.ts',
     why: '真後ろの敵を指すはずの矢印が前を指し、敵のいない方へ旋回させる',
   },
+  {
+    id: 'speed-rate-flipped',
+    kind: '符号の反転',
+    file: 'src/sim/aircraft.ts',
+    find: '    out.speedRate = this.lastDt > 0 ? (this.speed - this.speedBefore) / this.lastDt : 0',
+    replace: '    out.speedRate = this.lastDt > 0 ? (this.speedBefore - this.speed) / this.lastDt : 0',
+    expect: 'tests/sim/speedRate.test.ts',
+    why: '加速しているのに SPEED の箱に下向きの三角が出る',
+  },
+  {
+    id: 'trend-no-threshold',
+    kind: '比較の反転',
+    file: 'src/hud/readout.ts',
+    find: '  if (value > threshold) return 1\n',
+    replace: '  if (value > -threshold) return 1\n',
+    expect: 'tests/hud/readout.test.ts',
+    why: '水平の巡航でも上向きの三角が出て、増減が読めない',
+  },
 ]

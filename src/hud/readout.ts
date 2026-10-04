@@ -154,3 +154,13 @@ export function formatTimer(frames: number): string {
 export function formatScore(points: number): string {
   return String(Math.max(0, Math.round(points))).padStart(6, '0')
 }
+
+/**
+ * 増減の向き（段 36、SPEED と ALT の箱の三角）。閾値を越えたら ±1、越えなければ 0。
+ * 閾値の内で 0 にするのは、水平の巡航で三角をちらつかせないため
+ */
+export function trendOf(value: number, threshold: number): -1 | 0 | 1 {
+  if (value > threshold) return 1
+  if (value < -threshold) return -1
+  return 0
+}

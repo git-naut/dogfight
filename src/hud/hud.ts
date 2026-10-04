@@ -19,6 +19,7 @@ import {
   createHudReadout,
   formatScore,
   formatTimer,
+  trendOf,
   type HudReadout,
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
@@ -30,6 +31,10 @@ import {
   DLZ_BAR_WIDTH,
   ARMAMENT_LINE,
   ARMAMENT_TEXT_WIDTH,
+  TREND_GAP,
+  TREND_WIDTH,
+  VALUE_BOX_HEIGHT,
+  VALUE_BOX_WIDTH,
   MISSION_LINE,
   SILHOUETTE_GAP,
   SILHOUETTE_SIZE,
@@ -66,6 +71,10 @@ const WARN = 'rgba(255, 150, 90, 0.95)'
 const LINE_WIDTH = 1.4
 const FONT = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 const SMALL_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+
+/** SPEED と ALT の増減の三角を出す閾値（段 36）。速さの変化率 m/s² と上下の速さ m/s */
+const SPEED_TREND = 1
+const CLIMB_TREND = 2
 
 /** 目標の箱の半辺 画面画素（段 35） */
 const TARGET_BOX_HALF = 7
@@ -290,7 +299,16 @@ export interface Hud {
   dispose(): void
 }
 
-export function createHud(host: HTMLElement): Hud {
+/**
+ * 計器の出し方（段 36）。
+ *
+ * `chase` は追従視点の HUD（参考画像の Ace Combat 7 に合わせた）。ピッチの梯子・方位の目盛り・
+ * 縦の目盛りを描かず、照準の左右に SPEED と ALT の箱を置く。`full` は段 35 までの計器で、
+ * 操縦席など別の視点を足すときのために残す。**いまはどの経路も `chase` を使う**
+ */
+export type HudInstruments = 'chase' | 'full'
+
+export function createHud(host: HTMLElement, instruments: HudInstruments = 'chase'): Hud {
   const canvas = document.createElement('canvas')
   canvas.className = 'hud-canvas'
   host.append(canvas)
@@ -1033,6 +1051,52 @@ export function createHud(host: HTMLElement): Hud {
   }
 
   /**
+   * SPEED と ALT の箱（段 36、参考画像に合わせた）。照準の左右に置く。
+   *
+   * 値は縦の目盛りと同じ kt と ft。箱の外側に増減の三角を出す。SPEED は速さの変化率
+   * （`AircraftSample.speedRate`）が ±1 m/s² を越えたら、ALT は上下の速さが ±2 m/s を
+   * 越えたら。越えなければ出さない（水平の巡航でちらつかせない）
+   */
+  function drawValueBoxes(sample: AircraftSample): void {
+    ctx!.font = FONT
+    ctx!.textBaseline = 'middle'
+    ctx!.lineWidth = LINE_WIDTH
+    const half = VALUE_BOX_HEIGHT / 2
+
+    const { innerX: sx, centerY: sy } = layout.speedBox
+    ctx!.strokeStyle = PRIMARY
+    ctx!.strokeRect(sx - VALUE_BOX_WIDTH, sy - half, VALUE_BOX_WIDTH, VALUE_BOX_HEIGHT)
+    ctx!.fillStyle = PRIMARY
+    ctx!.textAlign = 'left'
+    ctx!.fillText('SPEED', sx - VALUE_BOX_WIDTH + 7, sy)
+    ctx!.textAlign = 'right'
+    ctx!.fillText(`${Math.round(readout.speedKt)}`, sx - 7, sy)
+    drawTrend(sx - VALUE_BOX_WIDTH - TREND_GAP - TREND_WIDTH / 2, sy, trendOf(sample.speedRate, SPEED_TREND))
+
+    const { innerX: ax, centerY: ay } = layout.altitudeBox
+    ctx!.strokeRect(ax, ay - half, VALUE_BOX_WIDTH, VALUE_BOX_HEIGHT)
+    ctx!.textAlign = 'left'
+    ctx!.fillText('ALT', ax + 7, ay)
+    ctx!.textAlign = 'right'
+    ctx!.fillText(`${Math.round(readout.altitudeFt)}`, ax + VALUE_BOX_WIDTH - 7, ay)
+    drawTrend(ax + VALUE_BOX_WIDTH + TREND_GAP + TREND_WIDTH / 2, ay, trendOf(sample.velocity.y, CLIMB_TREND))
+  }
+
+  /** 増減の三角。1 は上向き、−1 は下向き、0 は描かない */
+  function drawTrend(cx: number, cy: number, trend: -1 | 0 | 1): void {
+    if (trend === 0) return
+    const h = 5
+    const w = TREND_WIDTH / 2
+    ctx!.beginPath()
+    ctx!.moveTo(cx, cy - trend * h)
+    ctx!.lineTo(cx + w, cy + trend * h)
+    ctx!.lineTo(cx - w, cy + trend * h)
+    ctx!.closePath()
+    ctx!.fillStyle = PRIMARY
+    ctx!.fill()
+  }
+
+  /**
    * レーダー（段 34、参考画像の左下に合わせた）。機首が上、半幅 6 km。
    *
    * 正方形に格子と距離の輪（2・4 km）、方位の文字、中心に自機、敵は四角、標的機は菱形。
@@ -1197,7 +1261,9 @@ export function createHud(host: HTMLElement): Hud {
 
       // ラダーは機首の方位を中心に置く。カメラではなく機体を基準にする
       const heading = headingOf(readout.nose.x, readout.nose.y, readout.nose.z)
-      drawLadder(viewProjection, heading)
+      // **ピッチの梯子と方位の目盛り、縦の目盛りは追従視点では描かない**（段 36、参考画像に
+      // 合わせた）。描画のコードは操縦席など別の視点のために残す（`instruments: 'full'`）
+      if (instruments === 'full') drawLadder(viewProjection, heading)
       drawBoresight(viewProjection)
       drawGunReticle(viewProjection, sample)
       drawTargetBoxes(viewProjection, armament)
@@ -1206,25 +1272,29 @@ export function createHud(host: HTMLElement): Hud {
       drawDlzBar(armament.lock)
       drawFlightPath(viewProjection)
 
-      drawVerticalTape(
-        layout.speedTape,
-        readout.speedKt,
-        SPEED_MINOR,
-        SPEED_MAJOR,
-        SPEED_RANGE,
-        'KT',
-        false,
-      )
-      drawVerticalTape(
-        layout.altitudeTape,
-        readout.altitudeFt,
-        ALTITUDE_MINOR,
-        ALTITUDE_MAJOR,
-        ALTITUDE_RANGE,
-        'FT',
-        true,
-      )
-      drawHeadingTape(readout.headingDeg)
+      if (instruments === 'full') {
+        drawVerticalTape(
+          layout.speedTape,
+          readout.speedKt,
+          SPEED_MINOR,
+          SPEED_MAJOR,
+          SPEED_RANGE,
+          'KT',
+          false,
+        )
+        drawVerticalTape(
+          layout.altitudeTape,
+          readout.altitudeFt,
+          ALTITUDE_MINOR,
+          ALTITUDE_MAJOR,
+          ALTITUDE_RANGE,
+          'FT',
+          true,
+        )
+        drawHeadingTape(readout.headingDeg)
+      } else {
+        drawValueBoxes(sample)
+      }
       drawArmament(armament)
       drawMission(armament.mission)
       drawThreat(armament.threat)

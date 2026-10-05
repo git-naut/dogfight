@@ -28,3 +28,6 @@ dist/
 # Stryker の作業ディレクトリと報告
 /.stryker-tmp/
 /reports/
+
+# ユーザーがダウンロードした原本の置き場（Phase 9）。使うものは各段で assets/upstream/ へ写してからコミットする
+/download/

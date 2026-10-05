@@ -97,7 +97,9 @@ gh auth token --user git-naut > /dev/null && \
 
 ## アセットのライセンス
 
-使うのは CC0、パブリックドメイン、OFL、MIT、GPLv2+ のみ。取得したものは URL、作者、ライセンス、取得日を `assets/CREDITS.md` に記録する。記録のないアセットはコミットしない。
+使うのは CC0、パブリックドメイン、OFL、MIT、GPLv2+、CC BY 4.0 のみ。取得したものは URL、作者、ライセンス、取得日を `assets/CREDITS.md` に記録する。記録のないアセットはコミットしない。
+
+CC BY 4.0 は自機の F/A-18E を入れたとき（`docs/decisions/0012-super-hornet.md`）に認めた。GPLv3 と一方向に互換で、このリポジトリは GPLv2+（v2 以降）なので取り込める。作者の表示は `assets/CREDITS.md` の記載で果たす。CC BY 2.0・3.0、NC・ND の付くもの、Sketchfab の Standard・Editorial は使わない。
 
 GPLv2+ を許すのは、このリポジトリ自体を GPLv2+ にしたため。機体モデルを FlightGear から取り込んだ判断の経緯は `docs/decisions/0005-aircraft.md` にある。GPL のアセットは改変前の原本を `assets/upstream/` にコミットする。GPLv2 が改変に適した形式の提供を求めるので、生成物だけでは足りない。
 

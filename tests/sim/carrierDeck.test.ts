@@ -4,6 +4,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { parseAc3d, flatten } from '../../tools/ac3d.mjs'
 import { CATAPULTS, deckToWorld, catapultLaunch } from '@sim/carrierDeck'
 import { LAUNCH_DISTANCE } from '@sim/launch'
+import { headingOf, wrapAngle } from '@hud/project'
 
 /**
  * 甲板の座標。
@@ -149,9 +150,21 @@ describe('射出の諸元', () => {
       'cat-1',
       LAUNCH_DISTANCE,
     )
-    // 90 度回すと −Z 向きが −X 向きになる
+    // 右回りが正。90 度回すと −Z（北）向きが +X（東）向きになる（Phase 9 の段 1 までは −X だった）
     expect(straight.direction.z).toBeLessThan(-0.9)
-    expect(turned.direction.x).toBeLessThan(-0.9)
+    expect(turned.direction.x).toBeGreaterThan(0.9)
     expect(Math.abs(turned.direction.z)).toBeLessThan(0.2)
+  })
+
+  it('射出の向きは heading だけ右回りに回る（HUD の headingOf と同じ約束）', () => {
+    // cat-1 そのものが艦の軸から −4.0 度ずれているので、回した差で見る
+    const at = (h: number) => {
+      const d = catapultLaunch({ x: 0, z: 0, heading: h }, 'cat-1', LAUNCH_DISTANCE).direction
+      return headingOf(d.x, d.y, d.z)
+    }
+    const base = at(0)
+    for (const h of [0.35, -0.35, 1.2, -2.5, 3]) {
+      expect(wrapAngle(at(h) - base - h), `heading ${h}`).toBeCloseTo(0, 9)
+    }
   })
 })

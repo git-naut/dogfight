@@ -69,7 +69,11 @@ export async function loadCarrier(url: string): Promise<Carrier> {
 /**
  * 空母を海面へ置く。
  *
- * `heading` は艦首の向き rad。0 で −Z（当方の機首方向）を向く。
+ * `heading` は艦首の向き rad。0 で −Z（当方の機首方向）を向き、**右回りが正**
+ * （上から見て時計回り。HUD の `headingOf`・敵機・標的機と同じ約束）。
+ *
+ * three の `rotation.y` は左回りが正なので、符号を反転して渡す。Phase 9 の段 1 までは
+ * `heading` をそのまま渡していて、描画と射出だけが左回りだった（レーダーとは逆）
  */
 export function placeCarrier(
   carrier: Carrier,
@@ -78,5 +82,5 @@ export function placeCarrier(
   heading: number,
 ): void {
   carrier.object.position.set(x, 0, z)
-  carrier.object.rotation.set(0, heading, 0)
+  carrier.object.rotation.set(0, -heading, 0)
 }

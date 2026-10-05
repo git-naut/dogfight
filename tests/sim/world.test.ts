@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { World, createWorldFromScript, neutralInput } from '@sim/world'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath, URL } from 'node:url'
+import { World, createWorldFromScript, neutralInput, worldOptionsFromScript } from '@sim/world'
 import { SCRIPTS } from '@sim/scripts'
 import { FIXED_DT } from '@sim/loop'
 
@@ -52,5 +54,24 @@ describe('空母の配置（段 37）', () => {
     const withCarrier = createWorldFromScript(SCRIPTS['mission-01']).world
     expect(withCarrier.carrier).toEqual({ x: 0, z: 8000, heading: 0 })
     expect(createWorldFromScript(SCRIPTS['level']).world.carrier).toBeNull()
+  })
+})
+
+describe('World の組み立ての一本化（Phase 9 の段 1）', () => {
+  it('ライブ（main.ts）は台本から World を自分で組み立てず、worldOptionsFromScript を通す', () => {
+    // 段 1 までは main.ts の spawnWorld が createWorldFromScript の中身を書き写していて、
+    // 台本に項目を足すたびに 2 か所を直す必要があった（片方だけだとライブで射出が始まらない等）
+    const main = readFileSync(fileURLToPath(new URL('../../src/main.ts', import.meta.url)), 'utf8')
+    expect(main.includes('new World(worldOptionsFromScript(script, DEFAULT_SEED))')).toBe(true)
+    expect(main.match(/new World\(\{/g), 'main.ts が World の設定を自分で組んでいる').toBeNull()
+  })
+
+  it('種だけを差し替えられ、ほかの設定は台本と同じ', () => {
+    const script = SCRIPTS['mission-01']
+    const own = worldOptionsFromScript(script)
+    const live = worldOptionsFromScript(script, 12345)
+    expect(own.seed).toBe(script.seed)
+    expect(live.seed).toBe(12345)
+    expect({ ...live, seed: own.seed }).toEqual(own)
   })
 })

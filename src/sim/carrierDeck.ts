@@ -53,7 +53,8 @@ export function deckToWorld(p: readonly [number, number, number]): Vec3 {
 /**
  * 空母の配置とカタパルトの名前から射出の諸元を作る。
  *
- * `heading` は艦首の向き rad。0 で −Z（当方の機首方向）。
+ * `heading` は艦首の向き rad。0 で −Z（当方の機首方向）、右回りが正
+ * （`headingOf` と同じ。描画の `placeCarrier` も同じ約束）。
  *
  * 射出の開始位置は**帯の後端ではない。**終点から行程ぶん手前に取る。
  * C-13 の公表値（終端速度 150 kt、行程 94 m）を 2 つとも守ると加速度が
@@ -83,12 +84,13 @@ export function catapultLaunch(
   const startX = to.x - ux * distance
   const startZ = to.z - uz * distance
 
-  // 船の向きで回してから位置を足す
+  // 船の向きで回してから位置を足す。右回りが正なので、前 (0, −1) は (sin h, −cos h) へ写る。
+  // **Phase 9 の段 1 までは逆向き**（three の Ry と同じ左回り）で、レーダーと食い違っていた
   const cos = Math.cos(carrier.heading)
   const sin = Math.sin(carrier.heading)
   const rotate = (x: number, z: number): [number, number] => [
-    x * cos + z * sin,
-    -x * sin + z * cos,
+    x * cos - z * sin,
+    x * sin + z * cos,
   ]
   const [px, pz] = rotate(startX, startZ)
   const [dxw, dzw] = rotate(ux, uz)

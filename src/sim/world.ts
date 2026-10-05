@@ -350,14 +350,19 @@ export class World {
   }
 }
 
-/** 入力スクリプトの初期条件から World を作り、再生器と組にして返す。 */
-export function createWorldFromScript(script: ReplayScript): {
-  world: World
-  player: ReplayPlayer
-} {
+/**
+ * 台本の初期条件から World の設定を組む（Phase 9 の段 1）。
+ *
+ * **ライブ（`main.ts` の `spawnWorld`）とキャプチャ・テストの両方がここを通る。**段 1 までは
+ * ライブが同じ中身を書き写していて、台本に項目を足すたびに 2 か所を直す必要があった
+ * （ミッション・空母・射出で 3 回、「ここも渡す」の注記が付いていた）。
+ *
+ * @param seed 乱数の種。省略すると台本の種。ライブは `DEFAULT_SEED` を渡す
+ */
+export function worldOptionsFromScript(script: ReplayScript, seed: number = script.seed): WorldOptions {
   const spawn = spawnFromSpec(script.spawn)
-  const world = new World({
-    seed: script.seed,
+  return {
+    seed,
     aircraft: {
       position: spawn.position,
       velocity: spawn.velocity,
@@ -375,8 +380,25 @@ export function createWorldFromScript(script: ReplayScript): {
     ...(script.launchFrom !== undefined && script.carrier !== undefined
       ? { launch: catapultLaunch(script.carrier, script.launchFrom, LAUNCH_DISTANCE) }
       : {}),
-  })
-  return { world, player: new ReplayPlayer(script) }
+  }
+}
+
+/** 入力スクリプトの初期条件から World を作り、再生器と組にして返す。 */
+export function createWorldFromScript(script: ReplayScript): {
+  world: World
+  player: ReplayPlayer
+} {
+  return { world: new World(worldOptionsFromScript(script)), player: new ReplayPlayer(script) }
+}
+
+/**
+ * 台本を `frames` ステップ進める。**キャプチャ（`main.ts`）とテスト（`runScript`）が同じ
+ * ここを通る。**段 9 で自動操縦を差し込むときも、この 1 か所を直せば両方に効く
+ */
+export function advanceScript(world: World, player: ReplayPlayer, frames: number): void {
+  for (let i = 0; i < frames; i++) {
+    world.step(player.at(i))
+  }
 }
 
 /**
@@ -386,8 +408,6 @@ export function createWorldFromScript(script: ReplayScript): {
  */
 export function runScript(script: ReplayScript, frames: number): World {
   const { world, player } = createWorldFromScript(script)
-  for (let i = 0; i < frames; i++) {
-    world.step(player.at(i))
-  }
+  advanceScript(world, player, frames)
   return world
 }

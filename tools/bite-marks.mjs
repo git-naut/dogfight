@@ -954,4 +954,22 @@ export const BITE_MARKS = [
     expect: 'tests/hud/armament.test.ts',
     why: 'MSL の残りが初期値の 0 のまま出て、撃てるのに尽きたように見える',
   },
+  {
+    id: 'carrier-render-heading-left',
+    kind: '符号の反転',
+    file: 'src/render/carrier.ts',
+    find: '  carrier.object.rotation.set(0, -heading, 0)\n',
+    replace: '  carrier.object.rotation.set(0, heading, 0)\n',
+    expect: 'tests/render/carrierHeading.test.ts',
+    why: '空母の絵が左回りに回り、レーダーの空母の枠と射出の向きに対して逆を向く',
+  },
+  {
+    id: 'catapult-heading-left',
+    kind: '符号の反転',
+    file: 'src/sim/carrierDeck.ts',
+    find: '    x * cos - z * sin,\n    x * sin + z * cos,\n',
+    replace: '    x * cos + z * sin,\n    -x * sin + z * cos,\n',
+    expect: 'tests/sim/carrierDeck.test.ts',
+    why: '空母を回すと射出の向きだけ逆に回り、機体が甲板から外れて飛び出す',
+  },
 ]

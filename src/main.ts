@@ -1,5 +1,5 @@
 import { FixedStepDriver, FIXED_DT } from './sim/loop'
-import { World, createWorldFromScript } from './sim/world'
+import { World, advanceScript, createWorldFromScript, worldOptionsFromScript } from './sim/world'
 import { createAircraftSample, type AircraftSample } from './sim/aircraft'
 import { createTargetSample, type TargetSample } from './sim/target'
 import { Vec3 } from './sim/vec3'
@@ -28,8 +28,6 @@ import {
 import { getQuality, PerformanceGovernor, type PresetName } from './render/quality'
 import { KeyboardInput } from './input/keyboard'
 import { applyAssist, type ControlMode } from './sim/assist'
-import { catapultLaunch } from './sim/carrierDeck'
-import { LAUNCH_DISTANCE } from './sim/launch'
 import { climbAngleOf } from './sim/ai/steering'
 import { MouseLook } from './input/mouseLook'
 import { createDebugPanel } from './hud/debugPanel'
@@ -731,9 +729,8 @@ async function main(): Promise<void> {
     hook.seed = script.seed
     hook.script = script.name
 
-    for (let i = 0; i < capture.frame; i++) {
-      world.step(player.at(i))
-    }
+    // テストの `runScript` と同じ関数で進める（Phase 9 の段 1）
+    advanceScript(world, player, capture.frame)
 
     world.samplePlayer(1, sample)
     fitTargetSamples(world.targets.length)
@@ -1099,33 +1096,12 @@ async function main(): Promise<void> {
   let cpuHudMs = 0
 
   function spawnWorld(): World {
-    // ライブでも台本の初期条件を使う。?script= で標的つきの台本を選べる
+    // ライブでも台本の初期条件を使う。?script= で標的つきの台本を選べる。
+    // **組み立てはキャプチャ・テストと同じ `worldOptionsFromScript`**（Phase 9 の段 1）。
+    // 違うのは乱数の種だけで、ライブは DEFAULT_SEED を使う
     const script = getScript(capture.script)
-    const spawn = spawnFromSpec(script.spawn)
-    keyboard.setThrottle(spawn.throttle)
-    const world = new World({
-      seed: DEFAULT_SEED,
-      aircraft: {
-        position: spawn.position,
-        velocity: spawn.velocity,
-        orientation: spawn.orientation,
-        throttle: spawn.throttle,
-      },
-      ...(script.targets ? { targets: script.targets } : {}),
-      ...(script.enemies ? { enemies: script.enemies } : {}),
-      // **ここも渡す。**`createWorldFromScript`（キャプチャとテストの経路）と
-      // 別に組み立てているので、片方だけ直すとライブでミッションが走らない
-      ...(script.missionSeconds !== undefined
-        ? { mission: { limitFrames: Math.round(script.missionSeconds / FIXED_DT) } }
-        : {}),
-      // 空母の配置（段 37）。**ここも渡す。**片方だけだとライブのレーダーに空母が出ない
-      ...(script.carrier !== undefined ? { carrier: script.carrier } : {}),
-      // **ここも渡す。**`createWorldFromScript`（キャプチャとテストの経路）と
-      // 別に組み立てているので、片方だけ直すとライブで射出が始まらない
-      ...(script.launchFrom !== undefined && script.carrier !== undefined
-        ? { launch: catapultLaunch(script.carrier, script.launchFrom, LAUNCH_DISTANCE) }
-        : {}),
-    })
+    keyboard.setThrottle(spawnFromSpec(script.spawn).throttle)
+    const world = new World(worldOptionsFromScript(script, DEFAULT_SEED))
     fitTargetSamples(world.targets.length)
     fitEnemySamples(world.enemies.length)
     return world

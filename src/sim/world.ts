@@ -57,6 +57,11 @@ export interface WorldOptions {
    */
   mission?: MissionSpec
   /**
+   * 空母の配置（段 37、計画書の段 31）。保持するだけで、ステップの処理は増えない。
+   * HUD のレーダーが読む。位置は世界座標 m、向きは方位 rad（北 0、右回り）
+   */
+  carrier?: { x: number; z: number; heading: number }
+  /**
    * カタパルト射出。渡さなければ空中から始まる。
    *
    * **既定は「射出なし」。**基準画像を撮る台本も、性能を測る台本も、
@@ -133,6 +138,8 @@ export class World {
    * 勝敗はさらに別の関心（`mission.ts`）
    */
   readonly mission: Mission | null
+  /** 空母の配置。台本に空母が無ければ null（段 37） */
+  readonly carrier: { readonly x: number; readonly z: number; readonly heading: number } | null
 
   /**
    * カタパルト。台本が射出を要求していなければ null。
@@ -150,6 +157,7 @@ export class World {
     this.rng = new Rng(options.seed)
     this.terrain = options.terrain ?? defaultTerrain()
     this.mission = options.mission ? new Mission(options.mission) : null
+    this.carrier = options.carrier ? { ...options.carrier } : null
     this.catapult = options.launch ? new Catapult(options.launch, FIXED_DT) : null
     // 地形は毎ステップ Aircraft が引くので stepOptions に混ぜて渡す
     this.stepOptions = { ...(options.step ?? {}), terrain: this.terrain }
@@ -362,6 +370,7 @@ export function createWorldFromScript(script: ReplayScript): {
     ...(script.missionSeconds !== undefined
       ? { mission: { limitFrames: Math.round(script.missionSeconds / FIXED_DT) } }
       : {}),
+    ...(script.carrier !== undefined ? { carrier: script.carrier } : {}),
     // **台本に座標を書き写さない。**空母の配置と原本の座標から計算する
     ...(script.launchFrom !== undefined && script.carrier !== undefined
       ? { launch: catapultLaunch(script.carrier, script.launchFrom, LAUNCH_DISTANCE) }

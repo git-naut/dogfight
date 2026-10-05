@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { radarBearing, radarPoint } from '@hud/radar'
+import { radarBearing, radarPoint, radarRadius } from '@hud/radar'
 
 /**
  * レーダーの向き（段 34）。**左右や前後を取り違えると、敵がいない方へ旋回させる。**
- * 期待値は定数から作らず、範囲 6,000 m を固定の数で書く
+ * 期待値は定数から作らず、範囲 12,000 m・平方根で縮める式から手で出した数で書く
+ * （3,000 m は √0.25 = 0.5）
  */
 const DEG = Math.PI / 180
 
@@ -28,13 +29,23 @@ describe('radarPoint', () => {
     expect(north.y).toBeCloseTo(0, 9)
   })
 
-  it('範囲の外は向きを保って縁へ寄せる', () => {
+  it('範囲の外は向きを保って円の縁へ寄せる', () => {
+    // 右前 45 度の 17 km。円の縁（半径 1）の 45 度の位置
     const far = radarPoint(12000, -12000, 0)
     expect(far.clamped).toBe(true)
-    expect(far.x).toBeCloseTo(1, 9)
-    expect(far.y).toBeCloseTo(-1, 9)
-    const near = radarPoint(0, -5999, 0)
+    expect(far.x).toBeCloseTo(Math.SQRT1_2, 9)
+    expect(far.y).toBeCloseTo(-Math.SQRT1_2, 9)
+    const near = radarPoint(0, -11999, 0)
     expect(near.clamped).toBe(false)
+  })
+
+  it('距離は平方根で縮める。空戦の距離の相手が中心に潰れない', () => {
+    // 計画書の段 31。比例なら 500 / 12000 = 4% だが、平方根で 20%
+    expect(radarRadius(500)).toBeCloseTo(0.2041, 4)
+    expect(radarRadius(3000)).toBeCloseTo(0.5, 9)
+    expect(radarRadius(12000)).toBe(1)
+    expect(radarRadius(30000)).toBe(1)
+    expect(radarPoint(0, -500, 0).y).toBeCloseTo(-0.2041, 4)
   })
 })
 

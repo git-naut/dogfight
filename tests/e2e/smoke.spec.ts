@@ -1033,11 +1033,18 @@ test.describe('目標の表示', () => {
     return found
   }
 
-  test('SHOOT はロックして射程に入ると出る。捕捉の途中では出ない', async ({ page }) => {
-    // hud-dlz はロック中・距離 6.9 km で射程（DLZ の最小〜最大）の内
+  test('SHOOT はロックして逃げても届く距離（rNe）の内で出る。捕捉の途中では出ない', async ({ page }) => {
+    // hud-dlz はロック中・距離 6.9 km で rNe 12.1 km の内
     const inRange = await capture(page, scene('hud-dlz'))
     expect(inRange.lockState).toBe('locked')
     expect(inRange.hudShootShown).toBe(true)
+    // **hud-mission は距離 11.6 km で、rNe 6.1 km の外・rMax 15.3 km の内。**段 35 は rMax までで
+    // 出していたのでここで出ていた。計画書の段 32 に合わせて rNe に変えたので出ない（段 37）
+    const beyondNe = await capture(page, scene('hud-mission'))
+    expect(beyondNe.lockState).toBe('locked')
+    expect(beyondNe.lockRange).toBeGreaterThan(beyondNe.dlzNe)
+    expect(beyondNe.lockRange).toBeLessThan(beyondNe.dlzMax)
+    expect(beyondNe.hudShootShown).toBe(false)
     const acquiring = await capture(page, scene('hud-acquiring'))
     expect(acquiring.lockState).toBe('acquiring')
     expect(acquiring.hudShootShown).toBe(false)

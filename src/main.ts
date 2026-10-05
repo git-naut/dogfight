@@ -504,6 +504,7 @@ async function main(): Promise<void> {
     missiles: 0,
     contacts: [],
     contactCount: 0,
+    carrier: null,
     lock: createHudLock(),
     flares: 0,
     threat: createMissileThreat(),
@@ -545,6 +546,8 @@ async function main(): Promise<void> {
       if (e.alive) put(e, enemySamples[i]?.position ?? e.position, 'enemy')
     })
     armament.contactCount = n
+    // 空母（段 37）。World が台本の配置を持つ
+    armament.carrier = currentWorld.carrier
     armament.flares = currentWorld.countermeasures.left
 
     // ミッションが無ければ null。**HUD 側は null で何も描かない**ので、
@@ -1115,6 +1118,8 @@ async function main(): Promise<void> {
       ...(script.missionSeconds !== undefined
         ? { mission: { limitFrames: Math.round(script.missionSeconds / FIXED_DT) } }
         : {}),
+      // 空母の配置（段 37）。**ここも渡す。**片方だけだとライブのレーダーに空母が出ない
+      ...(script.carrier !== undefined ? { carrier: script.carrier } : {}),
       // **ここも渡す。**`createWorldFromScript`（キャプチャとテストの経路）と
       // 別に組み立てているので、片方だけ直すとライブで射出が始まらない
       ...(script.launchFrom !== undefined && script.carrier !== undefined

@@ -23,7 +23,7 @@ import {
   type HudReadout,
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
-import { RADAR_RANGE, RADAR_RINGS, radarBearing, radarPoint } from './radar'
+import { RADAR_RANGE, RADAR_RINGS, radarBearing, radarPoint, radarRadius } from './radar'
 import { offscreenDirection } from './arrow'
 import {
   computeLayout,
@@ -71,6 +71,10 @@ const WARN = 'rgba(255, 150, 90, 0.95)'
 const LINE_WIDTH = 1.4
 const FONT = '13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 const SMALL_FONT = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+
+/** 機銃の照準の円の半径と、左右のシェブロンの先端までの距離 画面画素（段 37） */
+const RETICLE_RADIUS = 16
+const RETICLE_CHEVRON = 26
 
 /** SPEED と ALT の増減の三角を出す閾値（段 36）。速さの変化率 m/s² と上下の速さ m/s */
 const SPEED_TREND = 1
@@ -190,6 +194,11 @@ export interface HudArmament {
    */
   contacts: HudContact[]
   contactCount: number
+  /**
+   * 空母（段 37、計画書の段 31）。レーダーに載せる。台本に空母が無ければ null。
+   * 位置は世界座標 m、向きは方位 rad（北 0、右回り）
+   */
+  carrier: { x: number; z: number; heading: number } | null
   /** シーカーの捕捉 */
   lock: HudLock
   /** 残りのフレア */
@@ -662,7 +671,24 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.strokeStyle = PRIMARY
     ctx!.lineWidth = LINE_WIDTH
     ctx!.beginPath()
-    ctx!.arc(p.x, p.y, 16, 0, Math.PI * 2)
+    ctx!.arc(p.x, p.y, RETICLE_RADIUS, 0, Math.PI * 2)
+    // **目盛り（段 37、計画書の段 32）。**円の 12 方向（30 度ごと）に外へ短い線。上下左右の 4 本は長く
+    for (let k = 0; k < 12; k++) {
+      const angle = (k * Math.PI) / 6
+      const length = k % 3 === 0 ? 5 : 3
+      const c = Math.cos(angle)
+      const s = Math.sin(angle)
+      ctx!.moveTo(p.x + c * RETICLE_RADIUS, p.y + s * RETICLE_RADIUS)
+      ctx!.lineTo(p.x + c * (RETICLE_RADIUS + length), p.y + s * (RETICLE_RADIUS + length))
+    }
+    // **シェブロン（段 37）。**円の左に <、右に > を外向きに置く。照準の位置が目に入りやすい。
+    // 先端が外側、腕は円の側へ戻す（最初に逆向きに描いて、内向きの > < になった）
+    for (const side of [-1, 1]) {
+      const tipX = p.x + side * RETICLE_CHEVRON
+      ctx!.moveTo(tipX - side * 5, p.y - 6)
+      ctx!.lineTo(tipX, p.y)
+      ctx!.lineTo(tipX - side * 5, p.y + 6)
+    }
     ctx!.stroke()
 
     // 中心の点。着弾点そのもの
@@ -675,7 +701,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.fillStyle = DIM
     ctx!.textAlign = 'left'
     ctx!.textBaseline = 'middle'
-    ctx!.fillText(`${GUN_REFERENCE_RANGE}`, p.x + 21, p.y)
+    // 基準距離は右のシェブロンの外（段 37 で 21 から移した）
+    ctx!.fillText(`${GUN_REFERENCE_RANGE}`, p.x + RETICLE_CHEVRON + 8, p.y)
   }
 
   /**
@@ -752,9 +779,11 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       center.y - half + 13,
     )
 
-    // **SHOOT（段 35）。**ロックしていて、ミサイルの射程（DLZ の最小〜最大）に入ったとき。
-    // 箱の下に出す。画面の中央は自機の機体が占めるので、固定の位置には置かない
-    shootShown = locked && lock.range >= lock.dlz.rMin && lock.range <= lock.dlz.rMax && lock.dlz.rMax > 0
+    // **SHOOT（段 35、段 37 で計画書に合わせた）。**ロックしていて、距離が `rMin`〜`rNe` の内の
+    // とき。`rNe` は相手が反転して逃げても届く帯。段 35 では `rMax` までで出していたが、最大射程の
+    // 端は相手が逃げると届かない（計画書の段 32）。箱の下に出す。画面の中央は自機の機体が占めるので、
+    // 固定の位置には置かない
+    shootShown = locked && lock.range >= lock.dlz.rMin && lock.range <= lock.dlz.rNe && lock.dlz.rNe > 0
     if (shootShown) {
       ctx!.font = FONT
       ctx!.fillStyle = PRIMARY
@@ -1116,7 +1145,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.fill()
     ctx!.clip()
 
-    // 格子（4 等分）と距離の輪
+    // 格子（4 等分）と距離の輪。輪の半径は平方根で縮めた距離（`radarRadius`）
     ctx!.strokeStyle = RADAR_GRID
     ctx!.lineWidth = 1
     ctx!.beginPath()
@@ -1130,7 +1159,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.strokeStyle = DIM
     for (const ring of RADAR_RINGS) {
       ctx!.beginPath()
-      ctx!.arc(cx, cy, (half * ring) / RADAR_RANGE, 0, Math.PI * 2)
+      ctx!.arc(cx, cy, half * radarRadius(ring), 0, Math.PI * 2)
       ctx!.stroke()
     }
 
@@ -1142,6 +1171,22 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     for (const [label, bearing] of RADAR_LABELS) {
       const d = radarBearing(bearing, heading, radarScratch)
       ctx!.fillText(label, cx + d.x * half * 0.86, cy + d.y * half * 0.86)
+    }
+
+    // 空母。艦首の向きに合わせて回した細長い枠
+    if (armament.carrier !== null) {
+      const k = armament.carrier
+      const p = radarPoint(k.x - sample.position.x, k.z - sample.position.z, heading, RADAR_RANGE, radarPointScratch)
+      const px = cx + p.x * (half - 4)
+      const py = cy + p.y * (half - 4)
+      const relative = k.heading - heading
+      ctx!.save()
+      ctx!.translate(px, py)
+      ctx!.rotate(relative)
+      ctx!.strokeStyle = PRIMARY
+      ctx!.lineWidth = 1.5
+      ctx!.strokeRect(-2.5, -7, 5, 14)
+      ctx!.restore()
     }
 
     // 相手

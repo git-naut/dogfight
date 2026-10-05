@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { World, neutralInput } from '@sim/world'
+import { World, createWorldFromScript, neutralInput } from '@sim/world'
+import { SCRIPTS } from '@sim/scripts'
 import { FIXED_DT } from '@sim/loop'
 
 describe('World', () => {
@@ -42,5 +43,14 @@ describe('World', () => {
     expect(input.throttle).toBe(0.5)
     expect(input.fireGun).toBe(false)
     expect(input.fireMissile).toBe(false)
+  })
+})
+
+describe('空母の配置（段 37）', () => {
+  it('台本の空母を保持する。空母の無い台本では null', () => {
+    // mission-01 の空母は Z 8,000・艦首は北（scripts.ts）
+    const withCarrier = createWorldFromScript(SCRIPTS['mission-01']).world
+    expect(withCarrier.carrier).toEqual({ x: 0, z: 8000, heading: 0 })
+    expect(createWorldFromScript(SCRIPTS['level']).world.carrier).toBeNull()
   })
 })

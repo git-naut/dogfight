@@ -1,6 +1,6 @@
 /**
- * 空母 Gerald R. Ford の甲板（Phase 9 の段 3）。**まだどこからも使わない。**段 4 で空母を差し替えるときに
- * `carrierDeck.ts` の Nimitz の値と入れ替える。
+ * 空母 Gerald R. Ford の甲板（Phase 9 の段 3 で測り、段 4 で使い始めた）。射出は `carrierDeck.ts` が
+ * ここの値を読む。
  *
  * 座標は空母の座標（艦首 −Z、右舷 +X、上 +Y、水面 Y 0、原点は飛行甲板の中心の真下）。
  * 世界へ置くときは `catapultLaunch` と同じく heading（右回り）で回して位置を足す。

@@ -104,7 +104,7 @@ function parseObject(lines, start) {
     /**
      * テクスチャのずらし。UV に足す。
      *
-     * 空母（`nimitz.ac`）に 1 箇所だけある（`Net` の `texoff -0.006 0`）。
+     * Phase 9 の段 3 まで使った空母（`nimitz.ac`）に 1 箇所だけあった（`Net` の `texoff -0.006 0`）。
      * 機体には出てこない
      */
     texoff: [0, 0],

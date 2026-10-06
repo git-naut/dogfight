@@ -1,88 +1,26 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath, URL } from 'node:url'
-import { parseAc3d, flatten } from '../../tools/ac3d.mjs'
-import { CATAPULTS, deckToWorld, catapultLaunch } from '@sim/carrierDeck'
+import { CATAPULTS, DECK_HEIGHT, catapultLaunch } from '@sim/carrierDeck'
+import { FORD_CATAPULTS, FORD_DECK_HEIGHT } from '@sim/fordDeck'
 import { LAUNCH_DISTANCE } from '@sim/launch'
 import { headingOf, wrapAngle } from '@hud/project'
+import { SCRIPTS } from '@sim/scripts'
+import { worldOptionsFromScript } from '@sim/world'
 
 /**
- * 甲板の座標。
+ * 空母の甲板と射出（Phase 9 の段 4 で Nimitz から Ford へ替えた）。
  *
- * **主題は原本との突き合わせ。**`carrierDeck.ts` は原本から手で写した
- * 定数を持つ。写し間違いを捕まえないと、射出の軌跡だけがカタパルトの帯から
- * ずれる。絵を見ても気づきにくい。
+ * 甲板の値そのものは `tests/tools/fordDeck.test.ts` が原本と突き合わせる。ここでは、射出が
+ * その値を使い、帯に沿って走ることを見る。**ずれると射出の軌跡だけが帯から外れ、絵を見ても
+ * 気づきにくい。**
  */
+const NAMES = Object.keys(CATAPULTS) as (keyof typeof CATAPULTS)[]
 
-/**
- * 原本から `cat-*` の 2 点を読む。
- *
- * **自前で `.ac` を舐めない。**`loc` の合成（親の位置を足す）を書き直すと
- * そこがずれる。既存の `parseAc3d` と `flatten` が済ませている
- */
-function readCatapults(): Map<string, number[][]> {
-  const { root } = parseAc3d(
-    readFileSync(
-      fileURLToPath(new URL('../../assets/upstream/nimitz/nimitz.ac', import.meta.url)),
-      'latin1',
-    ),
-  )
-  const out = new Map<string, number[][]>()
-  for (const part of flatten(root)) {
-    if (/^cat-\d$/.test(part.name)) out.set(part.name, part.vertices)
-  }
-  return out
-}
-
-const original = readCatapults()
-
-describe('カタパルトの座標', () => {
-  it('原本から 4 基が読める', () => {
-    expect(original.size).toBe(4)
-  })
-
-  /**
-   * **写した値が原本と一致する。**ずれると射出の軌跡だけが帯から外れる。
-   * 絵を見ても気づきにくい種類の間違い
-   */
-  it('写した値が原本と一致する', () => {
-    for (const [name, line] of Object.entries(CATAPULTS)) {
-      const verts = original.get(name)
-      expect(verts, `${name} が原本に無い`).toBeDefined()
-      expect(verts!.length).toBe(2)
-
-      // 原本の 2 点は順序が一定でない。+X 側が start
-      const sorted = [...verts!].sort((a, b) => b[0]! - a[0]!)
-      const [plusX, minusX] = sorted as [number[], number[]]
-      for (let i = 0; i < 3; i++) {
-        expect(line.start[i], `${name} の start[${i}]`).toBeCloseTo(plusX[i]!, 2)
-        expect(line.end[i], `${name} の end[${i}]`).toBeCloseTo(minusX[i]!, 2)
-      }
-    }
-  })
-
-  /** 4 基とも甲板の高さに乗っている */
-  it('甲板の高さが 20 m', () => {
-    for (const line of Object.values(CATAPULTS)) {
-      expect(line.start[1]).toBe(20)
-      expect(line.end[1]).toBe(20)
-    }
-  })
-})
-
-describe('座標の変換', () => {
-  /** `.ac` は 艦首 −X・上 +Y・左 +Z、当方は 艦首 −Z・上 +Y・右 +X */
-  it('艦首方向が −Z へ移る', () => {
-    // 艦首側（−X）の点は当方の −Z へ
-    const bow = deckToWorld([-100, 20, 0])
-    expect(bow.z).toBeCloseTo(-100, 3)
-    expect(bow.y).toBe(20)
-  })
-
-  it('左舷が −X へ移る', () => {
-    // `.ac` の +Z は左舷。当方は右が +X なので左は −X
-    const port = deckToWorld([0, 20, 30])
-    expect(port.x).toBeCloseTo(-30, 3)
+describe('甲板の値', () => {
+  it('Ford の 4 基と甲板の高さを使う', () => {
+    expect(CATAPULTS).toBe(FORD_CATAPULTS)
+    expect(NAMES).toEqual(['cat-1', 'cat-2', 'cat-3', 'cat-4'])
+    expect(DECK_HEIGHT).toBe(FORD_DECK_HEIGHT)
+    expect(DECK_HEIGHT).toBeCloseTo(18.87, 2)
   })
 })
 
@@ -94,7 +32,7 @@ describe('射出の諸元', () => {
   })
 
   it('向きが単位ベクトル', () => {
-    for (const name of Object.keys(CATAPULTS)) {
+    for (const name of NAMES) {
       const spec = catapultLaunch(AT_ORIGIN, name, LAUNCH_DISTANCE)
       expect(spec.direction.length(), `${name}`).toBeCloseTo(1, 5)
       // 水平
@@ -104,29 +42,46 @@ describe('射出の諸元', () => {
 
   /** 艦首が −Z なので、射出も −Z 側へ向かう */
   it('射出が艦首側を向く', () => {
-    for (const name of Object.keys(CATAPULTS)) {
+    for (const name of NAMES) {
       const spec = catapultLaunch(AT_ORIGIN, name, LAUNCH_DISTANCE)
       expect(spec.direction.z, `${name} が艦首を向いていない`).toBeLessThan(-0.9)
     }
   })
 
   it('開始位置が甲板の高さ', () => {
-    const spec = catapultLaunch(AT_ORIGIN, 'cat-1', LAUNCH_DISTANCE)
-    expect(spec.from.y).toBe(20)
+    for (const name of NAMES) expect(catapultLaunch(AT_ORIGIN, name, LAUNCH_DISTANCE).from.y, name).toBe(DECK_HEIGHT)
   })
 
   /**
-   * **開始位置は帯の内側。**終点から行程ぶん手前に取るので、帯（115 m）
-   * より短い行程（94 m）なら必ず内側に入る
+   * **機体は帯に沿って走る**（ユーザーの判断、2026-10-06）。帯は艦の軸から 2〜4 度
+   * 傾いているので、射出の向きも同じだけ傾く。期待値は測った角度を数字で書く
+   */
+  it('射出の向きが帯の向きと一致する', () => {
+    const measured = { 'cat-1': 4.03, 'cat-2': 2.21, 'cat-3': 4.37, 'cat-4': 0.04 }
+    for (const name of NAMES) {
+      const d = catapultLaunch(AT_ORIGIN, name, LAUNCH_DISTANCE).direction
+      // 艦首へ向かうほど左舷（−X）へ寄る角度
+      const angle = (Math.atan2(-d.x, -d.z) * 180) / Math.PI
+      expect(angle, name).toBeCloseTo(measured[name], 1)
+    }
+  })
+
+  /** ミッションの発進に使う 1 本。艦の軸と平行に走る */
+  it('cat-4 の射出は艦の軸と 0.5 度以内で平行', () => {
+    const d = catapultLaunch(AT_ORIGIN, 'cat-4', LAUNCH_DISTANCE).direction
+    expect(Math.abs(Math.atan2(d.x, -d.z))).toBeLessThan((0.5 * Math.PI) / 180)
+  })
+
+  /**
+   * **開始位置は帯の内側。**終点から行程ぶん手前に取るので、帯（103.5〜108.6 m）
+   * より短い行程（91.44 m）なら必ず内側に入る
    */
   it('開始位置が帯の内側にある', () => {
-    for (const name of Object.keys(CATAPULTS)) {
-      const line = CATAPULTS[name]!
-      const start = deckToWorld(line.start)
-      const end = deckToWorld(line.end)
+    for (const name of NAMES) {
+      const { start, end } = CATAPULTS[name]
       const spec = catapultLaunch(AT_ORIGIN, name, LAUNCH_DISTANCE)
-      const bandLength = Math.hypot(end.x - start.x, end.z - start.z)
-      const fromEnd = Math.hypot(spec.from.x - end.x, spec.from.z - end.z)
+      const bandLength = Math.hypot(end[0] - start[0], end[1] - start[1])
+      const fromEnd = Math.hypot(spec.from.x - end[0], spec.from.z - end[1])
       expect(fromEnd, `${name}`).toBeCloseTo(LAUNCH_DISTANCE, 3)
       expect(fromEnd, `${name} が帯からはみ出している`).toBeLessThan(bandLength)
     }
@@ -157,7 +112,7 @@ describe('射出の諸元', () => {
   })
 
   it('射出の向きは heading だけ右回りに回る（HUD の headingOf と同じ約束）', () => {
-    // cat-1 そのものが艦の軸から −4.0 度ずれているので、回した差で見る
+    // cat-1 そのものが艦の軸から 4.03 度傾いているので、回した差で見る
     const at = (h: number) => {
       const d = catapultLaunch({ x: 0, z: 0, heading: h }, 'cat-1', LAUNCH_DISTANCE).direction
       return headingOf(d.x, d.y, d.z)
@@ -166,5 +121,21 @@ describe('射出の諸元', () => {
     for (const h of [0.35, -0.35, 1.2, -2.5, 3]) {
       expect(wrapAngle(at(h) - base - h), `heading ${h}`).toBeCloseTo(0, 9)
     }
+  })
+})
+
+/**
+ * 台本の発進（Phase 9 の段 4）。**ミッションと射出の台本は艦の軸と平行な 1 本から出る**
+ * （ユーザーの判断、2026-10-06）。艦首の 2 本は帯が 2〜4 度傾いていて、追従カメラで甲板と
+ * 平行に走らないように見えた
+ */
+describe('台本の発進', () => {
+  it.each(['mission-01', 'catapult-launch'] as const)('%s は艦の軸と 0.5 度以内で平行に射出される', (name) => {
+    const script = SCRIPTS[name]
+    expect(script.launchFrom).toBe('cat-4')
+    const launch = worldOptionsFromScript(script).launch!
+    const shipForward = [Math.sin(script.carrier.heading), -Math.cos(script.carrier.heading)] as const
+    const cross = launch.direction.x * shipForward[1] - launch.direction.z * shipForward[0]
+    expect(Math.abs(Math.asin(cross))).toBeLessThan((0.5 * Math.PI) / 180)
   })
 })

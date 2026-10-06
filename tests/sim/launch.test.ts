@@ -28,7 +28,7 @@ function makeCatapult(): Catapult {
   return new Catapult(
     {
       from: new Vec3(14.71, 20, -11.64),
-      // cat-1 の向き。−Z がほぼ機首方向で、4 度だけ左へ振れている
+      // 架空の射出。値は Nimitz の cat-1（Phase 9 の段 3 まで）。−Z がほぼ機首方向で、4 度だけ左へ振れている
       direction: new Vec3(-0.0697, 0, -0.9976),
     },
     FIXED_DT,
@@ -36,27 +36,34 @@ function makeCatapult(): Catapult {
 }
 
 describe('射出の諸元', () => {
-  /** C-13 カタパルトの公表値 150 kt */
-  it('終端速度が 150 kt', () => {
+  /** 機体の側の値 150 kt。EMALS の要求の範囲 28〜103 m/s（Doyle ほか 1995）に入る */
+  it('終端速度が 150 kt で、EMALS の範囲に入る', () => {
     expect(LAUNCH_END_SPEED).toBeCloseTo(77.17, 1)
+    expect(LAUNCH_END_SPEED).toBeGreaterThan(28)
+    expect(LAUNCH_END_SPEED).toBeLessThan(103)
   })
 
-  /** `a = v²/(2s)` = 77.17² / (2×94) */
-  it('加速度が 3.2 G', () => {
-    expect(LAUNCH_ACCEL).toBeCloseTo(31.67, 1)
-    expect(LAUNCH_ACCEL / 9.80665).toBeCloseTo(3.23, 1)
+  /** EMALS のリニアモーター 300 ft */
+  it('行程が 300 ft（91.44 m）', () => {
+    expect(LAUNCH_DISTANCE).toBeCloseTo(91.44, 6)
   })
 
-  it('所要時間が 2.44 秒', () => {
-    expect(LAUNCH_SECONDS).toBeCloseTo(2.44, 2)
+  /** `a = v²/(2s)` = 77.17² / (2×91.44) */
+  it('加速度が 3.3 G', () => {
+    expect(LAUNCH_ACCEL).toBeCloseTo(32.56, 1)
+    expect(LAUNCH_ACCEL / 9.80665).toBeCloseTo(3.32, 2)
+  })
+
+  it('所要時間が 2.37 秒', () => {
+    expect(LAUNCH_SECONDS).toBeCloseTo(2.37, 2)
   })
 
   /**
-   * **モデルの帯（115.0 m）より短い。**帯には前後の余裕が含まれる。
-   * 実機の値を 2 つとも守ると帯の内側に収まる
+   * **帯（Ford の甲板の塗装で 103.5〜108.6 m）より短い。**実機の値を 2 つとも守ると
+   * 帯の内側に収まる。帯は `tests/sim/carrierDeck.test.ts` が 1 本ずつ見る
    */
-  it('行程がモデルのカタパルトの内側に収まる', () => {
-    expect(LAUNCH_DISTANCE).toBeLessThan(115)
+  it('行程がカタパルトの帯の内側に収まる', () => {
+    expect(LAUNCH_DISTANCE).toBeLessThan(103.5)
   })
 })
 

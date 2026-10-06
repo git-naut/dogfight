@@ -641,7 +641,12 @@ export const SCRIPTS = {
      * 実機で確かめ、この配置でよいと判断した。
      */
     carrier: { x: 0, z: 8000, heading: 0 },
-    launchFrom: 'cat-1',
+    /**
+     * 艦の軸と平行な cat-4（斜め甲板の外側、0.04 度）から発進する。Ford の艦首の 2 本は
+     * 帯が 2〜4 度傾いていて、追従カメラで甲板と平行に走らないように見えた。帯に沿って
+     * 走らせたまま、平行な 1 本を選ぶ（ユーザーの判断、2026-10-06。Phase 9 の段 4）
+     */
+    launchFrom: 'cat-4',
     /**
      * 制限時間 秒。
      *
@@ -779,7 +784,8 @@ export const SCRIPTS = {
     seed: 20260831,
     spawn: { altitude: 20, speed: 0 },
     carrier: { x: 0, z: 0, heading: 0 },
-    launchFrom: 'cat-1',
+    // ミッションと同じ cat-4。艦の軸と平行に走る
+    launchFrom: 'cat-4',
     keyframes: [{ frame: 60, input: { throttle: 1 } }],
   },
 } as const satisfies Record<string, ReplayScript>

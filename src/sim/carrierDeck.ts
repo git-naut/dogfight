@@ -1,54 +1,27 @@
 import { Vec3 } from './vec3'
 import type { LaunchSpec } from './launch'
+import { FORD_CATAPULTS, FORD_DECK_HEIGHT } from './fordDeck'
 
 /**
- * 空母の甲板の座標。
+ * 空母の甲板と射出。
  *
- * **原本（`assets/upstream/nimitz/nimitz.ac`）から読んだ値を写してある。**
- * 生成物ではなく手で写した定数だが、`tests/tools/ac3d.test.ts` が原本の
- * 側を読んで突き合わせるので、片方だけ動くと落ちる。
+ * 空母は Gerald R. Ford（Phase 9 の段 4 で Nimitz から替えた。ADR 0017）。甲板の値は
+ * `fordDeck.ts` が持ち、原本のテクスチャの標識から測ったもの。座標は空母の座標
+ * （艦首 −Z、右舷 +X、上 +Y、水面 Y 0）で、モデルの glb と同じ。
  *
- * `cat-1`〜`cat-4` は三角形を持たない線分で、FlightGear が射出の始点と
- * 終点として読む。`nimitz.xml` は `interaction-type` を割り当てるだけで
- * 向きを持たないので、艦首が −X であること（`Stern` が X 214.2..217.1 に
- * ある）から +X 側を開始点とした。
- *
- * 座標は原本の `.ac` のまま（艦首 −X、上 +Y、左 +Z）。当方の座標へ移すのは
- * `catapultLaunch` が行う。
+ * **カタパルトの帯は艦の軸と平行ではない**（cat-1 4.03 度、cat-2 2.21 度、cat-3 4.37 度、
+ * cat-4 0.04 度）。機体は帯に沿って走る。ミッションの台本は軸と平行な cat-4 を使う
+ * （ユーザーの判断、2026-10-06）。
  */
 
-/** カタパルトの帯。原本の 2 点 */
-export interface CatapultLine {
-  /** +X 側。射出の開始 */
-  readonly start: readonly [number, number, number]
-  /** −X 側。艦首方向 */
-  readonly end: readonly [number, number, number]
-}
+/** カタパルトの名前 */
+export type CatapultName = keyof typeof FORD_CATAPULTS
 
-/**
- * 4 基のカタパルト。
- *
- * `cat-1` と `cat-2` が艦首、`cat-3` と `cat-4` が斜め甲板側。
- * 帯の長さは 115〜117 m で、実際の行程（C-13 の公表値 94 m）より長い。
- * 余裕を含むため。
- */
-export const CATAPULTS: Readonly<Record<string, CatapultLine>> = {
-  'cat-1': { start: [9.28, 20.0, -16.17], end: [-105.41, 20.0, -8.16] },
-  'cat-2': { start: [16.89, 20.0, 4.26], end: [-100.38, 20.0, 6.4] },
-  'cat-3': { start: [106.55, 20.0, 19.28], end: [-8.48, 20.0, 27.37] },
-  'cat-4': { start: [124.65, 20.0, 29.64], end: [7.99, 20.0, 29.62] },
-}
+/** 4 基のカタパルト。start が艦尾側（射出の始点）、end が艦首側。(x, z) m */
+export const CATAPULTS = FORD_CATAPULTS
 
-/**
- * 原本の `.ac` 座標を当方の座標へ移す。
- *
- * `.ac` は 艦首 −X、上 +Y、左 +Z。当方は 艦首 −Z、上 +Y、右 +X。
- * `tools/ac3d.mjs` の `toWorld` と同じ変換。**モデルと同じ式でないと
- * カタパルトの帯と射出の軌跡がずれる。**
- */
-export function deckToWorld(p: readonly [number, number, number]): Vec3 {
-  return new Vec3(-p[2], p[1], p[0])
-}
+/** 飛行甲板の高さ m（水面から） */
+export const DECK_HEIGHT = FORD_DECK_HEIGHT
 
 /**
  * 空母の配置とカタパルトの名前から射出の諸元を作る。
@@ -57,32 +30,31 @@ export function deckToWorld(p: readonly [number, number, number]): Vec3 {
  * （`headingOf` と同じ。描画の `placeCarrier` も同じ約束）。
  *
  * 射出の開始位置は**帯の後端ではない。**終点から行程ぶん手前に取る。
- * C-13 の公表値（終端速度 150 kt、行程 94 m）を 2 つとも守ると加速度が
- * 公表値どおりになり、しかも帯の内側に収まる（`launch.ts`）。
+ * EMALS の行程（91.44 m）は帯（103.5〜108.6 m）より短いので、帯の内側に収まる（`launch.ts`）。
  */
 export function catapultLaunch(
   carrier: { readonly x: number; readonly z: number; readonly heading: number },
-  name: keyof typeof CATAPULTS | string,
+  name: CatapultName | string,
   distance: number,
 ): LaunchSpec {
-  const line = CATAPULTS[name]
+  const line = (CATAPULTS as Readonly<Record<string, (typeof CATAPULTS)[CatapultName]>>)[name]
   if (line === undefined) {
     throw new Error(`知らないカタパルト ${name}。あるのは ${Object.keys(CATAPULTS).join(', ')}`)
   }
 
-  const from = deckToWorld(line.start)
-  const to = deckToWorld(line.end)
+  const [fromX, fromZ] = line.start
+  const [toX, toZ] = line.end
 
   // 射出の向き（船の座標系）
-  const dx = to.x - from.x
-  const dz = to.z - from.z
+  const dx = toX - fromX
+  const dz = toZ - fromZ
   const length = Math.hypot(dx, dz)
   const ux = dx / length
   const uz = dz / length
 
   // 終点から行程ぶん手前が開始位置
-  const startX = to.x - ux * distance
-  const startZ = to.z - uz * distance
+  const startX = toX - ux * distance
+  const startZ = toZ - uz * distance
 
   // 船の向きで回してから位置を足す。右回りが正なので、前 (0, −1) は (sin h, −cos h) へ写る。
   // **Phase 9 の段 1 までは逆向き**（three の Ry と同じ左回り）で、レーダーと食い違っていた
@@ -96,7 +68,7 @@ export function catapultLaunch(
   const [dxw, dzw] = rotate(ux, uz)
 
   return {
-    from: new Vec3(carrier.x + px, from.y, carrier.z + pz),
+    from: new Vec3(carrier.x + px, DECK_HEIGHT, carrier.z + pz),
     direction: new Vec3(dxw, 0, dzw),
   }
 }

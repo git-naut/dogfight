@@ -1915,7 +1915,7 @@ test.describe('シェーダの事前コンパイル', () => {
  * 処理を置くと、キャプチャモードは `sync()` が 1 回しか走らないので出ない。
  *
  * 閾値は対地 80 m（`GEAR_DOWN_AGL`）。ゲームの値で、実機は速度で制限する。
- * 甲板（海面から 20 m）にいるあいだ出ていて、射出後すぐ引き込まれる高さ。
+ * 甲板（海面から 18.87 m）にいるあいだ出ていて、射出後すぐ引き込まれる高さ。
  */
 test.describe('降着装置', () => {
   test('対地 30 m では出ている', async ({ page }) => {
@@ -1925,7 +1925,7 @@ test.describe('降着装置', () => {
   })
 
   test('空戦の高度では出ていない', async ({ page }) => {
-    // `mission-01` は f120 だとまだ甲板の上（射出は f353 に終わる）
+    // `mission-01` は f120 だとまだ甲板の上（射出は f346 に終わる）
     const hook = await capture(page, { script: 'mission-air', frame: 120 })
     expect(hook.agl, '高度が想定と違う').toBeGreaterThan(80)
     expect(hook.gearDown, '高空で脚が出ている').toBe(false)
@@ -1964,15 +1964,15 @@ test.describe('降着装置', () => {
  * **飛行モデルには触らない。**射出中は `Aircraft.step()` を呼ばず、位置と
  * 速度を直接書く（`launch.ts`）。加速の積分を 2 か所に書かないため。
  *
- * 諸元は C-13 カタパルトの公表値から。終端速度 150 kt、行程 94 m、
- * そこから `a = v²/(2s)` = 31.7 m/s²（3.2 G）、所要 2.44 秒。
+ * 諸元は Ford の EMALS から（Phase 9 の段 4。`launch.ts`）。終端速度 150 kt、行程 300 ft
+ * （91.44 m）、そこから `a = v²/(2s)` = 32.6 m/s²（3.3 G）、所要 2.37 秒。発進は cat-4
  */
 test.describe('カタパルト射出', () => {
   test('甲板で待っている', async ({ page }) => {
     const hook = await capture(page, { script: 'catapult-launch', frame: 30 })
     expect(hook.speed, '甲板で動いている').toBe(0)
-    // 甲板の 20 m に車輪の高さ 1.659 m を足した値
-    expect(hook.altitude).toBeCloseTo(21.7, 0)
+    // 甲板の 18.867 m に車輪の高さ 1.659 m を足した値（実測 20.526）
+    expect(hook.altitude).toBeCloseTo(20.5, 0)
     expect(hook.gearDown, '甲板で脚が出ていない').toBe(true)
   })
 
@@ -1981,13 +1981,14 @@ test.describe('カタパルト射出', () => {
     // 150 kt = 77.17 m/s。射出が終わった直後
     expect(hook.speed).toBeGreaterThan(75)
     expect(hook.speed).toBeLessThan(82)
-    // 甲板の高さを保っている
-    expect(hook.altitude).toBeCloseTo(21.8, 0)
+    // 甲板の高さを保っている（実測 20.509。射出は f346 に終わる）
+    expect(hook.altitude).toBeCloseTo(20.5, 0)
   })
 
   /**
    * **射出後に海へ落ちない。**入力なしで飛ぶキャプチャモードで最後まで
-   * 回す。実測で最低 11.7 m まで沈んでから加速して上がる
+   * 回す。実測で最低 17.91 m（f683）まで沈んでから加速して上がる。そのときは cat-4 の
+   * 帯の延長で甲板の外（海の上）に出ている
    */
   test('射出後に上昇へ移る', async ({ page }) => {
     const hook = await capture(page, { script: 'catapult-launch', frame: 3000 })

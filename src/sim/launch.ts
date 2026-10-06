@@ -8,9 +8,14 @@ import { Vec3 } from './vec3'
  * 「弾の物理は 1 か所に置く」と決めたのと同じ理由で、加速の積分を 2 か所に
  * 書かない。
  *
- * **等加速度で計算する。**実際の C-13 は蒸気圧が落ちるので一定ではないが、
- * 2.4 秒の演出に非線形を持ち込む理由がない。位置と速度は閉じた式で出せる
- * ので、frame から導出できて決定論も保たれる（`time += dt` の積算をしない）。
+ * **等加速度で計算する。**Ford の EMALS は閉ループで牽引力を保つ。設計の要求は
+ * 山と平均の比 1.05 以下（Doyle ほか 1995、表 I）なので、一定と置いてよい。
+ * 位置と速度は閉じた式で出せるので、frame から導出できて決定論も保たれる
+ * （`time += dt` の積算をしない）。Phase 9 の段 3 までは Nimitz の C-13（蒸気式）の値だった。
+ *
+ * 出典は Doyle, Samuel, Conway, Klimowski "Electromagnetic Aircraft Launch System – EMALS",
+ * IEEE Transactions on Magnetics 31(1), 1995。米海軍レイクハースト（NAWC）の設計の論文で、
+ * 原文の PDF で表 I（終端速度 28〜103 m/s、山と平均の比 1.05、エネルギー 122 MJ）を確かめた。
  */
 
 /** 射出の状態 */
@@ -19,30 +24,30 @@ export type LaunchPhase = 'onDeck' | 'launching' | 'airborne'
 /**
  * 終端速度 m/s。
  *
- * C-13 カタパルトの公表値 150 kt。F/A-18C の離陸速度に足りる。
+ * 150 kt。**カタパルトの性能ではなく機体の側の値**で、F/A-18 の離陸に足りる速度として
+ * C-13 のときから据え置いた。EMALS の要求の範囲（28〜103 m/s、Doyle ほか 1995）に入る。
+ * F/A-18E の射出の終端速度の公表値は見つけていない（推測）
  */
 export const LAUNCH_END_SPEED = 150 * 0.514444
 
 /**
  * 行程 m。
  *
- * C-13 の公表値 94 m。**モデルのカタパルトの帯は 115.0 m ある**が、
- * そちらには前後の余裕が含まれる。実機の値を 2 つ（終端速度と行程）とも
- * 守ると加速度が公表値どおりになり、しかも帯の内側に収まる。
- *
- * 帯の長さを行程にすると a = 25.9 m/s²（2.64 G）になって実機より緩む。
+ * EMALS のリニアモーターの長さ 300 ft（91.44 m）。出典は Wikipedia の本文（典拠は EDN 誌
+ * 2002-04-11 の記事 "How It Works"）。1995 年の設計の論文は power stroke を 103 m と
+ * 書いていて、値が 2 つある。**ユーザーの判断（2026-10-06）で、実機に近い年代の 91 m を
+ * 採った。**発進に使う cat-4 の帯は甲板の塗装で 103.5 m あり、内側に 12 m の余裕が残る。
  */
-export const LAUNCH_DISTANCE = 94
+export const LAUNCH_DISTANCE = 300 * 0.3048
 
 /**
  * 加速度 m/s²。
  *
- * `v² = 2as` から `a = v²/(2s)` = 77.17² / (2×94) = 31.67。3.23 G。
- * 実機の C-13 が乗員に掛ける値とほぼ一致する。
+ * `v² = 2as` から `a = v²/(2s)` = 77.17² / (2×91.44) = 32.56。3.32 G
  */
 export const LAUNCH_ACCEL = (LAUNCH_END_SPEED * LAUNCH_END_SPEED) / (2 * LAUNCH_DISTANCE)
 
-/** 所要時間 秒。`t = v/a` = 2.44 */
+/** 所要時間 秒。`t = v/a` = 2.37 */
 export const LAUNCH_SECONDS = LAUNCH_END_SPEED / LAUNCH_ACCEL
 
 /**

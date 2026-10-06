@@ -98,7 +98,7 @@ const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
 const CRAFT_ID = new URLSearchParams(window.location.search).get('craft') === 'f18' ? 'f18' : 'f18e'
 const AIRCRAFT_URL = `${import.meta.env.BASE_URL}aircraft/${CRAFT_ID}.glb`
 const ENEMY_URL = `${import.meta.env.BASE_URL}aircraft/f16.glb`
-const CARRIER_URL = `${import.meta.env.BASE_URL}aircraft/nimitz.glb`
+const CARRIER_URL = `${import.meta.env.BASE_URL}aircraft/ford.glb`
 
 const hook = installTestHook({
   frame: 0,

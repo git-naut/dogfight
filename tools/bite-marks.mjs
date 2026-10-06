@@ -990,4 +990,22 @@ export const BITE_MARKS = [
     expect: 'tests/tools/fordDeck.test.ts',
     why: '発進に使う帯が艦の軸から 4 度ずれ、射出で機体が甲板と平行に走らない（Phase 9 で直した欠陥そのもの）',
   },
+  {
+    id: 'mission-launch-cat1',
+    kind: '定数の摂動',
+    file: 'src/sim/scripts.ts',
+    find: "     * 走らせたまま、平行な 1 本を選ぶ（ユーザーの判断、2026-10-06。Phase 9 の段 4）\n     */\n    launchFrom: 'cat-4',\n",
+    replace: "     * 走らせたまま、平行な 1 本を選ぶ（ユーザーの判断、2026-10-06。Phase 9 の段 4）\n     */\n    launchFrom: 'cat-1',\n",
+    expect: 'tests/sim/carrierDeck.test.ts',
+    why: 'ミッションが艦首の cat-1（4 度傾いた帯）から発進し、甲板と平行に走らないように見える',
+  },
+  {
+    id: 'emals-stroke-c13',
+    kind: '定数の摂動',
+    file: 'src/sim/launch.ts',
+    find: 'export const LAUNCH_DISTANCE = 300 * 0.3048\n',
+    replace: 'export const LAUNCH_DISTANCE = 94\n',
+    expect: 'tests/sim/launch.test.ts',
+    why: '射出の行程が Nimitz の C-13（94 m）に戻り、加速度と所要時間が EMALS の値からずれる',
+  },
 ]

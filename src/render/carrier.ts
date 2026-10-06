@@ -1,19 +1,20 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { DECK_HEIGHT as SIM_DECK_HEIGHT } from '../sim/carrierDeck'
 
 /**
  * 空母。
  *
- * 原本は FlightGear fgdata の USS Nimitz (CVN-68)（作者 Vivian Meazza、
- * GPLv2）。`tools/ac3d-to-glb.mjs` が当プロジェクトの座標系（艦首 −Z、
- * 上 +Y、右舷 +X）へ移した glb を読む。
+ * 原本は Sketchfab の USS Gerald R. Ford (CVN-78)（作者 waelXcm、CC BY 4.0。ADR 0017）。
+ * `tools/ford-to-glb.mjs` がシーンの頂上に行列を 1 つ掛けて当プロジェクトの座標系
+ * （艦首 −Z、上 +Y、右舷 +X、水面 Y 0）へ移した glb を読む。Phase 9 の段 3 までは
+ * FlightGear の USS Nimitz（GPLv2、2,644 三角形）だった。
  *
  * **`loadAircraftModel` を使い回さない。**あちらは舵面のノードとヒンジの
  * 定義を前提にしていて、空母にはどちらも無い。分けたほうが読める。
  *
- * 実測（変換後）。2,644 三角形、21 プリミティブ、マテリアル 18、
- * テクスチャ 10 種、glb 189 KB。飛行甲板は Z −112.2..222.0 の 334.2 m、
- * 幅 82.6 m、高さ 58.1 m。**シーンの三角形予算 1.5M に対して 0.18%。**
+ * 実測（変換後）。116,316 三角形、テクスチャ 30 枚（WebP 5.4 MB）、glb 8.64 MB。
+ * 全長 337 m、飛行甲板は水面から 18.87 m。**シーンの三角形予算 1.5M に対して 7.8%。**
  */
 
 export interface Carrier {
@@ -24,12 +25,9 @@ export interface Carrier {
 }
 
 /**
- * 甲板の高さ m。
- *
- * 原本の `.ac` でカタパルトと甲板が Y 20.0 にある。海面を 0 とすると、
- * そのまま置けば喫水線が合う（船体の下端が −1.2）。
+ * 甲板の高さ m。sim の値（`fordDeck.ts`）をそのまま使う。**描画と射出で別の値を持たない**
  */
-export const DECK_HEIGHT = 20
+export const DECK_HEIGHT = SIM_DECK_HEIGHT
 
 export async function loadCarrier(url: string): Promise<Carrier> {
   const loader = new GLTFLoader()
@@ -46,7 +44,7 @@ export async function loadCarrier(url: string): Promise<Carrier> {
 
     // **視錐台の判定は残す。**機体と違って動かないので、画面の外に出たら
     // 描かないほうがよい。追従カメラの至近で境界球が外れる問題（`enemyView`
-    // の注記）は、334 m の船体では起きない
+    // の注記）は、337 m の船体では起きない
     node.castShadow = true
     node.receiveShadow = true
   })

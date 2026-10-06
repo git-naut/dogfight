@@ -981,4 +981,13 @@ export const BITE_MARKS = [
     expect: 'tests/tools/fordParts.test.ts',
     why: '空母の glb が鏡映になり、甲板の文字が裏返って艦橋が左舷に来る',
   },
+  {
+    id: 'ford-cat4-skewed',
+    kind: '定数の摂動',
+    file: 'src/sim/fordDeck.ts',
+    find: "  'cat-4': { start: [-31.321, 50.625], end: [-31.39, -52.875] },\n",
+    replace: "  'cat-4': { start: [-31.321, 50.625], end: [-38.54, -52.62] },\n",
+    expect: 'tests/tools/fordDeck.test.ts',
+    why: '発進に使う帯が艦の軸から 4 度ずれ、射出で機体が甲板と平行に走らない（Phase 9 で直した欠陥そのもの）',
+  },
 ]

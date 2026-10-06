@@ -95,7 +95,29 @@ function makeSandbox() {
   }
   symlinkSync(join(ROOT, 'node_modules'), join(dir, 'node_modules'), 'dir')
   symlinkSync(join(ROOT, SNAPSHOTS), join(dir, SNAPSHOTS), 'dir')
+  // **原本（assets/）も読むだけなので symlink する。**写していなかったので、原本を読む
+  // テスト（`f18eParts.test.ts`・`fordParts.test.ts`）は壊す前から ENOENT で落ち、
+  // それを「発火」と数えていた（Phase 9 の段 2 で気づいた。偽の発火）
+  symlinkSync(join(ROOT, 'assets'), join(dir, 'assets'), 'dir')
   return dir
+}
+
+/**
+ * **壊さない状態で、期待先のテストが全部通ることを先に確かめる。**通らないテストを期待先に
+ * すると、壊した変異と関係なく落ちて「発火」と数えてしまう（段 29c の e2e の期待先、段 2 の
+ * 原本の読み込みの 2 回、偽の発火を数えた）
+ */
+function checkBaseline(sandbox, files) {
+  return new Promise((resolve) => {
+    const child = spawn('npx', ['vitest', 'run', '--root', sandbox, '--reporter=dot', ...files], {
+      cwd: ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = ''
+    child.stdout.on('data', (d) => (out += d))
+    child.stderr.on('data', (d) => (out += d))
+    child.on('close', (code) => resolve({ code, out }))
+  })
 }
 
 /** 1 件の変異を当てて vitest を回す。**落ちてほしい** */
@@ -132,6 +154,16 @@ function runMark(sandbox, mark) {
 const lanes = Math.min(WORKERS, marks.length)
 const sandboxes = Array.from({ length: lanes }, () => makeSandbox())
 try {
+  const expectFiles = [...new Set(marks.map((m) => m.expect))]
+  const baseline = await checkBaseline(sandboxes[0], expectFiles)
+  if (baseline.code !== 0) {
+    const failed = [...baseline.out.matchAll(/FAIL\s+(\S+)/g)].map((m) => m[1])
+    console.log(`**壊さない状態で期待先のテストが通らない**（exit ${baseline.code}）。歯型を回さずに止める。`)
+    for (const f of [...new Set(failed)]) console.log(`  ${f}`)
+    process.exitCode = 2
+    throw new Error('素の状態の検査に失敗')
+  }
+  console.log(`素の状態で期待先 ${expectFiles.length} 本が通った`)
   // **同じファイルを触る歯型を同じ台へ寄せない**必要はない。台ごとに
   // サンドボックスが別なので、配り方は所要だけで決めればよい。1 件あたりが
   // ほぼ同じなので順に配る

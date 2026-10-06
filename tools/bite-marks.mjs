@@ -972,4 +972,13 @@ export const BITE_MARKS = [
     expect: 'tests/sim/carrierDeck.test.ts',
     why: '空母を回すと射出の向きだけ逆に回り、機体が甲板から外れて飛び出す',
   },
+  {
+    id: 'ford-mirrored',
+    kind: '符号の反転',
+    file: 'tools/ford-parts.mjs',
+    find: '    [0, 0, -s, s * o.z],\n',
+    replace: '    [0, 0, s, -s * o.z],\n',
+    expect: 'tests/tools/fordParts.test.ts',
+    why: '空母の glb が鏡映になり、甲板の文字が裏返って艦橋が左舷に来る',
+  },
 ]

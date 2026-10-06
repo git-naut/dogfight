@@ -53,11 +53,36 @@ CRAFT = {
     )],
 }
 
+# 空母 Gerald R. Ford（Phase 9 の段 2）。原本は glTF で、10 材質ぶんの色・金属と粗さ・法線の 30 枚。
+#
+# **原寸では重すぎる。**ship_rest の 3 枚が 4096²、ほかの大半が 2048² で、原寸のまま積むと
+# GPU のメモリが数百 MB になる（4096² の RGBA はミップ込みで 1 枚約 85 MB）。甲板の標識が
+# 描かれた色の 3 枚（ship・ship_rest・deck_side_walks）は 2048 まで、ほかは 1024 まで落とす。
+# **初めの値。**段 4 で実機の GPU で重さと見た目を測って決め直す
+FORD_DECK_COLORS = {"ship_baseColor", "ship_rest_baseColor", "deck_side_walks_baseColor"}
+FORD_MATERIALS = (
+    "boats", "controller", "deck_side_walks", "guns", "lambert1",
+    "radars", "ship", "ship_bridge1", "ship_interiors", "ship_rest",
+)
+CRAFT["ford"] = []
+for material in FORD_MATERIALS:
+    for kind, ext in (("baseColor", "jpeg"), ("metallicRoughness", "png"), ("normal", "png")):
+        CRAFT["ford"].append(f"textures/{material}_{kind}.{ext}")
+
+# 長い辺の上限 画素。載っていないものは原寸
+MAX_SIZE = {
+    "ford": {
+        name: (2048 if Path(name).stem in FORD_DECK_COLORS else 1024)
+        for name in CRAFT["ford"]
+    },
+}
+
 
 def convert(craft: str, name: str) -> None:
     source = ROOT / "assets" / "upstream" / craft / name
     out_dir = ROOT / "assets" / "generated" / craft
     target = out_dir / (source.stem + ".webp")
+    limit = MAX_SIZE.get(craft, {}).get(name)
 
     with Image.open(source) as image:
         mode = image.mode
@@ -68,11 +93,22 @@ def convert(craft: str, name: str) -> None:
             "P",
         )
         converted = image.convert("RGBA" if has_alpha else "RGB")
+        if limit is not None and max(converted.size) > limit:
+            # 縮めるときは LANCZOS。法線の縮小も同じ（向きの平均がわずかに短くなるが、
+            # シェーダが正規化し直すので見えない）
+            scale = limit / max(converted.size)
+            converted = converted.resize(
+                (round(converted.size[0] * scale), round(converted.size[1] * scale)),
+                Image.Resampling.LANCZOS,
+            )
         converted.save(target, format="WEBP", quality=QUALITY, method=6)
 
-    # 劣化を数える。可視画素だけを見る
+    # 劣化を数える。可視画素だけを見る。縮めたものは、原本を同じ大きさに縮めてから比べる
     with Image.open(source) as image, Image.open(target) as saved:
-        ref = np.asarray(image.convert("RGBA"), dtype=np.int16)
+        reference = image.convert("RGBA")
+        if reference.size != saved.size:
+            reference = reference.resize(saved.size, Image.Resampling.LANCZOS)
+        ref = np.asarray(reference, dtype=np.int16)
         got = np.asarray(saved.convert("RGBA"), dtype=np.int16)
         visible = ref[..., 3] > 0
         rgb = np.abs(got[..., :3] - ref[..., :3])[visible]

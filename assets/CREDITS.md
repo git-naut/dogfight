@@ -21,6 +21,7 @@ GPLv2+ を許すのは、このリポジトリ自体を GPLv2+ にしたため�
 | assets/upstream/nimitz/nimitz.xml | 同モデルの FlightGear 定義。カタパルトと拘束索の割り当て | 同上 | GPLv2 | 同上 `nimitz.xml` | 2026-08-31 |
 | assets/upstream/nimitz/*.png（10 枚） | 同モデルのテクスチャ | 大部分は Javier Fernandez（下記） | GPLv2 | 同上 | 2026-08-31 |
 | assets/upstream/f18e/scene.gltf ほか | Boeing F/A-18E "Super Hornet" | KOG_THORNS | **CC BY 4.0** | [Sketchfab](https://sketchfab.com/3d-models/boeing-fa-18e-super-hornet-9e852037bf2141dcb3fda17013958131) | 2026-09-18 |
+| assets/upstream/ford/scene.gltf ほか | 空母 Gerald R Ford aircraft Carrier（CVN-78） | waelXcm | **CC BY 4.0** | [Sketchfab](https://sketchfab.com/3d-models/gerald-r-ford-aircraft-carrier-562bf516e1494df38d8f222504dc798b) | 2026-10-05 |
 
 F/A-18C は 201 オブジェクト、18,634 三角形、12,260 頂点。F-16 は 125 オブジェクト、18,042 三角形、10,627 頂点。`tools/ac3d-to-glb.mjs` が `public/aircraft/` へ変換する。
 
@@ -49,6 +50,17 @@ CC BY 4.0 の表示。原文のまま載せる（`assets/upstream/f18e/license.t
 This work is based on "Boeing F/A-18E "Super Hornet""
 (https://sketchfab.com/3d-models/boeing-fa-18e-super-hornet-9e852037bf2141dcb3fda17013958131)
 by KOG_THORNS (https://sketchfab.com/ioai25312)
+licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+```
+
+空母 Ford は 158 部品、116,316 三角形、材質 11、テクスチャ 30 枚。ユーザーが Sketchfab からダウンロードした zip を、展開して `assets/upstream/ford/` に置いた。zip の sha256 は `855403a307b1ab29dafdc03b1f4c86ad03f511ef97e8b08c8271f9f744b06855`。テクスチャは `tools/textures-to-webp.py ford` で WebP に落とし、`assets/generated/ford/` にコミットした。色の 3 枚は 2048、ほかは 1024 まで縮めてある。`tools/ford-to-glb.mjs` が `public/aircraft/ford.glb` へ変換する。全長 337 m に合わせて 27.876 倍、甲板は水面から 18.87 m（`tools/ford-parts.mjs`）。
+
+CC BY 4.0 の表示。原文のまま載せる（`assets/upstream/ford/license.txt` の指定）。
+
+```
+This work is based on "Gerald R Ford aircraft Carrier"
+(https://sketchfab.com/3d-models/gerald-r-ford-aircraft-carrier-562bf516e1494df38d8f222504dc798b)
+by waelXcm (https://sketchfab.com/waelXcm)
 licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
 ```
 

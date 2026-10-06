@@ -654,6 +654,10 @@ export interface TestHook {
    * キャプチャモードで出ない
    */
   gearDown: boolean
+  /** 脚の位置 0..1。0 が上げ切り（Phase 9 の段 5、`AircraftSample.gearPosition`） */
+  gearPosition: number
+  /** 脚が出ているのに速度の上限を超えている（`AircraftSample.gearOverspeed`） */
+  gearOverspeed: boolean
   /**
    * 音の自己診断の結果。`?audioprobe=1` のときだけ埋まる。
    *

@@ -34,6 +34,8 @@ export interface WorldOptions {
     velocity?: Vec3
     orientation?: Quat
     throttle?: number
+    /** 降着装置を出し切った状態で始めるか。射出があると常に出し切り */
+    gearDown?: boolean
   }
   step?: StepOptions
   /**
@@ -150,6 +152,12 @@ export class World {
   readonly catapult: Catapult | null
 
   private readonly stepOptions: StepOptions
+  /**
+   * 前のステップで脚のキーが押されていたか。**押した瞬間の判定は World が持つ。**
+   * 甲板で待つあいだと射出中は `Aircraft.step()` を呼ばないので、機体の側に置くと
+   * 甲板で押したまま飛び立った最初のステップで切り替わってしまう
+   */
+  private gearHeld = false
   private _frame = 0
 
   constructor(options: WorldOptions) {
@@ -168,6 +176,7 @@ export class World {
       velocity: spawn.velocity ?? new Vec3(0, 0, -DEFAULT_SPAWN.speed),
       ...(spawn.orientation ? { orientation: spawn.orientation } : {}),
       ...(spawn.throttle !== undefined ? { throttle: spawn.throttle } : {}),
+      ...(spawn.gearDown === true ? { gearDown: true } : {}),
     })
 
     // 標的と敵の位置は自機のスポーン地点からの相対。自機を作ったあとに読む
@@ -205,6 +214,8 @@ export class World {
       // トリムを求めるが、射出の台本は `speed: 0` を書く（甲板で止まって
       // いるので）。速度 0 の釣り合いは存在しない
       this.player.throttle = 0
+      // 甲板の上なので脚は出し切り
+      this.player.setGear(true)
       this.player.syncFromLaunch(this.catapult.spec.direction, LAUNCH_PITCH)
     }
 
@@ -241,6 +252,13 @@ export class World {
 
   /** 1ステップ進める。呼び出しは必ず FixedStepDriver 経由にする。 */
   step(input: InputState): void {
+    // **脚のキーは押した瞬間だけ効く。**甲板で待つあいだと射出中は受け付けない。実機も
+    // 車輪に重さが掛かっているあいだは脚が上がらない
+    const gearPressed = input.gearToggle && !this.gearHeld
+    this.gearHeld = input.gearToggle
+    const onCatapult = this.catapult !== null && this.catapult.phase !== 'airborne'
+    if (gearPressed && !onCatapult) this.player.toggleGear()
+
     // **フレアは機体を動かす前に進める。**投下の位置は前のステップの姿勢で
     // 決まる。動かしたあとだと、押した瞬間に見えていた位置とずれる
     this.countermeasures.step(
@@ -368,6 +386,7 @@ export function worldOptionsFromScript(script: ReplayScript, seed: number = scri
       velocity: spawn.velocity,
       orientation: spawn.orientation,
       throttle: spawn.throttle,
+      ...(script.spawn.gearDown === true ? { gearDown: true } : {}),
     },
     ...(script.targets ? { targets: script.targets } : {}),
     ...(script.enemies ? { enemies: script.enemies } : {}),

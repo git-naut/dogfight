@@ -26,6 +26,11 @@ export interface SpawnSpec {
   bank?: number
   /** 上昇角 rad。機首の仰角ではなく速度ベクトルの向き */
   climbAngle?: number
+  /**
+   * 降着装置を出し切った状態で始めるか。既定は上げ切り。**トリムは脚の抗力を含まない**
+   * ので、出して始めると少しずつ減速する（Phase 9 の段 5）
+   */
+  gearDown?: boolean
 }
 
 export interface ReplayKeyframe {

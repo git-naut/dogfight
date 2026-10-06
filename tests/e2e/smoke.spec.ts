@@ -1911,17 +1911,19 @@ test.describe('シェーダの事前コンパイル', () => {
 /**
  * 降着装置。
  *
- * **判定は sim が持つ**（`AircraftSample.gearDown`）。描画側に高度を見る
- * 処理を置くと、キャプチャモードは `sync()` が 1 回しか走らないので出ない。
+ * **判定は sim が持つ**（`AircraftSample.gearDown`）。描画側に状態を
+ * 置くと、キャプチャモードは `sync()` が 1 回しか走らないので出ない。
  *
- * 閾値は対地 80 m（`GEAR_DOWN_AGL`）。ゲームの値で、実機は速度で制限する。
- * 甲板（海面から 18.87 m）にいるあいだ出ていて、射出後すぐ引き込まれる高さ。
+ * Phase 9 の段 5 で、対地 80 m の自動の出し入れを G キーに替えた。台本は
+ * `spawn.gearDown` で出し切りから始め、射出の台本は f720 のキーフレームで上げる。
  */
 test.describe('降着装置', () => {
-  test('対地 30 m では出ている', async ({ page }) => {
+  test('台本が出し切りから始めると出ている', async ({ page }) => {
     const hook = await capture(page, { script: 'gear-down', frame: 30 })
-    expect(hook.agl, '対地高度が想定と違う').toBeLessThan(80)
-    expect(hook.gearDown, '低空で脚が出ていない').toBe(true)
+    expect(hook.gearDown, '脚が出ていない').toBe(true)
+    expect(hook.gearPosition).toBe(1)
+    // 70 m/s は速度の上限（250 kt）の内側
+    expect(hook.gearOverspeed).toBe(false)
   })
 
   test('空戦の高度では出ていない', async ({ page }) => {
@@ -1994,8 +1996,9 @@ test.describe('カタパルト射出', () => {
     const hook = await capture(page, { script: 'catapult-launch', frame: 3000 })
     expect(hook.altitude, '海へ落ちている').toBeGreaterThan(100)
     expect(hook.speed).toBeGreaterThan(150)
-    // 高度が上がったので脚は引き込まれている
+    // f720 のキーフレームで上げ、f1320 に上がり切っている
     expect(hook.gearDown).toBe(false)
+    expect(hook.gearPosition).toBe(0)
   })
 
   /** 射出を要求しない台本では空中から始まる */
@@ -2190,6 +2193,43 @@ test.describe('通しの流れ', () => {
         { timeout: waitBudgetMs(30_000) },
       )
       .toBeLessThan(300 * 120)
+
+    // **飛び立ったら G で脚を上げる**（Phase 9 の段 5）。キーの配線から sim まで通っている
+    // ことをライブで確かめる。`press` は押して即座に離すので、そのあいだにフレームが
+    // 回らないと取りこぼす。押しっぱなしにして、脚が動き始めるまで値で待つ
+    const readGear = () =>
+      page.evaluate(
+        () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.gearPosition ?? -1,
+      )
+    expect(await readGear(), '飛び立った直後に脚が出し切りでない').toBe(1)
+    await page.keyboard.down('KeyG')
+    await expect.poll(readGear, { timeout: waitBudgetMs(30_000) }).toBeLessThan(1)
+    await page.keyboard.up('KeyG')
+  })
+
+  /**
+   * 甲板の上では G を受け付けない（Phase 9 の段 5）。実機も車輪に重さが掛かっている
+   * あいだは脚が上がらない
+   */
+  test('甲板の上では G で脚が上がらない', async ({ page }) => {
+    await page.goto('/dogfight/?script=mission-01&precompile=0')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: waitBudgetMs(120_000) },
+    )
+    await page.locator('.title-start').click()
+    await expect(page.locator('#title')).toBeHidden()
+    const readFrame = () =>
+      page.evaluate(() => (window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0)
+    // 押しっぱなしのまま 30 フレーム以上回す
+    const start = await readFrame()
+    await page.keyboard.down('KeyG')
+    await expect.poll(readFrame, { timeout: waitBudgetMs(30_000) }).toBeGreaterThan(start + 30)
+    await page.keyboard.up('KeyG')
+    const hook = (await readHook(page))!
+    expect(hook.speed, '甲板で動いている').toBe(0)
+    expect(hook.gearPosition, '甲板の上で脚が動いた').toBe(1)
   })
 })
 

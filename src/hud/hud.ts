@@ -19,6 +19,7 @@ import {
   createHudReadout,
   formatScore,
   formatTimer,
+  gearLabel,
   trendOf,
   type HudReadout,
 } from './readout'
@@ -1238,6 +1239,9 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.fillText(`G ${readout.loadFactor.toFixed(1)}`, x, y)
     ctx!.fillText(`AOA ${readout.angleOfAttackDeg.toFixed(1)}`, x, y + 16)
     ctx!.fillText(`THR ${Math.round(readout.throttle * 100)}%`, x, y + 32)
+    // 脚。上げ切りのときは出さない（`gearLabel`）
+    const gear = gearLabel(readout.gearPosition)
+    if (gear !== null) ctx!.fillText(gear, x, y + 48)
 
     ctx!.textAlign = 'right'
     ctx!.fillText(`AGL ${Math.round(readout.aglFt)}`, layout.agl.x, layout.agl.y)
@@ -1247,6 +1251,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     if (readout.stalled) warnings.push('STALL')
     if (readout.loadFactor > AIRCRAFT.gLimit * 0.95) warnings.push('G LIMIT')
     if (readout.aglFt < LOW_ALTITUDE_FT && !readout.crashed) warnings.push('LOW')
+    // 脚を出したまま速度の上限（250 kt、推測）を超えた
+    if (readout.gearOverspeed) warnings.push('GEAR SPEED')
     // 損傷はここに出さない。右下の兵装の一覧へ移した（段 33、`drawArmament`）
     if (warnings.length > 0) {
       ctx!.font = FONT

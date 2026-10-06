@@ -18,6 +18,11 @@ export interface InputState {
   fireMissile: boolean
   /** フレアの投下。押しっぱなしでは 1 回しか撒かない */
   deployFlare: boolean
+  /**
+   * 降着装置の出し入れ（Phase 9 の段 5）。押した瞬間だけ効き、押しっぱなしでは 1 回しか
+   * 切り替えない。押した瞬間の判定は `World` が持つ（甲板の上では受け付けないため）
+   */
+  gearToggle: boolean
 }
 
 export function neutralInput(): InputState {
@@ -29,6 +34,7 @@ export function neutralInput(): InputState {
     fireGun: false,
     fireMissile: false,
     deployFlare: false,
+    gearToggle: false,
   }
 }
 

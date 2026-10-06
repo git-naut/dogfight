@@ -227,9 +227,9 @@ export const SCENES = [
   // ミサイル警告。方位の矢印と着弾までの秒。**この 1 枚が警告の見張り。**
   // 真後ろから来るので矢印は真下を指す
   { name: 'missile-warning', script: 'enemy-missile', frame: 600, hour: 16, coverage: 0, hud: true, watches: [] },
-  // 降着装置。**対地 30 m なので出ている**（`GEAR_DOWN_AGL` は 80 m）。
-  // 脚の有無が画素に出る。他の 41 枚はすべて高度 1,000 m 以上なので
-  // 出ていない
+  // 降着装置。**台本が脚を出し切って始める**（`spawn.gearDown`。Phase 9 の段 4 までは
+  // 対地 80 m で自動）。脚の有無が画素に出る。ほかに脚が出ているのは、甲板の上の
+  // `catapult` と、射出直後の `hud-mission`
   {
     name: 'gear-down',
     script: 'gear-down',

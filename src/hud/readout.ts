@@ -61,6 +61,10 @@ export interface HudReadout {
    * 削り切る。
    */
   integrityRatio: number
+  /** 脚の位置 0..1。0 が上げ切り（Phase 9 の段 5） */
+  gearPosition: number
+  /** 脚が出ているのに速度の上限を超えている */
+  gearOverspeed: boolean
 }
 
 export function createHudReadout(): HudReadout {
@@ -79,6 +83,8 @@ export function createHudReadout(): HudReadout {
     stalled: false,
     crashed: false,
     integrityRatio: 1,
+    gearPosition: 0,
+    gearOverspeed: false,
   }
 }
 
@@ -112,12 +118,24 @@ export function computeReadout(sample: AircraftSample, out: HudReadout): HudRead
   out.crashed = sample.crashed
   out.integrityRatio =
     sample.integrity > 0 ? sample.integrity / AIRCRAFT_INTEGRITY : 0
+  out.gearPosition = sample.gearPosition
+  out.gearOverspeed = sample.gearOverspeed
 
   const speed = sample.velocity.length()
   if (speed > 1) out.flightPath.copy(sample.velocity).multiplyScalar(1 / speed)
   else out.flightPath.copy(out.nose)
 
   return out
+}
+
+/**
+ * 脚の表示（Phase 9 の段 5）。**上げ切りのときは何も出さない。**空戦の大半は脚を上げて
+ * いるので、出さなければ計器の列は Phase 9 の段 4 までと同じ絵になる。出し切りは
+ * `GEAR DOWN`、動いている途中は `GEAR TRANSIT`
+ */
+export function gearLabel(position: number): string | null {
+  if (position <= 0) return null
+  return position >= 1 ? 'GEAR DOWN' : 'GEAR TRANSIT'
 }
 
 /**

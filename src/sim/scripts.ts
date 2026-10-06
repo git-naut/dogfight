@@ -674,8 +674,16 @@ export const SCRIPTS = {
      * なしで回るので、これがないと甲板で待ち続けてミッションが始まらない。
      * ライブでは人がスロットルを開ける（`keyboard.poll()` が使われ、
      * キーフレームは読まれない）。
+     *
+     * **f720 で脚を上げる**（Phase 9 の段 5）。射出は f346 に終わり、f690 の 17.8 m を
+     * 底に上昇へ移る。実機の手順と同じく、上がり始めてから上げる。脚は 5 秒かけて
+     * f1320 に上がり切る。ライブでは人が G キーで上げる
      */
-    keyframes: [{ frame: 60, input: { throttle: 1 } }],
+    keyframes: [
+      { frame: 60, input: { throttle: 1 } },
+      { frame: 720, input: { gearToggle: true } },
+      { frame: 722, input: { gearToggle: false } },
+    ],
   },
   'mission-air': {
     name: 'mission-air',
@@ -744,21 +752,22 @@ export const SCRIPTS = {
   /**
    * 降着装置を見るための台本。
    *
-   * 自機を対地 30 m に置く。`GEAR_DOWN_AGL`（80 m）の内側なので脚が出る。
+   * 自機を対地 30 m に、脚を出し切って置く（`spawn.gearDown`）。Phase 9 の段 4 までは
+   * 対地 80 m の内側で自動で出ていた。
    * **空母は出さない。**脚が見えるかどうかだけを見たいので、背景に余計な
    * ものを入れない。海面の上だから `agl` は高度そのまま。
    *
-   * 速度は着陸進入の 70 m/s（136 kt）。実機の F/A-18C は 250 kt 以下で
-   * 脚を降ろす
+   * 速度は着陸進入の 70 m/s（136 kt）。脚の速度の上限 `GEAR_SPEED_LIMIT`（250 kt、推測）の
+   * 内側
    */
   'gear-down': {
     name: 'gear-down',
     seed: 20260831,
-    spawn: { altitude: 30, speed: 70 },
+    spawn: { altitude: 30, speed: 70, gearDown: true },
     keyframes: [],
   },
   /**
-   * 上の比較用。**高度だけ変える。**
+   * 上の比較用。**高度と脚だけ変える**（脚は上げ切り）。
    *
    * 脚が絵に出ていることは三角形の数で確かめる。`gearDown` が true でも
    * 描画側が `visible` を切り替えていなければ意味がない。同じ台本で高度
@@ -786,7 +795,12 @@ export const SCRIPTS = {
     carrier: { x: 0, z: 0, heading: 0 },
     // ミッションと同じ cat-4。艦の軸と平行に走る
     launchFrom: 'cat-4',
-    keyframes: [{ frame: 60, input: { throttle: 1 } }],
+    // ミッションと同じく、上昇に移った f720 で脚を上げる
+    keyframes: [
+      { frame: 60, input: { throttle: 1 } },
+      { frame: 720, input: { gearToggle: true } },
+      { frame: 722, input: { gearToggle: false } },
+    ],
   },
 } as const satisfies Record<string, ReplayScript>
 

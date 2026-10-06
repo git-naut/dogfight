@@ -212,6 +212,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
       if (sample.stalled) warnings.push('失速')
       if (sample.loadFactor > AIRCRAFT.gLimit * 0.95) warnings.push('G 制限')
       if (sample.agl < 150 && !sample.crashed) warnings.push('低高度')
+      if (sample.gearOverspeed) warnings.push('脚の速度超過')
 
       status.textContent = warnings.join(' / ')
       status.classList.toggle('is-active', warnings.length > 0)

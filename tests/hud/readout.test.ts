@@ -10,6 +10,7 @@ import {
   formatClock,
   formatScore,
   formatTimer,
+  gearLabel,
   trendOf,
 } from '@hud/readout'
 import { createAircraftSample } from '@sim/aircraft'
@@ -242,5 +243,27 @@ describe('trendOf（段 36、SPEED と ALT の増減の三角）', () => {
     expect(trendOf(-0.5, 1)).toBe(0)
     // 閾値ちょうどは出さない
     expect(trendOf(2, 2)).toBe(0)
+  })
+})
+
+/**
+ * 脚の表示（Phase 9 の段 5）。**上げ切りのときは何も出さない。**空戦の基準画像の大半は
+ * 脚を上げているので、出さなければ計器の列の絵が段 4 までと変わらない
+ */
+describe('脚の表示', () => {
+  it('上げ切りは出さない、途中は TRANSIT、出し切りは DOWN', () => {
+    expect(gearLabel(0)).toBeNull()
+    expect(gearLabel(0.001)).toBe('GEAR TRANSIT')
+    expect(gearLabel(0.999)).toBe('GEAR TRANSIT')
+    expect(gearLabel(1)).toBe('GEAR DOWN')
+  })
+
+  it('サンプルの脚の位置と速度超過をそのまま写す', () => {
+    const sample = createAircraftSample()
+    sample.gearPosition = 0.4
+    sample.gearOverspeed = true
+    const out = computeReadout(sample, createHudReadout())
+    expect(out.gearPosition).toBe(0.4)
+    expect(out.gearOverspeed).toBe(true)
   })
 })

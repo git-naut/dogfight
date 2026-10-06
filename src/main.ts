@@ -192,6 +192,8 @@ const hook = installTestHook({
   programs: 0,
   compileMs: 0,
   gearDown: false,
+  gearPosition: 0,
+  gearOverspeed: false,
   audioProbe: null,
   gpuProbe: null,
   noiseSlice: null,
@@ -630,6 +632,8 @@ async function main(): Promise<void> {
     hook.altitude = sample.altitude
     hook.agl = sample.agl
     hook.gearDown = sample.gearDown
+    hook.gearPosition = sample.gearPosition
+    hook.gearOverspeed = sample.gearOverspeed
     hook.groundHeight = sample.groundHeight
     hook.elevator = sample.elevator
     hook.aileron = sample.aileron

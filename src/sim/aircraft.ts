@@ -41,19 +41,31 @@ import { TrailRing, type TrailSource } from './trail'
 export const AIRCRAFT_INTEGRITY = 60
 
 /**
- * 降着装置を出す対地高度 m。
+ * 降着装置が出し切りから上げ切りまで（またはその逆）動く秒数。
  *
- * **ゲームの値。**実機の F/A-18C は速度で制限する（降ろすのが 250 kt 以下、
- * 出したまま飛べるのが 250 kt 以下）。高度では決めない。
- *
- * ここで高度にしたのは、操作を増やさずに「甲板にいるときは出ている」を
- * 表すため。段 12 の射出は甲板（海面から 20 m）から始まり、そこから
- * 上昇していく。80 m は射出の 2.4 秒で稼ぐ高度より上に取ってあるので、
- * **飛び上がってすぐ引き込まれる。**
- *
- * 空戦の高度（`mission-01` は 3,000 m）では常に false。
+ * **推測。**F/A-18E の公表値を見つけていない（Phase 9 の段 5、ADR 0018）。戦闘機の脚は
+ * 数秒で動くという程度の根拠で 5 秒に置いた。Phase 9 の段 4 までは対地 80 m で瞬時に
+ * 出し入れしていた
  */
-export const GEAR_DOWN_AGL = 80
+export const GEAR_TRANSIT_SECONDS = 5
+
+/**
+ * 脚を出し切ったときに足す抗力係数（主翼面積あたり）。
+ *
+ * **推測。**機体の零揚力抗力 `cd0` 0.026 に対して 0.02 で、脚を出すと零揚力抗力が
+ * 2 倍近くになる。戦闘機の脚の抗力の公表値を見つけていない（ADR 0018）。出ている割合に
+ * 比例させる
+ */
+export const GEAR_DRAG_COEFFICIENT = 0.02
+
+/**
+ * 脚を出していてよい速度の上限 m/s。250 kt。
+ *
+ * **推測。**F/A-18 は 250 kt 前後と言われるが、公開の一次資料で確かめていない（ADR 0018）。
+ * 超えたら HUD に警告を出すだけで、壊れはしない。比べるのは真対気速度で、低空では
+ * 計器の速度とほぼ同じ
+ */
+export const GEAR_SPEED_LIMIT = 250 * 0.514444
 
 export interface AircraftInit {
   position?: Vec3
@@ -61,6 +73,8 @@ export interface AircraftInit {
   orientation?: Quat
   /** 実効スロットル 0..1 */
   throttle?: number
+  /** 降着装置を出し切った状態で始めるか。既定は上げ切り */
+  gearDown?: boolean
 }
 
 export interface StepOptions {
@@ -201,14 +215,18 @@ export interface AircraftSample {
   aileron: number
   rudder: number
   /**
-   * 降着装置を出しているか。
+   * 降着装置が少しでも出ているか（`gearPosition > 0`）。描画が脚を出すのに使う。
    *
    * **判定は sim 側に置く。**描画側に状態を持たせるとキャプチャモードで
    * 出ない（`sync()` が 1 回しか走らないので、そこで false のままになる）。
-   * `docs/aircraft.md` が「捨てずに分けておく理由は、地上の場面を作るとき
-   * 戻せるようにしておくため」と書いていた、その用途。
    */
   gearDown: boolean
+  /** 脚の位置 0..1。0 が上げ切り、1 が出し切り。`GEAR_TRANSIT_SECONDS` かけて動く */
+  gearPosition: number
+  /** 脚の指令。true が出す。動いている途中は `gearPosition` と食い違う */
+  gearCommandDown: boolean
+  /** 脚が出ているのに `GEAR_SPEED_LIMIT` を超えている。HUD が警告を出す */
+  gearOverspeed: boolean
 }
 
 // 毎ステップの一時変数。使い回してゴミを出さない。
@@ -232,6 +250,10 @@ export class Aircraft {
 
   /** 実効スロットル。入力の目標値とは別に、時定数をかけて追従する */
   throttle = 0.5
+  /** 脚の指令。true が出す（`toggleGear`） */
+  gearCommandDown = false
+  /** 脚の位置 0..1。0 が上げ切り、1 が出し切り */
+  gearPosition = 0
 
   crashed = false
 
@@ -343,10 +365,26 @@ export class Aircraft {
     if (init.velocity) this.velocity.copy(init.velocity)
     if (init.orientation) this.orientation.copy(init.orientation).normalize()
     if (init.throttle !== undefined) this.throttle = clamp(init.throttle, 0, 1)
+    if (init.gearDown === true) this.setGear(true)
 
     this.prevPosition.copy(this.position)
     this.prevOrientation.copy(this.orientation)
     this.updateDerived()
+  }
+
+  /**
+   * 脚の指令を切り替える。**位置はすぐには動かない。**`step()` が `GEAR_TRANSIT_SECONDS`
+   * かけて指令へ寄せる。甲板の上で受け付けないのは呼ぶ側（`World`）の仕事
+   */
+  toggleGear(): void {
+    if (this.crashed) return
+    this.gearCommandDown = !this.gearCommandDown
+  }
+
+  /** 脚を出し切り（true）か上げ切り（false）に置く。始めの状態を作るのに使う */
+  setGear(down: boolean): void {
+    this.gearCommandDown = down
+    this.gearPosition = down ? 1 : 0
   }
 
   /**
@@ -430,6 +468,12 @@ export class Aircraft {
     const targetThrottle = clamp(input.throttle, 0, 1)
     this.throttle += (targetThrottle - this.throttle) * lagFactor(dt, AIRCRAFT.throttleTau)
 
+    // 脚。指令へ一定の速さで寄せる（一次遅れにしない。脚は油圧で一定の速さで動く）
+    const gearStep = dt / GEAR_TRANSIT_SECONDS
+    this.gearPosition = this.gearCommandDown
+      ? Math.min(1, this.gearPosition + gearStep)
+      : Math.max(0, this.gearPosition - gearStep)
+
     // 舵面の位置。指令をそのまま見せると入力の瞬間に跳ねるので遅らせる。
     // 制限器を通したあとのピッチ指令を使う。制限が効いているときに舵面が
     // 動いたままだと、見えているものと挙動が食い違う
@@ -450,7 +494,9 @@ export class Aircraft {
 
       liftDirection(tmpVelDir, tmpUp, tmpLiftDir)
       tmpAero.addScaledVector(tmpLiftDir, liftMagnitude(q, cl))
-      tmpAero.addScaledVector(tmpVelDir, -dragMagnitude(q, dragCoefficient(cl)))
+      // 脚の抗力は出ている割合に比例させる
+      const cd = dragCoefficient(cl) + GEAR_DRAG_COEFFICIENT * this.gearPosition
+      tmpAero.addScaledVector(tmpVelDir, -dragMagnitude(q, cd))
     }
 
     tmpForce.copy(tmpAero)
@@ -553,7 +599,10 @@ export class Aircraft {
     out.elevator = this.elevator
     out.aileron = this.aileron
     out.rudder = this.rudder
-    out.gearDown = this.agl < GEAR_DOWN_AGL
+    out.gearDown = this.gearPosition > 0
+    out.gearPosition = this.gearPosition
+    out.gearCommandDown = this.gearCommandDown
+    out.gearOverspeed = this.gearPosition > 0 && this.speed > GEAR_SPEED_LIMIT
     return out
   }
 
@@ -610,6 +659,9 @@ export function createAircraftSample(): AircraftSample {
     aileron: 0,
     rudder: 0,
     gearDown: false,
+    gearPosition: 0,
+    gearCommandDown: false,
+    gearOverspeed: false,
   }
 }
 

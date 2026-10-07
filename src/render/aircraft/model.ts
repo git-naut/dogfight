@@ -41,12 +41,38 @@ export interface AircraftHinge {
   sign: number
 }
 
+/**
+ * 脚 1 本の付け根（Phase 9 の段 6）。変換ツール（`tools/f18e-to-glb.mjs`）が glb の
+ * `extras.gear` に載せる。F/A-18E だけが持ち、ほかの機体は脚を出し入れするだけ
+ */
+export interface AircraftGearLeg {
+  node: string
+  leg: 'nose' | 'left' | 'right'
+  origin: [number, number, number]
+  /** 正の角で畳む向きに回る軸（この作品の座標） */
+  axis: [number, number, number]
+  /** 出し切りから格納までの角度 deg */
+  retractDeg: number
+}
+
+/** 動かす脚 1 本。ノードと、回す軸と角度 */
+export interface GearLegNode {
+  readonly object: THREE.Object3D
+  readonly axis: THREE.Vector3
+  /** 格納までの角度 rad */
+  readonly retractRad: number
+}
+
 export interface AircraftModel {
   readonly object: THREE.Object3D
   /** エンジンノズル。原本に無ければ空。炎を描く位置 */
   readonly nozzles: readonly Nozzle[]
   /** 降着装置のノード。原本に無ければ null */
   readonly gear: THREE.Object3D | null
+  /** 脚ごとのノード。付け根の定義が無い機体は空（脚をまとめて出し入れするだけ） */
+  readonly gearLegs: readonly GearLegNode[]
+  /** 着艦フックのノード。無い機体は null。動かすのは段 8 */
+  readonly hook: THREE.Object3D | null
   /** 舵面のノード。名前で引く */
   readonly surfaces: ReadonlyMap<string, THREE.Object3D>
   /** 変換ツールが埋めたヒンジの定義 */
@@ -75,6 +101,9 @@ const HIDDEN_NODES = ['gear', 'stowed']
  * だけ出す（`AircraftSample.gearDown`）
  */
 export const GEAR_NODE = 'gear'
+
+/** 着艦フックのノード名（`tools/f18e-parts.mjs` の `HOOK_RULE`） */
+export const HOOK_NODE = 'Hook'
 
 /**
  * 機体の材質の作り手。
@@ -161,10 +190,23 @@ export async function loadAircraftModel(
     if (node !== undefined) surfaces.set(hinge.node, node)
   }
 
+  const gearLegs: GearLegNode[] = []
+  for (const leg of readGearLegs(gltf)) {
+    const node = object.getObjectByName(leg.node)
+    if (node === undefined) throw new Error(`脚のノード ${leg.node} が glb に無い`)
+    gearLegs.push({
+      object: node,
+      axis: new THREE.Vector3(...leg.axis).normalize(),
+      retractRad: (leg.retractDeg * Math.PI) / 180,
+    })
+  }
+
   return {
     object,
     nozzles: readNozzles(gltf),
     gear: object.getObjectByName(GEAR_NODE) ?? null,
+    gearLegs,
+    hook: object.getObjectByName(HOOK_NODE) ?? null,
     surfaces,
     hinges,
     triangles,
@@ -210,4 +252,15 @@ function readHinges(gltf: { parser: { json: unknown } }): AircraftHinge[] {
     throw new Error('glb に舵面のヒンジが入っていない。tools/ac3d-to-glb.mjs を確認')
   }
   return hinges
+}
+
+/**
+ * glTF の extras から脚の付け根を読む（Phase 9 の段 6）。**無くてもよい。**F/A-18E
+ * だけが持ち、ほかの機体は `gear` ノードをまとめて出し入れする
+ */
+function readGearLegs(gltf: { parser: { json: unknown } }): AircraftGearLeg[] {
+  const json = gltf.parser.json as {
+    scenes?: { extras?: { gear?: AircraftGearLeg[] } }[]
+  }
+  return json.scenes?.[0]?.extras?.gear ?? []
 }

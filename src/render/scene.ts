@@ -579,7 +579,7 @@ export async function createScene(
       aircraft.setControls(sample.elevator, sample.aileron, sample.rudder)
       // **判定は sim が持つ。**ここで高度を見て切り替えると、キャプチャ
       // モード（`sync()` が 1 回だけ）で出ない
-      aircraft.setGearDown(sample.gearDown)
+      aircraft.setGear(sample.gearPosition)
 
       // 太陽光と天空光の基準位置を機体に合わせる。高度によって透過率が変わる。
       // ライト本体の位置は大気側が太陽方向から決めるので触らない

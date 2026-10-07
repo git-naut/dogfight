@@ -8,10 +8,10 @@
 //
 // 1. 舵面ごとに親ノードを挿し、`AileronLeft` などと名付ける
 // 2. その親の原点をヒンジの位置に置き、子で打ち消して元の位置へ戻す
-// 3. 降着装置を `gear` ノードの下にまとめる
+// 3. 降着装置を `gear` ノードの下にまとめる。脚は 3 本に分け、それぞれ付け根に親を挿す（Phase 9 の段 6）
 // 4. 座標系をこの作品の規約（機首 −Z、上 +Y、右 +X）へ回す
 // 5. 単位を m にする
-// 6. ヒンジを `scenes[0].extras.hinges` に載せる
+// 6. ヒンジを `scenes[0].extras.hinges` に、脚とフックを `extras.gear`・`extras.hook` に載せる
 // 7. テクスチャを WebP へ落として `public/aircraft/` へ置く
 //
 // ## 頂点を触らない理由
@@ -42,7 +42,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import { packGlb } from './glb-pack.mjs'
 import { identifyParts, SCALE } from './f18e-parts.mjs'
-import { buildHinges } from './f18e-hinges.mjs'
+import { buildGearHinges, buildHinges } from './f18e-hinges.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SRC = join(ROOT, 'assets/upstream/f18e/scene.gltf')
@@ -141,6 +141,7 @@ function main() {
   const srcDir = dirname(SRC)
   const { matched, gear } = identifyParts(SRC)
   const hinges = buildHinges(SRC)
+  const gearHinges = buildGearHinges(SRC)
 
   // ---- ノードの索引を作る ----
   const nodeIndexByName = new Map()
@@ -212,6 +213,9 @@ function main() {
   }
   for (const i of gearNodes) moved.add(i)
 
+  // フックも本体から外す（段 6）
+  for (const n of gearHinges.hook.sourceNodes) moved.add(nodeIndexByName.get(n))
+
   const keptChildren = (gltf.nodes[rootIndex].children ?? []).filter((c) => !moved.has(c))
 
   // ---- 舵面の親ノードを作る ----
@@ -253,9 +257,51 @@ function main() {
     })
   }
 
-  // ---- 脚をまとめる ----
-  gltf.nodes.push({ name: 'gear', children: [...gearNodes] })
+  /**
+   * 付け根に親ノードを挿す。舵面と同じ形（親の原点 = 付け根、子で打ち消す）。
+   * **回すのは親だけ。**子は平行移動だけなので、回転 0 では元の位置と 1 画素も変わらない
+   */
+  const pivot = (name, originRaw, sourceNodes) => {
+    const origin = rotateToWorld(originRaw)
+    const children = sourceNodes.map((n) => {
+      const i = nodeIndexByName.get(n)
+      if (i === undefined) throw new Error(`${n} が無い`)
+      return i
+    })
+    gltf.nodes.push({ name: `${name}__inner`, translation: origin.map((v) => -v), children })
+    const inner = gltf.nodes.length - 1
+    gltf.nodes.push({ name, translation: origin, children: [inner] })
+    return { index: gltf.nodes.length - 1, origin }
+  }
+
+  // ---- 脚をまとめる。3 本それぞれに付け根を挿す（Phase 9 の段 6） ----
+  const legged = new Set(gearHinges.gear.flatMap((g) => g.sourceNodes.map((n) => nodeIndexByName.get(n))))
+  for (const i of gearNodes) {
+    if (!legged.has(i)) throw new Error(`脚の部品 ${gltf.nodes[i].name} がどの脚にも入っていない`)
+  }
+  const gearInfo = []
+  const legNodes = []
+  for (const g of gearHinges.gear) {
+    const { index, origin } = pivot(g.node, g.origin, g.sourceNodes)
+    legNodes.push(index)
+    gearInfo.push({
+      node: g.node,
+      leg: g.leg,
+      origin,
+      axis: normalize(rotateToWorld(g.axis)),
+      retractDeg: g.retractDeg,
+    })
+  }
+  gltf.nodes.push({ name: 'gear', children: legNodes })
   const gearIndex = gltf.nodes.length - 1
+
+  // ---- フック。付け根に親を挿す。動かすのは段 8 ----
+  const hookPivot = pivot(gearHinges.hook.node, gearHinges.hook.origin, gearHinges.hook.sourceNodes)
+  const hookInfo = {
+    node: gearHinges.hook.node,
+    origin: hookPivot.origin,
+    axis: normalize(rotateToWorld(gearHinges.hook.axis)),
+  }
 
   // ---- ルートを組み直す ----
   gltf.nodes.push({
@@ -266,7 +312,7 @@ function main() {
 
   gltf.nodes[rootIndex] = {
     name: rootName,
-    children: [bodyIndex, gearIndex, ...surfaceNodes],
+    children: [bodyIndex, gearIndex, hookPivot.index, ...surfaceNodes],
   }
   void rootName
 
@@ -276,7 +322,7 @@ function main() {
   gltf.scenes[0].nodes = [rootIndex]
 
   // ---- ヒンジを載せる ----
-  gltf.scenes[0].extras = { hinges: hingeInfo, nozzles: NOZZLES }
+  gltf.scenes[0].extras = { hinges: hingeInfo, nozzles: NOZZLES, gear: gearInfo, hook: hookInfo }
 
   // ---- テクスチャを差し替える ----
   //

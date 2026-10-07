@@ -127,6 +127,28 @@ export const GEAR_RULE = {
   match: (p) => p.y < -0.6,
 }
 
+/**
+ * 脚を 3 本に分ける（Phase 9 の段 6）。`GEAR_RULE` に当たった部品を位置で振り分ける。
+ *
+ * 実測。前脚は X −5.8〜−4.8（191〜194。194 はカタパルトの射出バー）。右主脚は Z が負
+ * （181〜184）、左主脚は Z が正（182.001 と 187〜190）。**原本は +Z が左**（上の座標系の表）
+ */
+export const GEAR_LEGS = [
+  { name: 'GearNose', leg: 'nose', match: (p) => p.x < -3 },
+  { name: 'GearLeft', leg: 'left', match: (p) => p.x >= -3 && p.z > 0 },
+  { name: 'GearRight', leg: 'right', match: (p) => p.x >= -3 && p.z < 0 },
+]
+
+/**
+ * 着艦フック（Phase 9 の段 6）。**名前が残っている。**`Tailhook2` は尾部の下、
+ * X 5.3〜7.0 の長さ 1.72 m の棒で、前端が付け根。原本は収納の姿勢で、先端が尾部の
+ * 下に収まっている。`Tailhook1`（X −5.83、機首の上）は名前が似ているが別物
+ */
+export const HOOK_RULE = {
+  name: 'Hook',
+  match: (p) => (p.raw.parent ?? p.name) === 'Tailhook2',
+}
+
 function near(value, target, tolerance) {
   return Math.abs(value - target) <= tolerance
 }
@@ -139,7 +161,7 @@ function thin(p, limit) {
 /**
  * glTF を読んで部品を同定する。
  *
- * @returns `{ parts, matched, gear, size, pairs }`
+ * @returns `{ parts, matched, gear, legs, hook, size, pairs }`
  *   `matched` は `{ name, role, side, index, part }` の配列
  */
 export function identifyParts(gltfPath) {
@@ -185,11 +207,19 @@ export function identifyParts(gltfPath) {
     }
   }
   const gear = metric.filter((p) => GEAR_RULE.match(p))
+  const legs = GEAR_LEGS.map((rule) => ({
+    name: rule.name,
+    leg: rule.leg,
+    parts: gear.filter((p) => rule.match(p)),
+  }))
+  const hook = metric.filter((p) => HOOK_RULE.match(p))
 
   return {
     parts: metric,
     matched,
     gear,
+    legs,
+    hook,
     pairs: findMirrorPairs(parts),
     size: size.map((v) => v * SCALE),
     min,

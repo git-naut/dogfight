@@ -70,6 +70,10 @@ export interface IdentifyResult {
   parts: MetricPart[]
   matched: MatchedPart[]
   gear: MetricPart[]
+  /** 脚 3 本（前脚・左主脚・右主脚）と、それぞれに入る部品 */
+  legs: { name: string; leg: 'nose' | 'left' | 'right'; parts: MetricPart[] }[]
+  /** 着艦フックの部品 */
+  hook: MetricPart[]
   pairs: [number, number][]
   /** m 単位の全体の大きさ */
   size: Vec3

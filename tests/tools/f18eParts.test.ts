@@ -162,6 +162,32 @@ describe('降着装置', () => {
   })
 })
 
+/**
+ * 脚 3 本とフック（Phase 9 の段 6）。脚は `GEAR_RULE` に当たった部品を位置で 3 本に
+ * 振り分ける。**1 つの部品が 2 本に入ったり、どこにも入らなかったりしない**
+ */
+describe('脚とフック', () => {
+  it('脚の部品が前脚 4・左主脚 5・右主脚 4 にちょうど 1 回ずつ入る', () => {
+    const count = Object.fromEntries(result.legs.map((l) => [l.leg, l.parts.length]))
+    expect(count).toEqual({ nose: 4, left: 5, right: 4 })
+    const all = result.legs.flatMap((l) => l.parts.map((p) => p.index))
+    expect(new Set(all).size).toBe(all.length)
+    expect(all.length).toBe(result.gear.length)
+  })
+
+  it('左主脚は +Z（原本の左）、右主脚は −Z にある', () => {
+    for (const l of result.legs) {
+      if (l.leg === 'nose') continue
+      for (const p of l.parts) expect(Math.sign(p.z), `${l.leg} の ${p.name}`).toBe(l.leg === 'left' ? 1 : -1)
+    }
+  })
+
+  it('フックは Tailhook2 の 1 部品で、尾部の下にある', () => {
+    expect(result.hook.map((p) => p.raw.parent ?? p.name)).toEqual(['Tailhook2'])
+    expect(result.hook[0]!.x).toBeGreaterThan(5)
+  })
+})
+
 describe('左右対称のペア', () => {
   it('43 組ある', () => {
     // 舵面がすべて左右にあることの裏付け。減ったら同定の前提が崩れている

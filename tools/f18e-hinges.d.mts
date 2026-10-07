@@ -37,3 +37,22 @@ export declare function seamDeparture(
   gltfPath: string,
   hinges: readonly F18eHinge[],
 ): Record<string, { seam: number; max: number; mean: number }>
+
+/** 脚が格納まで回る角度 deg */
+export declare const GEAR_RETRACT_DEG: Record<'nose' | 'left' | 'right', number>
+
+export interface F18eGearHinge {
+  node: string
+  leg: 'nose' | 'left' | 'right'
+  sourceNodes: string[]
+  /** 付け根。モデルの元の軸で m */
+  origin: Vec3
+  /** 正の角で畳む向きに回る軸（単位ベクトル） */
+  axis: Vec3
+  retractDeg: number
+}
+
+export declare function buildGearHinges(gltfPath: string): {
+  gear: F18eGearHinge[]
+  hook: { node: string; sourceNodes: string[]; origin: Vec3; axis: Vec3 }
+}

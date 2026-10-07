@@ -1071,4 +1071,22 @@ export const BITE_MARKS = [
     expect: 'tests/render/captureConfig.test.ts',
     why: '公開ページが甲板からの射出でなく空中の水平飛行から始まる',
   },
+  {
+    id: 'nose-gear-folds-aft',
+    kind: '符号の反転',
+    file: 'tools/f18e-hinges.mjs',
+    find: "      axis: l.leg === 'nose' ? [0, 0, -1] : [0, 0, 1],\n",
+    replace: "      axis: l.leg === 'nose' ? [0, 0, 1] : [0, 0, 1],\n",
+    expect: 'tests/render/gearLegs.test.ts',
+    why: '前脚が後ろへ畳まれ、脚柱が機体の中を突き抜ける（実機の F/A-18 は前へ畳む）',
+  },
+  {
+    id: 'gear-turns-when-down',
+    kind: '定数の摂動',
+    file: 'src/render/aircraftView.ts',
+    find: '        leg.object.quaternion.setFromAxisAngle(leg.axis, (1 - position) * leg.retractRad)\n',
+    replace: '        leg.object.quaternion.setFromAxisAngle(leg.axis, (1.1 - position) * leg.retractRad)\n',
+    expect: 'tests/render/gearLegs.test.ts',
+    why: '脚を出し切っても少し畳まれたままで、甲板の上の機体が車輪で立たない',
+  },
 ]

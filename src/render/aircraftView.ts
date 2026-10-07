@@ -56,12 +56,14 @@ export interface AircraftView {
   /** 舵面の位置 −1..1。sim の AircraftSample の値をそのまま渡す */
   setControls(elevator: number, aileron: number, rudder: number): void
   /**
-   * 降着装置を出すか。sim の `AircraftSample.gearDown` をそのまま渡す。
+   * 降着装置の位置 0..1。sim の `AircraftSample.gearPosition` をそのまま渡す。
+   * 0 は上げ切りで隠す。脚ごとの付け根がある機体（F/A-18E）は、位置に応じて脚を
+   * 畳む向きへ回す（Phase 9 の段 6）。**1 では回転 0** で、出し切りの絵は段 5 までと同じ
    *
    * **判定を描画側に持たない。**キャプチャモードは `sync()` が 1 回しか
-   * 走らないので、描画側で高度を見て切り替える形にすると出ない
+   * 走らないので、描画側で状態を持つ形にすると出ない
    */
-  setGearDown(down: boolean): void
+  setGear(position: number): void
   dispose(): void
 }
 
@@ -104,9 +106,13 @@ export function createAircraftView(
       surfaces.update(elevator, aileron, rudder)
     },
 
-    setGearDown(down) {
+    setGear(position) {
       if (gear === null) return
-      gear.visible = down
+      gear.visible = position > 0
+      // 出し切り（1）で 0、上げ切り（0）で格納の角度
+      for (const leg of model.gearLegs) {
+        leg.object.quaternion.setFromAxisAngle(leg.axis, (1 - position) * leg.retractRad)
+      }
     },
 
     setMach(mach: number, seconds?: number) {

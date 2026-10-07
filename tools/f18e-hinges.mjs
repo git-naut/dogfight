@@ -286,3 +286,62 @@ function rotateAbout(p, o, u, a) {
   const cross = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
   return [0, 1, 2].map((k) => o[k] + v[k] * c + cross[k] * s + u[k] * dot * (1 - c))
 }
+
+/**
+ * 脚が格納まで回る角度 deg（Phase 9 の段 6）。
+ *
+ * **推測と簡略化。**F/A-18 の前脚は前へ、主脚は後ろへ畳まれる。前脚・主脚とも 90 度に
+ * 置いた。実機の主脚は畳むときに車輪を 90 度ひねって寝かせるが、その 2 段目の回転は
+ * 省いた。上げ切ると脚は隠すので、絵に出るのは 5 秒の途中だけ（ADR 0018）
+ */
+export const GEAR_RETRACT_DEG = { nose: 90, left: 90, right: 90 }
+
+/**
+ * 脚とフックのヒンジ。座標はモデルの元の軸（機首 −X、上 +Y、+Z が左）で m。
+ *
+ * 脚はいちばん上の頂点の付近（上から 5 cm）の中心を付け根にし、横（Z）の軸で回す。
+ * 軸の向きは、正の角で畳む向きに回るように選ぶ。右手の規則で、+Z の軸を正に回すと
+ * 下向きの脚は後ろ（+X）へ振れる。前脚は前へ畳むので −Z、主脚は後ろへ畳むので +Z。
+ *
+ * フックは前端（いちばん前の頂点から 5 cm）の中心を付け根にする。横の軸。動かすのは段 8
+ */
+export function buildGearHinges(gltfPath) {
+  const { legs, hook } = identifyParts(gltfPath)
+  const { parts } = readGltfParts(gltfPath, { vertices: true })
+  const verticesOf = (members) => {
+    const names = new Set(members.map((m) => m.raw.parent ?? m.name))
+    return parts
+      .filter((p) => names.has(p.parent ?? p.name))
+      .flatMap((p) => p.vertices.map((v) => v.map((x) => x * SCALE)))
+  }
+  const centerOf = (vs) => [0, 1, 2].map((k) => vs.reduce((s, v) => s + v[k], 0) / vs.length)
+
+  const gear = legs.map((l) => {
+    const v = verticesOf(l.parts)
+    const top = Math.max(...v.map((p) => p[1]))
+    const origin = centerOf(v.filter((p) => p[1] >= top - 0.05))
+    origin[1] = top
+    return {
+      node: l.name,
+      leg: l.leg,
+      sourceNodes: [...new Set(l.parts.map((p) => p.raw.parent ?? p.name))],
+      origin,
+      axis: l.leg === 'nose' ? [0, 0, -1] : [0, 0, 1],
+      retractDeg: GEAR_RETRACT_DEG[l.leg],
+    }
+  })
+
+  const hv = verticesOf(hook)
+  const front = Math.min(...hv.map((p) => p[0]))
+  const hookOrigin = centerOf(hv.filter((p) => p[0] <= front + 0.05))
+  hookOrigin[0] = front
+  return {
+    gear,
+    hook: {
+      node: 'Hook',
+      sourceNodes: [...new Set(hook.map((p) => p.raw.parent ?? p.name))],
+      origin: hookOrigin,
+      axis: [0, 0, 1],
+    },
+  }
+}

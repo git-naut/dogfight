@@ -1077,7 +1077,7 @@ export const BITE_MARKS = [
     file: 'tools/f18e-hinges.mjs',
     find: "      axis: l.leg === 'nose' ? [0, 0, -1] : [0, 0, 1],\n",
     replace: "      axis: l.leg === 'nose' ? [0, 0, 1] : [0, 0, 1],\n",
-    expect: 'tests/render/gearLegs.test.ts',
+    expect: 'tests/tools/f18eParts.test.ts',
     why: '前脚が後ろへ畳まれ、脚柱が機体の中を突き抜ける（実機の F/A-18 は前へ畳む）',
   },
   {

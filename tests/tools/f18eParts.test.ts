@@ -193,6 +193,35 @@ describe('脚とフック', () => {
     }
   })
 
+  /**
+   * 畳む向き。原本の座標（機首 −X、上 +Y、+Z が左）で、付け根から真下の点を軸まわりに
+   * 格納の角度だけ回す。前脚は前（−X）、主脚は後ろ（+X）へ水平まで畳まれる
+   */
+  it('前脚は前へ、主脚は後ろへ 90 度畳む', async () => {
+    const { buildGearHinges } = await import('../../tools/f18e-hinges.mjs')
+    const { gear } = buildGearHinges(GLTF)
+    const fold = (axis: readonly number[], deg: number) => {
+      // ロドリゲスの公式で (0, −1, 0) を回す
+      const a = (deg * Math.PI) / 180
+      const v = [0, -1, 0]
+      const c = Math.cos(a)
+      const sn = Math.sin(a)
+      const dot = v[0]! * axis[0]! + v[1]! * axis[1]! + v[2]! * axis[2]!
+      const cross = [
+        axis[1]! * v[2]! - axis[2]! * v[1]!,
+        axis[2]! * v[0]! - axis[0]! * v[2]!,
+        axis[0]! * v[1]! - axis[1]! * v[0]!,
+      ]
+      return [0, 1, 2].map((k) => v[k]! * c + cross[k]! * sn + axis[k]! * dot * (1 - c))
+    }
+    for (const g of gear) {
+      const foot = fold(g.axis, g.retractDeg)
+      expect(g.retractDeg, g.leg).toBe(90)
+      expect(foot[1], `${g.leg} が水平まで畳まれていない`).toBeCloseTo(0, 9)
+      expect(foot[0], `${g.leg} の畳む向き`).toBeCloseTo(g.leg === 'nose' ? -1 : 1, 9)
+    }
+  })
+
   it('フックは Tailhook2 の 1 部品で、尾部の下にある', () => {
     expect(result.hook.map((p) => p.raw.parent ?? p.name)).toEqual(['Tailhook2'])
     expect(result.hook[0]!.x).toBeGreaterThan(5)

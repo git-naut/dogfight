@@ -7,8 +7,11 @@ import type { RawPart, Vec3 } from './f18e-parts.mjs'
 export type { RawPart, Vec3 }
 
 /** glTF を読んで、部品ごとの世界座標の外接箱を返す */
-export declare function readGltfParts(gltfPath: string): {
-  parts: RawPart[]
+export declare function readGltfParts(
+  gltfPath: string,
+  options?: { vertices?: boolean },
+): {
+  parts: (RawPart & { vertices?: Vec3[]; indices?: number[] | null })[]
   min: Vec3
   max: Vec3
   size: Vec3

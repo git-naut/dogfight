@@ -159,9 +159,11 @@ export async function openLive(page: Page, query = ''): Promise<void> {
   // かかり、並列に走らせると起動待ちが 120 秒を超えて落ちた（実測。E2E
   // 全体も 11.8 分から 17.2 分へ延びた）。事前コンパイル自体は専用の
   // describe が見ている
-  const sep = query === '' ? '?' : '&'
+  // **台本を書かなければ水平飛行（`level`）を明示する。**公開ページの既定は甲板から射出する
+  // `mission-01` になった（Phase 9、2026-10-07）。HUD や操作の検査は空中を前提にしている
+  const withScript = query.includes('script=') ? query : `${query}${query === '' ? '?' : '&'}script=level`
   const path = onNodePath() ? '&gpu=3' : ''
-  await page.goto(`/dogfight/${query}${sep}title=0&precompile=0${path}`)
+  await page.goto(`/dogfight/${withScript}&title=0&precompile=0${path}`)
   await page.waitForFunction(
     () => {
       const hook = (window as unknown as { __dogfight?: { frame: number } }).__dogfight

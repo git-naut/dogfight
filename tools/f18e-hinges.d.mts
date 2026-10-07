@@ -28,3 +28,12 @@ export interface F18eHinge {
 }
 
 export declare function buildHinges(gltfPath: string): F18eHinge[]
+
+/** 端の断面の前縁の鼻の中心 */
+export declare function noseCenter(vertices: readonly Vec3[], span: number, end: 'lo' | 'hi'): Vec3
+
+/** 最大舵角まで回したとき、継ぎ目の頂点が固定の部品から離れる距離 m */
+export declare function seamDeparture(
+  gltfPath: string,
+  hinges: readonly F18eHinge[],
+): Record<string, { seam: number; max: number; mean: number }>

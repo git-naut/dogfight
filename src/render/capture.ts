@@ -21,7 +21,13 @@ export interface CaptureConfig {
   enabled: boolean
   /** 何ステップ進めた時点を撮るか */
   frame: number
-  /** 再生する入力スクリプト名 */
+  /**
+   * 再生する入力スクリプト名。
+   *
+   * 省略時は**ライブとキャプチャで違う。**ライブ（公開ページ）は甲板から射出して始まる
+   * `mission-01`（Phase 9、2026-10-07 のユーザーの要望）。キャプチャは `level` のまま。
+   * 基準画像と E2E は台本を書いて呼ぶが、書き忘れたときに甲板の場面へ化けないように
+   */
   script: string
   preset: PresetName
   /** 局所時刻 0〜24。12 が南中 */
@@ -366,12 +372,19 @@ export const DEFAULT_SEED = 20260816
  */
 export { DEFAULT_COVERAGE } from './pipeline/types'
 
+/** ライブで `?script=` を省いたときの台本。甲板で待ち、スロットルを開けると射出される */
+export const LIVE_DEFAULT_SCRIPT = 'mission-01'
+
+/** キャプチャで `?script=` を省いたときの台本 */
+export const CAPTURE_DEFAULT_SCRIPT = 'level'
+
 export function readCaptureConfig(search: string): CaptureConfig {
   const params = new URLSearchParams(search)
+  const enabled = params.get('capture') === '1'
   return {
-    enabled: params.get('capture') === '1',
+    enabled,
     frame: clampInt(params.get('frame'), 0, 100_000, 240),
-    script: params.get('script') ?? 'level',
+    script: params.get('script') ?? (enabled ? CAPTURE_DEFAULT_SCRIPT : LIVE_DEFAULT_SCRIPT),
     preset: resolvePreset(params.get('preset')),
     hour: clampNumber(params.get('hour'), 0, 24, DEFAULT_HOUR),
     exposure: params.has('exposure')

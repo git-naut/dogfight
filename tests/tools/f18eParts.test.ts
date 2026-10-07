@@ -191,10 +191,38 @@ describe('ヒンジ軸', () => {
     expect(dir(at('StabilatorLeft'))[2]).toBeCloseTo(1, 2)
     expect(dir(at('StabilatorRight'))[2]).toBeCloseTo(1, 2)
 
-    // ラダーは鉛直
-    expect(dir(at('RudderLeft'))[1]).toBeCloseTo(1, 2)
-    expect(dir(at('RudderRight'))[1]).toBeCloseTo(1, 2)
+    // **ラダーは鉛直ではない。**垂直尾翼と同じく外へ傾いた前縁に沿う。Phase 9 までは
+    // 鉛直の軸で回していて、ラダーが自分の面の外へ振れて付け根が胴体から浮いた。
+    // 測った傾きは左右とも 17〜18 度（左は +Z、右は −Z へ倒れる）
+    for (const [name, outward] of [
+      ['RudderLeft', 1],
+      ['RudderRight', -1],
+    ] as const) {
+      const d = dir(at(name))
+      expect(d[1], `${name} が上を向いていない`).toBeGreaterThan(0.85)
+      const cant = (Math.atan2(outward * d[2]!, d[1]!) * 180) / Math.PI
+      expect(cant, `${name} の外への傾き`).toBeGreaterThan(15)
+      expect(cant, `${name} の外への傾き`).toBeLessThan(25)
+    }
   })
+
+  /**
+   * **舵面が付け根から浮かない。**最大舵角まで回したとき、継ぎ目の頂点が固定の部品から
+   * 離れる距離を測る（`seamDeparture`）。外接箱から作っていた軸ではエルロン 11〜15 cm・
+   * ラダー 8〜30 cm 離れ、ライブで「機体に接しておらず隙間がある」と指摘された
+   * （2026-10-07）。頂点から作る軸では 5〜6 cm。残りは舵面の両端の断面が隣の部品と
+   * 接しているぶんで、実機も舵角を付ければそこはずれる
+   */
+  it('最大舵角でも継ぎ目が 7 cm より離れない', async () => {
+    const { buildHinges, seamDeparture } = await import('../../tools/f18e-hinges.mjs')
+    const result = seamDeparture(GLTF, buildHinges(GLTF))
+    for (const name of ['AileronLeft', 'AileronRight', 'RudderLeft', 'RudderRight']) {
+      const r = result[name]!
+      // 継ぎ目を拾えていないと測った値に意味がない
+      expect(r.seam, `${name} の継ぎ目の頂点`).toBeGreaterThanOrEqual(3)
+      expect(r.max, `${name} の継ぎ目の離れ方`).toBeLessThan(0.07)
+    }
+  }, 60_000)
 
   it('ヒンジが舵面の bbox の内側にある', async () => {
     const { buildHinges } = await import('../../tools/f18e-hinges.mjs')

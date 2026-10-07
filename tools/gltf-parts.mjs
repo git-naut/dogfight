@@ -73,7 +73,7 @@ function transform(m, p) {
  * @returns `{ parts, size, min, max }`。`parts[i]` は
  *   `{ name, mesh, material, triangles, min, max, center, extent }`
  */
-export function readGltfParts(gltfPath) {
+export function readGltfParts(gltfPath, options = {}) {
   const gltf = JSON.parse(readFileSync(gltfPath, 'utf8'))
   const base = dirname(gltfPath)
   const buffers = gltf.buffers.map((b) => {
@@ -96,6 +96,19 @@ export function readGltfParts(gltfPath) {
     return out
   }
 
+  const indices = (accessorIndex) => {
+    const a = gltf.accessors[accessorIndex]
+    const view = gltf.bufferViews[a.bufferView]
+    const buf = buffers[view.buffer]
+    const offset = (view.byteOffset ?? 0) + (a.byteOffset ?? 0)
+    const size = a.componentType === 5125 ? 4 : a.componentType === 5123 ? 2 : 1
+    const read =
+      size === 4 ? (o) => buf.readUInt32LE(o) : size === 2 ? (o) => buf.readUInt16LE(o) : (o) => buf.readUInt8(o)
+    const out = []
+    for (let i = 0; i < a.count; i++) out.push(read(offset + i * size))
+    return out
+  }
+
   const parts = []
   const walk = (nodeIndex, parent, parentName) => {
     const node = gltf.nodes[nodeIndex]
@@ -113,7 +126,15 @@ export function readGltfParts(gltfPath) {
             if (w[k] > max[k]) max[k] = w[k]
           }
         }
+        // 頂点を持ち帰るのは求められたときだけ（舵面のヒンジの線を測るとき）。
+        // 空母の 116,316 三角形を毎回抱えると重い
+        const extra = {}
+        if (options.vertices === true) {
+          extra.vertices = pos.map((v) => transform(world, v))
+          extra.indices = prim.indices !== undefined ? indices(prim.indices) : null
+        }
         parts.push({
+          ...extra,
           name: node.name ?? mesh.name ?? '?',
           // **回すのは親。**Sketchfab の変換はマテリアルごとにノードを分ける
           // ので、`Meshpart125` の下に `_Material.005_0` と `_Material.004_0`

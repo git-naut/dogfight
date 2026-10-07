@@ -2208,6 +2208,26 @@ test.describe('通しの流れ', () => {
   })
 
   /**
+   * **公開ページは台本を書かなくても甲板から始まる**（Phase 9、2026-10-07 のユーザーの要望）。
+   * 既定の台本は `mission-01`。タイトルの裏で甲板に乗っていて、脚が出ている
+   */
+  test('台本を書かずに開くと甲板で待っている', async ({ page }) => {
+    await page.goto('/dogfight/?precompile=0')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: waitBudgetMs(120_000) },
+    )
+    await expect(page.locator('#title')).toBeVisible()
+    const hook = (await readHook(page))!
+    expect(hook.speed, '甲板で動いている').toBe(0)
+    expect(hook.gearPosition, '甲板で脚が出ていない').toBe(1)
+    // 甲板の 18.867 m に車輪の高さ 1.659 m
+    expect(hook.altitude).toBeCloseTo(20.5, 0)
+    expect(hook.missionRemaining).toBe(300 * 120)
+  })
+
+  /**
    * 甲板の上では G を受け付けない（Phase 9 の段 5）。実機も車輪に重さが掛かっている
    * あいだは脚が上がらない
    */

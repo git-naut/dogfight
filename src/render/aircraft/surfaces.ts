@@ -21,8 +21,12 @@ import type { AircraftHinge, SurfaceChannel } from './model'
 interface Surface {
   node: THREE.Object3D
   axis: THREE.Vector3
-  /** 指令 −1..1 に掛ける角度 rad。符号がそのまま舵の向きになる */
-  scale: number
+  /** 「指令 × 符号」が正のときに掛ける角度 rad */
+  positive: number
+  /** 「指令 × 符号」が負のときに掛ける角度 rad（後縁上げと下げで上限が違う舵面のため） */
+  negative: number
+  /** 指令に掛ける符号 */
+  sign: number
   /** どの指令を読むか */
   channel: SurfaceChannel
 }
@@ -49,7 +53,9 @@ export function createControlSurfaces(
     surfaces.push({
       node,
       axis: new THREE.Vector3(...hinge.axis).normalize(),
-      scale: hinge.maxDeg * DEG * hinge.sign,
+      positive: (hinge.maxDegPositive ?? hinge.maxDeg) * DEG,
+      negative: (hinge.maxDegNegative ?? hinge.maxDeg) * DEG,
+      sign: hinge.sign,
       channel: hinge.channel,
     })
   }
@@ -64,7 +70,8 @@ export function createControlSurfaces(
       const commands = { elevator, aileron, rudder }
       for (const surface of surfaces) {
         const command = Math.min(1, Math.max(-1, commands[surface.channel]))
-        quaternion.setFromAxisAngle(surface.axis, command * surface.scale)
+        const r = command * surface.sign
+        quaternion.setFromAxisAngle(surface.axis, r * (r >= 0 ? surface.positive : surface.negative))
         surface.node.quaternion.copy(quaternion)
       }
     },

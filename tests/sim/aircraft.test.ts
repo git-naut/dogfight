@@ -276,23 +276,41 @@ describe('スロットル', () => {
 })
 
 describe('舵面', () => {
-  it('指令へ一次遅れで追従する', () => {
+  /**
+   * **実機の速さの上限で指令へ寄せる**（NASA TM-4786 の表、`controlSurfaces.ts`）。Phase 9 まで
+   * は時定数 0.08 秒の一次遅れで、0.2 秒ほどで振り切れていた
+   */
+  it('指令へ一定の速さで寄せる。エルロンは 45 度を 100 度/秒、0.45 秒で振り切る', () => {
     const { craft, input } = trimmed(250, 3000)
-    // 時定数 0.08 s。1 ステップでは届かない
     craft.step({ ...input, roll: 1 }, FIXED_DT)
-    expect(craft.aileron).toBeGreaterThan(0)
-    expect(craft.aileron).toBeLessThan(0.2)
+    // 1 ステップで 100/45/120 = 0.0185
+    expect(craft.aileron).toBeCloseTo(100 / 45 / 120, 9)
+    // 0.45 秒（54 ステップ）で 1 に届く
+    for (let i = 1; i < 54; i++) craft.step({ ...input, roll: 1 }, FIXED_DT)
+    expect(craft.aileron).toBeCloseTo(1, 9)
+  })
 
-    // 時定数ぶん進めば 63% を超える
-    for (let i = 1; i < Math.round(0.08 / FIXED_DT); i++) {
-      craft.step({ ...input, roll: 1 }, FIXED_DT)
+  it('水平尾翼は後縁上げ 24 度を 0.6 秒、後縁下げ 10.5 度を 0.26 秒で振り切る（40 度/秒）', () => {
+    // 1 ステップの量を足し重ねるので、浮動小数の誤差で最後に 1 ステップ余ることがある
+    const within = (steps: number, seconds: number) => {
+      expect(steps).toBeGreaterThanOrEqual(Math.ceil(seconds * 120))
+      expect(steps).toBeLessThanOrEqual(Math.ceil(seconds * 120) + 1)
     }
-    expect(craft.aileron).toBeGreaterThan(0.6)
-    expect(craft.aileron).toBeLessThan(0.75)
-
-    // 十分に進めば張り付く
-    run(craft, { ...input, roll: 1 }, SECOND)
-    expect(craft.aileron).toBeCloseTo(1, 3)
+    const up = trimmed(250, 3000)
+    let steps = 0
+    while (up.craft.elevator < 1 && steps < 200) {
+      // 迎角制限器を切って、指令そのものへ寄せる
+      up.craft.step({ ...up.input, pitch: 1 }, FIXED_DT, { aoaLimiter: false })
+      steps++
+    }
+    within(steps, 24 / 40)
+    const down = trimmed(250, 3000)
+    steps = 0
+    while (down.craft.elevator > -1 && steps < 200) {
+      down.craft.step({ ...down.input, pitch: -1 }, FIXED_DT, { aoaLimiter: false })
+      steps++
+    }
+    within(steps, 10.5 / 40)
   })
 
   it('−1..1 に収まる', () => {

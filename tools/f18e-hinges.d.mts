@@ -10,6 +10,7 @@ import type { Vec3, PartRole, PartSide } from './f18e-parts.d.mts'
 export type SurfaceChannel = 'elevator' | 'aileron' | 'rudder'
 
 export declare const MAX_DEG: Record<PartRole, number>
+export declare const SURFACE_DEG: Record<PartRole, { up: number; down: number }>
 export declare const SIGN: Record<PartRole, number>
 
 export interface F18eHinge {
@@ -23,6 +24,12 @@ export interface F18eHinge {
   from: Vec3
   to: Vec3
   maxDeg: number
+  /** 「指令 × 符号」が正のときの上限 deg */
+  maxDegPositive: number
+  /** 「指令 × 符号」が負のときの上限 deg */
+  maxDegNegative: number
+  /** 正の回転が後縁を上げるか（ラダーは左右の向き） */
+  positiveRaisesTrailingEdge: boolean
   channel: SurfaceChannel
   sign: number
 }

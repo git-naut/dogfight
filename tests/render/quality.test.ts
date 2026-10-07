@@ -272,6 +272,8 @@ describe('品質プリセットの表', () => {
     // 0 は「その機能を使わない」の意味。Low で影と環境反射と軌跡を切る
     const zeroAllowed = new Set([
       'aircraftShadowMapSize',
+      // MSAA。low と medium では切る（2026-10-08）
+      'msaaSamples',
       'environmentMapSize',
       'trailSegments',
       'missileTrailSegments',
@@ -486,5 +488,18 @@ describe('影のフィルタ', () => {
 
   it('検査そのものが働くことを、知らない値で確かめる', () => {
     expect(RANK['notAFilter']).toBeUndefined()
+  })
+})
+
+/**
+ * MSAA（2026-10-08）。機体の細い溝が途切れた黒い点線に写るのを消す。**high と ultra だけ。**
+ * 4 サンプルで点線が消えることを基準画像で確かめ、実機の GPU で負荷が揺れの内側だと測った
+ */
+describe('MSAA', () => {
+  it('low・medium は 0、high・ultra は 4 サンプル', () => {
+    expect(getQuality('low').msaaSamples).toBe(0)
+    expect(getQuality('medium').msaaSamples).toBe(0)
+    expect(getQuality('high').msaaSamples).toBe(4)
+    expect(getQuality('ultra').msaaSamples).toBe(4)
   })
 })

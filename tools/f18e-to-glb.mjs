@@ -43,6 +43,7 @@ import { fileURLToPath, URL } from 'node:url'
 import { packGlb } from './glb-pack.mjs'
 import { identifyParts, SCALE } from './f18e-parts.mjs'
 import { buildGearHinges, buildHinges } from './f18e-hinges.mjs'
+import { DOOR_OPEN_DEG, DOOR_SHARE, doorHinges } from './f18e-doors.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SRC = join(ROOT, 'assets/upstream/f18e/scene.gltf')
@@ -252,6 +253,8 @@ function main() {
       origin,
       axis,
       maxDeg: h.maxDeg,
+      maxDegPositive: h.maxDegPositive,
+      maxDegNegative: h.maxDegNegative,
       channel: h.channel,
       sign: h.sign,
     })
@@ -322,7 +325,10 @@ function main() {
   gltf.scenes[0].nodes = [rootIndex]
 
   // ---- ヒンジを載せる ----
-  gltf.scenes[0].extras = { hinges: hingeInfo, nozzles: NOZZLES, gear: gearInfo, hook: hookInfo }
+  // 扉は原本に無いので、定義だけ載せて描画が板を作る（`tools/f18e-doors.mjs`）。座標は既に
+  // この作品の座標なので回さない
+  const doors = { share: DOOR_SHARE, openDeg: DOOR_OPEN_DEG, doors: doorHinges() }
+  gltf.scenes[0].extras = { hinges: hingeInfo, nozzles: NOZZLES, gear: gearInfo, hook: hookInfo, doors }
 
   // ---- テクスチャを差し替える ----
   //

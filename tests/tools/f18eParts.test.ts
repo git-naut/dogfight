@@ -144,10 +144,11 @@ describe('舵面の同定', () => {
 })
 
 describe('降着装置', () => {
-  it('13 件が機体の下にある', () => {
-    expect(result.gear.length).toBe(13)
-    expect(result.gear.reduce((s, p) => s + p.triangles, 0)).toBe(7_829)
-    for (const p of result.gear) expect(p.y).toBeLessThan(-0.6)
+  it('16 件が機体の下にある', () => {
+    // Phase 9 の段 6 で脚柱の上半分 3 件（各 637・637・979 三角形）を足して 13 件から 16 件
+    expect(result.gear.length).toBe(16)
+    expect(result.gear.reduce((s, p) => s + p.triangles, 0)).toBe(7_829 + 637 + 637 + 979)
+    for (const p of result.gear) expect(p.y).toBeLessThan(-0.5)
   })
 
   it('舵面と重ならない', () => {
@@ -167,12 +168,22 @@ describe('降着装置', () => {
  * 振り分ける。**1 つの部品が 2 本に入ったり、どこにも入らなかったりしない**
  */
 describe('脚とフック', () => {
-  it('脚の部品が前脚 4・左主脚 5・右主脚 4 にちょうど 1 回ずつ入る', () => {
+  it('脚の部品が前脚 5・左主脚 6・右主脚 5 にちょうど 1 回ずつ入る', () => {
     const count = Object.fromEntries(result.legs.map((l) => [l.leg, l.parts.length]))
-    expect(count).toEqual({ nose: 4, left: 5, right: 4 })
+    expect(count).toEqual({ nose: 5, left: 6, right: 5 })
     const all = result.legs.flatMap((l) => l.parts.map((p) => p.index))
     expect(new Set(all).size).toBe(all.length)
     expect(all.length).toBe(result.gear.length)
+  })
+
+  /**
+   * **脚柱の上半分も脚に入る。**入っていないと、脚を上げても機体の下にぶら下がる
+   * （段 6 で気づいた）。胴体の下面の平板 `fi18` は巻き込まない
+   */
+  it('脚柱の上半分（185・186・195）が入り、胴体の下面（fi18）は入らない', () => {
+    const names = new Set(result.gear.map((p) => p.raw.parent ?? p.name))
+    for (const n of ['Meshpart185', 'Meshpart186', 'Meshpart195']) expect(names.has(n), n).toBe(true)
+    expect(names.has('fi18')).toBe(false)
   })
 
   it('左主脚は +Z（原本の左）、右主脚は −Z にある', () => {

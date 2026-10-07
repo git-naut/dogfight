@@ -240,6 +240,20 @@ export const SCENES = [
     enemies: false,
     watches: ['aircraft', 'terrain', 'water'],
   },
+  // 脚が畳まれる途中（Phase 9 の段 6）。f150 で 4 分の 1（22.5 度）。主脚が後ろへ振れる。
+  // **f300（半分）は真後ろの構図だと車輪がノズルの陰に隠れて、絵に差が出なかった。**
+  // **出し切りの絵（`gear-down`）は付け根の親を挿しても 1 画素も動かない**ことを確かめた
+  // うえで足した。途中の姿勢を見るのはこの 1 枚
+  {
+    name: 'gear-transit',
+    script: 'gear-transit',
+    frame: 150,
+    hour: 16,
+    coverage: 0,
+    targets: false,
+    enemies: false,
+    watches: [],
+  },
   // カタパルト射出の途中。**甲板の上を走っている。**降着装置が出て、
   // 機首上げ 10 度、スロットル全開でアフターバーナーが点いている。
   // f180 は射出開始（f60）から 1 秒

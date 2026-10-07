@@ -780,6 +780,20 @@ export const SCRIPTS = {
     keyframes: [],
   },
   /**
+   * 脚が畳まれる途中（Phase 9 の段 6）。`gear-down` と同じ条件で出し切りから始め、最初の
+   * ステップで G を押す。脚は 5 秒（600 フレーム）で上がるので、基準画像の f150 で
+   * 4 分の 1（22.5 度）畳まれている。前脚は前へ、主脚は後ろへ振れる
+   */
+  'gear-transit': {
+    name: 'gear-transit',
+    seed: 20260831,
+    spawn: { altitude: 30, speed: 70, gearDown: true },
+    keyframes: [
+      { frame: 0, input: { gearToggle: true } },
+      { frame: 2, input: { gearToggle: false } },
+    ],
+  },
+  /**
    * カタパルト射出。
    *
    * 甲板で待ち、スロットルを開けて射出される。`spawn` の高度と速度は

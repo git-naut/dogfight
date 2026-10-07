@@ -28,9 +28,10 @@ import { getScript, isScriptName } from '@sim/scripts'
 describe('基準画像の構図', () => {
   const snapshotDir = fileURLToPath(new URL('../e2e/smoke.spec.ts-snapshots', import.meta.url))
 
-  it('43 枚ある', () => {
-    // 段 32 で `hud-mission-kill`（撃墜の加点の行）を足して 43 枚
-    expect(SCENES.length).toBe(43)
+  it('44 枚ある', () => {
+    // 段 32 で `hud-mission-kill`（撃墜の加点の行）を足して 43 枚。Phase 9 の段 6 で
+    // `gear-transit`（脚が畳まれる途中）を足して 44 枚
+    expect(SCENES.length).toBe(44)
   })
 
   it('名前が重複しない', () => {
@@ -74,14 +75,15 @@ describe('基準画像の構図', () => {
     // **段 23 で 3 枚に減った。**`aircraft-vortex-fade` は 1.9 G で風圧が
     // 効くので `lens` が載った（渦そのものは薄すぎて載せられていない）
     // 段 32 の `hud-mission-kill` も空。加点の行は画素の見張りを持たず、絵の一致だけで見る
-    expect(empty).toEqual(['hud-dlz', 'hud-mission-failed', 'hud-mission-kill', 'missile-warning'])
+    // Phase 9 の段 6 の `gear-transit` は、画素の逆テストで測るまで空にしておく
+    expect(empty).toEqual(['hud-dlz', 'hud-mission-failed', 'hud-mission-kill', 'missile-warning', 'gear-transit'])
   })
 
   it('HUD を含むのは 14 枚', () => {
     expect(SCENES.filter((s) => s.hud === true).length).toBe(14)
   })
 
-  it('空母が写らないのは 39 枚', () => {
+  it('空母が写らないのは 40 枚', () => {
     const withCarrier = SCENES.filter((s) => getScript(s.script).carrier !== undefined)
     expect(withCarrier.map((s) => s.name)).toEqual([
       'hud-mission',
@@ -89,14 +91,14 @@ describe('基準画像の構図', () => {
       'catapult',
       'carrier',
     ])
-    expect(SCENES.length - withCarrier.length).toBe(39)
+    expect(SCENES.length - withCarrier.length).toBe(40)
   })
 
-  it('ミッションが走らないのは 40 枚', () => {
+  it('ミッションが走らないのは 41 枚', () => {
     const withMission = SCENES.filter((s) => getScript(s.script).missionSeconds !== undefined)
     // `mission-kill` は空母を持たないミッション（段 32）
     expect(withMission.map((s) => s.name)).toEqual(['hud-mission', 'hud-mission-failed', 'hud-mission-kill'])
-    expect(SCENES.length - withMission.length).toBe(40)
+    expect(SCENES.length - withMission.length).toBe(41)
   })
 })
 

@@ -335,12 +335,16 @@ test.describe('地形', () => {
   })
 })
 
+/** 自機の三角形の数。原本の 77,840 に、脚の扉の板 4 枚 × 2 三角形（2026-10-08） */
+const AIRCRAFT_TRIANGLES = 77_840 + 4 * 2
+
 test.describe('機体', () => {
   test('モデルが読み込めて三角形数が予算内', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 120 })
 
-    // 原本は 77,840 三角形。変換で増減していないこと
-    expect(hook.aircraftTriangles).toBe(77_840)
+    // 原本は 77,840 三角形。変換で増減していないこと。**脚の扉の板 4 枚（各 2 三角形）を
+    // 足した**（2026-10-08、原本に扉が無いため `tools/f18e-doors.mjs`）ので 8 増える
+    expect(hook.aircraftTriangles).toBe(AIRCRAFT_TRIANGLES)
     // 自機の予算。**C 型の 18,634 から 4.2 倍に増えた**（F/A-18E は
     // Sketchfab のモデルで、C 型の FlightGear 版より細かい）。上限そのものは
     // 下の「シーン予算 1.5M の内側」が見ているので、ここは桁の見張り
@@ -371,7 +375,7 @@ test.describe('機体', () => {
     const hook = await capture(page, { script: 'pull-up', frame: 430 })
     expect(hook.crashed).toBe(false)
     // 軌跡の履歴は sim が持つ。描画側に置くとキャプチャモードで出ない
-    expect(hook.aircraftTriangles).toBe(77_840)
+    expect(hook.aircraftTriangles).toBe(AIRCRAFT_TRIANGLES)
   })
 
   test('描いた三角形が予算の内側', async ({ page }) => {

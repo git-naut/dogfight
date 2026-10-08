@@ -27,26 +27,16 @@ import { identifyParts, SCALE } from './f18e-parts.mjs'
 import { readGltfParts } from './gltf-parts.mjs'
 
 /**
- * 舵角の上限 deg（後縁上げ・後縁下げ）。NASA TM-4786 の表 "F-18 aerodynamic control surface
- * position and rate limits"（A/B 型の F-18、配布区分 Unclassified—Unlimited。原文の PDF で
- * 確かめた）。**`src/sim/controlSurfaces.ts` と同じ値。**道具は素の JavaScript なので sim の
- * 表を直接読めない。`tests/tools/f18eParts.test.ts` が 2 つの一致を見張る。
+ * 舵角の上限 deg。F/A-18C（`tools/f18-hinges.mjs`）の値を流用する。
  *
- * 2026-10-07 までは F/A-18C の値（エルロン 30・水平尾翼 24・ラダー 30 を上下とも同じ角度）を
- * 流用していた。水平尾翼を機首下げ側にも 24 度振り、付け根の前縁が胴体の外へ大きく出た
+ * **E/F の NATOPS の値は取れなかった。**C 型と E/F で舵面の大きさは違うが、
+ * 舵角の上限は飛行制御の設計で決まる量で、同系の機体なら大きく変わらない。
+ * 実機の値が手に入ったら差し替える。
  */
-export const SURFACE_DEG = {
-  aileron: { up: 24, down: 45 },
-  stabilator: { up: 24, down: 10.5 },
-  // ラダーは左右とも 30 度。「上げ・下げ」の代わりに左右の同じ値を置く
-  rudder: { up: 30, down: 30 },
-}
-
-/** 片側の最大。継ぎ目の離れ方の測定と、上限を 1 つしか読まない機体の描画に使う */
 export const MAX_DEG = {
-  aileron: Math.max(SURFACE_DEG.aileron.up, SURFACE_DEG.aileron.down),
-  stabilator: Math.max(SURFACE_DEG.stabilator.up, SURFACE_DEG.stabilator.down),
-  rudder: SURFACE_DEG.rudder.up,
+  aileron: 30,
+  stabilator: 24,
+  rudder: 30,
 }
 
 /**
@@ -201,20 +191,6 @@ export function buildHinges(gltfPath) {
       to = inner
     }
 
-    // **正の回転が後縁を上げるか下げるかを、形から決める。**後縁（いちばん後ろの頂点の付近の
-    // 中心）を軸まわりに少し回して、高さが増えれば正の回転が後縁上げ。描画は
-    // 「指令 × 符号」が正なら `maxDegPositive`、負なら `maxDegNegative` を使う
-    const xs = v.map((p) => p[0])
-    const back = Math.max(...xs)
-    const tail = v.filter((p) => p[0] >= back - 0.05)
-    const trailing = [0, 1, 2].map((k) => tail.reduce((sum, p) => sum + p[k], 0) / tail.length)
-    const d = [0, 1, 2].map((k) => to[k] - from[k])
-    const len = Math.hypot(...d)
-    const raised = rotateAbout(trailing, from, d.map((x) => x / len), 0.01)[1] > trailing[1]
-    const deg = SURFACE_DEG[m.role]
-    const maxDegPositive = raised ? deg.up : deg.down
-    const maxDegNegative = raised ? deg.down : deg.up
-
     hinges.push({
       node: m.name,
       sourceNode: m.node,
@@ -223,9 +199,6 @@ export function buildHinges(gltfPath) {
       from,
       to,
       maxDeg: MAX_DEG[m.role],
-      maxDegPositive,
-      maxDegNegative,
-      positiveRaisesTrailingEdge: raised,
       // `SurfaceChannel` は 'elevator' | 'aileron' | 'rudder' の 3 つ。
       // 全遊動の水平尾翼はピッチの指令を読むので elevator へ寄せる
       channel: m.role === 'stabilator' ? 'elevator' : m.role,
@@ -291,8 +264,7 @@ export function seamDeparture(gltfPath, hinges) {
     let sum = 0
     let n = 0
     for (const sign of [1, -1]) {
-      const deg = sign > 0 ? (h.maxDegPositive ?? h.maxDeg) : (h.maxDegNegative ?? h.maxDeg)
-      const a = (sign * deg * Math.PI) / 180
+      const a = (sign * h.maxDeg * Math.PI) / 180
       for (const p of seam) {
         const g = nearest(rotateAbout(p, h.from, u, a), 0.6)
         max = Math.max(max, g)

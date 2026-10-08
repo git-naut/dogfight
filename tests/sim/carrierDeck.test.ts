@@ -125,23 +125,17 @@ describe('射出の諸元', () => {
 })
 
 /**
- * 台本の発進。**ミッションと射出の台本は艦首の cat-2 から出る**（ユーザーの判断、2026-10-07。
- * 甲板の中央付近から発進させたい）。cat-2 は中心線にいちばん近い帯で、艦の軸から 2.21 度
- * 傾く。段 4 では軸と平行な cat-4（斜め甲板の外側、左舷寄り x −31 m）だった
+ * 台本の発進（Phase 9 の段 4）。**ミッションと射出の台本は艦の軸と平行な 1 本から出る**
+ * （ユーザーの判断、2026-10-06）。艦首の 2 本は帯が 2〜4 度傾いていて、追従カメラで甲板と
+ * 平行に走らないように見えた
  */
 describe('台本の発進', () => {
-  it.each(['mission-01', 'catapult-launch'] as const)('%s は中心線の近くから、cat-2 の帯に沿って射出される', (name) => {
+  it.each(['mission-01', 'catapult-launch'] as const)('%s は艦の軸と 0.5 度以内で平行に射出される', (name) => {
     const script = SCRIPTS[name]
-    expect(script.launchFrom).toBe('cat-2')
+    expect(script.launchFrom).toBe('cat-4')
     const launch = worldOptionsFromScript(script).launch!
-    // 空母の座標へ戻す（heading 0 の台本なので、位置を引くだけ）
-    expect(script.carrier.heading).toBe(0)
-    const x = launch.from.x - script.carrier.x
-    const z = launch.from.z - script.carrier.z
-    expect(Math.abs(x), '中心線から 1 m 以内').toBeLessThan(1)
-    expect(z).toBeGreaterThan(-80)
-    expect(z).toBeLessThan(-65)
-    const angle = (Math.atan2(-launch.direction.x, -launch.direction.z) * 180) / Math.PI
-    expect(angle).toBeCloseTo(2.21, 1)
+    const shipForward = [Math.sin(script.carrier.heading), -Math.cos(script.carrier.heading)] as const
+    const cross = launch.direction.x * shipForward[1] - launch.direction.z * shipForward[0]
+    expect(Math.abs(Math.asin(cross))).toBeLessThan((0.5 * Math.PI) / 180)
   })
 })

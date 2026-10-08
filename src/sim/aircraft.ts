@@ -21,7 +21,6 @@ import {
 } from './flightModel'
 import type { InputState } from './input'
 import { TrailRing, type TrailSource } from './trail'
-import { SURFACE_LIMITS, stepSurface } from './controlSurfaces'
 
 /**
  * 機体の状態と1ステップの積分。
@@ -475,12 +474,13 @@ export class Aircraft {
       ? Math.min(1, this.gearPosition + gearStep)
       : Math.max(0, this.gearPosition - gearStep)
 
-    // 舵面の位置。実機の速さの上限（NASA TM-4786 の表、`controlSurfaces.ts`）で指令へ寄せる。
+    // 舵面の位置。指令をそのまま見せると入力の瞬間に跳ねるので遅らせる。
     // 制限器を通したあとのピッチ指令を使う。制限が効いているときに舵面が
     // 動いたままだと、見えているものと挙動が食い違う
-    this.elevator = stepSurface(this.elevator, pitchCommand, SURFACE_LIMITS.elevator, dt)
-    this.aileron = stepSurface(this.aileron, input.roll, SURFACE_LIMITS.aileron, dt)
-    this.rudder = stepSurface(this.rudder, input.yaw, SURFACE_LIMITS.rudder, dt)
+    const surfaceLag = lagFactor(dt, AIRCRAFT.surfaceTau)
+    this.elevator += (pitchCommand - this.elevator) * surfaceLag
+    this.aileron += (clamp(input.roll, -1, 1) - this.aileron) * surfaceLag
+    this.rudder += (clamp(input.yaw, -1, 1) - this.rudder) * surfaceLag
 
     // 6. 力を合算する。tmpAero には重力以外を入れて荷重倍数の計算に使う
     tmpAero.set(0, 0, 0)

@@ -47,7 +47,7 @@ type AtmosphereWebgpu = typeof import('@takram/three-atmosphere/webgpu')
 /** `pass()` の戻り値のうち、ここで使う面だけ */
 export interface ScenePassLike {
   getTextureNode(name?: string): Node<'vec4'>
-  renderTarget: { depthTexture: Texture; samples: number }
+  renderTarget: { depthTexture: Texture }
   setMRT?(mrt: unknown): unknown
   getMRT?(): unknown
 }
@@ -65,11 +65,6 @@ export interface ScenePassOptions {
    * `setMRT` を呼ばない（書き出す面が増えると帯域を払うため）
    */
   normals?: boolean
-  /**
-   * MSAA のサンプル数（品質プリセットの `msaaSamples`）。0 で切る。実行中に変えるときは
-   * `renderTarget.samples` を書き換える。three の WebGPU の背面が数の違いを見て描画先を作り直す
-   */
-  samples?: number
   /**
    * 発光体の色も書き出すか（MRT の名前は `emissive`）。
    *
@@ -100,7 +95,7 @@ export function createScenePass(
   camera: Camera,
   options: ScenePassOptions = {},
 ): ScenePassHandle {
-  const scenePass = pass(scene, camera, { samples: options.samples ?? 0 }) as unknown as ScenePassLike
+  const scenePass = pass(scene, camera) as unknown as ScenePassLike
   let normalNode: Node<'vec4'> | null = null
   let emissiveNode: Node<'vec4'> | null = null
   const normals = options.normals === true

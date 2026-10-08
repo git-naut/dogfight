@@ -14,7 +14,7 @@ Three.js で作るアーケード空戦ゲーム。Ace Combat 系の操作感と
 
 武装は M61A1 バルカンと AIM-9 相当の赤外線ミサイル。弾道は重力と空気抵抗を積分する。敵はフレアで逸らしてくる。原理と実装の対応は `docs/weapons.md`、敵の挙動は `docs/enemy.md`。
 
-空母は Sketchfab の USS Gerald R. Ford（CVN-78、作者 waelXcm、CC BY 4.0、116,316 三角形）。甲板でスロットルを開けると、艦首の cat-2 から EMALS の値で射出される。終端速度 150 kt、行程 300 ft（91.44 m）、3.3 G、2.37 秒。原理と実装の対応は `docs/carrier.md`、取り込みの判断は `docs/decisions/0017-ford-carrier.md`。
+空母は Sketchfab の USS Gerald R. Ford（CVN-78、作者 waelXcm、CC BY 4.0、116,316 三角形）。甲板でスロットルを開けると、艦の軸と平行な cat-4 から EMALS の値で射出される。終端速度 150 kt、行程 300 ft（91.44 m）、3.3 G、2.37 秒。原理と実装の対応は `docs/carrier.md`、取り込みの判断は `docs/decisions/0017-ford-carrier.md`。
 
 効果音は Web Audio で合成する。外部の音源は使っていない。原理と実装の対応は `docs/audio.md`。
 

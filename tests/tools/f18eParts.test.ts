@@ -228,51 +228,6 @@ describe('脚とフック', () => {
   })
 })
 
-/**
- * 舵面の上限は道具（素の JavaScript）と sim の 2 か所に書いてある。**片方だけ直すと、描画の
- * 角度と sim の速さの計算が食い違う**ので、一致を見張る（NASA TM-4786 の表）
- */
-describe('舵面の上限', () => {
-  it('道具の SURFACE_DEG と sim の SURFACE_LIMITS が同じ値', async () => {
-    const { SURFACE_DEG } = await import('../../tools/f18e-hinges.mjs')
-    const sim = await import('../../src/sim/controlSurfaces')
-    expect(SURFACE_DEG.stabilator).toEqual({
-      up: sim.SURFACE_LIMITS.elevator.positiveDeg,
-      down: sim.SURFACE_LIMITS.elevator.negativeDeg,
-    })
-    expect(SURFACE_DEG.aileron).toEqual({
-      up: sim.AILERON_TRAILING_EDGE_UP_DEG,
-      down: sim.AILERON_TRAILING_EDGE_DOWN_DEG,
-    })
-    expect(SURFACE_DEG.rudder).toEqual({ up: sim.SURFACE_LIMITS.rudder.positiveDeg, down: sim.SURFACE_LIMITS.rudder.negativeDeg })
-    // 表の値そのもの
-    expect(SURFACE_DEG.stabilator).toEqual({ up: 24, down: 10.5 })
-    expect(SURFACE_DEG.aileron).toEqual({ up: 24, down: 45 })
-  })
-
-  it('水平尾翼は機首上げで後縁上げ 24 度、機首下げで後縁下げ 10.5 度', async () => {
-    const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
-    for (const h of buildHinges(GLTF).filter((x) => x.role === 'stabilator')) {
-      // 指令 +1（機首上げ）× 符号 が正の回転。正の回転が後縁上げなら上限 24 度
-      expect(h.sign * 1 > 0 ? h.positiveRaisesTrailingEdge : !h.positiveRaisesTrailingEdge, h.node).toBe(true)
-      expect(h.sign > 0 ? h.maxDegPositive : h.maxDegNegative, h.node).toBe(24)
-      expect(h.sign > 0 ? h.maxDegNegative : h.maxDegPositive, h.node).toBe(10.5)
-    }
-  })
-
-  it('エルロンは後縁上げ 24 度、後縁下げ 45 度。左右で向きが逆', async () => {
-    const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
-    const ail = buildHinges(GLTF).filter((x) => x.role === 'aileron')
-    for (const h of ail) {
-      const up = h.positiveRaisesTrailingEdge ? h.maxDegPositive : h.maxDegNegative
-      const down = h.positiveRaisesTrailingEdge ? h.maxDegNegative : h.maxDegPositive
-      expect([up, down], h.node).toEqual([24, 45])
-    }
-    // 同じ指令で左右が逆に動く
-    expect(ail[0]!.positiveRaisesTrailingEdge).not.toBe(ail[1]!.positiveRaisesTrailingEdge)
-  })
-})
-
 describe('左右対称のペア', () => {
   it('43 組ある', () => {
     // 舵面がすべて左右にあることの裏付け。減ったら同定の前提が崩れている
@@ -324,17 +279,14 @@ describe('ヒンジ軸', () => {
    * （2026-10-07）。頂点から作る軸では 5〜6 cm。残りは舵面の両端の断面が隣の部品と
    * 接しているぶんで、実機も舵角を付ければそこはずれる
    */
-  it('最大舵角でも継ぎ目がエルロン 9 cm・ラダー 7 cm より離れない', async () => {
+  it('最大舵角でも継ぎ目が 7 cm より離れない', async () => {
     const { buildHinges, seamDeparture } = await import('../../tools/f18e-hinges.mjs')
     const result = seamDeparture(GLTF, buildHinges(GLTF))
-    // **エルロンは 9 cm。**2026-10-07 に後縁下げの上限を 30 度から 45 度（NASA TM-4786）へ
-    // 広げ、端の断面のずれが増えた（7.6 cm）。高さ一定の軸（直す前の誤り）は 45 度で 10.5 cm
-    const limit: Record<string, number> = { AileronLeft: 0.09, AileronRight: 0.09, RudderLeft: 0.07, RudderRight: 0.07 }
-    for (const name of Object.keys(limit)) {
+    for (const name of ['AileronLeft', 'AileronRight', 'RudderLeft', 'RudderRight']) {
       const r = result[name]!
       // 継ぎ目を拾えていないと測った値に意味がない
       expect(r.seam, `${name} の継ぎ目の頂点`).toBeGreaterThanOrEqual(3)
-      expect(r.max, `${name} の継ぎ目の離れ方`).toBeLessThan(limit[name]!)
+      expect(r.max, `${name} の継ぎ目の離れ方`).toBeLessThan(0.07)
     }
   }, 60_000)
 

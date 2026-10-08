@@ -335,16 +335,12 @@ test.describe('地形', () => {
   })
 })
 
-/** 自機の三角形の数。原本の 77,840 に、脚の扉の板 4 枚 × 2 三角形（2026-10-08） */
-const AIRCRAFT_TRIANGLES = 77_840 + 4 * 2
-
 test.describe('機体', () => {
   test('モデルが読み込めて三角形数が予算内', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 120 })
 
-    // 原本は 77,840 三角形。変換で増減していないこと。**脚の扉の板 4 枚（各 2 三角形）を
-    // 足した**（2026-10-08、原本に扉が無いため `tools/f18e-doors.mjs`）ので 8 増える
-    expect(hook.aircraftTriangles).toBe(AIRCRAFT_TRIANGLES)
+    // 原本は 77,840 三角形。変換で増減していないこと
+    expect(hook.aircraftTriangles).toBe(77_840)
     // 自機の予算。**C 型の 18,634 から 4.2 倍に増えた**（F/A-18E は
     // Sketchfab のモデルで、C 型の FlightGear 版より細かい）。上限そのものは
     // 下の「シーン予算 1.5M の内側」が見ているので、ここは桁の見張り
@@ -375,7 +371,7 @@ test.describe('機体', () => {
     const hook = await capture(page, { script: 'pull-up', frame: 430 })
     expect(hook.crashed).toBe(false)
     // 軌跡の履歴は sim が持つ。描画側に置くとキャプチャモードで出ない
-    expect(hook.aircraftTriangles).toBe(AIRCRAFT_TRIANGLES)
+    expect(hook.aircraftTriangles).toBe(77_840)
   })
 
   test('描いた三角形が予算の内側', async ({ page }) => {
@@ -1971,7 +1967,7 @@ test.describe('降着装置', () => {
  * 速度を直接書く（`launch.ts`）。加速の積分を 2 か所に書かないため。
  *
  * 諸元は Ford の EMALS から（Phase 9 の段 4。`launch.ts`）。終端速度 150 kt、行程 300 ft
- * （91.44 m）、そこから `a = v²/(2s)` = 32.6 m/s²（3.3 G）、所要 2.37 秒。発進は艦首の cat-2
+ * （91.44 m）、そこから `a = v²/(2s)` = 32.6 m/s²（3.3 G）、所要 2.37 秒。発進は cat-4
  */
 test.describe('カタパルト射出', () => {
   test('甲板で待っている', async ({ page }) => {
@@ -1993,8 +1989,8 @@ test.describe('カタパルト射出', () => {
 
   /**
    * **射出後に海へ落ちない。**入力なしで飛ぶキャプチャモードで最後まで
-   * 回す。実測で最低 17.74 m（f694）まで沈んでから加速して上がる。そのときは z −423 m で、
-   * 艦首（z −166 m）より先の海の上に出ている
+   * 回す。実測で最低 17.91 m（f683）まで沈んでから加速して上がる。そのときは cat-4 の
+   * 帯の延長で甲板の外（海の上）に出ている
    */
   test('射出後に上昇へ移る', async ({ page }) => {
     const hook = await capture(page, { script: 'catapult-launch', frame: 3000 })

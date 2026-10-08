@@ -70,14 +70,13 @@ describe('基準画像の構図', () => {
     // 恒等になるので、水平飛行の 32 枚は切っても絵が動かない。10 枚とも
     // `MUTATE=1` で発火した。
     const total = SCENES.reduce((sum, s) => sum + (s.watches?.length ?? 0), 0)
-    // 2026-10-08 に `hud-mission` の `enemies` を外して 61 件（発進位置を替えて敵機が遠くなった）
-    expect(total).toBe(61)
+    expect(total).toBe(62)
     const empty = SCENES.filter((s) => (s.watches ?? []).length === 0).map((s) => s.name)
     // **段 23 で 3 枚に減った。**`aircraft-vortex-fade` は 1.9 G で風圧が
     // 効くので `lens` が載った（渦そのものは薄すぎて載せられていない）
     // 段 32 の `hud-mission-kill` も空。加点の行は画素の見張りを持たず、絵の一致だけで見る
     // Phase 9 の段 6 の `gear-transit` は、画素の逆テストで測るまで空にしておく
-    expect(empty).toEqual(['hud-dlz', 'hud-mission', 'hud-mission-failed', 'hud-mission-kill', 'missile-warning', 'gear-transit'])
+    expect(empty).toEqual(['hud-dlz', 'hud-mission-failed', 'hud-mission-kill', 'missile-warning', 'gear-transit'])
   })
 
   it('HUD を含むのは 14 枚', () => {

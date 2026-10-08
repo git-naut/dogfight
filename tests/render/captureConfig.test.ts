@@ -14,7 +14,7 @@ describe('既定の台本', () => {
     expect(readCaptureConfig('?debug=1').script).toBe(LIVE_DEFAULT_SCRIPT)
     const script = getScript(LIVE_DEFAULT_SCRIPT)
     expect(script.name, '台本の一覧に無い名前は level に化ける').toBe('mission-01')
-    expect(script.launchFrom).toBe('cat-2')
+    expect(script.launchFrom).toBe('cat-4')
   })
 
   it('キャプチャは level のまま', () => {

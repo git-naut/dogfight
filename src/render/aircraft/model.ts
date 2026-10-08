@@ -27,13 +27,6 @@ export interface AircraftHinge {
   origin: [number, number, number]
   axis: [number, number, number]
   maxDeg: number
-  /**
-   * 「指令 × 符号」が正のとき・負のときの上限 deg（2026-10-07）。後縁上げと後縁下げで上限が
-   * 違う舵面のため（NASA TM-4786。水平尾翼は上げ 24・下げ 10.5、エルロンは上げ 24・下げ 45）。
-   * 無い機体（F/A-18C・F-16）は `maxDeg` を両側に使う
-   */
-  maxDegPositive?: number
-  maxDegNegative?: number
   /** どの指令で動くか */
   channel: SurfaceChannel
   /**
@@ -62,36 +55,6 @@ export interface AircraftGearLeg {
   retractDeg: number
 }
 
-/**
- * 脚の扉の定義（2026-10-08）。原本に扉は無いので、変換ツール（`tools/f18e-doors.mjs`）が
- * 長方形と蝶番を glb の `extras.doors` に載せ、ここで板を作る。座標はこの作品の座標
- */
-export interface AircraftDoorDefinition {
-  node: string
-  leg: 'nose' | 'left' | 'right'
-  /** 閉じたら隠すか（主脚。外板と重なってちらつくため） */
-  hideWhenClosed: boolean
-  /** 蝶番の始点 */
-  origin: [number, number, number]
-  /** 正の角で開く軸 */
-  axis: [number, number, number]
-  /** 閉じたときの 4 隅 */
-  corners: [number, number, number][]
-}
-
-/** 動かす扉 1 枚 */
-export interface DoorNode {
-  readonly object: THREE.Object3D
-  readonly axis: THREE.Vector3
-  readonly hideWhenClosed: boolean
-}
-
-/** 扉の開き方。脚の位置の最初の `share` で開き、残りで脚が動く */
-export interface DoorTiming {
-  readonly share: number
-  readonly openRad: number
-}
-
 /** 動かす脚 1 本。ノードと、回す軸と角度 */
 export interface GearLegNode {
   readonly object: THREE.Object3D
@@ -110,10 +73,6 @@ export interface AircraftModel {
   readonly gearLegs: readonly GearLegNode[]
   /** 着艦フックのノード。無い機体は null。動かすのは段 8 */
   readonly hook: THREE.Object3D | null
-  /** 脚の扉。定義の無い機体は空 */
-  readonly doors: readonly DoorNode[]
-  /** 扉の開き方。扉の無い機体は null（脚が位置どおりに動く） */
-  readonly doorTiming: DoorTiming | null
   /** 舵面のノード。名前で引く */
   readonly surfaces: ReadonlyMap<string, THREE.Object3D>
   /** 変換ツールが埋めたヒンジの定義 */
@@ -210,43 +169,6 @@ export async function loadAircraftModel(
 
   const shared = shareAircraftMaterial(material)
 
-  // 脚の扉。**材質の変換より前に足す。**あとで足すと node 経路の材質に変わらない
-  const doorDefinition = readDoors(gltf)
-  const doors: DoorNode[] = []
-  if (doorDefinition !== null) {
-    const doorMaterial = new THREE.MeshStandardMaterial({
-      // 機体の下面の色に寄せた灰色。原本の色のテクスチャは板の UV を持たないので使えない
-      color: 0x9da3a9,
-      metalness: 0.3,
-      roughness: 0.6,
-      side: THREE.DoubleSide,
-    })
-    const group = new THREE.Group()
-    group.name = 'doors'
-    object.add(group)
-    for (const d of doorDefinition.doors) {
-      const pivot = new THREE.Object3D()
-      pivot.name = d.node
-      pivot.position.set(...d.origin)
-      const o = d.origin
-      const rel = d.corners.map(([x, y, z]) => [x - o[0], y - o[1], z - o[2]])
-      const geometry = new THREE.BufferGeometry()
-      geometry.setAttribute(
-        'position',
-        new THREE.Float32BufferAttribute([...rel[0]!, ...rel[1]!, ...rel[2]!, ...rel[0]!, ...rel[2]!, ...rel[3]!], 3),
-      )
-      geometry.computeVertexNormals()
-      const mesh = new THREE.Mesh(geometry, doorMaterial)
-      mesh.name = `${d.node}__panel`
-      pivot.add(mesh)
-      // 閉じた状態で始める。主脚の扉は閉じたら隠す。**標的機（複製）は `setGear` を呼ばない**
-      // ので、ここで隠しておかないと外板と重なってちらつく
-      pivot.visible = !d.hideWhenClosed
-      group.add(pivot)
-      doors.push({ object: pivot, axis: new THREE.Vector3(...d.axis).normalize(), hideWhenClosed: d.hideWhenClosed })
-    }
-  }
-
   object.traverse((node) => {
     if (HIDDEN_NODES.includes(node.name)) node.visible = false
     if (!(node instanceof THREE.Mesh)) return
@@ -285,11 +207,6 @@ export async function loadAircraftModel(
     gear: object.getObjectByName(GEAR_NODE) ?? null,
     gearLegs,
     hook: object.getObjectByName(HOOK_NODE) ?? null,
-    doors,
-    doorTiming:
-      doorDefinition !== null
-        ? { share: doorDefinition.share, openRad: (doorDefinition.openDeg * Math.PI) / 180 }
-        : null,
     surfaces,
     hinges,
     triangles,
@@ -346,14 +263,4 @@ function readGearLegs(gltf: { parser: { json: unknown } }): AircraftGearLeg[] {
     scenes?: { extras?: { gear?: AircraftGearLeg[] } }[]
   }
   return json.scenes?.[0]?.extras?.gear ?? []
-}
-
-/** glTF の extras から脚の扉を読む（2026-10-08）。無い機体は null */
-function readDoors(gltf: {
-  parser: { json: unknown }
-}): { share: number; openDeg: number; doors: AircraftDoorDefinition[] } | null {
-  const json = gltf.parser.json as {
-    scenes?: { extras?: { doors?: { share: number; openDeg: number; doors: AircraftDoorDefinition[] } } }[]
-  }
-  return json.scenes?.[0]?.extras?.doors ?? null
 }

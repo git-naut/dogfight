@@ -108,24 +108,10 @@ export function createAircraftView(
 
     setGear(position) {
       if (gear === null) return
-      // **扉が開き、脚が動き、扉が閉じる**（2026-10-12）。上げるときも下ろすときも同じ順になる
-      // よう、脚の位置だけで決める。両端の `share` ずつで扉が開閉し、間で脚が動く。上げ切り
-      // （0）でも出し切り（1）でも扉は閉じている。扉の無い機体は脚が位置どおりに動く
-      const timing = model.doorTiming
-      const share = timing?.share ?? 0
-      const legs = share > 0 ? Math.min(1, Math.max(0, (position - share) / (1 - 2 * share))) : position
-      // 脚は動いているあいだだけ出す。扉の開き始め（脚がまだ畳まれたまま）に出すと、前へ
-      // 畳んだ前脚の車輪が外板からはみ出して見える
-      gear.visible = legs > 0
+      gear.visible = position > 0
+      // 出し切り（1）で 0、上げ切り（0）で格納の角度
       for (const leg of model.gearLegs) {
-        leg.object.quaternion.setFromAxisAngle(leg.axis, (1 - legs) * leg.retractRad)
-      }
-      if (timing === null) return
-      const open = Math.min(1, Math.max(0, Math.min(position, 1 - position) / timing.share))
-      for (const door of model.doors) {
-        door.object.quaternion.setFromAxisAngle(door.axis, open * timing.openRad)
-        // 主脚の扉は閉じたら隠す（外板と重なってちらつく）。前脚の扉は格納部の穴に蓋をする
-        door.object.visible = open > 0 || !door.hideWhenClosed
+        leg.object.quaternion.setFromAxisAngle(leg.axis, (1 - position) * leg.retractRad)
       }
     },
 

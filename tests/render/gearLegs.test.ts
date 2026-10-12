@@ -37,8 +37,6 @@ function syntheticModel(): { model: AircraftModel; legs: Map<string, THREE.Objec
     gear,
     gearLegs,
     hook: null,
-    doors: [],
-    doorTiming: null,
     surfaces: new Map(),
     hinges: [],
     triangles: 0,

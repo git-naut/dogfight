@@ -263,9 +263,7 @@ describe('f18e の舵面の向き（glb の extras から）', () => {
     const b = trailingEdge(nodes.get('StabilatorRight')!).y
     // 水平尾翼は左右同じ方向。**逆へ動いたら軸の向きが揃っていない**
     expect(a * b, `左 ${a.toFixed(2)} 右 ${b.toFixed(2)} が逆向き`).toBeGreaterThan(0)
-    // 見た目の振れを 8 度に抑えたので後縁は 0.14 m 上がる（24 度のときは 0.3 m 超え）。
-    // 2026-10-12、`tools/f18e-hinges.mjs` の `MAX_DEG`
-    expect(a).toBeGreaterThan(0.1)
+    expect(a).toBeGreaterThan(0.3)
   })
 
   it('ヨーでラダーが左右そろって振れる', () => {

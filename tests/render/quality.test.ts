@@ -488,14 +488,3 @@ describe('影のフィルタ', () => {
     expect(RANK['notAFilter']).toBeUndefined()
   })
 })
-
-/**
- * MSAA（2026-10-08、全段は 2026-10-12）。機体の細い溝が途切れた黒い点線に写るのを消す。
- * **全段で 4。**high・ultra だけにしたら、自動の降格で medium に落ちたときに点線が戻った。
- * 実機の GPU で low・medium も点線が消え、負荷は揺れの内側だった
- */
-describe('MSAA', () => {
-  it('どの段も 4 サンプル（降格しても点線が戻らない）', () => {
-    for (const name of PRESET_ORDER) expect(getQuality(name).msaaSamples).toBe(4)
-  })
-})

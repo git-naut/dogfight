@@ -73,6 +73,9 @@ export const LAUNCH_THROTTLE = 0.9
  * 10 度は実機の射出姿勢に近い。**これでも足りないぶんはパイロットが
  * 引く。**実艦では艦速 30 kt と向かい風が対気速度に乗るが、このモデルは
  * 艦も風も動かないので、そのぶんは出ない。
+ *
+ * **甲板で待つあいだは 0 で、射出の最後の 25% でこの角度まで起こす**（2026-10-13。
+ * `LAUNCH_ROTATE_SHARE`）。待つあいだも 10 度にしていたら前輪が約 1 m 浮いて見えた
  */
 export const LAUNCH_PITCH = (10 * Math.PI) / 180
 
@@ -89,6 +92,40 @@ export const LAUNCH_PITCH = (10 * Math.PI) / 180
  * まま残していたので検査は通っていた。**読む原本も一緒に替える。**
  */
 export const GEAR_HEIGHT = 1.659
+
+/**
+ * 主輪の接地点の前後位置 m（機体原点から後ろ、+Z）。
+ *
+ * **機首を起こすときの回転の中心。**原点まわりに回すと、10 度で主輪が甲板へ 0.1 m
+ * 沈み、前輪が約 1 m 浮いた（2026-10-13 のユーザーの指摘「前輪が浮いた状態で配置
+ * されている」）。主輪の接地点を中心に回せば主輪は甲板に残る。原本の主輪 2 つの
+ * 車軸の下（前後 0.29〜1.21 m の中ほど）を測った値
+ */
+export const MAIN_WHEEL_Z = 0.75
+
+/**
+ * 射出の行程のうち、機首を起こすのに使う後ろの割合。
+ *
+ * **甲板で待つあいだは機首を水平に置く**（2026-10-13、ユーザーの判断）。水平なら前輪も
+ * 主輪も甲板に接する（前輪の下端は主輪より 4 cm 高いだけ）。射出の最後の 25%
+ * （約 0.6 秒）で `LAUNCH_PITCH` まで滑らかに起こし、離れるときの姿勢は以前と同じにする
+ */
+export const LAUNCH_ROTATE_SHARE = 0.25
+
+/** 射出の経過 `t` 秒の機首上げ rad。甲板で待つあいだ（`t` ≤ 0）は 0 */
+export function launchPitchAt(t: number): number {
+  const start = LAUNCH_SECONDS * (1 - LAUNCH_ROTATE_SHARE)
+  const u = Math.min(1, Math.max(0, (t - start) / (LAUNCH_SECONDS - start)))
+  return LAUNCH_PITCH * u * u * (3 - 2 * u)
+}
+
+/**
+ * 機首上げ `pitch` のとき、甲板から機体原点までの高さ m。主輪の接地点が甲板に残る
+ * よう、接地点（原点から下 `GEAR_HEIGHT`・後ろ `MAIN_WHEEL_Z`）を中心に回した高さ
+ */
+export function originHeightAt(pitch: number): number {
+  return GEAR_HEIGHT * Math.cos(pitch) + MAIN_WHEEL_Z * Math.sin(pitch)
+}
 
 /**
  * 射出の設定。空母の位置と向きから決まる。
@@ -120,6 +157,8 @@ export class Catapult {
   /** 射出を始めたフレーム。まだなら −1 */
   private startedFrame = -1
   private endFrame = 0
+  /** 最後に置いた姿勢の機首上げ rad。`World` が姿勢を書くときに読む */
+  private pitchValue = 0
 
   constructor(
     readonly spec: LaunchSpec,
@@ -130,6 +169,11 @@ export class Catapult {
 
   get phase(): LaunchPhase {
     return this.phaseValue
+  }
+
+  /** いまの機首上げ rad。甲板で待つあいだは 0、射出の最後の 25% で `LAUNCH_PITCH` へ */
+  get pitch(): number {
+    return this.pitchValue
   }
 
   /** 射出にかかるフレーム数 */
@@ -174,10 +218,12 @@ export class Catapult {
   private applyAt(t: number, position: Vec3, velocity: Vec3): void {
     const s = 0.5 * LAUNCH_ACCEL * t * t
     const v = LAUNCH_ACCEL * t
+    this.pitchValue = launchPitchAt(t)
     position.set(
       this.spec.from.x + this.spec.direction.x * s,
-      // **車輪の高さぶん上げる。**原点を甲板面に置くとめり込む
-      this.spec.from.y + GEAR_HEIGHT + this.spec.direction.y * s,
+      // **車輪の高さぶん上げる。**原点を甲板面に置くとめり込む。機首を起こすあいだは
+      // 主輪の接地点を中心に回すので、そのぶんも上げる
+      this.spec.from.y + originHeightAt(this.pitchValue) + this.spec.direction.y * s,
       this.spec.from.z + this.spec.direction.z * s,
     )
     velocity.set(
@@ -189,6 +235,7 @@ export class Catapult {
 
   /** 甲板の待機位置へ置く。射出前の毎ステップ呼ぶ */
   hold(position: Vec3, velocity: Vec3): void {
+    this.pitchValue = 0
     position.set(this.spec.from.x, this.spec.from.y + GEAR_HEIGHT, this.spec.from.z)
     velocity.set(0, 0, 0)
   }

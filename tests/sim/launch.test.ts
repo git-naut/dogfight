@@ -6,6 +6,10 @@ import {
   LAUNCH_END_SPEED,
   LAUNCH_SECONDS,
   GEAR_HEIGHT,
+  LAUNCH_PITCH,
+  LAUNCH_ROTATE_SHARE,
+  MAIN_WHEEL_Z,
+  launchPitchAt,
 } from '@sim/launch'
 import { Vec3 } from '@sim/vec3'
 import { FIXED_DT } from '@sim/loop'
@@ -143,17 +147,50 @@ describe('射出', () => {
     expect(seconds).toBeCloseTo(LAUNCH_SECONDS, 1)
   })
 
-  /** 甲板の高さを保つ。射出中に沈まない */
-  it('射出中も甲板の高さを保つ', () => {
+  /**
+   * **主輪は射出中ずっと甲板に接している。**機首を起こすあいだも、主輪の接地点（原点から
+   * 下 `GEAR_HEIGHT`・後ろ `MAIN_WHEEL_Z`）を中心に回すので沈まず浮かない（2026-10-13）
+   */
+  it('射出中も主輪が甲板に接したまま', () => {
     const cat = makeCatapult()
     const p = new Vec3()
     const v = new Vec3()
     cat.fire(0)
     let frame = 0
     while (cat.update(++frame, p, v)) {
-      expect(p.y).toBeCloseTo(20 + GEAR_HEIGHT, 3)
+      const a = cat.pitch
+      // 主輪の接地点の高さ。機首上げ a で原点まわりに回した点
+      const wheel = p.y - GEAR_HEIGHT * Math.cos(a) - MAIN_WHEEL_Z * Math.sin(a)
+      expect(wheel, `frame ${frame}`).toBeCloseTo(20, 3)
       if (frame > 1000) throw new Error('射出が終わらない')
     }
+  })
+
+  /**
+   * **甲板で待つあいだは機首が水平**（2026-10-13、ユーザーの指摘「前輪が浮いた状態で配置
+   * されている」）。射出の前の 75% も水平で、最後の 25% で `LAUNCH_PITCH` まで起こす
+   */
+  it('待つあいだと射出の前半は水平、最後の 25% で 10 度まで起こす', () => {
+    const cat = makeCatapult()
+    const p = new Vec3()
+    const v = new Vec3()
+    cat.hold(p, v)
+    expect(cat.pitch).toBe(0)
+    expect(p.y).toBeCloseTo(20 + GEAR_HEIGHT, 6)
+    cat.fire(0)
+    let frame = 0
+    let last = 0
+    while (cat.update(++frame, p, v)) {
+      const t = frame * FIXED_DT
+      if (t <= LAUNCH_SECONDS * (1 - LAUNCH_ROTATE_SHARE)) expect(cat.pitch, `frame ${frame}`).toBe(0)
+      // 起こすあいだは単調に増える（戻らない）
+      expect(cat.pitch).toBeGreaterThanOrEqual(last)
+      last = cat.pitch
+    }
+    // 離れるときは以前と同じ 10 度
+    expect(cat.pitch).toBeCloseTo(LAUNCH_PITCH, 9)
+    expect(launchPitchAt(0)).toBe(0)
+    expect(launchPitchAt(LAUNCH_SECONDS)).toBeCloseTo(LAUNCH_PITCH, 12)
   })
 
   /** 速度が単調に増える。途中で緩まない */
@@ -396,6 +433,31 @@ describe('車輪の高さ', () => {
     }
     expect(lowest).toBeLessThan(0)
     expect(GEAR_HEIGHT).toBeCloseTo(-lowest, 2)
+  })
+
+  /**
+   * **主輪の接地点の前後位置も原本と突き合わせる**（2026-10-13）。機首を起こす回転の中心。
+   * 下端が `GEAR_HEIGHT` に届く部品（主輪 2 つ）の前後の中ほど。原本の X が前後で、
+   * 変換後の Z と同じ向き（`tools/f18e-to-glb.mjs`）
+   */
+  it('主輪の接地点の前後位置が原本と一致する', async () => {
+    const { identifyParts, SCALE } = await import('../../tools/f18e-parts.mjs')
+    const { gear } = identifyParts(
+      fileURLToPath(new URL('../../assets/upstream/f18e/scene.gltf', import.meta.url)),
+    )
+    const mains = gear.filter((part) => part.raw.min[1]! * SCALE < -(GEAR_HEIGHT - 0.01))
+    expect(mains.length).toBe(2)
+    const centers = mains.map((part) => ((part.raw.min[0]! + part.raw.max[0]!) / 2) * SCALE)
+    const mean = centers.reduce((a, b) => a + b, 0) / centers.length
+    expect(MAIN_WHEEL_Z).toBeCloseTo(mean, 1)
+    // 前輪は主輪より前（負）で、下端は主輪より高い（水平で置けば前輪も甲板に接する）
+    const nose = gear.filter((part) => part.raw.max[0]! * SCALE < -4 && part.raw.min[1]! * SCALE < -1.5)
+    expect(nose.length).toBeGreaterThan(0)
+    for (const part of nose) {
+      const gap = part.raw.min[1]! * SCALE + GEAR_HEIGHT
+      expect(gap, '前輪の下端と甲板のすき間').toBeGreaterThanOrEqual(0)
+      expect(gap, '前輪の下端と甲板のすき間').toBeLessThan(0.05)
+    }
   })
 })
 

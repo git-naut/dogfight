@@ -14,7 +14,6 @@ import {
   Catapult,
   LAUNCH_THROTTLE,
   LAUNCH_DISTANCE,
-  LAUNCH_PITCH,
   type LaunchSpec,
 } from './launch'
 import { catapultLaunch } from './carrierDeck'
@@ -216,7 +215,7 @@ export class World {
       this.player.throttle = 0
       // 甲板の上なので脚は出し切り
       this.player.setGear(true)
-      this.player.syncFromLaunch(this.catapult.spec.direction, LAUNCH_PITCH)
+      this.player.syncFromLaunch(this.catapult.spec.direction, this.catapult.pitch)
     }
 
     this.combat = new Combat({
@@ -300,7 +299,7 @@ export class World {
         // 次のフレームが起点になる
         if (!stillLaunching) this.mission?.start(this._frame + 1)
       }
-      this.player.syncFromLaunch(this.catapult.spec.direction, LAUNCH_PITCH)
+      this.player.syncFromLaunch(this.catapult.spec.direction, this.catapult.pitch)
       for (const target of this.targets) target.step(FIXED_DT)
       for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)
       this._frame++

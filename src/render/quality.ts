@@ -170,6 +170,22 @@ export interface QualitySettings {
    */
   aircraftShadowMapSize: number
   /**
+   * 場面のパスの MSAA のサンプル数。0 で切る（2026-10-08）。
+   *
+   * **機体の細い溝（パネルの継ぎ目・舵面のすき間の奥の面）が 1 画素より細く、縁の平滑化が
+   * 無いと途切れた黒い点線に写っていた**（ユーザーの指摘「機体にメッシュが写って残る」）。
+   * SMAA は縁を滑らかにする処理で、1 画素より細い線は拾えない。4 サンプルで点線が消える。
+   * 実機の GPU（Intel Xe-2LPG、high、2400×1183）で 2 巡ずつ交互に測り、GPU 時間の差は
+   * 機械の揺れ（同じ条件で 1〜2 ms）の内側だった。node 経路だけが読む。
+   *
+   * **全段で 4 にする**（2026-10-12）。最初は high・ultra だけにしたが、公開ページで
+   * 直っていなかった。自動の降格で medium に落ちると点線が戻るため（実機で負荷の高い
+   * ときに 13〜15 秒で medium へ落ちるのを見た）。low・medium でも実機で点線が消え、
+   * GPU 時間は low 1.3〜1.7 → 1.3 ms、medium 5.0〜5.6 → 5.4〜5.5 ms で揺れの内側だった
+   * （`docs/measuring.md` の「機体の黒い点線と MSAA」）
+   */
+  msaaSamples: number
+  /**
    * 影マップのフィルタ。
    *
    * **既定の経路は読まない。**`BasicShadowMap` を選んだのは、比較モードが
@@ -323,6 +339,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     waterSpecular: false,
     lodDistanceScale: 0.5,
     aircraftShadowMapSize: 0,
+    msaaSamples: 4,
     shadowFilter: 'basic',
     environmentMapSize: 0,
     atmosphereLutScale: 0.5,
@@ -360,6 +377,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     waterSpecular: true,
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
+    msaaSamples: 4,
     shadowFilter: 'basic',
     environmentMapSize: 64,
     atmosphereLutScale: 0.75,
@@ -405,6 +423,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     waterSpecular: true,
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
+    msaaSamples: 4,
     shadowFilter: 'pcf',
     environmentMapSize: 128,
     atmosphereLutScale: 1,
@@ -448,6 +467,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // セル数を 48 へ上げたぶん、切り替え距離は控えめにする
     lodDistanceScale: 1.15,
     aircraftShadowMapSize: 2048,
+    msaaSamples: 4,
     // high と同じ。three 0.186 で `pcfSoft` が無くなった（型のコメント）。
     // ultra の影の差は影マップの大きさ 2048 で付ける
     shadowFilter: 'pcf',

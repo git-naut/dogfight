@@ -192,6 +192,7 @@ export async function createNodePipeline(
   const { scenePass, depthTexture, emissiveNode } = createScenePass(scene, camera, {
     normals: options.sceneNormals === true,
     emissive: bloomEmissive,
+    samples: quality.msaaSamples,
   })
 
   // 雲の太陽光と天空光は LUT から取る。**CPU 側に値が無い**ので、
@@ -546,6 +547,8 @@ export async function createNodePipeline(
     // **影は `nodeShadow` に任せる。**ここで `mapSize` を直に書くと `low` の
     // 0 がそのまま渡り、0×0 のテクスチャで描画ループごと止まる（段 20c）
     shadowInfo.setQuality(quality)
+    // MSAA。数が変わると three が描画先を作り直す（`createScenePass` の注記）
+    scenePass.renderTarget.samples = quality.msaaSamples
     // 環境反射は**大きさが変わったときだけ**作り直す。
     //
     // 毎回作り直すと、降格のたびにキューブの的が増える。`?env=0` の指定も

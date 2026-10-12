@@ -290,6 +290,24 @@ describe('ヒンジ軸', () => {
     }
   }, 60_000)
 
+  /**
+   * **水平尾翼の見た目の振れは 8 度まで**（2026-10-12、ユーザーの判断）。全遊動の尾翼は
+   * 付け根ごと回るので、実機の 24 度では付け根の翼弦の前後の端が 0.49〜0.65 m 上下し、
+   * 「ピッチで機体と隙間があり離れて動く」と指摘された。継ぎ目の頂点が無い（胴体と頂点を
+   * 共有しない）ので `seamDeparture` では測れず、上限そのものを見張る。描画だけの値で、
+   * 飛び方は変わらない
+   */
+  it('水平尾翼の見た目の振れは 8 度まで', async () => {
+    const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
+    const stabilators = buildHinges(GLTF).filter((h) => h.role === 'stabilator')
+    expect(stabilators.length).toBe(2)
+    for (const h of stabilators) {
+      expect(h.maxDeg, `${h.node}`).toBeLessThanOrEqual(8)
+      // 0 にすると動かなくなる。ピッチで動くことは見せる
+      expect(h.maxDeg, `${h.node}`).toBeGreaterThanOrEqual(6)
+    }
+  })
+
   it('ヒンジが舵面の bbox の内側にある', async () => {
     const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
     const { SCALE } = await import('../../tools/f18e-parts.mjs')

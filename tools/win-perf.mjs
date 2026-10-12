@@ -33,8 +33,14 @@ const browser = await chromium.launch({
     '--enable-unsafe-webgpu',
     '--disable-gpu-sandbox',
     // **`http://` は保安コンテキストではない。**WebGPU が生えない
-    ...(urls[0].startsWith('http://')
-      ? [`--unsafely-treat-insecure-origin-as-secure=${new URL(urls[0]).origin}`]
+    // **`http://` の出どころを全部渡す。**最初の URL だけを見ていたので、公開ページ（https）と
+    // 手元の preview を交互に並べると手元が WebGL に落ちていた（2026-10-12 に踏んだ）
+    ...(urls.some((u) => u.startsWith('http://'))
+      ? [
+          `--unsafely-treat-insecure-origin-as-secure=${[
+            ...new Set(urls.filter((u) => u.startsWith('http://')).map((u) => new URL(u).origin)),
+          ].join(',')}`,
+        ]
       : []),
   ],
 })

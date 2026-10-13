@@ -327,13 +327,13 @@ export const BITE_MARKS = [
     why: 'F-16 のキャノピーは透明。溝を掘っても意味が無く、遮蔽で暗くなる',
   },
   {
-    id: 'surface-detail-no-occlusion',
-    kind: '文の削除',
+    id: 'surface-detail-grid-back',
+    kind: '条件の固定',
     file: 'src/render/pipeline/nodeAircraftMaterial.ts',
-    find: '  material.aoNode = float(1).sub(line.mul(d.lineOcclusion))\n',
-    replace: '',
+    find: '  material.roughnessNode = clamp(roughness, 0.2, 1)\n',
+    replace: '  material.roughnessNode = clamp(roughness, 0.2, 1)\n  material.aoNode = clamp(roughness, 0.5, 1)\n',
     expect: 'tests/render/nodeAircraftMaterial.test.ts',
-    lesson: '溝の粗さを上げたら溝が光った',
+    why: '外板に遮蔽が戻り、格子の線がマス目に写る（2026-10-13 の指摘）',
   },
   {
     id: 'mutate-ignore-overridden',

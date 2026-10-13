@@ -83,13 +83,17 @@ describe('外板の細部の有無', () => {
     expect(copy.roughnessNode).toBeNull()
   })
 
-  it('procedural なら粗さと法線を差す', () => {
+  /**
+   * **格子の線は差さない**（2026-10-13、ユーザーの指摘「マス目の黒い線」と判断「格子の線だけ
+   * 外す」）。以前は 1.2 m 間隔の溝を遮蔽と法線で沈めていて、主翼と尾翼にマス目が写った。
+   * 汚れとむら（粗さ）は残す
+   */
+  it('procedural なら粗さだけ差す。格子の線（遮蔽と法線）は差さない', () => {
     const { source, copy } = painted()
     toNodeAircraftMaterial({ library: { fromMaterial: () => copy } }, 'procedural')(source)
     expect(copy.roughnessNode).not.toBeNull()
-    expect(copy.normalNode).not.toBeNull()
-    // 溝は遮蔽で沈める。粗さを上げると逆に光った
-    expect(copy.aoNode).not.toBeNull()
+    expect(copy.normalNode).toBeNull()
+    expect(copy.aoNode).toBeNull()
   })
 
   it('procedural でも金属度は触らない', () => {

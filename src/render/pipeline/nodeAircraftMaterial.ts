@@ -1,24 +1,6 @@
 import * as THREE from 'three'
 import { MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type Node } from 'three/webgpu'
-import {
-  abs,
-  attribute,
-  clamp,
-  dFdx,
-  dFdy,
-  faceDirection,
-  float,
-  fract,
-  fwidth,
-  materialRoughness,
-  max,
-  mx_fractal_noise_float,
-  mx_worley_noise_float,
-  normalView,
-  positionView,
-  smoothstep,
-  vec2,
-} from 'three/tsl'
+import { attribute, clamp, materialRoughness, mx_fractal_noise_float, mx_worley_noise_float } from 'three/tsl'
 import type { AircraftMaterialFactory, AircraftModel } from '../aircraft/model'
 import type { MaterialDetail } from '../quality'
 
@@ -163,7 +145,7 @@ export function bakeAircraftSpace(model: Pick<AircraftModel, 'object'>): number 
  *
  * キャノピー（F/A-18E の `Material.013`、粗さ 0.25 に鏡面の拡張）は
  * テクスチャを持たないのでここで落ちる。計画書はキャノピーを clearcoat で
- * 別に扱う。透明なもの（F-16 のキャノピー）に溝を掘っても意味が無い
+ * 別に扱う。透明なもの（F-16 のキャノピー）の粗さを揺らしても意味が無い
  */
 export function wantsSurfaceDetail(source: THREE.Material, copy: THREE.Material): boolean {
   if (!(copy instanceof MeshStandardNodeMaterial)) return false
@@ -173,12 +155,6 @@ export function wantsSurfaceDetail(source: THREE.Material, copy: THREE.Material)
 
 /** 外板の細部の定数。**メートル**（`AIRCRAFT_SPACE_ATTRIBUTE` の座標） */
 export const SURFACE_DETAIL = {
-  /** パネルラインの間隔。F/A-18 の外板の点検口がおよそこの大きさ */
-  panelSpacing: 1.2,
-  /** 溝の幅の半分。1.2 m 間隔に対して 3 cm 幅 */
-  lineHalfWidth: 0.015,
-  /** 溝の深さ。法線の傾きにだけ効く */
-  lineDepth: 0.004,
   /** 汚れの大きさ（1 周期のメートル） */
   grimeScale: 1.1,
   /** 汚れで揺らす粗さの幅。計画書の ±0.12 */
@@ -187,52 +163,15 @@ export const SURFACE_DETAIL = {
   mottleScale: 0.8,
   /** むらで揺らす粗さの幅 */
   mottleRoughness: 0.08,
-  /**
-   * 溝の中で環境光を遮る割合。
-   *
-   * **粗さを上げて溝を沈める形は逆に光った。**最初は溝の粗さを 0.15 上げて
-   * いたが、粗い面はぼけた空を映すので、拡大すると溝が周りより明るい線に
-   * 見えた。遮蔽は間接光にだけ掛かり（`AONode`）、太陽の直達は残る
-   */
-  lineOcclusion: 0.5,
 } as const
 
 /**
- * 溝の濃さ（0..1）。整数の位置に線を引く。
+ * 汚れとパネルごとのむらを差す（粗さを揺らすだけ）。
  *
- * **画素より細い線は縞になる。**`fwidth` の幅でぼかし、線が画素を割るほど
- * 遠いときは被覆率ぶんだけ薄める
- */
-function panelLine(v: Node<'float'>, halfWidth: number): Node<'float'> {
-  const distance = abs(fract(v.add(0.5)).sub(0.5))
-  const w = max(fwidth(v), float(1e-5))
-  const line = float(1).sub(smoothstep(float(halfWidth), w.add(halfWidth), distance))
-  const coverage = clamp(float(halfWidth * 2).div(w), 0, 1)
-  return line.mul(coverage)
-}
-
-/**
- * 高さから法線を傾ける（Mikkelsen, "Bump Mapping Unparametrized Surfaces
- * on the GPU"）。
- *
- * three の `bumpMap` は**テクスチャしか受け取れない。**UV をずらして引き直す
- * 形なので、手続きの高さには使えない。同じ式を高さの画面微分で組む
- * （`BumpMapNode.js` の `perturbNormalArb`）
- */
-function perturbNormal(height: Node<'float'>): Node<'vec3'> {
-  const dHdxy = vec2(dFdx(height), dFdy(height))
-  const sigmaX = dFdx(positionView).normalize()
-  const sigmaY = dFdy(positionView).normalize()
-  const n = normalView
-  const r1 = sigmaY.cross(n)
-  const r2 = n.cross(sigmaX)
-  const det = sigmaX.dot(r1).mul(faceDirection)
-  const grad = det.sign().mul(dHdxy.x.mul(r1).add(dHdxy.y.mul(r2)))
-  return det.abs().mul(n).sub(grad).normalize() as unknown as Node<'vec3'>
-}
-
-/**
- * 汚れ・パネルごとのむら・パネルラインを差す。
+ * **パネルラインは外した**（2026-10-13、ユーザーの指摘「スクリーンショットに写っているマス目の
+ * 黒い線」と判断「格子の線だけ外す」）。以前は機体の平面形（X と Z）に 1.2 m 間隔の溝を引き、
+ * 遮蔽（`aoNode`）と法線の傾き（`normalNode`）で沈めていた。実機の外板の継ぎ目は不規則なのに、
+ * 規則正しい格子が主翼と尾翼にマス目として写った。継ぎ目は原本の色のテクスチャに描かれている
  *
  * **金属度は触らない。**変換ツールが「`spec` から金属度を写したらパイロンと
  * ミサイルが鏡になった」と記録している（`tools/ac3d-to-glb.mjs`）。
@@ -240,23 +179,14 @@ function perturbNormal(height: Node<'float'>): Node<'vec3'> {
  * **粗さは原本の値のまわりで揺らす。**計画書は 0.45 を中心にと書いていたが、
  * 外板の原本は 0.82 の誘電体で、中心を 0.45 へ下げると逆光で空を映して中央値が
  * +10.4%（鏡）、ほかの構図では −16〜−18% 暗くなった。どちらでも模様が減った
- *
- * パネルラインは機体の平面形（X と Z）で引く。Y で引くと主翼の上面のわずかな
- * 反りが等高線になって、翼の上を曲線が這う
  */
 export function applySurfaceDetail(material: MeshStandardNodeMaterial): void {
   const d = SURFACE_DETAIL
   const p = attribute(AIRCRAFT_SPACE_ATTRIBUTE, 'vec3') as unknown as Node<'vec3'>
-  const k = 1 / d.panelSpacing
-  const halfWidth = d.lineHalfWidth * k
-  const line = max(panelLine(p.x.mul(k), halfWidth), panelLine(p.z.mul(k), halfWidth))
-
   const grime = mx_fractal_noise_float(p.mul(1 / d.grimeScale), 3, 2, 0.5)
   const mottle = mx_worley_noise_float(p.mul(1 / d.mottleScale)).sub(0.5)
   const roughness = materialRoughness
     .add(grime.mul(d.grimeRoughness))
     .add(mottle.mul(d.mottleRoughness * 2))
   material.roughnessNode = clamp(roughness, 0.2, 1)
-  material.aoNode = float(1).sub(line.mul(d.lineOcclusion))
-  material.normalNode = perturbNormal(line.mul(-d.lineDepth) as Node<'float'>)
 }

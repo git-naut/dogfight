@@ -25,7 +25,8 @@ export type ShadowFilter = 'basic' | 'pcf'
 /**
  * 機体の外板の細部。
  *
- * `procedural` は node 経路で汚れ・パネルごとのむら・パネルラインを差す。
+ * `procedural` は node 経路で汚れ・パネルごとのむらを差す（粗さを揺らすだけ）。パネルラインは
+ * 2026-10-13 に外した（規則正しい格子がマス目に写った。`nodeAircraftMaterial.ts`）。
  * 計画書の `procedural-aniso`（異方性スペキュラ）は次の段で足す。
  * **値を先に置かない。**実装が読まない値を表に持たない（`ShadowFilter`）
  */

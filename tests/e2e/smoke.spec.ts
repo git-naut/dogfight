@@ -1989,7 +1989,7 @@ test.describe('カタパルト射出', () => {
 
   /**
    * **射出後に海へ落ちない。**入力なしで飛ぶキャプチャモードで最後まで
-   * 回す。実測で最低 17.91 m（f683）まで沈んでから加速して上がる。そのときは cat-4 の
+   * 回す。実測で最低 18.59 m（f682）まで沈んでから加速して上がる（段 7 で甲板を走るようになってから）。そのときは cat-4 の
    * 帯の延長で甲板の外（海の上）に出ている
    */
   test('射出後に上昇へ移る', async ({ page }) => {
@@ -2006,6 +2006,30 @@ test.describe('カタパルト射出', () => {
     const hook = await capture(page, { script: 'level', frame: 60 })
     expect(hook.altitude).toBeGreaterThan(1000)
     expect(hook.speed).toBeGreaterThan(100)
+  })
+})
+
+/**
+ * 甲板の当たり（Phase 9 の段 7）。**判定は sim が持つ**（`deckContact.ts`）。ここでは
+ * キャプチャの経路（`main.ts` の World）でも同じ判定が通っていることを見る
+ */
+test.describe('甲板の当たり', () => {
+  test('甲板に降りて車輪で走る', async ({ page }) => {
+    // f278 に軟着地し、f331 まで走る（`deck-landing` の台本の注記）
+    const hook = await capture(page, { script: 'deck-landing', frame: 300 })
+    expect(hook.playerOnDeck, '甲板を走っていない').toBe(true)
+    expect(hook.playerCrashCause).toBe('')
+    expect(hook.playerTouchdownSink).toBeGreaterThan(0)
+    // 12 ft/s（3.66 m/s）より遅い軟着地
+    expect(hook.playerTouchdownSink).toBeLessThan(3.66)
+    // 車輪が甲板（18.867 m）に載っている。機首 12 度で原点は甲板の 1.78 m 上
+    expect(hook.altitude).toBeCloseTo(20.65, 1)
+  })
+
+  test('射出のあとは着艦と数えない', async ({ page }) => {
+    const hook = await capture(page, { script: 'catapult-launch', frame: 600 })
+    expect(hook.playerTouchdownSink, '射出の終点から甲板の縁までで触れたと数えた').toBe(-1)
+    expect(hook.playerCrashCause).toBe('')
   })
 })
 
@@ -2202,6 +2226,18 @@ test.describe('通しの流れ', () => {
         () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.gearPosition ?? -1,
       )
     expect(await readGear(), '飛び立った直後に脚が出し切りでない').toBe(1)
+    // **甲板を離れてから押す**（段 7）。射出の終点から 24 フレーム（0.2 秒）は甲板を走っていて、
+    // そのあいだ G は受け付けない（車輪に重さが掛かっている）。押しっぱなしだと「押した瞬間」が
+    // 甲板の上で終わってしまい、離れても上がらない
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.playerOnDeck ?? true,
+          ),
+        { timeout: waitBudgetMs(30_000) },
+      )
+      .toBe(false)
     await page.keyboard.down('KeyG')
     await expect.poll(readGear, { timeout: waitBudgetMs(30_000) }).toBeLessThan(1)
     await page.keyboard.up('KeyG')

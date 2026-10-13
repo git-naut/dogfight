@@ -193,6 +193,9 @@ const hook = installTestHook({
   compileMs: 0,
   gearDown: false,
   gearPosition: 0,
+  playerOnDeck: false,
+  playerCrashCause: '',
+  playerTouchdownSink: -1,
   gearOverspeed: false,
   audioProbe: null,
   gpuProbe: null,
@@ -633,6 +636,9 @@ async function main(): Promise<void> {
     hook.agl = sample.agl
     hook.gearDown = sample.gearDown
     hook.gearPosition = sample.gearPosition
+    hook.playerOnDeck = currentWorld.player.onDeck
+    hook.playerCrashCause = currentWorld.player.crashCause ?? ''
+    hook.playerTouchdownSink = currentWorld.player.lastTouchdown?.sinkRate ?? -1
     hook.gearOverspeed = sample.gearOverspeed
     hook.groundHeight = sample.groundHeight
     hook.elevator = sample.elevator

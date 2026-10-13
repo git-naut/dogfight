@@ -17,6 +17,7 @@ import {
   type LaunchSpec,
 } from './launch'
 import { catapultLaunch } from './carrierDeck'
+import { carrierDeckSampler } from './deckContact'
 import type { InputState } from './input'
 import { defaultTerrain, type Terrain } from './terrain'
 import { Mission, type MissionSpec } from './mission'
@@ -166,8 +167,13 @@ export class World {
     this.mission = options.mission ? new Mission(options.mission) : null
     this.carrier = options.carrier ? { ...options.carrier } : null
     this.catapult = options.launch ? new Catapult(options.launch, FIXED_DT) : null
-    // 地形は毎ステップ Aircraft が引くので stepOptions に混ぜて渡す
-    this.stepOptions = { ...(options.step ?? {}), terrain: this.terrain }
+    // 地形は毎ステップ Aircraft が引くので stepOptions に混ぜて渡す。空母があれば甲板の
+    // 当たりも渡す（段 7。自機だけ。敵機と標的機は甲板に降りない）
+    this.stepOptions = {
+      ...(options.step ?? {}),
+      terrain: this.terrain,
+      ...(this.carrier !== null ? { deck: carrierDeckSampler(this.carrier) } : {}),
+    }
 
     const spawn = options.aircraft ?? {}
     this.player = new Aircraft({
@@ -256,7 +262,8 @@ export class World {
     const gearPressed = input.gearToggle && !this.gearHeld
     this.gearHeld = input.gearToggle
     const onCatapult = this.catapult !== null && this.catapult.phase !== 'airborne'
-    if (gearPressed && !onCatapult) this.player.toggleGear()
+    // **甲板を走っているあいだも受け付けない**（段 7）。上げると胴体が甲板に触れて墜落する
+    if (gearPressed && !onCatapult && !this.player.onDeck) this.player.toggleGear()
 
     // **フレアは機体を動かす前に進める。**投下の位置は前のステップの姿勢で
     // 決まる。動かしたあとだと、押した瞬間に見えていた位置とずれる
@@ -297,7 +304,11 @@ export class World {
         )
         // **甲板で待っている時間と射出の 2.4 秒は制限時間に入れない。**
         // 次のフレームが起点になる
-        if (!stillLaunching) this.mission?.start(this._frame + 1)
+        if (!stillLaunching) {
+          this.mission?.start(this._frame + 1)
+          // **射出の終点はまだ甲板の上。**走っている状態で渡し、着艦と数えない（段 7）
+          this.player.releaseOnDeck()
+        }
       }
       this.player.syncFromLaunch(this.catapult.spec.direction, this.catapult.pitch)
       for (const target of this.targets) target.step(FIXED_DT)

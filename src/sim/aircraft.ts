@@ -1,6 +1,17 @@
 import { Vec3 } from './vec3'
 import { exhaustIntensity } from './combatant'
 import { Quat } from './quat'
+import {
+  ROLLING_FRICTION,
+  judgeTouchdown,
+  lowestContact,
+  pitchOf,
+  rollOf,
+  type CrashCause,
+  type DeckSampler,
+  type Touchdown,
+  TOUCHDOWN_LIMITS,
+} from './deckContact'
 import { GRAVITY, airDensity, dynamicPressure, speedOfSound } from './isa'
 import {
   AIRCRAFT,
@@ -99,6 +110,10 @@ export interface StepOptions {
    * 理由は呼び出し側が決める。
    */
   controlFactor?: number
+  /**
+   * 空母の甲板の当たり（段 7）。渡さなければ甲板は無い（今までどおり地形と海面だけ）
+   */
+  deck?: DeckSampler
 }
 
 /**
@@ -256,6 +271,12 @@ export class Aircraft {
   gearPosition = 0
 
   crashed = false
+  /** 墜落の原因。墜落していなければ null。撃墜（耐久切れ）も null（段 7） */
+  crashCause: CrashCause | null = null
+  /** 甲板の上を車輪で走っているか（段 7） */
+  onDeck = false
+  /** 最後に甲板に触れたときの記録。段 8 の着艦の結果が読む */
+  lastTouchdown: Touchdown | null = null
 
   /**
    * 残りの耐久。20mm 弾 1 発で 1 減る。
@@ -404,15 +425,113 @@ export class Aircraft {
   ): void {
     this.prevPosition.copy(this.position)
     this.prevOrientation.copy(this.orientation)
-    // −Z が機首方向。XZ 平面での向きから yaw を出す
-    const yaw = Math.atan2(direction.x, -direction.z)
+    this.headTo(direction.x, direction.z, pitch)
+    this.updateDerived(undefined, groundHeight)
+  }
+
+  /**
+   * 機首を水平の向き (x, z) へ向け、機首上げ `pitch` rad を掛ける。傾きは 0。
+   *
+   * **ヨーの符号に注意。**Y 軸まわりに +a 回すと機首 (0, 0, −1) は (−sin a, 0, −cos a) へ
+   * 写る。以前は a = atan2(x, −z) で、機首が向きと左右逆になっていた（2026-10-14 に見つけた）。
+   * 帯が 4.37 度傾く cat-3 では機首が 8.74 度ずれ、ユーザーが「cat-3 に対してまっすぐ配置されて
+   * いない」と指摘した。軸と平行な cat-4（0.04 度）では見えなかった
+   */
+  private headTo(x: number, z: number, pitch: number): void {
+    const yaw = Math.atan2(-x, -z)
     this.orientation.setFromAxisAngle(tmpUp.set(0, 1, 0), yaw)
     // **機首上げを掛ける。**実機は前脚を伸ばして射出姿勢を作る。
     // 機体の右軸まわりに回すので、ヨーのあとに掛ける
     if (pitch !== 0) {
       this.orientation.multiply(tmpQuat.setFromAxisAngle(tmpRight.set(1, 0, 0), pitch))
     }
-    this.updateDerived(undefined, groundHeight)
+  }
+
+  /**
+   * 射出が終わった瞬間、甲板の上を車輪で走っている状態にする（段 7）。
+   *
+   * **着艦として数えない。**射出の終点から甲板の縁までの数フレームは車輪が甲板にあるので、
+   * そのまま当たりを見ると「触れた」と判定してしまう。走っている状態から始めれば、縁を越えた
+   * ところで普通に飛ぶ
+   */
+  releaseOnDeck(): void {
+    this.onDeck = true
+  }
+
+  /** 墜落させる。止めて原因を残す */
+  private crash(cause: CrashCause): void {
+    this.velocity.set(0, 0, 0)
+    this.angularVelocity.set(0, 0, 0)
+    this.crashed = true
+    this.crashCause = cause
+    this.onDeck = false
+  }
+
+  /**
+   * 空母の甲板との当たり（段 7、`deckContact.ts`）。位置を積分した直後に呼ぶ。
+   *
+   * 1. 艦橋の箱に入ったら墜落
+   * 2. 甲板の上で、いちばん低い接点（脚を出し切っていれば車輪、そうでなければ機体の最下点）が
+   *    甲板に届いたら、初めて触れた瞬間に判定する。原点が甲板より下なら船体に入ったので墜落、
+   *    脚が出し切りでなければ墜落、降下率と姿勢が範囲の外なら墜落。内側なら車輪で走る
+   * 3. 走っているあいだは傾きを 0、機首下げを 0 にそろえ、車輪を甲板に載せる。転がり抵抗で
+   *    減速する。揚力で浮けば離れる
+   */
+  private contactDeck(deck: DeckSampler, dt: number): void {
+    const p = this.position
+    if (deck.insideIsland(p.x, p.y, p.z)) return this.crash('island')
+    const deckHeight = deck.deckHeightAt(p.x, p.z)
+    if (deckHeight === null) {
+      // 甲板の外。縁を越えたら普通に飛ぶ（落ちれば海面で墜落）
+      this.onDeck = false
+      return
+    }
+    const gearDown = this.gearPosition >= 1
+
+    if (!this.onDeck) {
+      if (lowestContact(p, this.orientation, gearDown) > deckHeight) return
+      // **原点が甲板より下なら、上から降りたのではなく横から船体に入った**
+      if (p.y <= deckHeight) return this.crash('hull')
+      if (!gearDown) return this.crash('belly')
+      const sinkRate = -this.velocity.y
+      const pitch = pitchOf(this.orientation)
+      const roll = rollOf(this.orientation)
+      const cause = judgeTouchdown(sinkRate, pitch, roll)
+      if (cause !== null) return this.crash(cause)
+      this.lastTouchdown = {
+        sinkRate,
+        pitch,
+        roll,
+        hard: sinkRate > TOUCHDOWN_LIMITS.hardSinkRate,
+      }
+      this.onDeck = true
+    }
+
+    // 走っている。脚が上がったら（甲板では上げられないが念のため）胴体が触れる
+    if (!gearDown) return this.crash('belly')
+
+    // 傾きを 0、機首下げを 0 にそろえる。機首上げ（引き起こし）は残す
+    const pitch = Math.max(0, pitchOf(this.orientation))
+    this.orientation.forward(tmpForward)
+    this.headTo(tmpForward.x, tmpForward.z, pitch)
+    this.angularVelocity.z = 0
+    if (pitch === 0) this.angularVelocity.x = 0
+
+    const lowest = lowestContact(p, this.orientation, true)
+    if (lowest > deckHeight + 1e-6) {
+      // 揚力で浮いた
+      this.onDeck = false
+      return
+    }
+    p.y += deckHeight - lowest
+    if (this.velocity.y < 0) this.velocity.y = 0
+    // 転がり抵抗。水平の速さを減らす（止まったら止まったまま）
+    const vh = Math.hypot(this.velocity.x, this.velocity.z)
+    if (vh > 0) {
+      const k = Math.max(0, vh - ROLLING_FRICTION * GRAVITY * dt) / vh
+      this.velocity.x *= k
+      this.velocity.z *= k
+    }
   }
 
   step(input: InputState, dt: number, options: StepOptions = {}): void {
@@ -513,6 +632,15 @@ export class Aircraft {
 
     // 9. 位置と地形
     this.position.addScaledVector(this.velocity, dt)
+
+    // 9a. 空母の甲板（段 7）。墜落したらここで終える
+    if (options.deck !== undefined) {
+      this.contactDeck(options.deck, dt)
+      if (this.crashed) {
+        this.updateDerived(tmpAero, this.groundHeight)
+        return
+      }
+    }
     // 地形を渡されていなければ海面（高度 0）。外洋はそれで正しい
     const ground = options.terrain
       ? options.terrain.heightAt(this.position.x, this.position.z)
@@ -524,6 +652,7 @@ export class Aircraft {
       this.velocity.set(0, 0, 0)
       this.angularVelocity.set(0, 0, 0)
       this.crashed = true
+      this.crashCause = 'ground'
     }
 
     this.updateDerived(tmpAero, floor)

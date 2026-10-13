@@ -669,6 +669,12 @@ export interface TestHook {
   gearDown: boolean
   /** 脚の位置 0..1。0 が上げ切り（Phase 9 の段 5、`AircraftSample.gearPosition`） */
   gearPosition: number
+  /** 自機が甲板の上を車輪で走っているか（段 7、`Aircraft.onDeck`） */
+  playerOnDeck: boolean
+  /** 自機の墜落の原因。墜落していなければ空文字（段 7、`Aircraft.crashCause`） */
+  playerCrashCause: string
+  /** 最後に甲板に触れたときの降下率 m/s。触れていなければ −1（段 7） */
+  playerTouchdownSink: number
   /** 脚が出ているのに速度の上限を超えている（`AircraftSample.gearOverspeed`） */
   gearOverspeed: boolean
   /**

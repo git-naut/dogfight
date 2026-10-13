@@ -11,7 +11,14 @@ export declare function readGltfParts(
   gltfPath: string,
   options?: { vertices?: boolean },
 ): {
-  parts: (RawPart & { vertices?: Vec3[]; indices?: number[] | null })[]
+  parts: (RawPart & {
+    vertices?: Vec3[]
+    indices?: number[] | null
+    /** 世界行列（行優先 4x4）。`vertices` を求めたときだけ */
+    world?: number[][]
+    /** POSITION の accessor の番号。`vertices` を求めたときだけ */
+    positionAccessor?: number
+  })[]
   min: Vec3
   max: Vec3
   size: Vec3

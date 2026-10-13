@@ -42,7 +42,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import { packGlb } from './glb-pack.mjs'
 import { identifyParts, SCALE } from './f18e-parts.mjs'
-import { buildGearHinges, buildHinges } from './f18e-hinges.mjs'
+import { MAX_DEG, buildGearHinges, buildHinges } from './f18e-hinges.mjs'
+import { extendStabRoot } from './f18e-stab-root.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SRC = join(ROOT, 'assets/upstream/f18e/scene.gltf')
@@ -353,6 +354,14 @@ function main() {
   if (binUri === undefined) throw new Error('埋め込みバッファは未対応')
   const binary = new Uint8Array(readFileSync(join(srcDir, decodeURIComponent(binUri))))
   delete gltf.buffers[0].uri
+
+  // ---- 水平尾翼の付け根を胴体まで伸ばす（2026-10-13）----
+  // 原本は付け根と胴体の間が空いている（0 度で最大 13〜14 cm）。見た目の振れの上限まで
+  // 胴体に届く幅だけ、付け根の頂点を中心線へ寄せる（`tools/f18e-stab-root.mjs`）
+  const root = extendStabRoot(SRC, gltf, binary, MAX_DEG.stabilator)
+  console.log(
+    `  水平尾翼の付け根 ${root.moved} 頂点を寄せた（最大 左 ${root.left.toFixed(2)} m・右 ${root.right.toFixed(2)} m）`,
+  )
 
   gltf.buffers[0].byteLength = binary.byteLength
   const glb = packGlb(gltf, binary)

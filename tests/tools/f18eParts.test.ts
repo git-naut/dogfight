@@ -290,6 +290,44 @@ describe('ヒンジ軸', () => {
     }
   }, 60_000)
 
+  /**
+   * **水平尾翼の見た目の振れは 8 度まで**（2026-10-13、ユーザーの判断「可動域も狭くして」）。
+   * 24 度では付け根と胴体の横のすき間が 1 m 近くまで開いた。描画だけの値で、飛び方は変わらない
+   */
+  it('水平尾翼の見た目の振れは 8 度まで', async () => {
+    const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
+    const stabilators = buildHinges(GLTF).filter((h) => h.role === 'stabilator')
+    expect(stabilators.length).toBe(2)
+    for (const h of stabilators) {
+      expect(h.maxDeg, `${h.node}`).toBeLessThanOrEqual(8)
+      // 0 にすると動かなくなる。ピッチで動くことは見せる
+      expect(h.maxDeg, `${h.node}`).toBeGreaterThanOrEqual(6)
+    }
+  })
+
+  /**
+   * **水平尾翼の付け根が、振れの上限まで胴体の中に入っている**（2026-10-13、ユーザーの指摘
+   * 「付け根と胴体の間があるので、埋めてください」）。原本は 0 度でも最大 13〜14 cm 空いていた。
+   * 伸ばした付け根の点を −8・0・+8 度へ回し、元の付け根へ向けて光線を飛ばして、胴体の面を
+   * 横切る（＝伸ばした点が胴体の中にある）ことを見る
+   */
+  it('水平尾翼の付け根が振れの上限まで胴体の中に入る', async () => {
+    const { MAX_DEG } = await import('../../tools/f18e-hinges.mjs')
+    const { rootInsideFuselage, measureStabRoot } = await import('../../tools/f18e-stab-root.mjs')
+    const measured = measureStabRoot(GLTF, MAX_DEG.stabilator)
+    for (const side of ['left', 'right'] as const) {
+      // 付け根の後ろ側（すき間が開いている区間）を伸ばしている。0 だと何も埋まらない
+      expect(Math.max(...measured[side].points.map((p) => p.shift)), side).toBeGreaterThan(0.2)
+    }
+    const result = rootInsideFuselage(GLTF, MAX_DEG.stabilator)
+    for (const side of ['left', 'right'] as const) {
+      for (const [deg, r] of Object.entries(result[side])) {
+        expect(r.outside, `${side} ${deg} 度で胴体の外に残る点`).toBe(0)
+        expect(r.inside, `${side} ${deg} 度`).toBeGreaterThanOrEqual(10)
+      }
+    }
+  }, 180_000)
+
   it('ヒンジが舵面の bbox の内側にある', async () => {
     const { buildHinges } = await import('../../tools/f18e-hinges.mjs')
     const { SCALE } = await import('../../tools/f18e-parts.mjs')

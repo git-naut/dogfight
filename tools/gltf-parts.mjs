@@ -132,6 +132,10 @@ export function readGltfParts(gltfPath, options = {}) {
         if (options.vertices === true) {
           extra.vertices = pos.map((v) => transform(world, v))
           extra.indices = prim.indices !== undefined ? indices(prim.indices) : null
+          // 頂点を書き換える道具（`tools/f18e-stab-root.mjs`）のため。世界行列と、元の
+          // POSITION の accessor の番号
+          extra.world = world
+          extra.positionAccessor = prim.attributes['POSITION']
         }
         parts.push({
           ...extra,

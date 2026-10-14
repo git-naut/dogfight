@@ -305,8 +305,9 @@ describe('H キー（World）', () => {
 
   it('射出中は受け付けない', () => {
     const { world } = createWorldFromScript(getScript('catapult-launch'))
-    for (let i = 0; i < 200; i++) world.step(makeInput({ throttle: 1, hookToggle: i % 2 === 0 }))
-    expect(world.catapult?.phase).not.toBe('airborne')
+    // 射出中に 1 回だけ押す（押す回数が偶数だと、受け付けても指令が元に戻って見分けられない）
+    for (let i = 0; i < 200; i++) world.step(makeInput({ throttle: 1, hookToggle: i === 100 }))
+    expect(world.catapult?.phase).toBe('launching')
     expect(world.player.hookCommandDown).toBe(false)
   })
 })

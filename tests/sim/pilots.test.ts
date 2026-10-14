@@ -96,7 +96,8 @@ describe('軸の持ち主', () => {
 
   it('操縦役のある台本で自機を渡し忘れると投げる（黙って効かなくならない）', () => {
     const player = new ReplayPlayer(getScript('pilot-hold'))
-    expect(() => player.at(0)).toThrow()
+    // 文言まで見る。投げる文が無くても、操縦役が undefined を読んで別の例外で落ちるため
+    expect(() => player.at(0)).toThrow('操縦役のある台本は、at() に自機を渡す')
     expect(player.piloted).toBe(true)
     expect(new ReplayPlayer(getScript('level')).piloted).toBe(false)
   })

@@ -158,6 +158,8 @@ export class World {
    * 甲板で押したまま飛び立った最初のステップで切り替わってしまう
    */
   private gearHeld = false
+  /** 前のステップでフックのキーが押されていたか（段 8、脚と同じ理由で World が持つ） */
+  private hookHeld = false
   private _frame = 0
 
   constructor(options: WorldOptions) {
@@ -264,6 +266,10 @@ export class World {
     const onCatapult = this.catapult !== null && this.catapult.phase !== 'airborne'
     // **甲板を走っているあいだも受け付けない**（段 7）。上げると胴体が甲板に触れて墜落する
     if (gearPressed && !onCatapult && !this.player.onDeck) this.player.toggleGear()
+    // フック（段 8）。射出中だけ受け付けない。甲板を走っているあいだや止まったあとは上げ下ろしできる
+    const hookPressed = input.hookToggle && !this.hookHeld
+    this.hookHeld = input.hookToggle
+    if (hookPressed && !onCatapult) this.player.toggleHook()
 
     // **フレアは機体を動かす前に進める。**投下の位置は前のステップの姿勢で
     // 決まる。動かしたあとだと、押した瞬間に見えていた位置とずれる

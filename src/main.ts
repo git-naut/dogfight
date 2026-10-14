@@ -196,6 +196,10 @@ const hook = installTestHook({
   playerOnDeck: false,
   playerCrashCause: '',
   playerTouchdownSink: -1,
+  playerLanding: '',
+  playerWire: 0,
+  playerArrestDistance: -1,
+  playerHookPosition: 0,
   gearOverspeed: false,
   audioProbe: null,
   gpuProbe: null,
@@ -639,6 +643,11 @@ async function main(): Promise<void> {
     hook.playerOnDeck = currentWorld.player.onDeck
     hook.playerCrashCause = currentWorld.player.crashCause ?? ''
     hook.playerTouchdownSink = currentWorld.player.lastTouchdown?.sinkRate ?? -1
+    const landing = currentWorld.player.landing
+    hook.playerLanding = landing?.kind ?? ''
+    hook.playerWire = landing?.kind === 'trap' ? landing.wire : 0
+    hook.playerArrestDistance = currentWorld.player.arrestor?.distance ?? -1
+    hook.playerHookPosition = currentWorld.player.hookPosition
     hook.gearOverspeed = sample.gearOverspeed
     hook.groundHeight = sample.groundHeight
     hook.elevator = sample.elevator

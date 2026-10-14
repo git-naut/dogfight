@@ -2015,7 +2015,7 @@ test.describe('カタパルト射出', () => {
  */
 test.describe('甲板の当たり', () => {
   test('甲板に降りて車輪で走る', async ({ page }) => {
-    // f355 に軟着地し、f424 まで走る（`deck-landing` の台本の注記）
+    // f355 に軟着地し、f378 に索に掛かって走る（`deck-landing` の台本の注記）
     const hook = await capture(page, { script: 'deck-landing', frame: 380 })
     expect(hook.playerOnDeck, '甲板を走っていない').toBe(true)
     expect(hook.playerCrashCause).toBe('')
@@ -2026,10 +2026,25 @@ test.describe('甲板の当たり', () => {
     expect(hook.altitude).toBeCloseTo(20.61, 1)
   })
 
+  /**
+   * 拘束索（段 8）。**判定は sim が持つ**（`arrestor.ts`）。キャプチャの経路でも f378 に 1 本目に
+   * 掛かり、f761 に 344 ft（104.85 m）走って止まる
+   */
+  test('フックが 1 本目の索に掛かって止まる', async ({ page }) => {
+    const hook = await capture(page, { script: 'deck-landing', frame: 800 })
+    expect(hook.playerLanding).toBe('trap')
+    expect(hook.playerWire).toBe(1)
+    expect(hook.playerArrestDistance).toBeCloseTo(104.85, 1)
+    expect(hook.playerHookPosition).toBe(1)
+    expect(hook.speed).toBeLessThan(0.01)
+    expect(hook.playerCrashCause).toBe('')
+  })
+
   test('射出のあとは着艦と数えない', async ({ page }) => {
     const hook = await capture(page, { script: 'catapult-launch', frame: 600 })
     expect(hook.playerTouchdownSink, '射出の終点から甲板の縁までで触れたと数えた').toBe(-1)
     expect(hook.playerCrashCause).toBe('')
+    expect(hook.playerLanding, '射出の終点から縁までをボルターと数えた').toBe('')
   })
 })
 

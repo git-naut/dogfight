@@ -1,6 +1,6 @@
 import { Vec3 } from './vec3'
 import type { Quat } from './quat'
-import { FORD_DECK_HEIGHT, FORD_DECK_OUTLINE, FORD_ISLAND } from './fordDeck'
+import { FORD_DECK_HEIGHT, FORD_DECK_OUTLINE, FORD_ISLAND, FORD_WIRES } from './fordDeck'
 
 /**
  * 空母の甲板の当たり（Phase 9 の段 7）。
@@ -121,6 +121,21 @@ export interface DeckSampler {
   deckHeightAt(x: number, z: number): number | null
   /** 世界の点が艦橋の箱の中か */
   insideIsland(x: number, y: number, z: number): boolean
+  /**
+   * 世界の水平の線分 (x0, z0)→(x1, z1) が越える拘束索のうち、最初に越えるもの（段 8）。
+   * 越えなければ null
+   */
+  crossWire(x0: number, z0: number, x1: number, z1: number): WireCrossing | null
+}
+
+/** 拘束索を越えた点（段 8） */
+export interface WireCrossing {
+  /** 索の添字。0 が艦尾に近い（1 本目） */
+  readonly index: number
+  /** 線分の上の位置 0..1。0 が始点 */
+  readonly t: number
+  /** 越えた点の、索の中点（着艦区域の中心線）からのずれ m。右舷が正 */
+  readonly offCenter: number
 }
 
 /** 墜落の原因。テストと表示が読む */
@@ -172,7 +187,40 @@ export function carrierDeckSampler(carrier: CarrierPose): DeckSampler {
       const b = FORD_ISLAND
       return y <= b.top && lx >= b.xMin && lx <= b.xMax && lz >= b.zMin && lz <= b.zMax
     },
+    crossWire(x0, z0, x1, z1) {
+      const [ax, az] = toLocal(x0, z0)
+      const [bx, bz] = toLocal(x1, z1)
+      return crossWireLocal(ax, az, bx, bz)
+    },
   }
+}
+
+/**
+ * 空母の座標の線分 a→b が越える拘束索（`FORD_WIRES`）のうち、a から近いもの。
+ *
+ * 2 本の線分の交差を媒介変数で解く。端をちょうど通るときも越えたと数える
+ */
+export function crossWireLocal(ax: number, az: number, bx: number, bz: number): WireCrossing | null {
+  let best: WireCrossing | null = null
+  const rx = bx - ax
+  const rz = bz - az
+  for (let i = 0; i < FORD_WIRES.length; i++) {
+    const { starboard, port } = FORD_WIRES[i]!
+    const sx = port[0] - starboard[0]
+    const sz = port[1] - starboard[1]
+    const denom = rx * sz - rz * sx
+    if (denom === 0) continue
+    const qx = starboard[0] - ax
+    const qz = starboard[1] - az
+    // a + t r = starboard + u s
+    const t = (qx * sz - qz * sx) / denom
+    const u = (qx * rz - qz * rx) / denom
+    if (t < 0 || t > 1 || u < 0 || u > 1) continue
+    if (best !== null && t >= best.t) continue
+    // 中点からのずれ。u = 0.5 が中点、0 が右舷の端
+    best = { index: i, t, offCenter: (0.5 - u) * Math.hypot(sx, sz) }
+  }
+  return best
 }
 
 const tmp = new Vec3()

@@ -65,6 +65,8 @@ export interface HudReadout {
   gearPosition: number
   /** 脚が出ているのに速度の上限を超えている */
   gearOverspeed: boolean
+  /** フックの位置 0..1。0 が上げ切り（Phase 9 の段 8） */
+  hookPosition: number
 }
 
 export function createHudReadout(): HudReadout {
@@ -85,6 +87,7 @@ export function createHudReadout(): HudReadout {
     integrityRatio: 1,
     gearPosition: 0,
     gearOverspeed: false,
+    hookPosition: 0,
   }
 }
 
@@ -120,6 +123,7 @@ export function computeReadout(sample: AircraftSample, out: HudReadout): HudRead
     sample.integrity > 0 ? sample.integrity / AIRCRAFT_INTEGRITY : 0
   out.gearPosition = sample.gearPosition
   out.gearOverspeed = sample.gearOverspeed
+  out.hookPosition = sample.hookPosition
 
   const speed = sample.velocity.length()
   if (speed > 1) out.flightPath.copy(sample.velocity).multiplyScalar(1 / speed)
@@ -136,6 +140,12 @@ export function computeReadout(sample: AircraftSample, out: HudReadout): HudRead
 export function gearLabel(position: number): string | null {
   if (position <= 0) return null
   return position >= 1 ? 'GEAR DOWN' : 'GEAR TRANSIT'
+}
+
+/** フックの表示（段 8）。上げ切りのときは出さない。脚と同じ作法 */
+export function hookLabel(position: number): string | null {
+  if (position <= 0) return null
+  return position >= 1 ? 'HOOK DOWN' : 'HOOK TRANSIT'
 }
 
 /**

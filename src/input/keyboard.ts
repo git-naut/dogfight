@@ -89,6 +89,7 @@ export class KeyboardInput {
     this.input.deployFlare = this.pressed.has('KeyC')
     // 押しているあいだ true。押した瞬間の判定は sim の `World` が持つ
     this.input.gearToggle = this.pressed.has('KeyG')
+    this.input.hookToggle = this.pressed.has('KeyH')
 
     return this.input
   }
@@ -149,6 +150,7 @@ export const CONTROL_HELP: readonly ControlHelpEntry[] = [
   { keys: 'F', action: 'ミサイル', codes: ['KeyF'] },
   { keys: 'C', action: 'フレア', codes: ['KeyC'] },
   { keys: 'G', action: '脚の出し入れ', codes: ['KeyG'] },
+  { keys: 'H', action: 'フックの上げ下ろし', codes: ['KeyH'] },
   { keys: '右ドラッグ', action: '視点', codes: [] },
   { keys: 'R', action: 'やり直す', codes: ['KeyR'] },
   // **判定はこのファイルにない。**`main.ts` がポーズを、`settingsPanel.ts` が

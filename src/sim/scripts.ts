@@ -1,5 +1,6 @@
 import type { ReplayScript } from './replay'
 import { Vec3 } from './vec3'
+import { FORD_LANDING_CENTERLINE } from './fordDeck'
 
 /**
  * 名前付きの入力スクリプト。
@@ -817,23 +818,32 @@ export const SCRIPTS = {
     ],
   },
   /**
-   * 甲板に降りて車輪で走る（Phase 9 の段 7）。
+   * 甲板に降りて拘束索で止まる（Phase 9 の段 7・段 8）。
    *
-   * 空母の後ろ寄りの上空 21 m から、進入の速さ 130 kt・脚とフラップを出して浅く降りる。
-   * f355 に空母の座標 (−20, −46) で軟着地し（降下率 2.14 ft/s・機首 6.7 度）、f424 まで走って
-   * 甲板を離れる（実測）。拘束索は段 8 なので止まらない。
+   * 進入の速さ 130 kt・脚とフラップとフックを出して、上空 21 m から浅く降りる。f355 に軟着地し
+   * （降下率 2.14 ft/s・機首 6.7 度）、f378 にフックが 1 本目の索に掛かって（127.7 kt）、f761 に
+   * 104.85 m（344 ft）走って止まる（実測）。
    *
-   * 最初は 85 m/s で降ろしていた。フラップが無く、130 kt では水平飛行の迎角が 22.5 度に
-   * なったため。フラップを足して 130 kt・迎角 8.1 度で飛べるようになった（ADR 0019）。
-   * 実機の着艦（降下率 約 13 ft/s、AIAA 2016-1770 の Table 1）よりずっと浅い。進入の台本は段 10
+   * **空母を着艦区域の中心線の向き（8.96 度）へ回し、中心線を自機の進む線（x 0）に重ねる。**
+   * 段 7 では空母を回しておらず、自機は中心線から 20 m 左舷を通っていた（索の外）。f355 に
+   * 着艦区域の外の艦首寄りに降り、f424 に甲板を離れていた。
+   *
+   * フラップを足す前は 85 m/s で降ろしていた（ADR 0019）。実機の着艦（降下率 約 13 ft/s、
+   * AIAA 2016-1770 の Table 1）よりずっと浅い。進入の台本は段 10
    */
   'deck-landing': {
     name: 'deck-landing',
     seed: 20261014,
     spawn: { altitude: 21, speed: 130 * 0.514444, gearDown: true },
-    carrier: { x: 20, z: -150, heading: 0 },
+    carrier: {
+      // 中心線 x = k z + c が世界の x 0 に重なる配置（向き atan k、横 −c cos）
+      x: -FORD_LANDING_CENTERLINE.c * Math.cos(Math.atan(FORD_LANDING_CENTERLINE.k)),
+      z: -310,
+      heading: Math.atan(FORD_LANDING_CENTERLINE.k),
+    },
     keyframes: [
-      { frame: 0, input: { throttle: 0.14, pitch: -0.05 } },
+      { frame: 0, input: { throttle: 0.14, pitch: -0.05, hookToggle: true } },
+      { frame: 2, input: { hookToggle: false } },
       // 接地のあとは絞って機首下げの指令もやめる
       { frame: 360, input: { throttle: 0, pitch: 0 } },
     ],

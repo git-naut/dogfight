@@ -12,6 +12,15 @@ import {
   type Touchdown,
   TOUCHDOWN_LIMITS,
 } from './deckContact'
+import {
+  ARRESTOR,
+  Arrestor,
+  HOOK_DOWN_ANGLE,
+  HOOK_TRANSIT_SECONDS,
+  hookAngleOnDeck,
+  hookPointWorld,
+  type LandingResult,
+} from './arrestor'
 import { GRAVITY, airDensity, dynamicPressure, speedOfSound } from './isa'
 import {
   AIRCRAFT,
@@ -252,6 +261,13 @@ export interface AircraftSample {
   gearCommandDown: boolean
   /** 脚が出ているのに `GEAR_SPEED_LIMIT` を超えている。HUD が警告を出す */
   gearOverspeed: boolean
+  /** フックの位置 0..1。0 が上げ切り。`HOOK_TRANSIT_SECONDS` かけて動く（段 8） */
+  hookPosition: number
+  /**
+   * フックの実際の角度 rad（収納から下ろす向き）。甲板に当たっているときは、指令の角度より
+   * 小さい（先端が甲板に載る角度）。描画がこのまま回す
+   */
+  hookAngle: number
 }
 
 // 毎ステップの一時変数。使い回してゴミを出さない。
@@ -265,6 +281,7 @@ const tmpLiftDir = new Vec3()
 const tmpBodyVel = new Vec3()
 const tmpRates = new Vec3()
 const tmpQuat = new Quat()
+const tmpHook = new Vec3()
 
 export class Aircraft {
   readonly position = new Vec3()
@@ -287,6 +304,23 @@ export class Aircraft {
   onDeck = false
   /** 最後に甲板に触れたときの記録。段 8 の着艦の結果が読む */
   lastTouchdown: Touchdown | null = null
+  /** フックの指令。true が下ろす（`toggleHook`、段 8） */
+  hookCommandDown = false
+  /** フックの位置 0..1。0 が上げ切り、1 が下ろし切り */
+  hookPosition = 0
+  /** フックの実際の角度 rad。甲板に当たると指令より小さくなる（`hookAngleOnDeck`） */
+  hookAngle = 0
+  /** 拘束索に掛かっていれば、止めている装置。掛かっていなければ null（段 8） */
+  arrestor: Arrestor | null = null
+  /** 最後の着艦の結果。まだ無ければ null（段 8） */
+  landing: LandingResult | null = null
+  /**
+   * いまの着艦の試み。甲板に車輪で降りたら立ち、走り抜けて離れたらボルターとして結果を残す。
+   * 射出の終点（`releaseOnDeck`）では立てない
+   */
+  private landingPass = { touchedDown: false, tooFast: false }
+  /** 前のステップのフックの先端の世界の位置。掃引の始点。無効なら null */
+  private hookPointBefore: Vec3 | null = null
 
   /**
    * 残りの耐久。20mm 弾 1 発で 1 減る。
@@ -412,6 +446,15 @@ export class Aircraft {
     this.gearCommandDown = !this.gearCommandDown
   }
 
+  /**
+   * フックの指令を切り替える（段 8）。位置は `HOOK_TRANSIT_SECONDS` かけて動く。射出中に
+   * 受け付けないのは呼ぶ側（`World`）の仕事
+   */
+  toggleHook(): void {
+    if (this.crashed) return
+    this.hookCommandDown = !this.hookCommandDown
+  }
+
   /** 脚を出し切り（true）か上げ切り（false）に置く。始めの状態を作るのに使う */
   setGear(down: boolean): void {
     this.gearCommandDown = down
@@ -468,13 +511,79 @@ export class Aircraft {
     this.onDeck = true
   }
 
-  /** 墜落させる。止めて原因を残す */
+  /** 墜落させる。止めて原因を残す。甲板で起きた墜落は着艦の結果にも残す（段 8） */
   private crash(cause: CrashCause): void {
     this.velocity.set(0, 0, 0)
     this.angularVelocity.set(0, 0, 0)
     this.crashed = true
     this.crashCause = cause
     this.onDeck = false
+    if (cause !== 'ground') this.landing = { kind: 'crash', cause, touchdown: this.lastTouchdown }
+  }
+
+  /**
+   * 甲板を離れた。車輪で降りたあと拘束索に掛からずに離れたら、ボルターとして残す（段 8）
+   */
+  private leaveDeck(): void {
+    this.onDeck = false
+    if (!this.landingPass.touchedDown || this.arrestor !== null) return
+    const reason = this.landingPass.tooFast ? 'tooFast' : this.hookPosition < 1 ? 'hookUp' : 'missed'
+    this.landing = { kind: 'bolter', reason, touchdown: this.lastTouchdown }
+    this.landingPass = { touchedDown: false, tooFast: false }
+  }
+
+  /**
+   * フックの角度を決め、先端が前のステップから拘束索を越えたかを見る（段 8）。位置を積分して
+   * 甲板の当たりを見たあとに呼ぶ。
+   *
+   * 越えた点の先端の高さが索の上端（甲板 + `ARRESTOR.wireHeight`）以下で、水平の速さが
+   * `ARRESTOR.maxEngageSpeed` 以下なら掛かる。**掛かった瞬間の位置から止める。**越えた点まで
+   * 戻さないので、引き出し長の起点は最大 1 ステップ（130 kt で 0.56 m）先へずれる
+   */
+  private engageWire(deck: DeckSampler): void {
+    const target = this.hookPosition * HOOK_DOWN_ANGLE
+    const point = hookPointWorld(this.position, this.orientation, target, tmpHook)
+    const deckUnderHook = deck.deckHeightAt(point.x, point.z)
+    this.hookAngle =
+      deckUnderHook === null
+        ? target
+        : hookAngleOnDeck(this.position, this.orientation, target, deckUnderHook)
+    hookPointWorld(this.position, this.orientation, this.hookAngle, point)
+
+    const before = this.hookPointBefore
+    if (before !== null && this.arrestor === null) {
+      const crossing = deck.crossWire(before.x, before.z, point.x, point.z)
+      if (crossing !== null) {
+        const y = before.y + (point.y - before.y) * crossing.t
+        const x = before.x + (point.x - before.x) * crossing.t
+        const z = before.z + (point.z - before.z) * crossing.t
+        const deckHeight = deck.deckHeightAt(x, z)
+        if (deckHeight !== null && y <= deckHeight + ARRESTOR.wireHeight) {
+          const speed = Math.hypot(this.velocity.x, this.velocity.z)
+          if (speed > ARRESTOR.maxEngageSpeed) {
+            this.landingPass.tooFast = true
+          } else if (speed > 0) {
+            this.arrestor = new Arrestor(
+              this.position.x,
+              this.position.z,
+              this.velocity.x / speed,
+              this.velocity.z / speed,
+              speed,
+              this.lastDt,
+            )
+            this.landing = {
+              kind: 'trap',
+              wire: (crossing.index + 1) as 1 | 2 | 3,
+              engageSpeed: speed,
+              offCenter: crossing.offCenter,
+              touchdown: this.landingPass.touchedDown ? this.lastTouchdown : null,
+            }
+          }
+        }
+      }
+    }
+    if (this.hookPointBefore === null) this.hookPointBefore = new Vec3()
+    this.hookPointBefore.copy(point)
   }
 
   /**
@@ -493,7 +602,7 @@ export class Aircraft {
     const deckHeight = deck.deckHeightAt(p.x, p.z)
     if (deckHeight === null) {
       // 甲板の外。縁を越えたら普通に飛ぶ（落ちれば海面で墜落）
-      this.onDeck = false
+      if (this.onDeck) this.leaveDeck()
       return
     }
     const gearDown = this.gearPosition >= 1
@@ -515,6 +624,7 @@ export class Aircraft {
         hard: sinkRate > TOUCHDOWN_LIMITS.hardSinkRate,
       }
       this.onDeck = true
+      this.landingPass.touchedDown = true
     }
 
     // 走っている。脚が上がったら（甲板では上げられないが念のため）胴体が触れる
@@ -530,11 +640,13 @@ export class Aircraft {
     const lowest = lowestContact(p, this.orientation, true)
     if (lowest > deckHeight + 1e-6) {
       // 揚力で浮いた
-      this.onDeck = false
+      this.leaveDeck()
       return
     }
     p.y += deckHeight - lowest
     if (this.velocity.y < 0) this.velocity.y = 0
+    // 拘束索に掛かっていれば、水平の動きは装置が決める（`Arrestor`）
+    if (this.arrestor !== null) return
     // 転がり抵抗。水平の速さを減らす（止まったら止まったまま）
     const vh = Math.hypot(this.velocity.x, this.velocity.z)
     if (vh > 0) {
@@ -602,6 +714,11 @@ export class Aircraft {
     this.gearPosition = this.gearCommandDown
       ? Math.min(1, this.gearPosition + gearStep)
       : Math.max(0, this.gearPosition - gearStep)
+    // フックも一定の速さで寄せる（段 8）
+    const hookStep = dt / HOOK_TRANSIT_SECONDS
+    this.hookPosition = this.hookCommandDown
+      ? Math.min(1, this.hookPosition + hookStep)
+      : Math.max(0, this.hookPosition - hookStep)
 
     // 舵面の位置。指令をそのまま見せると入力の瞬間に跳ねるので遅らせる。
     // 制限器を通したあとのピッチ指令を使う。制限が効いているときに舵面が
@@ -645,14 +762,19 @@ export class Aircraft {
 
     // 9. 位置と地形
     this.position.addScaledVector(this.velocity, dt)
+    // 拘束索に掛かっていれば、水平の位置と速度は装置の閉じた式で置き直す（段 8）
+    this.arrestor?.advance(this.position, this.velocity)
 
-    // 9a. 空母の甲板（段 7）。墜落したらここで終える
+    // 9a. 空母の甲板（段 7）とフック（段 8）。墜落したらここで終える
     if (options.deck !== undefined) {
       this.contactDeck(options.deck, dt)
       if (this.crashed) {
         this.updateDerived(tmpAero, this.groundHeight)
         return
       }
+      this.engageWire(options.deck)
+    } else {
+      this.hookAngle = this.hookPosition * HOOK_DOWN_ANGLE
     }
     // 地形を渡されていなければ海面（高度 0）。外洋はそれで正しい
     const ground = options.terrain
@@ -745,6 +867,8 @@ export class Aircraft {
     out.gearPosition = this.gearPosition
     out.gearCommandDown = this.gearCommandDown
     out.gearOverspeed = this.gearPosition > 0 && this.speed > GEAR_SPEED_LIMIT
+    out.hookPosition = this.hookPosition
+    out.hookAngle = this.hookAngle
     return out
   }
 
@@ -804,6 +928,8 @@ export function createAircraftSample(): AircraftSample {
     gearPosition: 0,
     gearCommandDown: false,
     gearOverspeed: false,
+    hookPosition: 0,
+    hookAngle: 0,
   }
 }
 

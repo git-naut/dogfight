@@ -71,8 +71,13 @@ export interface AircraftModel {
   readonly gear: THREE.Object3D | null
   /** 脚ごとのノード。付け根の定義が無い機体は空（脚をまとめて出し入れするだけ） */
   readonly gearLegs: readonly GearLegNode[]
-  /** 着艦フックのノード。無い機体は null。動かすのは段 8 */
+  /** 着艦フックのノード。無い機体は null */
   readonly hook: THREE.Object3D | null
+  /**
+   * フックを回す軸（この作品の座標）。**正の角で収納の向きへ回る**（変換ツールの `extras.hook.axis`、
+   * (−1, 0, 0)）。下ろすときは負の角を掛ける（段 8）
+   */
+  readonly hookAxis: THREE.Vector3
   /** 舵面のノード。名前で引く */
   readonly surfaces: ReadonlyMap<string, THREE.Object3D>
   /** 変換ツールが埋めたヒンジの定義 */
@@ -207,6 +212,7 @@ export async function loadAircraftModel(
     gear: object.getObjectByName(GEAR_NODE) ?? null,
     gearLegs,
     hook: object.getObjectByName(HOOK_NODE) ?? null,
+    hookAxis: new THREE.Vector3(...readHookAxis(gltf)).normalize(),
     surfaces,
     hinges,
     triangles,
@@ -258,6 +264,13 @@ function readHinges(gltf: { parser: { json: unknown } }): AircraftHinge[] {
  * glTF の extras から脚の付け根を読む（Phase 9 の段 6）。**無くてもよい。**F/A-18E
  * だけが持ち、ほかの機体は `gear` ノードをまとめて出し入れする
  */
+function readHookAxis(gltf: { parser: { json: unknown } }): [number, number, number] {
+  const json = gltf.parser.json as {
+    scenes?: { extras?: { hook?: { axis?: [number, number, number] } } }[]
+  }
+  return json.scenes?.[0]?.extras?.hook?.axis ?? [-1, 0, 0]
+}
+
 function readGearLegs(gltf: { parser: { json: unknown } }): AircraftGearLeg[] {
   const json = gltf.parser.json as {
     scenes?: { extras?: { gear?: AircraftGearLeg[] } }[]

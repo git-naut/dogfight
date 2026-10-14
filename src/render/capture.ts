@@ -675,6 +675,14 @@ export interface TestHook {
   playerCrashCause: string
   /** 最後に甲板に触れたときの降下率 m/s。触れていなければ −1（段 7） */
   playerTouchdownSink: number
+  /** 最後の着艦の結果（trap・bolter・crash）。まだ無ければ空文字（段 8、`Aircraft.landing`） */
+  playerLanding: string
+  /** 掛かった索の番号 1..3。掛かっていなければ 0（段 8） */
+  playerWire: number
+  /** 拘束索に掛かってから進んだ距離 m。掛かっていなければ −1（段 8） */
+  playerArrestDistance: number
+  /** フックの位置 0..1（段 8、`AircraftSample.hookPosition`） */
+  playerHookPosition: number
   /** 脚が出ているのに速度の上限を超えている（`AircraftSample.gearOverspeed`） */
   gearOverspeed: boolean
   /**

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import * as THREE from 'three'
 import { createAircraftView } from '@render/aircraftView'
 import type { AircraftModel } from '@render/aircraft/model'
+import { HOOK_DOWN_ANGLE, HOOK_PIVOT, HOOK_POINT_STOWED, hookPointBody } from '@sim/arrestor'
+import { Vec3 } from '@sim/vec3'
 
 /**
  * `setGear` が脚を畳む（Phase 9 の段 6）。
@@ -37,6 +39,7 @@ function syntheticModel(): { model: AircraftModel; legs: Map<string, THREE.Objec
     gear,
     gearLegs,
     hook: null,
+    hookAxis: new THREE.Vector3(-1, 0, 0),
     surfaces: new Map(),
     hinges: [],
     triangles: 0,
@@ -77,5 +80,41 @@ describe('setGear', () => {
     for (const [leg, node] of legs) {
       expect(footOf(node).y, `${leg} が水平まで畳まれていない`).toBeCloseTo(0, 6)
     }
+  })
+})
+
+/**
+ * `setHook` がフックを下ろす（段 8）。**描画の回転と sim の先端の位置が同じ向きに動く。**
+ * 軸は glb の定義（`extras.hook.axis` の (−1, 0, 0)、正の角で収納の向き）を手で置く
+ */
+describe('setHook', () => {
+  function hookModel(): { model: AircraftModel; hook: THREE.Object3D } {
+    const { model } = syntheticModel()
+    const hook = new THREE.Object3D()
+    model.object.add(hook)
+    return { model: { ...model, hook }, hook }
+  }
+
+  it('0 では回転 0（原本の収納の姿勢）', () => {
+    const { model, hook } = hookModel()
+    createAircraftView(model).setHook(0)
+    expect(hook.quaternion.angleTo(new THREE.Quaternion())).toBeCloseTo(0, 9)
+  })
+
+  it('下ろし切り（68 度）で、先端は sim の `hookPointBody` と同じ位置へ行く', () => {
+    const { model, hook } = hookModel()
+    createAircraftView(model).setHook(HOOK_DOWN_ANGLE)
+    const [y, z] = HOOK_POINT_STOWED
+    const drawn = new THREE.Vector3(0, y, z).applyQuaternion(hook.quaternion)
+    const sim = hookPointBody(HOOK_DOWN_ANGLE, new Vec3())
+    expect(drawn.y + HOOK_PIVOT[1]).toBeCloseTo(sim.y, 9)
+    expect(drawn.z + HOOK_PIVOT[2]).toBeCloseTo(sim.z, 9)
+    // 下へ振れている（付け根より 1.4 m 以上下）
+    expect(drawn.y).toBeLessThan(-1.4)
+  })
+
+  it('フックの無い機体は何もしない', () => {
+    const { model } = syntheticModel()
+    expect(() => createAircraftView(model).setHook(1)).not.toThrow()
   })
 })

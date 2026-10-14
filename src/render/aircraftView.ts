@@ -64,6 +64,11 @@ export interface AircraftView {
    * 走らないので、描画側で状態を持つ形にすると出ない
    */
   setGear(position: number): void
+  /**
+   * 着艦フックの角度 rad（収納から下ろす向き）。sim の `AircraftSample.hookAngle` をそのまま
+   * 渡す。0 で回転 0（原本の収納の姿勢）。フックの無い機体は何もしない（段 8）
+   */
+  setHook(angle: number): void
   dispose(): void
 }
 
@@ -113,6 +118,11 @@ export function createAircraftView(
       for (const leg of model.gearLegs) {
         leg.object.quaternion.setFromAxisAngle(leg.axis, (1 - position) * leg.retractRad)
       }
+    },
+
+    setHook(angle) {
+      // 軸は正の角で収納の向きなので、下ろす角は符号を反転して掛ける
+      model.hook?.quaternion.setFromAxisAngle(model.hookAxis, -angle)
     },
 
     setMach(mach: number, seconds?: number) {

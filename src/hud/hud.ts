@@ -20,6 +20,7 @@ import {
   formatScore,
   formatTimer,
   gearLabel,
+  hookLabel,
   trendOf,
   type HudReadout,
 } from './readout'
@@ -1242,6 +1243,9 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     // 脚。上げ切りのときは出さない（`gearLabel`）
     const gear = gearLabel(readout.gearPosition)
     if (gear !== null) ctx!.fillText(gear, x, y + 48)
+    // フック（段 8）。上げ切りのときは出さない
+    const hook = hookLabel(readout.hookPosition)
+    if (hook !== null) ctx!.fillText(hook, x, y + 64)
 
     ctx!.textAlign = 'right'
     ctx!.fillText(`AGL ${Math.round(readout.aglFt)}`, layout.agl.x, layout.agl.y)

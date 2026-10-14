@@ -23,6 +23,11 @@ export interface InputState {
    * 切り替えない。押した瞬間の判定は `World` が持つ（甲板の上では受け付けないため）
    */
   gearToggle: boolean
+  /**
+   * 着艦フックの上げ下ろし（Phase 9 の段 8）。押した瞬間だけ効く。押した瞬間の判定は
+   * `World` が持つ（射出中は受け付けないため）
+   */
+  hookToggle: boolean
 }
 
 export function neutralInput(): InputState {
@@ -35,6 +40,7 @@ export function neutralInput(): InputState {
     fireMissile: false,
     deployFlare: false,
     gearToggle: false,
+    hookToggle: false,
   }
 }
 

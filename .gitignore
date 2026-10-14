@@ -31,3 +31,8 @@ dist/
 
 # ユーザーがダウンロードした原本の置き場（Phase 9）。使うものは各段で assets/upstream/ へ写してからコミットする
 /download/
+
+# 出典の PDF（段 7 とフラップで照合した論文・特許）。再配布の許諾が無いのでコミットしない
+/1901.07951v1.pdf
+/IdeYAqCc4Ki6TWPE.pdf
+/US4869444.pdf

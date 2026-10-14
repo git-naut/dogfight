@@ -128,6 +128,31 @@ describe('carrier-bolter と carrier-hard', () => {
     expect(p.position.y).toBeGreaterThan(150)
   })
 
+  /**
+   * 浮く途中で甲板に触れ直しても、新しい接地に数えない（`RECONTACT_STEPS`、ユーザーの判断
+   * 2026-10-15）。直す前は f2393 と f2398 に降下率ほぼ 0 で触れ直し、接地の記録とボルターの
+   * 結果の接地の値が 0 で上書きされていた
+   */
+  it('ボルターの接地は 1 回だけ数え、記録は本当の接地（12.0 ft/s）のまま', () => {
+    const script = getScript('carrier-bolter')
+    const world = new World(worldOptionsFromScript(script))
+    const player = new ReplayPlayer(script)
+    let touchdowns = 0
+    let last = world.player.lastTouchdown
+    for (let i = 0; i < 3000; i++) {
+      world.step(player.at(i, world.player))
+      if (world.player.lastTouchdown !== last) {
+        touchdowns++
+        last = world.player.lastTouchdown
+      }
+    }
+    const p = world.player
+    expect(touchdowns).toBe(1)
+    expect(p.lastTouchdown!.sinkRate / FT).toBeCloseTo(12.0, 1)
+    if (p.landing?.kind !== 'bolter') throw new Error('ボルターになっていない')
+    expect(p.landing.touchdown!.sinkRate / FT).toBeCloseTo(12.0, 1)
+  })
+
   it('進入角 8 度なら、降下率が構造設計の範囲を超えて墜落する（deckSink）', () => {
     const pass = fly(getScript('carrier-hard'))
     expect(pass.world.player.landing).toMatchObject({ kind: 'crash', cause: 'deckSink' })

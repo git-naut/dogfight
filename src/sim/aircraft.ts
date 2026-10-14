@@ -97,6 +97,16 @@ export const FLAP_DRAG_COEFFICIENT = 0
  */
 export const GEAR_SPEED_LIMIT = 250 * 0.514444
 
+/**
+ * 甲板を離れてから、触れ直しても新しい接地に数えないステップ数。0.5 秒（段 10）。
+ *
+ * **推測。**ボルターで甲板の端を走り抜けて浮くとき、引き起こしの途中で 2 回、降下率ほぼ 0 で
+ * 甲板に触れ直した（`carrier-bolter` の f2393 と f2398）。新しい接地として数えると、接地の
+ * 記録が降下率 0 で上書きされ、ボルターの結果も記録し直されていた（2026-10-15 に見つけた）。
+ * この間に触れ直したら、走っている続きとみなす（ユーザーの判断）
+ */
+export const RECONTACT_STEPS = 60
+
 export interface AircraftInit {
   position?: Vec3
   velocity?: Vec3
@@ -319,6 +329,13 @@ export class Aircraft {
    * 射出の終点（`releaseOnDeck`）では立てない
    */
   private landingPass = { touchedDown: false, tooFast: false }
+  /**
+   * 甲板を離れてからのステップ数。走っていなければ数え続け、`RECONTACT_STEPS` を超えたら
+   * 「離れ切った」とみなす。初めは離れ切った状態
+   */
+  private stepsOffDeck = Number.POSITIVE_INFINITY
+  /** 甲板を離れたが、まだ触れ直すかもしれないボルター。離れ切ったら結果に残す */
+  private pendingBolter = false
   /** 前のステップのフックの先端の世界の位置。掃引の始点。無効なら null */
   private hookPointBefore: Vec3 | null = null
 
@@ -526,10 +543,19 @@ export class Aircraft {
    */
   private leaveDeck(): void {
     this.onDeck = false
-    if (!this.landingPass.touchedDown || this.arrestor !== null) return
+    this.stepsOffDeck = 0
+    // ボルターは、`RECONTACT_STEPS` のあいだ触れ直さなかったら結果に残す（`settleBolter`）
+    this.pendingBolter = this.landingPass.touchedDown && this.arrestor === null
+  }
+
+  /** 甲板を離れているあいだ毎ステップ呼ぶ。離れ切ったら、保留していたボルターを結果に残す */
+  private settleBolter(): void {
+    this.stepsOffDeck++
+    if (!this.pendingBolter || this.stepsOffDeck <= RECONTACT_STEPS) return
     const reason = this.landingPass.tooFast ? 'tooFast' : this.hookPosition < 1 ? 'hookUp' : 'missed'
     this.landing = { kind: 'bolter', reason, touchdown: this.lastTouchdown }
     this.landingPass = { touchedDown: false, tooFast: false }
+    this.pendingBolter = false
   }
 
   /**
@@ -600,6 +626,7 @@ export class Aircraft {
     const p = this.position
     if (deck.insideIsland(p.x, p.y, p.z)) return this.crash('island')
     const deckHeight = deck.deckHeightAt(p.x, p.z)
+    if (!this.onDeck) this.settleBolter()
     if (deckHeight === null) {
       // 甲板の外。縁を越えたら普通に飛ぶ（落ちれば海面で墜落）
       if (this.onDeck) this.leaveDeck()
@@ -612,6 +639,13 @@ export class Aircraft {
       // **原点が甲板より下なら、上から降りたのではなく横から船体に入った**
       if (p.y <= deckHeight) return this.crash('hull')
       if (!gearDown) return this.crash('belly')
+    }
+    if (!this.onDeck && this.stepsOffDeck <= RECONTACT_STEPS) {
+      // 離れて間もなく触れ直した。走っている続きで、新しい接地にも着艦の試みにも数えない
+      this.onDeck = true
+      this.pendingBolter = false
+    }
+    if (!this.onDeck) {
       const sinkRate = -this.velocity.y
       const pitch = pitchOf(this.orientation)
       const roll = rollOf(this.orientation)

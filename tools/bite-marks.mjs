@@ -1342,6 +1342,15 @@ export const BITE_MARKS = [
     why: '接地でスロットルを絞り、索に掛からなかったときに飛び去れない',
   },
   {
+    id: 'recontact-counted',
+    kind: '定数の摂動',
+    file: 'src/sim/aircraft.ts',
+    find: 'export const RECONTACT_STEPS = 60\n',
+    replace: 'export const RECONTACT_STEPS = 0\n',
+    expect: 'tests/sim/approach.test.ts',
+    why: 'ボルターで浮く途中に甲板へ触れ直すたび新しい接地に数え、接地の記録が降下率 0 で上書きされる',
+  },
+  {
     id: 'hook-transit-slow',
     kind: '定数の摂動',
     file: 'src/sim/arrestor.ts',

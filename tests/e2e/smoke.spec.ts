@@ -1989,8 +1989,8 @@ test.describe('カタパルト射出', () => {
 
   /**
    * **射出後に海へ落ちない。**入力なしで飛ぶキャプチャモードで最後まで
-   * 回す。実測で最低 18.59 m（f682）まで沈んでから加速して上がる（段 7 で甲板を走るようになってから）。そのときは cat-4 の
-   * 帯の延長で甲板の外（海の上）に出ている
+   * 回す。フラップを下ろしたまま射出されるので（フラップの段）、終点の 20.63 m より下へ沈まずに
+   * 上がる（実測、f3000 で 424.8 m）
    */
   test('射出後に上昇へ移る', async ({ page }) => {
     const hook = await capture(page, { script: 'catapult-launch', frame: 3000 })
@@ -2015,15 +2015,15 @@ test.describe('カタパルト射出', () => {
  */
 test.describe('甲板の当たり', () => {
   test('甲板に降りて車輪で走る', async ({ page }) => {
-    // f278 に軟着地し、f331 まで走る（`deck-landing` の台本の注記）
-    const hook = await capture(page, { script: 'deck-landing', frame: 300 })
+    // f355 に軟着地し、f424 まで走る（`deck-landing` の台本の注記）
+    const hook = await capture(page, { script: 'deck-landing', frame: 380 })
     expect(hook.playerOnDeck, '甲板を走っていない').toBe(true)
     expect(hook.playerCrashCause).toBe('')
     expect(hook.playerTouchdownSink).toBeGreaterThan(0)
-    // 12 ft/s（3.66 m/s）より遅い軟着地
-    expect(hook.playerTouchdownSink).toBeLessThan(3.66)
-    // 車輪が甲板（18.867 m）に載っている。機首 12 度で原点は甲板の 1.78 m 上
-    expect(hook.altitude).toBeCloseTo(20.65, 1)
+    // 硬い着地の線（17.67 ft/s = 5.39 m/s）より遅い軟着地（実測 2.14 ft/s）
+    expect(hook.playerTouchdownSink).toBeLessThan(5.39)
+    // 車輪が甲板（18.867 m）に載っている。機首 6.7 度で原点は甲板の 1.74 m 上
+    expect(hook.altitude).toBeCloseTo(20.61, 1)
   })
 
   test('射出のあとは着艦と数えない', async ({ page }) => {
@@ -2226,7 +2226,7 @@ test.describe('通しの流れ', () => {
         () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.gearPosition ?? -1,
       )
     expect(await readGear(), '飛び立った直後に脚が出し切りでない').toBe(1)
-    // **甲板を離れてから押す**（段 7）。射出の終点から 24 フレーム（0.2 秒）は甲板を走っていて、
+    // **甲板を離れてから押す**（段 7）。射出の終点から甲板を離れるまで（フラップを足してからは 2 フレーム）は甲板を走っていて、
     // そのあいだ G は受け付けない（車輪に重さが掛かっている）。押しっぱなしだと「押した瞬間」が
     // 甲板の上で終わってしまい、離れても上がらない
     await expect

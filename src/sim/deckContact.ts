@@ -13,10 +13,13 @@ import { FORD_DECK_HEIGHT, FORD_DECK_OUTLINE, FORD_ISLAND } from './fordDeck'
  *
  * | 判定 | 値 | 根拠 |
  * |---|---|---|
- * | 墜落になる降下率 | 7.32 m/s（24 ft/s） | 米国特許 4,869,444（Boeing、1989）PDF 12 頁「艦上機は典型的に最大 24 ft/s の降下率を受ける」 |
- * | 硬い着地（記録だけ） | 3.66 m/s（12 ft/s） | arXiv 1901.07951 PDF 15 頁「着艦の成功は最終の降下率 12 ft/s 未満」 |
- * | 機首の角度 | −7.6〜+14.2 度 | この機体の形で、主輪を甲板に付けて機首を下げ・上げたときに機体が甲板に当たる角度（原本で測定） |
- * | 傾き | ±22.1 度 | 同じく、片側の主輪で傾けたときに翼端が当たる角度 |
+ * | 墜落（降下率と機首） | F/A-18E/F の構造設計の範囲の外（`DESIGN_ENVELOPE`） | AIAA 2016-1770 PDF 13 頁 Figure 10 |
+ * | 硬い着地（記録だけ） | 17.67 ft/s（5.39 m/s）超え | 同 Table 1、通常の着艦の平均 + 2σ |
+ * | 傾き | ±22.1 度 | この機体の形で、片側の主輪で傾けたときに翼端が甲板に当たる角度（原本で測定） |
+ *
+ * 最初（2026-10-14 の朝）は降下率 24 ft/s（米国特許 4,869,444）と機体の形で当たる角度
+ * （機首 −7.6〜+14.2 度）、硬い着地 12 ft/s（arXiv 1901.07951）にしていた。ユーザーが置いた
+ * AIAA 2016-1770 に F/A-18E/F そのものの設計の範囲と実測があったので置き換えた（ユーザーの判断）
  *
  * 甲板の形は `FORD_DECK_OUTLINE`（空母の座標、32 頂点）。船体は甲板の輪郭をそのまま海面まで
  * 下ろした柱とみなす。艦橋は `FORD_ISLAND` の箱。**どちらも近似で、機体は原点の 1 点で見る。**
@@ -25,15 +28,53 @@ import { FORD_DECK_HEIGHT, FORD_DECK_OUTLINE, FORD_ISLAND } from './fordDeck'
 const FT = 0.3048
 const DEG = Math.PI / 180
 
+/**
+ * F/A-18E/F の構造設計の範囲（接地の 0.25 秒前の機首の角度 deg と降下率 ft/s）。
+ *
+ * AIAA 2016-1770（Denham、NAVAIR）PDF 13 頁の Figure 10 の赤い線
+ * （"The red boundary line is the structural design envelope for the F/A-18E/F aircraft."）。
+ * 元の図は 288×483 画素の JPEG で、格子線（2 度ごと・2 ft/s ごと）で軸を合わせ、赤い線の外周を
+ * 中心から放射状に拾った（読み取りの誤差は約 0.1 度・0.1 ft/s）。右上の一部（機首 6.6〜10.5 度）は
+ * 線が途切れていて、その間は直線でつなぐ。上半分（降下率が中心の 16.9 ft/s より大きい側）だけを
+ * 使う。下半分は降下率が小さく構造には楽な側なので、最も広い機首の範囲で見る
+ */
+export const DESIGN_ENVELOPE: readonly (readonly [number, number])[] = [
+  [-3.17, 16.9],
+  [-3.17, 18.27],
+  [-3.09, 20.08],
+  [-2.59, 21.01],
+  [-1.76, 22.33],
+  [-0.76, 23.7],
+  [0.56, 25.12],
+  [1.56, 25.67],
+  [3.05, 26.44],
+  [6.45, 26.38],
+  [10.52, 23.42],
+  [11.18, 22.44],
+  [11.84, 21.23],
+  [12.34, 20.03],
+  [12.76, 18.55],
+  [12.76, 16.9],
+]
+
+/** 構造設計の範囲の中心の降下率 ft/s。これより遅ければ機首の範囲だけで見る */
+export const ENVELOPE_CENTER_SINK = 16.9
+/** 構造設計の範囲の機首の最も広い幅 deg */
+export const ENVELOPE_PITCH_MIN = -3.17
+export const ENVELOPE_PITCH_MAX = 12.76
+
 export const TOUCHDOWN_LIMITS = {
-  /** これを超える降下率で触れたら墜落 m/s */
-  sinkRate: 24 * FT,
-  /** これを超える降下率は硬い着地として記録する（墜落にはしない）m/s */
-  hardSinkRate: 12 * FT,
-  /** 機首の角度の範囲 rad。上げが正 */
-  pitchMin: -7.6 * DEG,
-  pitchMax: 14.2 * DEG,
-  /** 傾きの上限 rad（左右とも） */
+  /**
+   * これを超える降下率は硬い着地として記録する（墜落にはしない）m/s。
+   *
+   * AIAA 2016-1770 PDF 13 頁の Table 1。手で操縦した通常の着艦の調査 S-67 の平均 13.65 ft/s と
+   * 1σ 2.01 ft/s から、平均 + 2σ = 17.67 ft/s。S-68 は 12.99・1.83、S-71 は 11.84・2.25
+   */
+  hardSinkRate: (13.65 + 2 * 2.01) * FT,
+  /**
+   * 傾きの上限 rad（左右とも）。構造設計の範囲の図に傾きは無いので、この機体の形で片側の
+   * 主輪で傾けたときに翼端が甲板に当たる角度（原本で測定）
+   */
   rollMax: 22.1 * DEG,
 } as const
 
@@ -164,8 +205,13 @@ export function rollOf(orientation: Quat): number {
 
 /** 触れた瞬間の値を判定する。範囲の内側なら null、外なら墜落の原因 */
 export function judgeTouchdown(sinkRate: number, pitch: number, roll: number): CrashCause | null {
-  const L = TOUCHDOWN_LIMITS
-  if (sinkRate > L.sinkRate) return 'deckSink'
-  if (pitch < L.pitchMin || pitch > L.pitchMax || Math.abs(roll) > L.rollMax) return 'deckAttitude'
-  return null
+  if (Math.abs(roll) > TOUCHDOWN_LIMITS.rollMax) return 'deckAttitude'
+  const sinkFt = sinkRate / FT
+  const pitchDeg = pitch / DEG
+  if (sinkFt <= ENVELOPE_CENTER_SINK) {
+    return pitchDeg < ENVELOPE_PITCH_MIN || pitchDeg > ENVELOPE_PITCH_MAX ? 'deckAttitude' : null
+  }
+  if (insidePolygon(DESIGN_ENVELOPE, pitchDeg, sinkFt)) return null
+  // 範囲の上端より速いか、上半分の左右の外。機首の幅の内側なら降下率で外れている
+  return pitchDeg < ENVELOPE_PITCH_MIN || pitchDeg > ENVELOPE_PITCH_MAX ? 'deckAttitude' : 'deckSink'
 }

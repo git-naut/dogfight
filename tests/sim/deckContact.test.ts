@@ -19,9 +19,11 @@ import { FORD_DECK_HEIGHT } from '@sim/fordDeck'
 /**
  * 空母の甲板の当たり（Phase 9 の段 7）。
  *
- * 判定の値はユーザーと合意した（2026-10-14、ADR 0018）。墜落は降下率 7.32 m/s（24 ft/s）超え、
- * 機首 −7.6〜+14.2 度の外、傾き ±22.1 度の外。3.66 m/s（12 ft/s）超えは硬い着地として記録だけ
+ * 判定の値はユーザーと合意した（2026-10-14、ADR 0018）。墜落は F/A-18E/F の構造設計の範囲
+ * （AIAA 2016-1770 PDF 13 頁 Figure 10）の外と、傾き ±22.1 度の外。17.67 ft/s（5.39 m/s）超えは
+ * 硬い着地として記録だけ（同 Table 1 の通常の着艦の平均 + 2σ）
  */
+const FT = 0.3048
 
 const DEG = Math.PI / 180
 const CARRIER = { x: 0, z: 0, heading: 0 } as const
@@ -145,23 +147,30 @@ describe('甲板に降りる', () => {
     expect(p.velocity.y).toBeGreaterThanOrEqual(0)
   })
 
-  it('硬い着地: 降下率 5 m/s は墜落しないが記録する（12 ft/s 超え）', () => {
-    const world = approach({ sink: 5 })
+  it('硬い着地: 降下率 20 ft/s は墜落しないが記録する（17.67 ft/s 超え）', () => {
+    const world = approach({ sink: 20 * FT })
     untilContact(world)
     expect(world.player.crashed).toBe(false)
     expect(world.player.lastTouchdown!.hard).toBe(true)
   })
 
-  it('硬着地: 降下率 8 m/s（24 ft/s 超え）は墜落', () => {
-    const world = approach({ sink: 8 })
+  it('通常の着艦の平均 13.65 ft/s は硬い着地に数えない', () => {
+    const world = approach({ sink: 13.65 * FT })
+    untilContact(world)
+    expect(world.player.crashed).toBe(false)
+    expect(world.player.lastTouchdown!.hard).toBe(false)
+  })
+
+  it('硬着地: 降下率 28 ft/s（構造設計の範囲の上端 26.4 ft/s 超え）は墜落', () => {
+    const world = approach({ sink: 28 * FT })
     untilContact(world)
     expect(world.player.crashed).toBe(true)
     expect(world.player.crashCause).toBe('deckSink')
   })
 
   it.each([
-    ['機首上げ 16 度', 16, 0],
-    ['機首下げ −9 度', -9, 0],
+    ['機首上げ 14 度（範囲の右端 12.8 度の外）', 14, 0],
+    ['機首下げ −5 度（範囲の左端 −3.2 度の外）', -5, 0],
     ['右へ 25 度', 4, 25],
     ['左へ 25 度', 4, -25],
   ])('姿勢が範囲の外（%s）は墜落', (_, pitch, roll) => {
@@ -171,10 +180,23 @@ describe('甲板に降りる', () => {
     expect(world.player.crashCause).toBe('deckAttitude')
   })
 
-  it('姿勢が範囲の内側の端（機首 14 度・傾き 20 度）は墜落しない', () => {
-    const world = approach({ sink: 2, pitch: 14, roll: 20 })
+  it('姿勢が範囲の内側の端（機首 12 度・傾き 20 度）は墜落しない', () => {
+    const world = approach({ sink: 2, pitch: 12, roll: 20 })
     untilContact(world)
     expect(world.player.crashed).toBe(false)
+  })
+
+  /**
+   * **降下率と機首は組で見る。**構造設計の範囲は楕円なので、降下率が大きいほど許される機首の
+   * 幅が狭い。22 ft/s では右端が約 11.3 度
+   */
+  it.each([
+    ['22 ft/s・機首 5 度は内側', 5, false],
+    ['22 ft/s・機首 12 度は外側', 12, true],
+  ])('%s', (_, pitch, crashed) => {
+    const world = approach({ sink: 22 * FT, pitch })
+    untilContact(world)
+    expect(world.player.crashed).toBe(crashed)
   })
 
   it('脚を上げたまま: 胴体が触れて墜落', () => {
@@ -268,7 +290,7 @@ describe('射出との兼ね合い', () => {
     expect(world.player.lastTouchdown).toBeNull()
     expect(world.player.crashCause).not.toBe('deckSink')
     expect(world.player.crashCause).not.toBe('hull')
-    // 実測: f346 に射出が終わり、24 フレーム走って f370 に縁を越える（cat-4）
+    // 実測: f346 に射出が終わり、フラップの揚力ですぐ浮いて f348 に離れる（フラップを足す前は f370）
     expect(rolled).toBeGreaterThan(0)
     expect(leftAt).toBeGreaterThan(346)
     expect(leftAt).toBeLessThan(400)
@@ -282,7 +304,7 @@ describe('射出との兼ね合い', () => {
       if (world.catapult?.phase === 'airborne') min = Math.min(min, world.player.position.y)
     }
     expect(world.player.crashed).toBe(false)
-    // 実測: 最低 18.59 m（f682）、f3000 で 360.6 m
+    // 実測: 最低 20.63 m（射出の終点）、f3000 で 424.8 m（フラップを足す前は 18.59 m・360.6 m）
     expect(min).toBeGreaterThan(17)
     expect(world.player.position.y).toBeGreaterThan(300)
   })

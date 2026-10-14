@@ -108,7 +108,8 @@ const BODY_FORWARD = new Vec3(0, 0, -1)
  */
 export function spawnFromSpec(spec: SpawnSpec): SpawnState {
   const density = airDensity(spec.altitude)
-  const { alpha, throttle } = trimCondition(spec.speed, density)
+  // 脚を出して始めるならフラップも下りている（脚と一緒に動く）
+  const { alpha, throttle } = trimCondition(spec.speed, density, spec.gearDown === true ? 1 : 0)
   const climb = spec.climbAngle ?? 0
 
   // 速度は上昇角ぶん傾けた -Z 方向

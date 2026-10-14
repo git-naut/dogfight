@@ -159,6 +159,31 @@ const REFERENCE_DYNAMIC_PRESSURE = dynamicPressure(
 /** 最大揚力係数。平坦部に入る迎角で決まる。以降の計算の基準になる */
 export const CL_MAX = AIRCRAFT.liftSlope * AIRCRAFT.clPeakAngle
 
+/**
+ * 着艦の進入の状態（Phase 9 のフラップの段、2026-10-14）。
+ *
+ * **迎角 8.1 度**は AIAA 2016-1770（Denham、NAVAIR、"Project MAGIC CARPET"）PDF 3 頁の
+ * "the original vision over-the-nose requirement that set the Super Hornet approach AOA at
+ * 8.1 degrees"。**速さ 130 kt**は AOPA Pilot 2017 年 4 月号（Navy の F/A-18・EA-18G の計画責任者の
+ * 説明）の "approaching an aircraft carrier at 130 knots"。速さは重さで変わる値で、一次資料の
+ * 表は見つけていない（ADR 0019）
+ */
+export const APPROACH = {
+  alpha: (8.1 * Math.PI) / 180,
+  speed: 130 * 0.514444,
+} as const
+
+/**
+ * フラップを下ろし切ったときに足す揚力係数。
+ *
+ * **進入の状態から逆算した。**F/A-18E のフラップの揚力の増分の一次資料は見つけていない。
+ * 脚と一緒に下ろしたとき、`APPROACH` の迎角と速さで（海面・この機体の質量で）水平に飛べる
+ * 大きさにする。直線の揚力曲線の上に一様に足すので、失速の迎角は変えない（推測）
+ */
+export const FLAP_LIFT_COEFFICIENT =
+  (AIRCRAFT.mass * GRAVITY) / (0.5 * SEA_LEVEL_DENSITY * APPROACH.speed ** 2 * AIRCRAFT.wingArea) -
+  AIRCRAFT.liftSlope * APPROACH.alpha
+
 export function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value
 }
@@ -371,11 +396,13 @@ const TRIM_MIN_SPEED = 40
 export function trimCondition(
   speed: number,
   density: number,
+  /** フラップの位置 0..1（脚と一緒に動く）。揚力を `FLAP_LIFT_COEFFICIENT` だけ足す */
+  flap = 0,
 ): { alpha: number; throttle: number } {
   const q = dynamicPressure(density, Math.max(speed, TRIM_MIN_SPEED))
   const weight = AIRCRAFT.mass * GRAVITY
   const cl = weight / (q * AIRCRAFT.wingArea)
-  const alpha = cl / AIRCRAFT.liftSlope
+  const alpha = (cl - FLAP_LIFT_COEFFICIENT * flap) / AIRCRAFT.liftSlope
   const drag = q * AIRCRAFT.wingArea * dragCoefficient(cl)
   const throttle = clamp(drag / availableThrust(1, density), 0, 1)
   return { alpha, throttle }

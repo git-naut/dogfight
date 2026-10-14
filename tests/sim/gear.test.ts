@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
+  FLAP_DRAG_COEFFICIENT,
   GEAR_DRAG_COEFFICIENT,
   GEAR_SPEED_LIMIT,
   GEAR_TRANSIT_SECONDS,
   createAircraftSample,
 } from '@sim/aircraft'
-import { AIRCRAFT, dragMagnitude } from '@sim/flightModel'
+import { AIRCRAFT, availableThrust, dragMagnitude } from '@sim/flightModel'
 import { airDensity, dynamicPressure } from '@sim/isa'
 import { FIXED_DT } from '@sim/loop'
 import { neutralInput, type InputState } from '@sim/input'
@@ -101,13 +102,22 @@ describe('脚の抗力', () => {
   it('出し切ると、抗力が q·S·ΔCd だけ増える', () => {
     const up = worldOf(level(false))
     const down = worldOf(level(true))
+    // **フラップも下りるので、同じ揚力を出す迎角が違う**（フラップの段、ΔCL 1.05 で約 15 度）。
+    // 揚力が同じなので誘導抗力は同じだが、推力の速度方向の成分 T·cos α が変わる。その差を引く
+    const throttle = up.player.throttle
+    expect(down.player.throttle).toBeCloseTo(throttle, 9)
+    const alphaUp = up.player.angleOfAttack
+    const alphaDown = down.player.angleOfAttack
     run(up, 1)
     run(down, 1)
-    const q = dynamicPressure(airDensity(1000), 120)
-    const expected = q * AIRCRAFT.wingArea * GEAR_DRAG_COEFFICIENT
+    const density = airDensity(1000)
+    const q = dynamicPressure(density, 120)
+    const expected = q * AIRCRAFT.wingArea * (GEAR_DRAG_COEFFICIENT + FLAP_DRAG_COEFFICIENT)
+    const thrust = availableThrust(throttle, density)
+    const thrustGap = thrust * (Math.cos(alphaUp) - Math.cos(alphaDown))
     // 1 ステップぶんの速度差 × 質量 / dt が、速度方向の力の差
     const dv = up.player.speed - down.player.speed
-    expect((dv * AIRCRAFT.mass) / FIXED_DT).toBeCloseTo(expected, -1)
+    expect((dv * AIRCRAFT.mass) / FIXED_DT).toBeCloseTo(expected + thrustGap, -1)
     expect(expected).toBeGreaterThan(5000)
     // 書き方を変えた式と一致する（`dragMagnitude` の係数の扱いを確かめる）
     expect(dragMagnitude(q, GEAR_DRAG_COEFFICIENT)).toBeCloseTo(expected, 6)

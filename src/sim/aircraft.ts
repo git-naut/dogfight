@@ -15,6 +15,7 @@ import {
 import { GRAVITY, airDensity, dynamicPressure, speedOfSound } from './isa'
 import {
   AIRCRAFT,
+  FLAP_LIFT_COEFFICIENT,
   angleOfAttack,
   applyAoaLimiter,
   availableThrust,
@@ -68,6 +69,15 @@ export const GEAR_TRANSIT_SECONDS = 5
  * 比例させる
  */
 export const GEAR_DRAG_COEFFICIENT = 0.02
+
+/**
+ * フラップを下ろし切ったときに足す形状の抗力係数。**入れていない（0）。**
+ *
+ * 一次資料を見つけていない。フラップで増えた揚力ぶんの誘導抗力は `dragCoefficient(cl)` が
+ * 持つ。形状の抗力を 0〜0.04 で振っても、進入（130 kt・進入角 3.5 度）のスロットルは
+ * 0.139〜0.165 で大きく変わらなかった（ADR 0019）。根拠のある値が見つかったら置く
+ */
+export const FLAP_DRAG_COEFFICIENT = 0
 
 /**
  * 脚を出していてよい速度の上限 m/s。250 kt。
@@ -609,12 +619,15 @@ export class Aircraft {
     if (speed > 0.1) {
       tmpVelDir.copy(this.velocity).multiplyScalar(1 / speed)
       const alpha = angleOfAttack(tmpVelDir, tmpUp)
-      const cl = liftCoefficient(alpha)
+      // フラップは脚と一緒に動く（G で両方）。下りている割合だけ揚力を足す
+      const cl = liftCoefficient(alpha) + FLAP_LIFT_COEFFICIENT * this.gearPosition
 
       liftDirection(tmpVelDir, tmpUp, tmpLiftDir)
       tmpAero.addScaledVector(tmpLiftDir, liftMagnitude(q, cl))
-      // 脚の抗力は出ている割合に比例させる
-      const cd = dragCoefficient(cl) + GEAR_DRAG_COEFFICIENT * this.gearPosition
+      // 脚とフラップの抗力は出ている割合に比例させる。フラップで増えた揚力の誘導抗力は
+      // `dragCoefficient(cl)` が含む
+      const cd =
+        dragCoefficient(cl) + (GEAR_DRAG_COEFFICIENT + FLAP_DRAG_COEFFICIENT) * this.gearPosition
       tmpAero.addScaledVector(tmpVelDir, -dragMagnitude(q, cd))
     }
 

@@ -200,6 +200,7 @@ const hook = installTestHook({
   playerWire: 0,
   playerArrestDistance: -1,
   playerHookPosition: 0,
+  playerState: [],
   gearOverspeed: false,
   audioProbe: null,
   gpuProbe: null,
@@ -648,6 +649,8 @@ async function main(): Promise<void> {
     hook.playerWire = landing?.kind === 'trap' ? landing.wire : 0
     hook.playerArrestDistance = currentWorld.player.arrestor?.distance ?? -1
     hook.playerHookPosition = currentWorld.player.hookPosition
+    const { position: p, velocity: v, orientation: q } = currentWorld.player
+    hook.playerState = [p.x, p.y, p.z, v.x, v.y, v.z, q.x, q.y, q.z, q.w, currentWorld.player.throttle]
     hook.gearOverspeed = sample.gearOverspeed
     hook.groundHeight = sample.groundHeight
     hook.elevator = sample.elevator

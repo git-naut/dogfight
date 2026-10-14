@@ -848,6 +848,20 @@ export const SCRIPTS = {
       { frame: 360, input: { throttle: 0, pitch: 0 } },
     ],
   },
+  /**
+   * 操縦役の口を確かめる（Phase 9 の段 9）。
+   *
+   * 30 度右に傾き、少し下を向いて 200 m/s で始まる。操縦役 `hold` が翼を水平に戻して上昇角 0 を
+   * 保ち、スロットルで 220 m/s まで上げる。実測では f360 に傾き 0、f1800 に 220.83 m/s
+   * （±1 m/s の内側）。**キーフレームには操縦軸とスロットルを書かない**（操縦役が持つ）
+   */
+  'pilot-hold': {
+    name: 'pilot-hold',
+    seed: 20261014,
+    spawn: { altitude: 1500, speed: 200, bank: 0.5, climbAngle: -0.05 },
+    pilot: { kind: 'hold', speed: 220 },
+    keyframes: [],
+  },
 } as const satisfies Record<string, ReplayScript>
 
 export type ScriptName = keyof typeof SCRIPTS

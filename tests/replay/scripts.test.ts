@@ -68,7 +68,7 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('39 本すべて引ける', () => {
+  it('40 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
@@ -109,8 +109,10 @@ describe('スクリプトの登録', () => {
       // Phase 9 の段 6。脚が畳まれる途中
       'gear-transit',
       'catapult-launch',
-      // Phase 9 の段 7。甲板に降りて車輪で走る
+      // Phase 9 の段 7・段 8。甲板に降りて拘束索で止まる
       'deck-landing',
+      // Phase 9 の段 9。操縦役の口
+      'pilot-hold',
     ])
     for (const name of SCRIPT_NAMES) {
       expect(getScript(name).name).toBe(name)

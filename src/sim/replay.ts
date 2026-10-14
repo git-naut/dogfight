@@ -5,6 +5,8 @@ import { trimCondition } from './flightModel'
 import { type InputState, neutralInput } from './input'
 import type { TargetSpec } from './target'
 import type { EnemySpec } from './enemy'
+import { FIXED_DT } from './loop'
+import { createPilot, type Pilot, type PilotFlyer, type PilotSpec } from './pilots/pilot'
 
 /**
  * 入力スクリプトの再生。
@@ -87,6 +89,13 @@ export interface ReplayScript {
    * 空母を動かしたときに片方だけ古くなる
    */
   launchFrom?: 'cat-1' | 'cat-2' | 'cat-3' | 'cat-4'
+  /**
+   * 操縦役（Phase 9 の段 9、`pilots/pilot.ts`）。省略すると操縦軸とスロットルもキーフレームが決める。
+   *
+   * **書いたら、操縦軸（ピッチ・ロール・ヨー）とスロットルは操縦役が決める。**キーフレームには
+   * ボタン（機銃・ミサイル・フレア・脚・フック）だけを書く
+   */
+  pilot?: PilotSpec
   keyframes: ReplayKeyframe[]
 }
 
@@ -143,26 +152,41 @@ export class ReplayPlayer {
   private readonly keyframes: ReplayKeyframe[]
   private readonly current: InputState
   private nextIndex = 0
+  /** 操縦役。台本に無ければ null */
+  private readonly pilot: Pilot | null
 
   constructor(script: ReplayScript) {
     this.keyframes = [...script.keyframes].sort((a, b) => a.frame - b.frame)
     this.current = neutralInput()
+    this.pilot = script.pilot !== undefined ? createPilot(script.pilot, FIXED_DT) : null
 
     // spawn のトリムスロットルを初期値にしておく
     this.current.throttle = spawnFromSpec(script.spawn).throttle
   }
 
+  /** 操縦役がいるか。いれば `at` に機体を渡す */
+  get piloted(): boolean {
+    return this.pilot !== null
+  }
+
   /**
    * frame 時点の入力。フレームは 0 から順に呼ぶこと。
    * 戻り値は内部状態を使い回すので、保持せずその場で使う。
+   *
+   * 操縦役がいれば、キーフレームを畳んだあとに操縦軸とスロットルを操縦役の値で置く（段 9）。
+   * そのときは `flyer`（自機）が要る。渡し忘れると黙って操縦役が効かなくなるので投げる
    */
-  at(frame: number): InputState {
+  at(frame: number, flyer?: PilotFlyer): InputState {
     while (
       this.nextIndex < this.keyframes.length &&
       this.keyframes[this.nextIndex]!.frame <= frame
     ) {
       Object.assign(this.current, this.keyframes[this.nextIndex]!.input)
       this.nextIndex++
+    }
+    if (this.pilot !== null) {
+      if (flyer === undefined) throw new Error('操縦役のある台本は、at() に自機を渡す')
+      this.pilot.fly(flyer, this.current)
     }
     return this.current
   }

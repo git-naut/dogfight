@@ -14,6 +14,7 @@ import {
   type TestHook,
 } from './harness'
 import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
+import { PILOT_HOLD_F1800 } from '../fixtures/pilotHold'
 
 
 // **node 経路は所要が 1.96 倍。**180 秒の上限は GLSL 経路で決めた値で、
@@ -2045,6 +2046,24 @@ test.describe('甲板の当たり', () => {
     expect(hook.playerTouchdownSink, '射出の終点から甲板の縁までで触れたと数えた').toBe(-1)
     expect(hook.playerCrashCause).toBe('')
     expect(hook.playerLanding, '射出の終点から縁までをボルターと数えた').toBe('')
+  })
+})
+
+/**
+ * 操縦役（Phase 9 の段 9）。**テストの経路（vitest の `runScript`）とキャプチャの経路（`main.ts`）が
+ * 同じ状態になる**ことを見る。期待値は vitest が記録した値（`tests/fixtures/pilotHold.ts`）
+ */
+test.describe('操縦役', () => {
+  test('pilot-hold の f1800 の状態がテストの経路と一致する', async ({ page }) => {
+    const hook = await capture(page, { script: 'pilot-hold', frame: 1800 })
+    expect(hook.playerState).toHaveLength(PILOT_HOLD_F1800.length)
+    const diffs = PILOT_HOLD_F1800.map((want, i) => Math.abs(hook.playerState[i]! - want))
+    console.log('操縦役 f1800 の差', diffs.map((d) => d.toExponential(1)).join(' '))
+    PILOT_HOLD_F1800.forEach((want, i) => {
+      // **ビット単位では一致しない。**Node と Chrome の V8 で末尾の桁がずれる（手元で上下の速度
+      // 0.002 m/s に 2.7e-14）。1e-9（大きい値は相対 1e-9）までを一致とみなす
+      expect(diffs[i]!, `playerState[${i}]`).toBeLessThanOrEqual(1e-9 * Math.max(1, Math.abs(want)))
+    })
   })
 })
 

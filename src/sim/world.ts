@@ -432,7 +432,8 @@ export function createWorldFromScript(script: ReplayScript): {
  */
 export function advanceScript(world: World, player: ReplayPlayer, frames: number): void {
   for (let i = 0; i < frames; i++) {
-    world.step(player.at(i))
+    // 操縦役のある台本は、自機を見て操縦軸とスロットルを決める（段 9、`ReplayPlayer.at`）
+    world.step(player.at(i, world.player))
   }
 }
 

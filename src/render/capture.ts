@@ -683,6 +683,11 @@ export interface TestHook {
   playerArrestDistance: number
   /** フックの位置 0..1（段 8、`AircraftSample.hookPosition`） */
   playerHookPosition: number
+  /**
+   * 自機の状態そのもの（補間しない）。位置 xyz・速度 xyz・姿勢 xyzw・実効スロットルの 11 個（段 9）。
+   * テストの経路（vitest）とキャプチャの経路で同じ台本を回し、一致を見るのに使う
+   */
+  playerState: number[]
   /** 脚が出ているのに速度の上限を超えている（`AircraftSample.gearOverspeed`） */
   gearOverspeed: boolean
   /**

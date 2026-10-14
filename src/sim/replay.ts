@@ -158,7 +158,10 @@ export class ReplayPlayer {
   constructor(script: ReplayScript) {
     this.keyframes = [...script.keyframes].sort((a, b) => a.frame - b.frame)
     this.current = neutralInput()
-    this.pilot = script.pilot !== undefined ? createPilot(script.pilot, FIXED_DT) : null
+    this.pilot =
+      script.pilot !== undefined
+        ? createPilot(script.pilot, FIXED_DT, script.carrier !== undefined ? { carrier: script.carrier } : {})
+        : null
 
     // spawn のトリムスロットルを初期値にしておく
     this.current.throttle = spawnFromSpec(script.spawn).throttle

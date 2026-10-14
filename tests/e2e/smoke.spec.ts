@@ -2068,6 +2068,23 @@ test.describe('操縦役', () => {
 })
 
 /**
+ * 着艦の進入（Phase 9 の段 10）。**判定と操縦は sim が持つ**（`pilots/approach.ts`）。キャプチャの
+ * 経路でも、操縦役が進入して 2 本目に掛かり、f2566 に止まることを見る
+ */
+test.describe('着艦の進入', () => {
+  test('carrier-trap は 2 本目に掛かって止まる', async ({ page }) => {
+    const hook = await capture(page, { script: 'carrier-trap', frame: 2600 })
+    expect(hook.playerLanding).toBe('trap')
+    expect(hook.playerWire).toBe(2)
+    expect(hook.playerArrestDistance).toBeCloseTo(104.85, 1)
+    expect(hook.speed).toBeLessThan(0.01)
+    // 降下率 12.10 ft/s（3.69 m/s）で接地した
+    expect(hook.playerTouchdownSink).toBeCloseTo(3.69, 1)
+    expect(hook.playerCrashCause).toBe('')
+  })
+})
+
+/**
  * ポーズ。
  *
  * **`Escape` は 3 つの状態で意味が変わる。**設定が開いていれば設定を閉じ、

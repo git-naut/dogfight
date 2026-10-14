@@ -1,6 +1,9 @@
 import type { ReplayScript } from './replay'
 import { Vec3 } from './vec3'
-import { FORD_LANDING_CENTERLINE } from './fordDeck'
+import { FORD_DECK_HEIGHT, FORD_LANDING_CENTERLINE } from './fordDeck'
+import { approachCarrier } from './pilots/approach'
+import { HOOK_DOWN_ANGLE, hookPointBody } from './arrestor'
+import { APPROACH } from './flightModel'
 
 /**
  * 名前付きの入力スクリプト。
@@ -11,6 +14,31 @@ import { FORD_LANDING_CENTERLINE } from './fordDeck'
  * 1 秒は 120 フレーム。
  */
 const SEC = 120
+
+/**
+ * 機体の初期条件の作り手（空母の進入、段 10）。フックの先端（下ろし切り）が、狙う点から
+ * `distance` m 手前で進入の線の `high` m 上に来る高度から、進入角 `glide` で 130 kt で降りてくる。
+ * 機首は迎角 8.1 度ぶん上を向く（`spawnFromSpec`）ので、先端の深さはその姿勢で測る
+ */
+function approachSpawn(distance: number, high: number, glide: number): ReplayScript['spawn'] {
+  const tip = hookPointBody(HOOK_DOWN_ANGLE, new Vec3())
+  const pitch = APPROACH.alpha - glide
+  const depth = -(tip.y * Math.cos(pitch) - tip.z * Math.sin(pitch))
+  return {
+    altitude: FORD_DECK_HEIGHT + distance * Math.tan(glide) + high + depth,
+    speed: APPROACH.speed,
+    gearDown: true,
+    climbAngle: -glide,
+  }
+}
+
+/** フックを下ろすキーフレーム（ボタンなので操縦役のある台本にも書ける） */
+const HOOK_DOWN_KEYFRAMES = [
+  { frame: 0, input: { hookToggle: true } },
+  { frame: 2, input: { hookToggle: false } },
+]
+
+const GLIDE = (3.5 * Math.PI) / 180
 
 export const SCRIPTS = {
   /** 何もせず水平飛行を続ける。飛行モデルの基準線。 */
@@ -861,6 +889,45 @@ export const SCRIPTS = {
     spawn: { altitude: 1500, speed: 200, bank: 0.5, climbAngle: -0.05 },
     pilot: { kind: 'hold', speed: 220 },
     keyframes: [],
+  },
+  /**
+   * 空母への進入と着艦（Phase 9 の段 10）。操縦役 `approach` が進入角 3.5 度・迎角 8.1 度で降りる。
+   *
+   * 狙う点（1 本目と 2 本目の索の間）の 1,200 m 手前から、着艦区域の中心線の 20 m 右・進入の線の
+   * 5 m 上で始まり、操縦役が直す（ユーザーの判断）。実測は f2202 に接地（降下率 12.11 ft/s）、
+   * フックは狙う点の 13.1 ft 先に着いて 2 本目に掛かる
+   */
+  'carrier-trap': {
+    name: 'carrier-trap',
+    seed: 20261014,
+    spawn: approachSpawn(1200, 5, GLIDE),
+    carrier: approachCarrier(1200, 20),
+    pilot: { kind: 'approach', glide: GLIDE },
+    keyframes: HOOK_DOWN_KEYFRAMES,
+  },
+  /**
+   * `carrier-trap` と同じ進入を、フックを上げたまま飛ぶ（段 10）。接地でミリタリーにして甲板を
+   * 走り抜け、飛び去る（ボルター）
+   */
+  'carrier-bolter': {
+    name: 'carrier-bolter',
+    seed: 20261014,
+    spawn: approachSpawn(1200, 5, GLIDE),
+    carrier: approachCarrier(1200, 20),
+    pilot: { kind: 'approach', glide: GLIDE },
+    keyframes: [],
+  },
+  /**
+   * 進入角 8 度の急な進入（段 10）。降下率が構造設計の範囲の上端（26.4 ft/s）を超え、
+   * 甲板で墜落する（`deckSink`）。狙う点の 900 m 手前、中心線と進入の線の上から始まる
+   */
+  'carrier-hard': {
+    name: 'carrier-hard',
+    seed: 20261014,
+    spawn: approachSpawn(900, 0, (8 * Math.PI) / 180),
+    carrier: approachCarrier(900, 0),
+    pilot: { kind: 'approach', glide: (8 * Math.PI) / 180 },
+    keyframes: HOOK_DOWN_KEYFRAMES,
   },
 } as const satisfies Record<string, ReplayScript>
 

@@ -68,7 +68,7 @@ describe('キーフレームの畳み込み', () => {
 })
 
 describe('スクリプトの登録', () => {
-  it('40 本すべて引ける', () => {
+  it('43 本すべて引ける', () => {
     expect(SCRIPT_NAMES).toEqual([
       'level',
       'bank-left',
@@ -113,6 +113,10 @@ describe('スクリプトの登録', () => {
       'deck-landing',
       // Phase 9 の段 9。操縦役の口
       'pilot-hold',
+      // Phase 9 の段 10。空母への進入（掛かる・ボルター・急な進入で墜落）
+      'carrier-trap',
+      'carrier-bolter',
+      'carrier-hard',
     ])
     for (const name of SCRIPT_NAMES) {
       expect(getScript(name).name).toBe(name)

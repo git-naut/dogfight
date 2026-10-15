@@ -181,7 +181,6 @@ const hook = installTestHook({
   dlzMax: 0,
   dlzNe: 0,
   dlzMin: 0,
-  hudDlzBarShown: false,
   hudShootShown: false,
   hudTargetBoxCount: 0,
   hudArrowShown: false,
@@ -619,7 +618,6 @@ async function main(): Promise<void> {
     hook.hudFlightPathOnScreen = hud.flightPathOnScreen
     hook.hudGunReticleOnScreen = hud.gunReticleOnScreen
     hook.hudLockBoxOnScreen = hud.lockBoxOnScreen
-    hook.hudDlzBarShown = hud.dlzBarShown
     hook.hudShootShown = hud.shootShown
     hook.hudTargetBoxCount = hud.targetBoxCount
     hook.hudArrowShown = hud.arrowShown

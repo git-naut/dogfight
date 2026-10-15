@@ -833,8 +833,6 @@ export interface TestHook {
   dlzMax: number
   dlzNe: number
   dlzMin: number
-  /** DLZ バーを出しているか */
-  hudDlzBarShown: boolean
   /** SHOOT・目標の箱の数・画面の外の矢印（段 35） */
   hudShootShown: boolean
   hudTargetBoxCount: number

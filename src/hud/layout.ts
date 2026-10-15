@@ -7,11 +7,15 @@
  * ここに置くのは画面に固定する要素だけ。ピッチの梯子、飛行経路の印、機首の印、機銃の
  * 照準、ロックの箱は 3D の向きから投影して置くので、配置の器の外にある。
  *
- * **位置の式は `hud.ts` の元の式と同じ順で計算する。**順を変えると浮動小数点の丸めが
- * 動いて、基準画像が 1 画素ずれる。合格条件は基準画像が 1 画素も動かないこと。
+ * **Phase 10 の段 B1 で、録画（ユーザーの ACE COMBAT 7 の講座の録画）の比率に合わせた。**
+ * 大きさは録画の 1920x1080 の画素を基準に書き、縮尺 `scale = min(高さ/1080, 幅/1920)` を
+ * 掛ける。位置は画面の割合で置く（2026-10-15 ユーザーの決定）。以前は CSS の画素で固定で、
+ * 文字は 13px だった（1920x1080 で大文字が約 9.5 画素、録画は約 20 画素）。値の出典は
+ * `~/.claude/plans/dogfight-ac7-ref/measure/l1_summary.json`（lesson 1 のコマ 144〜918 の
+ * 中央値）と `l3_summary.json`（レーダー）。
  *
- * 外接の箱（`bounds`）は重なりの検査に使う。文字の幅は等幅の書体の字送りに、表示しうる
- * 最長の文字数を掛けて見積もる（`tests/hud/layout.test.ts`）
+ * 外接の箱（`bounds`）は重なりの検査に使う。文字の幅は等幅の書体の字送り（0.6 em）に、
+ * 表示しうる最長の文字数を掛けて見積もる（`tests/hud/layout.test.ts`）
  */
 
 /** 画面上の矩形。左上と大きさ、CSS 画素 */
@@ -22,39 +26,56 @@ export interface Rect {
   readonly h: number
 }
 
-/** DLZ バーの高さと幅 画面画素。ロックボックスの右に縦に置く */
-export const DLZ_BAR_HEIGHT = 150
-export const DLZ_BAR_WIDTH = 7
-
-/** ミサイル警告の輪の半径 画面画素 */
-export const THREAT_RADIUS = 26
-
-/** ミッション欄の行の間隔 画面画素（段 32） */
-export const MISSION_LINE = 16
-
-/** 兵装の一覧の行の間隔と、その左に描く自機の輪郭の大きさ・間 画面画素（段 33） */
-export const ARMAMENT_LINE = 16
-export const SILHOUETTE_SIZE = 44
-export const SILHOUETTE_GAP = 14
-
-/** 13px の等幅の字送り（0.6 em）と、11px の字送り */
-export const FONT_ADVANCE = 7.8
-export const SMALL_ADVANCE = 6.6
+/** 大きさの基準にする画面（録画の大きさ） */
+export const REFERENCE_WIDTH = 1920
+export const REFERENCE_HEIGHT = 1080
 
 /**
- * 兵装の一覧のいちばん長い行（`GUN 1800`・`DMG 100%`、8 文字、13px）の幅。
- * 輪郭の位置（`hud.ts`）と外接の箱の両方がこれを使う
+ * 以下の `_REF` は録画の 1920x1080 での画素。描くときに `scale` を掛ける。
+ *
+ * 文字は録画の大文字の高さに合わせる。**撮って測って決めた。**28 画素で撮ると GUN・TIME の行が
+ * 18 画素、録画は 20〜22（動画のにじみ 1〜2 画素を含む）だったので 31 にした。SPEED・ALT の見出しは
+ * 20 画素で 13、録画は 18 だったので 24
  */
-export const ARMAMENT_TEXT_WIDTH = 8 * FONT_ADVANCE
+export const FONT_REF = 31
+export const LABEL_FONT_REF = 24
+export const SMALL_FONT_REF = 18
+/** 等幅の書体の字送り（em） */
+export const ADVANCE_EM = 0.6
+
+/** 線の太さ。録画のピッチの目盛りの芯が 2 画素 */
+export const LINE_WIDTH_REF = 2
+
+/** ミサイル警告の輪の半径（段 B2 で作り替えるまでの仮置き。以前の 26 を 1.5 倍） */
+export const THREAT_RADIUS_REF = 39
 
 /**
- * 照準の左右に置く SPEED と ALT の箱（段 36）。中身は 13px で最長 `SPEED 1200`・`ALT 40000`
- * の 10 文字、左右に 7 画素の余白。外側に増減の三角（幅 8、間 5）
+ * ミッション欄。録画の TIME と SCORE は x 100、大文字の上端 52 と 89 で、行の間隔は約 37
  */
-export const VALUE_BOX_WIDTH = 10 * FONT_ADVANCE + 14
-export const VALUE_BOX_HEIGHT = 20
-export const TREND_GAP = 5
-export const TREND_WIDTH = 8
+export const MISSION_LINE_REF = 37
+
+/**
+ * 兵装の一覧。録画は見出し（`GUN`）が x 1656 から左揃え、数が x 1821 で右揃え、
+ * 行の間隔は約 35（GUN 708〜731、MSL 747〜772、…）。その下に自機の輪郭（中心 1698, 955）
+ */
+export const ARMAMENT_LINE_REF = 35
+export const SILHOUETTE_SIZE_REF = 100
+
+/**
+ * SPEED と ALT の箱。録画は見出しが上、数字の箱が下の 2 段（SPEED 611〜700・y 500〜557）。
+ * 数字の箱は高さ 35、照準側へ尖らせる。幅は録画の SPEED 90・ALT 109 の間の 100
+ */
+export const VALUE_BOX_WIDTH_REF = 100
+export const VALUE_BOX_HEIGHT_REF = 35
+/** 数字の箱の照準側の尖りの深さ */
+export const VALUE_BOX_POINT_REF = 12
+/** 見出しの基線から数字の箱の上端までの間 */
+export const VALUE_LABEL_GAP_REF = 4
+export const TREND_GAP_REF = 7
+export const TREND_WIDTH_REF = 12
+
+/** 脚とフックの表示の行の間隔（段 B2 で照準の下の欄へ移すまでの仮置き） */
+export const READOUT_LINE_REF = 24
 
 /** 縦の目盛り。速度（左）と高度（右） */
 export interface VerticalTapeLayout {
@@ -65,18 +86,22 @@ export interface VerticalTapeLayout {
 }
 
 export interface HudLayout {
+  /** 大きさの縮尺。`_REF` の値に掛ける */
+  readonly scale: number
   readonly speedTape: VerticalTapeLayout
   readonly altitudeTape: VerticalTapeLayout
   readonly headingTape: { readonly centerX: number; readonly y: number; readonly halfWidth: number }
-  readonly dlzBar: { readonly x: number; readonly bottom: number }
-  readonly armament: { readonly x: number; readonly y: number }
+  /** 兵装の一覧。見出しの左端・数の右端・1 行目の基線 */
+  readonly armament: { readonly labelX: number; readonly valueX: number; readonly y: number }
+  /** 自機の輪郭の中心 */
+  readonly silhouette: { readonly cx: number; readonly cy: number }
   readonly mission: { readonly x: number; readonly y: number }
   readonly threat: { readonly cx: number; readonly cy: number; readonly radius: number }
+  /** 脚とフックの表示（段 B2 まで） */
   readonly readouts: { readonly x: number; readonly y: number }
-  readonly agl: { readonly x: number; readonly y: number }
   readonly warnings: { readonly x: number; readonly y: number }
   /**
-   * SPEED と ALT の箱（段 36）。中心の高さと、照準側の縁の x（SPEED は右の縁、ALT は左の縁）
+   * SPEED と ALT の数字の箱。照準側の尖りの先の x と、箱の中心の高さ
    */
   readonly speedBox: { readonly innerX: number; readonly centerY: number }
   readonly altitudeBox: { readonly innerX: number; readonly centerY: number }
@@ -88,126 +113,134 @@ export interface HudLayout {
 
 /**
  * 重なりを検査する要素。**追従視点で描くものだけ。**縦の目盛りと方位の目盛りは段 36 で
- * 追従視点から外した（位置は `speedTape` などに残してある）ので、ここには入れない
+ * 追従視点から外した（位置は `speedTape` などに残してある）ので、ここには入れない。
+ * DLZ の帯と対地高度（AGL）は段 B1 でやめた（録画に無い、ユーザーの決定）
  */
 export type HudElement =
   | 'speedBox'
   | 'altitudeBox'
-  | 'dlzBar'
   | 'armament'
   | 'mission'
   | 'threat'
   | 'readouts'
-  | 'agl'
   | 'warnings'
   | 'radar'
 
 /** 表示しうる最長の文字列の文字数。外接の箱の見積りに使う */
 const LONGEST = {
-  /** DLZ の最大射程（`12.3K`） */
-  dlzLabel: 5,
   /** ミッションの撃墜の加点（`TARGET F-16 +1000`、3 行の中でいちばん長い）と敵の数（`ENEMY 8`） */
   target: 17,
   enemies: 7,
   /** 警告（`MISSILE x8`） */
   threatLabel: 10,
-  /** 読み（`AOA -10.5`）と高度（`AGL 40000`） */
-  readout: 9,
-  agl: 9,
-  /** 警告が全部並んだとき（`CRASH  STALL  G LIMIT  LOW`）。DMG は段 33 で右下へ移した */
-  warnings: 26,
+  /** 脚とフック（`GEAR TRANSIT`） */
+  readout: 12,
+  /** 警告が全部並んだとき（`CRASH  STALL  G LIMIT  LOW  GEAR SPEED`） */
+  warnings: 38,
+}
+
+/** 大きさの縮尺。録画の 1920x1080 を 1 とし、高さと幅の小さいほうに合わせる */
+export function hudScale(width: number, height: number): number {
+  return Math.min(height / REFERENCE_HEIGHT, width / REFERENCE_WIDTH)
 }
 
 export function computeLayout(width: number, height: number): HudLayout {
+  const s = hudScale(width, height)
+  const font = FONT_REF * s
+  const label = LABEL_FONT_REF * s
+  const small = SMALL_FONT_REF * s
+
   const speedTape = { x: width * 0.18, centerY: height * 0.5, halfHeight: height * 0.22 }
   const altitudeTape = { x: width * 0.82, centerY: height * 0.5, halfHeight: height * 0.22 }
   const headingTape = { centerX: width * 0.5, y: height * 0.11, halfWidth: width * 0.2 }
-  // DLZ バーは段 36 で 0.66 から 0.74 へ移した。照準の右に置いた ALT の箱とぶつかるため。
-  // 高度の目盛り（0.82）が追従視点から消えて、右側が空いた
-  const dlzBar = { x: width * 0.74, bottom: height * 0.5 + DLZ_BAR_HEIGHT / 2 }
-  // 兵装の一覧は右下（段 33、参考画像に合わせた）。x は文字の右端、y は 1 行目の基線
-  const armament = { x: width * 0.94, y: height * 0.8 }
-  const mission = { x: width * 0.06, y: height * 0.08 }
-  const threat = { cx: width * 0.3, cy: height * 0.3, radius: THREAT_RADIUS }
-  const readouts = { x: width * 0.18, y: height * 0.78 }
-  const agl = { x: width * 0.82, y: height * 0.78 }
+
+  // 兵装（録画: 見出し x 1656、数の右端 x 1821、GUN の大文字の下端 731）
+  const armament = { labelX: width * (1656 / 1920), valueX: width * (1821 / 1920), y: height * (731 / 1080) }
+  const silhouette = { cx: width * (1698 / 1920), cy: height * (955 / 1080) }
+  // ミッション（録画: x 100、TIME の大文字の下端 75）
+  const mission = { x: width * (100 / 1920), y: height * (75 / 1080) }
+  const threat = { cx: width * 0.3, cy: height * 0.3, radius: THREAT_RADIUS_REF * s }
+  // 脚とフック（段 B2 で照準の下の欄へ移すまで）。録画の大きさのレーダー（右端は幅の 20.8%）の右に置く
+  const readouts = { x: width * 0.24, y: height * 0.78 }
   const warnings = { x: width * 0.5, y: height * 0.7 }
-  // SPEED と ALT の箱は照準の左右（段 36、参考画像に合わせた）。中心から幅の 12% 離す
-  const speedBox = { innerX: width * 0.5 - width * 0.12, centerY: height * 0.5 }
-  const altitudeBox = { innerX: width * 0.5 + width * 0.12, centerY: height * 0.5 }
-  // レーダーは左下（段 34、参考画像に合わせた）。一辺は短い辺の 22%、下端は高さの 97%
-  const radarSize = Math.min(width, height) * 0.22
-  const radar = { x: width * 0.03, y: height * 0.97 - radarSize, size: radarSize }
+  // SPEED と ALT の数字の箱（録画: SPEED の右端 700、ALT の左端 1216、数字の箱は y 522〜557）
+  const speedBox = { innerX: width * (700 / 1920), centerY: height * (539.5 / 1080) }
+  const altitudeBox = { innerX: width * (1216 / 1920), centerY: height * (539.5 / 1080) }
+  // レーダー（録画: 枠 x 100〜399、y 724〜1025）。一辺は縮尺で、左端と下端は画面の割合
+  const radarSize = 300 * s
+  const radar = { x: width * (100 / 1920), y: height * (1025 / 1080) - radarSize, size: radarSize }
+
+  const boxW = VALUE_BOX_WIDTH_REF * s
+  const boxH = VALUE_BOX_HEIGHT_REF * s
+  const trend = (TREND_GAP_REF + TREND_WIDTH_REF) * s
+  // 見出しの大文字の上端から数字の箱の下端まで
+  const valueTop = boxH / 2 + VALUE_LABEL_GAP_REF * s + label
 
   // 外接の箱。追従視点で描くものだけ（`HudElement`）
   const bounds: Record<HudElement, Rect> = {
-    // SPEED の箱。外側（左）に増減の三角
+    // SPEED。外側（左）に増減の三角
     speedBox: {
-      x: speedBox.innerX - VALUE_BOX_WIDTH - TREND_GAP - TREND_WIDTH,
-      y: speedBox.centerY - VALUE_BOX_HEIGHT / 2,
-      w: VALUE_BOX_WIDTH + TREND_GAP + TREND_WIDTH,
-      h: VALUE_BOX_HEIGHT,
+      x: speedBox.innerX - boxW - trend,
+      y: speedBox.centerY - valueTop,
+      w: boxW + trend,
+      h: valueTop + boxH / 2,
     },
-    // ALT の箱。外側（右）に増減の三角
+    // ALT。外側（右）に増減の三角
     altitudeBox: {
       x: altitudeBox.innerX,
-      y: altitudeBox.centerY - VALUE_BOX_HEIGHT / 2,
-      w: VALUE_BOX_WIDTH + TREND_GAP + TREND_WIDTH,
-      h: VALUE_BOX_HEIGHT,
+      y: altitudeBox.centerY - valueTop,
+      w: boxW + trend,
+      h: valueTop + boxH / 2,
     },
-    // DLZ。帯の左へ 5 はみ出す現在距離の線、右へ文字（帯 + 8 から）
-    dlzBar: {
-      x: dlzBar.x - 5,
-      y: dlzBar.bottom - DLZ_BAR_HEIGHT - 8,
-      w: 5 + DLZ_BAR_WIDTH + 8 + LONGEST.dlzLabel * SMALL_ADVANCE,
-      h: DLZ_BAR_HEIGHT + 10,
-    },
-    // 兵装。右揃えの 4 行（13px、基線 y から 16 ずつ）と、その左の自機の輪郭
+    // 兵装。4 行（GUN・MSL・FLR・DMG）と、その下の自機の輪郭
     armament: {
-      x: armament.x - ARMAMENT_TEXT_WIDTH - SILHOUETTE_GAP - SILHOUETTE_SIZE,
-      y: armament.y - 11,
-      w: ARMAMENT_TEXT_WIDTH + SILHOUETTE_GAP + SILHOUETTE_SIZE,
-      h: 11 + ARMAMENT_LINE * 3 + 3,
+      x: Math.min(armament.labelX, silhouette.cx - (SILHOUETTE_SIZE_REF * s) / 2),
+      y: armament.y - font,
+      w: armament.valueX - Math.min(armament.labelX, silhouette.cx - (SILHOUETTE_SIZE_REF * s) / 2),
+      h: silhouette.cy + (SILHOUETTE_SIZE_REF * s) / 2 - (armament.y - font),
     },
-    // ミッション。TIME / SCORE / TARGET（13px、基線 y から 16 ずつ）と敵の数（11px、4 行目）
+    // ミッション。TIME / SCORE / TARGET と敵の数（4 行目、小さい字）
     mission: {
       x: mission.x,
-      y: mission.y - 11,
-      w: Math.max(LONGEST.target * FONT_ADVANCE, LONGEST.enemies * SMALL_ADVANCE),
-      h: 11 + MISSION_LINE * 3 + 3,
+      y: mission.y - font,
+      w: Math.max(LONGEST.target * font * ADVANCE_EM, LONGEST.enemies * small * ADVANCE_EM),
+      h: font + MISSION_LINE_REF * s * 3 + small * 0.3,
     },
-    // ミサイル警告。輪（半径 26）と向きの三角（輪 + 10）、上に文字（中央 cy − 48）
+    // ミサイル警告。輪と向きの三角（輪 + 15）、上に文字
     threat: {
-      x: threat.cx - (LONGEST.threatLabel * FONT_ADVANCE) / 2,
-      y: threat.cy - threat.radius - 22 - 7,
-      w: LONGEST.threatLabel * FONT_ADVANCE,
-      h: threat.radius * 2 + 22 + 7 + 10,
+      x: threat.cx - (LONGEST.threatLabel * font * ADVANCE_EM) / 2,
+      y: threat.cy - threat.radius - 33 * s - font,
+      w: LONGEST.threatLabel * font * ADVANCE_EM,
+      h: threat.radius * 2 + 33 * s + font + 15 * s,
     },
-    // 読み。3 行（基線 y、y + 16、y + 32）、左揃え
-    readouts: { x: readouts.x, y: readouts.y - 9, w: LONGEST.readout * SMALL_ADVANCE, h: 9 + 32 + 3 },
-    // 高度。右揃え、基線 y
-    agl: { x: agl.x - LONGEST.agl * SMALL_ADVANCE, y: agl.y - 9, w: LONGEST.agl * SMALL_ADVANCE, h: 12 },
-    // 警告。中央揃え、13px、基線 y
+    // 脚とフック。2 行、左揃え
+    readouts: {
+      x: readouts.x,
+      y: readouts.y - small,
+      w: LONGEST.readout * small * ADVANCE_EM,
+      h: small + READOUT_LINE_REF * s + small * 0.3,
+    },
+    // 警告。中央揃え、基線 y
     warnings: {
-      x: warnings.x - (LONGEST.warnings * FONT_ADVANCE) / 2,
-      y: warnings.y - 10,
-      w: LONGEST.warnings * FONT_ADVANCE,
-      h: 13,
+      x: warnings.x - (LONGEST.warnings * font * ADVANCE_EM) / 2,
+      y: warnings.y - font,
+      w: LONGEST.warnings * font * ADVANCE_EM,
+      h: font * 1.2,
     },
     // レーダー。方位の文字も正方形の内側に描く
     radar: { x: radar.x, y: radar.y, w: radar.size, h: radar.size },
   }
 
   return {
+    scale: s,
     speedTape,
     altitudeTape,
     headingTape,
-    dlzBar,
     armament,
+    silhouette,
     mission,
     threat,
     readouts,
-    agl,
     warnings,
     speedBox,
     altitudeBox,

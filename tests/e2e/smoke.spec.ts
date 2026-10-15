@@ -1112,15 +1112,6 @@ test.describe('DLZ', () => {
     expect(hook.dlzMin).toBe(0)
   })
 
-  test('HUD にバーが出る', async ({ page }) => {
-    const on = await capture(page, { script: 'missile-shot', frame: 110, hud: true })
-    expect(on.hudDlzBarShown).toBe(true)
-
-    // ロックしていなければ出さない
-    const off = await capture(page, { script: 'level', frame: 240, hud: true })
-    expect(off.hudDlzBarShown).toBe(false)
-  })
-
   test('同じフレームを 2 回撮ると DLZ が一致する', async ({ page }) => {
     const a = await capture(page, { script: 'head-on', frame: 900 })
     const b = await capture(page, { script: 'head-on', frame: 900 })

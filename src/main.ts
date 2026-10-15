@@ -149,6 +149,7 @@ const hook = installTestHook({
   enemyMissilesFired: 0,
   incomingMissiles: 0,
   missileWarning: false,
+  missileWarningSince: 0,
   missileBearing: 0,
   missileTimeToImpact: 0,
   flaresLeft: 0,
@@ -182,6 +183,10 @@ const hook = installTestHook({
   dlzNe: 0,
   dlzMin: 0,
   hudShootShown: false,
+  hudAlertRed: false,
+  hudStatusUpper: '',
+  hudStatusBlinkOn: false,
+  hudStatusLower: '',
   hudTargetBoxCount: 0,
   hudArrowShown: false,
   preset: capture.preset,
@@ -585,6 +590,7 @@ async function main(): Promise<void> {
     armament.threat.range = threat.range
     armament.threat.timeToImpact = threat.timeToImpact
     armament.threat.count = threat.count
+    armament.threat.since = threat.since
 
     const lock = currentWorld.combat.lock
     armament.lock.state = lock.state
@@ -611,7 +617,7 @@ async function main(): Promise<void> {
       else armament.lock.position.copy(locked.position)
     }
 
-    hud.update(sample, armament, view.viewProjection)
+    hud.update(sample, armament, view.viewProjection, currentWorld.frame)
     hook.hudSpeedKt = hud.readout.speedKt
     hook.hudAltitudeFt = hud.readout.altitudeFt
     hook.hudHeadingDeg = hud.readout.headingDeg
@@ -619,6 +625,10 @@ async function main(): Promise<void> {
     hook.hudGunReticleOnScreen = hud.gunReticleOnScreen
     hook.hudLockBoxOnScreen = hud.lockBoxOnScreen
     hook.hudShootShown = hud.shootShown
+    hook.hudAlertRed = hud.alertRed
+    hook.hudStatusUpper = hud.statusUpper
+    hook.hudStatusBlinkOn = hud.statusBlinkOn
+    hook.hudStatusLower = hud.statusLower
     hook.hudTargetBoxCount = hud.targetBoxCount
     hook.hudArrowShown = hud.arrowShown
   }
@@ -685,6 +695,7 @@ async function main(): Promise<void> {
     )
     hook.incomingMissiles = currentWorld.combat.incomingMissilesInFlight
     hook.missileWarning = currentWorld.combat.threat.active
+    hook.missileWarningSince = currentWorld.combat.threat.since
     hook.missileBearing = currentWorld.combat.threat.bearing
     hook.missileTimeToImpact = currentWorld.combat.threat.timeToImpact
     hook.flaresLeft = currentWorld.countermeasures.left

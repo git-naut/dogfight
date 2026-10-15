@@ -874,6 +874,15 @@ export const BITE_MARKS = [
     why: '撃墜の加点が 30 秒も残り、次の撃墜まで出たままになる',
   },
   {
+    id: 'threat-since-not-latched',
+    kind: '文の削除',
+    file: 'src/sim/combat.ts',
+    find: '    if (this.threat.active && !threatWasActive) this.threat.since = frame + 1\n',
+    replace: '    this.threat.since = frame + 1\n',
+    expect: 'tests/sim/threatSince.test.ts',
+    why: '警告の出始めが毎フレーム書き換わり、MISSILE ALERT が点いたまま点滅しなくなる（段 B2）',
+  },
+  {
     id: 'hud-armament-moved',
     kind: '定数の摂動',
     file: 'src/hud/layout.ts',

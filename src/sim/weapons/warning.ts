@@ -40,10 +40,15 @@ export interface MissileThreat {
   timeToImpact: number
   /** 接近しているミサイルの数 */
   count: number
+  /**
+   * 警告が出始めたフレーム（Phase 10 の段 B2）。HUD の MISSILE ALERT の点滅の位相を、
+   * 出た瞬間が「点いている」になるように合わせる。`measureThreat` は触らず、`Combat` が書く
+   */
+  since: number
 }
 
 export function createMissileThreat(): MissileThreat {
-  return { active: false, bearing: 0, range: 0, timeToImpact: 0, count: 0 }
+  return { active: false, bearing: 0, range: 0, timeToImpact: 0, count: 0, since: 0 }
 }
 
 // 一時変数。使い回してゴミを出さない

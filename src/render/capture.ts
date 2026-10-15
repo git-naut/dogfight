@@ -638,6 +638,8 @@ export interface TestHook {
   incomingMissiles: number
   /** ミサイル警告が出ているか */
   missileWarning: boolean
+  /** 警告が出始めたフレーム（段 B2、HUD の点滅の位相） */
+  missileWarningSince: number
   /** 警告の方位 rad。0 が正面、+ が右、±π が真後ろ */
   missileBearing: number
   /** 警告の着弾までの秒 */
@@ -833,6 +835,13 @@ export interface TestHook {
   dlzMax: number
   dlzNe: number
   dlzMin: number
+  /** ミサイル警告で HUD を赤にしているか（段 B2） */
+  hudAlertRed: boolean
+  /** 照準の上の欄（`MISSILE ALERT`・`CAUTION`・空）と、このコマで点いているか */
+  hudStatusUpper: string
+  hudStatusBlinkOn: boolean
+  /** 照準の下の欄（`STALL`・`GEAR DOWN` など、2 段は ` / ` でつなぐ） */
+  hudStatusLower: string
   /** SHOOT・目標の箱の数・画面の外の矢印（段 35） */
   hudShootShown: boolean
   hudTargetBoxCount: number

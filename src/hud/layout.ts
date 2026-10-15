@@ -46,8 +46,16 @@ export const ADVANCE_EM = 0.6
 /** 線の太さ。録画のピッチの目盛りの芯が 2 画素 */
 export const LINE_WIDTH_REF = 2
 
-/** ミサイル警告の輪の半径（段 B2 で作り替えるまでの仮置き。以前の 26 を 1.5 倍） */
-export const THREAT_RADIUS_REF = 39
+/**
+ * 照準の上下の欄（段 B2）。録画は照準の上に CAUTION（y 425〜452）、下に STALL（y 628〜655）と
+ * AUTO PILOT（x 895〜1025・y 630〜653）。枠の高さ 26、文字は 20 で左右に 7 の余白
+ * （AUTO PILOT の 10 文字で幅 130 になる）
+ */
+export const STATUS_FONT_REF = 20
+export const STATUS_BOX_HEIGHT_REF = 26
+export const STATUS_PAD_REF = 7
+/** 下の欄の 2 段目（脚とフックが同時に出るとき）の間隔 */
+export const STATUS_LINE_REF = 32
 
 /**
  * ミッション欄。録画の TIME と SCORE は x 100、大文字の上端 52 と 89 で、行の間隔は約 37
@@ -71,11 +79,6 @@ export const VALUE_BOX_HEIGHT_REF = 35
 export const VALUE_BOX_POINT_REF = 12
 /** 見出しの基線から数字の箱の上端までの間 */
 export const VALUE_LABEL_GAP_REF = 4
-export const TREND_GAP_REF = 7
-export const TREND_WIDTH_REF = 12
-
-/** 脚とフックの表示の行の間隔（段 B2 で照準の下の欄へ移すまでの仮置き） */
-export const READOUT_LINE_REF = 24
 
 /** 縦の目盛り。速度（左）と高度（右） */
 export interface VerticalTapeLayout {
@@ -96,10 +99,9 @@ export interface HudLayout {
   /** 自機の輪郭の中心 */
   readonly silhouette: { readonly cx: number; readonly cy: number }
   readonly mission: { readonly x: number; readonly y: number }
-  readonly threat: { readonly cx: number; readonly cy: number; readonly radius: number }
-  /** 脚とフックの表示（段 B2 まで） */
-  readonly readouts: { readonly x: number; readonly y: number }
-  readonly warnings: { readonly x: number; readonly y: number }
+  /** 照準の上の欄（CAUTION・MISSILE ALERT）と下の欄（STALL・脚など）の中心（段 B2） */
+  readonly statusUpper: { readonly x: number; readonly y: number }
+  readonly statusLower: { readonly x: number; readonly y: number }
   /**
    * SPEED と ALT の数字の箱。照準側の尖りの先の x と、箱の中心の高さ
    */
@@ -121,9 +123,8 @@ export type HudElement =
   | 'altitudeBox'
   | 'armament'
   | 'mission'
-  | 'threat'
-  | 'readouts'
-  | 'warnings'
+  | 'statusUpper'
+  | 'statusLower'
   | 'radar'
 
 /** 表示しうる最長の文字列の文字数。外接の箱の見積りに使う */
@@ -131,12 +132,10 @@ const LONGEST = {
   /** ミッションの撃墜の加点（`TARGET F-16 +1000`、3 行の中でいちばん長い）と敵の数（`ENEMY 8`） */
   target: 17,
   enemies: 7,
-  /** 警告（`MISSILE x8`） */
-  threatLabel: 10,
-  /** 脚とフック（`GEAR TRANSIT`） */
-  readout: 12,
-  /** 警告が全部並んだとき（`CRASH  STALL  G LIMIT  LOW  GEAR SPEED`） */
-  warnings: 38,
+  /** 上の欄（`MISSILE ALERT`） */
+  statusUpper: 13,
+  /** 下の欄（`GEAR TRANSIT`） */
+  statusLower: 12,
 }
 
 /** 大きさの縮尺。録画の 1920x1080 を 1 とし、高さと幅の小さいほうに合わせる */
@@ -159,10 +158,9 @@ export function computeLayout(width: number, height: number): HudLayout {
   const silhouette = { cx: width * (1698 / 1920), cy: height * (955 / 1080) }
   // ミッション（録画: x 100、TIME の大文字の下端 75）
   const mission = { x: width * (100 / 1920), y: height * (75 / 1080) }
-  const threat = { cx: width * 0.3, cy: height * 0.3, radius: THREAT_RADIUS_REF * s }
-  // 脚とフック（段 B2 で照準の下の欄へ移すまで）。録画の大きさのレーダー（右端は幅の 20.8%）の右に置く
-  const readouts = { x: width * 0.24, y: height * 0.78 }
-  const warnings = { x: width * 0.5, y: height * 0.7 }
+  // 照準の上下の欄（録画: CAUTION の枠の中心 y 438.5、STALL の枠の中心 y 641.5）
+  const statusUpper = { x: width * 0.5, y: height * (438.5 / 1080) }
+  const statusLower = { x: width * 0.5, y: height * (641.5 / 1080) }
   // SPEED と ALT の数字の箱（録画: SPEED の右端 700、ALT の左端 1216、数字の箱は y 522〜557）
   const speedBox = { innerX: width * (700 / 1920), centerY: height * (539.5 / 1080) }
   const altitudeBox = { innerX: width * (1216 / 1920), centerY: height * (539.5 / 1080) }
@@ -172,24 +170,22 @@ export function computeLayout(width: number, height: number): HudLayout {
 
   const boxW = VALUE_BOX_WIDTH_REF * s
   const boxH = VALUE_BOX_HEIGHT_REF * s
-  const trend = (TREND_GAP_REF + TREND_WIDTH_REF) * s
   // 見出しの大文字の上端から数字の箱の下端まで
   const valueTop = boxH / 2 + VALUE_LABEL_GAP_REF * s + label
 
   // 外接の箱。追従視点で描くものだけ（`HudElement`）
   const bounds: Record<HudElement, Rect> = {
-    // SPEED。外側（左）に増減の三角
+    // SPEED。増減の三角は段 B2 でやめた（録画に無い、ユーザーの決定）
     speedBox: {
-      x: speedBox.innerX - boxW - trend,
+      x: speedBox.innerX - boxW,
       y: speedBox.centerY - valueTop,
-      w: boxW + trend,
+      w: boxW,
       h: valueTop + boxH / 2,
     },
-    // ALT。外側（右）に増減の三角
     altitudeBox: {
       x: altitudeBox.innerX,
       y: altitudeBox.centerY - valueTop,
-      w: boxW + trend,
+      w: boxW,
       h: valueTop + boxH / 2,
     },
     // 兵装。4 行（GUN・MSL・FLR・DMG）と、その下の自機の輪郭
@@ -206,26 +202,12 @@ export function computeLayout(width: number, height: number): HudLayout {
       w: Math.max(LONGEST.target * font * ADVANCE_EM, LONGEST.enemies * small * ADVANCE_EM),
       h: font + MISSION_LINE_REF * s * 3 + small * 0.3,
     },
-    // ミサイル警告。輪と向きの三角（輪 + 15）、上に文字
-    threat: {
-      x: threat.cx - (LONGEST.threatLabel * font * ADVANCE_EM) / 2,
-      y: threat.cy - threat.radius - 33 * s - font,
-      w: LONGEST.threatLabel * font * ADVANCE_EM,
-      h: threat.radius * 2 + 33 * s + font + 15 * s,
-    },
-    // 脚とフック。2 行、左揃え
-    readouts: {
-      x: readouts.x,
-      y: readouts.y - small,
-      w: LONGEST.readout * small * ADVANCE_EM,
-      h: small + READOUT_LINE_REF * s + small * 0.3,
-    },
-    // 警告。中央揃え、基線 y
-    warnings: {
-      x: warnings.x - (LONGEST.warnings * font * ADVANCE_EM) / 2,
-      y: warnings.y - font,
-      w: LONGEST.warnings * font * ADVANCE_EM,
-      h: font * 1.2,
+    // 照準の上の欄。枠つきの 1 行
+    statusUpper: statusBox(statusUpper, LONGEST.statusUpper, s),
+    // 照準の下の欄。脚とフックが同時に出ると 2 段になる
+    statusLower: {
+      ...statusBox(statusLower, LONGEST.statusLower, s),
+      h: STATUS_BOX_HEIGHT_REF * s + STATUS_LINE_REF * s,
     },
     // レーダー。方位の文字も正方形の内側に描く
     radar: { x: radar.x, y: radar.y, w: radar.size, h: radar.size },
@@ -239,12 +221,18 @@ export function computeLayout(width: number, height: number): HudLayout {
     armament,
     silhouette,
     mission,
-    threat,
-    readouts,
-    warnings,
+    statusUpper,
+    statusLower,
     speedBox,
     altitudeBox,
     radar,
     bounds,
   }
+}
+
+/** 照準の上下の欄の枠。中心と最長の文字数から */
+function statusBox(center: { x: number; y: number }, chars: number, s: number): Rect {
+  const w = (chars * STATUS_FONT_REF * ADVANCE_EM + STATUS_PAD_REF * 2) * s
+  const h = STATUS_BOX_HEIGHT_REF * s
+  return { x: center.x - w / 2, y: center.y - h / 2, w, h }
 }

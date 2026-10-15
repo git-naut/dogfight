@@ -398,6 +398,14 @@ test.describe('HUD', () => {
     expect(await page.locator('canvas.hud-canvas').count()).toBe(0)
   })
 
+  /** 段 B2。脚の表示は照準の下の欄（録画の STALL・AUTO PILOT と同じ欄）に出す */
+  test('脚を出すと照準の下の欄に出て、上げ切ると消える', async ({ page }) => {
+    const down = await capture(page, { script: 'gear-down', frame: 60, hud: true })
+    expect(down.hudStatusLower).toContain('GEAR')
+    const up = await capture(page, { script: 'level', frame: 240, hud: true })
+    expect(up.hudStatusLower).toBe('')
+  })
+
   test('?hud=1 で出る', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 240, hud: true })
     expect(hook.hudReady).toBe(true)
@@ -1286,6 +1294,37 @@ test.describe('ミサイル警告とフレア', () => {
     const hook = await capture(page, { script: 'enemy-missile', frame: 360 })
     expect(Math.abs(hook.missileBearing)).toBeGreaterThan((150 * Math.PI) / 180)
     expect(hook.missileTimeToImpact).toBeGreaterThan(0)
+  })
+
+  /**
+   * **段 B2（録画に合わせた）。**警告のあいだ HUD 全体が赤に替わり、照準の上に MISSILE ALERT が
+   * 点滅する。録画は 6 コマ点いて 6 コマ消える（0.4 秒周期）ので、sim の 24 フレーム点いて 24 消える。
+   * 出始めのフレームで点いていて、1 フレーム前は緑（録画は 3 コマ以内に替わる）
+   */
+  test('警告のあいだ HUD が赤くなり、照準の上で MISSILE ALERT が点滅する', async ({ page }) => {
+    const during = await capture(page, { script: 'enemy-missile', frame: 360, hud: true })
+    expect(during.hudAlertRed).toBe(true)
+    expect(during.hudStatusUpper).toBe('MISSILE ALERT')
+    const since = during.missileWarningSince
+    expect(since).toBeGreaterThan(0)
+
+    const before = await capture(page, { script: 'enemy-missile', frame: since - 1, hud: true })
+    expect(before.hudAlertRed).toBe(false)
+    expect(before.hudStatusUpper).not.toBe('MISSILE ALERT')
+
+    const onset = await capture(page, { script: 'enemy-missile', frame: since, hud: true })
+    expect(onset.hudAlertRed).toBe(true)
+    expect(onset.hudStatusBlinkOn).toBe(true)
+    const off = await capture(page, { script: 'enemy-missile', frame: since + 24, hud: true })
+    expect(off.hudStatusBlinkOn).toBe(false)
+    const again = await capture(page, { script: 'enemy-missile', frame: since + 48, hud: true })
+    expect(again.hudStatusBlinkOn).toBe(true)
+  })
+
+  test('撃たれていなければ HUD は緑で、照準の上の欄に MISSILE ALERT は出ない', async ({ page }) => {
+    const hook = await capture(page, { script: 'level', frame: 240, hud: true })
+    expect(hook.hudAlertRed).toBe(false)
+    expect(hook.hudStatusUpper).toBe('')
   })
 
   test('撃たれていなければ警告は出ない', async ({ page }) => {

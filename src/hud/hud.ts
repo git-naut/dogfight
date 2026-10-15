@@ -1,5 +1,4 @@
 import type { AircraftSample } from '../sim/aircraft'
-import { AIRCRAFT } from '../sim/flightModel'
 import { GRAVITY } from '../sim/isa'
 import { Vec3 } from '../sim/vec3'
 import { MUZZLE_OFFSET, bulletTimeToRange } from '../sim/weapons/gun'
@@ -21,7 +20,6 @@ import {
   formatTimer,
   gearLabel,
   hookLabel,
-  trendOf,
   type HudReadout,
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
@@ -34,11 +32,12 @@ import {
   LABEL_FONT_REF,
   LINE_WIDTH_REF,
   MISSION_LINE_REF,
-  READOUT_LINE_REF,
   SILHOUETTE_SIZE_REF,
   SMALL_FONT_REF,
-  TREND_GAP_REF,
-  TREND_WIDTH_REF,
+  STATUS_BOX_HEIGHT_REF,
+  STATUS_FONT_REF,
+  STATUS_LINE_REF,
+  STATUS_PAD_REF,
   VALUE_BOX_HEIGHT_REF,
   VALUE_BOX_POINT_REF,
   VALUE_BOX_WIDTH_REF,
@@ -71,9 +70,34 @@ import {
  * RGB 179,232,181、明るい空で白に近い。白に近い淡い緑を 8 割の濃さで重ねると、暗い背景で
  * RGB 189,230,193 になる。周りに広がる光りは無い（芯 2 画素、両脇は背景より暗い）ので付けない
  */
-const PRIMARY = 'rgba(215, 255, 220, 0.8)'
+const GREEN = 'rgba(215, 255, 220, 0.8)'
 /** 補助線。目盛りの細かいほう */
-const DIM = 'rgba(215, 255, 220, 0.45)'
+const GREEN_DIM = 'rgba(215, 255, 220, 0.45)'
+/**
+ * **ミサイル警告のあいだの HUD の色（段 B2）。**録画は警告のあいだ HUD 全体が赤みのある
+ * ピンクに替わる。線の芯は暗い背景（RGB 58,55,63）で R +44・G +12・B +17、雲の上（203,191,189）
+ * でも R +19・G +14・B +13 と、**どちらの背景でも明るくなる。**半透明を重ねる塗り方では両立しない
+ * （最初に `rgba(205,95,120,0.3)` で作り、雲の上で背景より暗くなった）。
+ *
+ * そこで警告のあいだは HUD のキャンバスを `mix-blend-mode: screen` で重ね、暗い背景の実測から
+ * 色を解いた。スクリーンは `1 − (1 − 背景)(1 − 色)` なので、暗い背景で 102,67,80、雲の上で
+ * 215,195,195 になる（録画 222,204,201）
+ */
+const RED = 'rgb(57, 15, 23)'
+const RED_DIM = 'rgb(29, 8, 12)'
+/**
+ * 警告のあいだの上の欄の文字（MISSILE ALERT）。スクリーンで重ねる。録画の文字は暗い背景
+ * （65,70,79）で 144,100,112 なので、同じ式で解いた
+ */
+const ALERT_SCREEN = 'rgb(106, 41, 48)'
+/**
+ * 警告の無いときの上下の欄の警告の文字と枠（CAUTION・STALL・CRASH）。通常の重ね方。
+ * 録画の CAUTION は空の上で 208,163,180。空（200,205,215）に重ねると 214,164,176 になる
+ */
+const ALERT = 'rgba(225, 130, 145, 0.55)'
+/** 点滅の周期と、点いている長さ（フレーム）。録画は 6 コマ点いて 6 コマ消える（30fps、0.4 秒周期） */
+const BLINK_PERIOD_FRAMES = 48
+const BLINK_ON_FRAMES = 24
 /** 警告 */
 const WARN = 'rgba(255, 150, 90, 0.95)'
 
@@ -83,10 +107,6 @@ const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 /** 機銃の照準の円の半径と、左右のシェブロンの先端までの距離 画面画素（段 37） */
 const RETICLE_RADIUS = 16
 const RETICLE_CHEVRON = 26
-
-/** SPEED と ALT の増減の三角を出す閾値（段 36）。速さの変化率 m/s² と上下の速さ m/s */
-const SPEED_TREND = 1
-const CLIMB_TREND = 2
 
 /** 目標の箱の半辺 画面画素（段 35） */
 const TARGET_BOX_HALF = 7
@@ -292,6 +312,14 @@ export interface Hud {
   readonly gunReticleOnScreen: boolean
   /** ロックボックスが画面に入っているか */
   readonly lockBoxOnScreen: boolean
+  /** ミサイル警告で HUD を赤にしているか（段 B2） */
+  readonly alertRed: boolean
+  /** 照準の上の欄の文字（`MISSILE ALERT`・`CAUTION`、無ければ空）。点滅で消えているコマでも入る */
+  readonly statusUpper: string
+  /** 上の欄がこのコマで点いているか */
+  readonly statusBlinkOn: boolean
+  /** 照準の下の欄の文字。2 段なら ` / ` でつなぐ */
+  readonly statusLower: string
   /** SHOOT を出しているか（段 35） */
   readonly shootShown: boolean
   /** 目標の箱を描いた数（段 35） */
@@ -304,7 +332,7 @@ export interface Hud {
    *
    * @param viewProjection カメラのビュー射影行列。列優先 16 要素
    */
-  update(sample: AircraftSample, armament: HudArmament, viewProjection: Mat4): void
+  update(sample: AircraftSample, armament: HudArmament, viewProjection: Mat4, frame: number): void
   dispose(): void
 }
 
@@ -343,6 +371,16 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   let font = `${FONT_REF * s}px ${FONT_FAMILY}`
   let labelFont = `${LABEL_FONT_REF * s}px ${FONT_FAMILY}`
   let smallFont = `${SMALL_FONT_REF * s}px ${FONT_FAMILY}`
+  let statusFont = `${STATUS_FONT_REF * s}px ${FONT_FAMILY}`
+  /** いま使う主線と補助線の色。ミサイル警告のあいだは赤（段 B2） */
+  let primary = GREEN
+  let dim = GREEN_DIM
+  let alertRed = false
+  /** 上下の欄の警告の文字の色。警告のあいだはスクリーンで重ねる色 */
+  let alert = ALERT
+  let statusUpperText = ''
+  let statusLowerText = ''
+  let statusBlinkOn = false
   let reticleOnScreen = false
   let lockOnScreen = false
   let shootShown = false
@@ -378,6 +416,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     font = `${FONT_REF * s}px ${FONT_FAMILY}`
     labelFont = `${LABEL_FONT_REF * s}px ${FONT_FAMILY}`
     smallFont = `${SMALL_FONT_REF * s}px ${FONT_FAMILY}`
+    statusFont = `${STATUS_FONT_REF * s}px ${FONT_FAMILY}`
     canvas.width = Math.max(1, Math.round(width * dpr))
     canvas.height = Math.max(1, Math.round(height * dpr))
     canvas.style.width = `${width}px`
@@ -471,8 +510,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   }
 
   function drawLadder(m: Mat4, heading: number): void {
-    ctx!.strokeStyle = PRIMARY
-    ctx!.fillStyle = PRIMARY
+    ctx!.strokeStyle = primary
+    ctx!.fillStyle = primary
     ctx!.font = smallFont
 
     for (let pitch = -LADDER_LIMIT; pitch <= LADDER_LIMIT; pitch += LADDER_STEP) {
@@ -527,7 +566,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     const perUnit = halfHeight / range
     const dirSign = alignRight ? -1 : 1
 
-    ctx!.strokeStyle = DIM
+    ctx!.strokeStyle = dim
     ctx!.lineWidth = 1
     ctx!.beginPath()
     ctx!.moveTo(x, centerY - halfHeight)
@@ -543,13 +582,13 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       const y = centerY - (v - value) * perUnit
       const isMajor = Math.abs(v % major) < minor * 0.5
       const len = isMajor ? 12 : 6
-      ctx!.strokeStyle = isMajor ? PRIMARY : DIM
+      ctx!.strokeStyle = isMajor ? primary : dim
       ctx!.beginPath()
       ctx!.moveTo(x, y)
       ctx!.lineTo(x + dirSign * len, y)
       ctx!.stroke()
       if (isMajor) {
-        ctx!.fillStyle = DIM
+        ctx!.fillStyle = dim
         ctx!.fillText(String(Math.round(v)), x + dirSign * (len + 4), y)
       }
     }
@@ -560,15 +599,15 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     const boxWidth = 62
     const boxHeight = 22
     const boxX = alignRight ? x + 2 : x - boxWidth - 2
-    ctx!.strokeStyle = PRIMARY
+    ctx!.strokeStyle = primary
     ctx!.lineWidth = lineWidth
     ctx!.strokeRect(boxX, centerY - boxHeight / 2, boxWidth, boxHeight)
-    ctx!.fillStyle = PRIMARY
+    ctx!.fillStyle = primary
     ctx!.textAlign = 'center'
     ctx!.fillText(text, boxX + boxWidth / 2, centerY)
 
     ctx!.font = smallFont
-    ctx!.fillStyle = DIM
+    ctx!.fillStyle = dim
     ctx!.textAlign = 'center'
     ctx!.fillText(label, boxX + boxWidth / 2, centerY + boxHeight / 2 + 10)
   }
@@ -577,7 +616,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     const { y, halfWidth, centerX } = layout.headingTape
     const perDegree = halfWidth / HEADING_RANGE
 
-    ctx!.strokeStyle = DIM
+    ctx!.strokeStyle = dim
     ctx!.lineWidth = 1
     ctx!.beginPath()
     ctx!.moveTo(centerX - halfWidth, y)
@@ -592,20 +631,20 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     for (let d = first; d <= headingDeg + HEADING_RANGE; d += HEADING_MINOR) {
       const x = centerX + (d - headingDeg) * perDegree
       const isMajor = ((d % HEADING_MAJOR) + HEADING_MAJOR) % HEADING_MAJOR < 1e-6
-      ctx!.strokeStyle = isMajor ? PRIMARY : DIM
+      ctx!.strokeStyle = isMajor ? primary : dim
       ctx!.beginPath()
       ctx!.moveTo(x, y)
       ctx!.lineTo(x, y - (isMajor ? 10 : 5))
       ctx!.stroke()
       if (isMajor) {
         const shown = ((Math.round(d) % 360) + 360) % 360
-        ctx!.fillStyle = DIM
+        ctx!.fillStyle = dim
         ctx!.fillText(String(shown).padStart(3, '0'), x, y + 4)
       }
     }
 
     // 現在の方位。目盛りの中央に置く
-    ctx!.strokeStyle = PRIMARY
+    ctx!.strokeStyle = primary
     ctx!.lineWidth = lineWidth
     ctx!.beginPath()
     ctx!.moveTo(centerX, y - 14)
@@ -615,7 +654,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.stroke()
 
     ctx!.font = font
-    ctx!.fillStyle = PRIMARY
+    ctx!.fillStyle = primary
     ctx!.textBaseline = 'bottom'
     ctx!.fillText(
       String(Math.round(headingDeg) % 360).padStart(3, '0'),
@@ -633,7 +672,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     if (!p.inFront) return
 
     const r = 9 * u
-    ctx!.strokeStyle = PRIMARY
+    ctx!.strokeStyle = primary
     ctx!.lineWidth = lineWidth
     ctx!.beginPath()
     ctx!.arc(p.x, p.y, r, 0, Math.PI * 2)
@@ -654,7 +693,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     const nose = readout.nose
     const p = projectDirection(m, nose.x, nose.y, nose.z, width, height, b)
     if (!p.inFront) return
-    ctx!.strokeStyle = DIM
+    ctx!.strokeStyle = dim
     ctx!.lineWidth = u
     ctx!.beginPath()
     ctx!.moveTo(p.x - 7 * u, p.y)
@@ -684,7 +723,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     reticleOnScreen = p.inFront && p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height
     if (!p.inFront) return
 
-    ctx!.strokeStyle = PRIMARY
+    ctx!.strokeStyle = primary
     ctx!.lineWidth = lineWidth
     ctx!.beginPath()
     ctx!.arc(p.x, p.y, RETICLE_RADIUS * u, 0, Math.PI * 2)
@@ -708,13 +747,13 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.stroke()
 
     // 中心の点。着弾点そのもの
-    ctx!.fillStyle = PRIMARY
+    ctx!.fillStyle = primary
     ctx!.beginPath()
     ctx!.arc(p.x, p.y, 1.6 * u, 0, Math.PI * 2)
     ctx!.fill()
 
     ctx!.font = smallFont
-    ctx!.fillStyle = DIM
+    ctx!.fillStyle = dim
     ctx!.textAlign = 'left'
     ctx!.textBaseline = 'middle'
     // 基準距離は右のシェブロンの外（段 37 で 21 から移した）
@@ -750,7 +789,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       center.x >= 0 && center.x <= width && center.y >= 0 && center.y <= height
 
     const locked = lock.state === 'locked'
-    ctx!.strokeStyle = PRIMARY
+    ctx!.strokeStyle = primary
     ctx!.lineWidth = locked ? lineWidth * 1.4 : lineWidth
 
     if (locked) {
@@ -772,7 +811,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       ctx!.strokeRect(center.x - half, center.y - half, half * 2, half * 2)
       ctx!.setLineDash([])
       // 捕捉の進みを上辺の帯で見せる
-      ctx!.strokeStyle = DIM
+      ctx!.strokeStyle = dim
       ctx!.lineWidth = 2.5 * u
       ctx!.beginPath()
       ctx!.moveTo(center.x - half, center.y - half - 5 * u)
@@ -784,11 +823,11 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     const rangeText =
       lock.range >= 1000 ? `${(lock.range / 1000).toFixed(1)}K` : `${Math.round(lock.range)}`
     ctx!.font = smallFont
-    ctx!.fillStyle = PRIMARY
+    ctx!.fillStyle = primary
     ctx!.textAlign = 'left'
     ctx!.textBaseline = 'top'
     ctx!.fillText(rangeText, center.x + half + 6 * u, center.y - half)
-    ctx!.fillStyle = DIM
+    ctx!.fillStyle = dim
     ctx!.fillText(
       `${lock.closingSpeed >= 0 ? '+' : ''}${Math.round(lock.closingSpeed)}`,
       center.x + half + 6 * u,
@@ -802,7 +841,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     shootShown = locked && lock.range >= lock.dlz.rMin && lock.range <= lock.dlz.rNe && lock.dlz.rNe > 0
     if (shootShown) {
       ctx!.font = font
-      ctx!.fillStyle = PRIMARY
+      ctx!.fillStyle = primary
       ctx!.textAlign = 'center'
       ctx!.textBaseline = 'top'
       ctx!.fillText('SHOOT', center.x, center.y + half + 6 * u)
@@ -826,7 +865,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       if (c.locked) continue
       const p = projectPoint(m, c.x, c.y, c.z, width, height, a)
       if (!p.inFront || p.x < 0 || p.x > width || p.y < 0 || p.y > height) continue
-      const color = c.kind === 'enemy' ? WARN : PRIMARY
+      const color = c.kind === 'enemy' ? WARN : primary
       ctx!.strokeStyle = color
       const bh = TARGET_BOX_HALF * u
       ctx!.strokeRect(p.x - bh, p.y - bh, bh * 2, bh * 2)
@@ -872,7 +911,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.lineTo(tipX - dir.x * back - dir.y * side, tipY - dir.y * back + dir.x * side)
     ctx!.lineTo(tipX - dir.x * back + dir.y * side, tipY - dir.y * back - dir.x * side)
     ctx!.closePath()
-    ctx!.fillStyle = c.kind === 'enemy' ? WARN : PRIMARY
+    ctx!.fillStyle = c.kind === 'enemy' ? WARN : primary
     ctx!.fill()
   }
 
@@ -904,7 +943,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     for (let i = 0; i < rows.length; i++) {
       const [name, value, warn] = rows[i]!
       const rowY = y + ARMAMENT_LINE_REF * s * i
-      ctx!.fillStyle = warn ? WARN : PRIMARY
+      ctx!.fillStyle = warn ? WARN : primary
       ctx!.textAlign = 'left'
       ctx!.fillText(name, labelX, rowY)
       ctx!.textAlign = 'right'
@@ -930,7 +969,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       ctx!.fill()
       ctx!.globalAlpha = 1
     }
-    ctx!.strokeStyle = damaged ? WARN : PRIMARY
+    ctx!.strokeStyle = damaged ? WARN : primary
     ctx!.lineWidth = lineWidth
     ctx!.stroke()
   }
@@ -960,9 +999,9 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     // **参考画像（Ace Combat 7）の左上に合わせる**（段 32）。TIME、SCORE、撃墜の瞬間だけ
     // TARGET 機名 +点。残り時間は決着したらそこで止まる（`Mission.remainingFrames`）
     ctx!.font = font
-    ctx!.fillStyle = failed ? WARN : PRIMARY
+    ctx!.fillStyle = failed ? WARN : primary
     ctx!.fillText(`TIME ${formatTimer(mission.remainingFrames)}`, x, y)
-    ctx!.fillStyle = PRIMARY
+    ctx!.fillStyle = primary
     ctx!.fillText(`SCORE ${formatScore(mission.score)}`, x, y + MISSION_LINE_REF * s)
     if (mission.kill !== null) {
       ctx!.fillText(`TARGET ${mission.kill.designation} +${mission.kill.points}`, x, y + MISSION_LINE_REF * s * 2)
@@ -971,63 +1010,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     // 残敵。0 になったら成功。**レーダー（段 34）が入っても残す。**レーダーは位置を見せるが、
     // 勝ち負けに直結する残りの数は見せない
     ctx!.font = smallFont
-    ctx!.fillStyle = settled ? (failed ? WARN : PRIMARY) : DIM
+    ctx!.fillStyle = settled ? (failed ? WARN : primary) : dim
     ctx!.fillText(`ENEMY ${mission.enemiesAlive}`, x, y + MISSION_LINE_REF * s * 3)
-  }
-
-  /**
-   * ミサイル警告。
-   *
-   * **方位を矢印で出す。**文字だけでは、どちらへ逃げるか決められない。
-   * 円の上に三角を置いて、方位ぶん回す。0 が正面（上）、+π/2 が右。
-   *
-   * 位置は画面中央の少し上。ロックボックスとガンレティクルは中央にあるが、
-   * 撃たれているときに前を狙っていることは少ない。既存の警告列
-   * （CRASH / STALL / DMG）は下 0.7 にあるので重ならない。
-   *
-   * **飛んでいなければ何も描かない。**平時の HUD の絵は 1 画素も変わらない。
-   */
-  function drawThreat(threat: MissileThreat): void {
-    if (!threat.active) return
-
-    // **置き場所は絵で決めた。**0.24 は仰角 20 度の刻みと重なり、0.58 は
-    // 自機の機体と重なった。左寄せの 0.30 なら、ピッチラダーの刻み
-    // （中央付近）とも機体（中央下）とも離れる
-    const { cx, cy, radius } = layout.threat
-
-    ctx!.strokeStyle = WARN
-    ctx!.fillStyle = WARN
-    ctx!.lineWidth = 2 * u
-
-    // 方位の輪。矢印を置く土台
-    ctx!.beginPath()
-    ctx!.arc(cx, cy, radius, 0, Math.PI * 2)
-    ctx!.stroke()
-
-    // 矢印。方位 0 が上（機首方向）。時計回りが正
-    const angle = threat.bearing - Math.PI / 2
-    const tipX = cx + Math.cos(angle) * (radius + 10 * u)
-    const tipY = cy + Math.sin(angle) * (radius + 10 * u)
-    const leftX = cx + Math.cos(angle + 0.4) * radius
-    const leftY = cy + Math.sin(angle + 0.4) * radius
-    const rightX = cx + Math.cos(angle - 0.4) * radius
-    const rightY = cy + Math.sin(angle - 0.4) * radius
-    ctx!.beginPath()
-    ctx!.moveTo(tipX, tipY)
-    ctx!.lineTo(leftX, leftY)
-    ctx!.lineTo(rightX, rightY)
-    ctx!.closePath()
-    ctx!.fill()
-
-    ctx!.font = font
-    ctx!.textAlign = 'center'
-    ctx!.textBaseline = 'middle'
-    // 数が 2 以上なら添える。1 発なら数字を出さない
-    const label = threat.count > 1 ? `MISSILE x${threat.count}` : 'MISSILE'
-    ctx!.fillText(label, cx, cy - radius - 22 * u)
-    // 着弾までの秒。近いほど切迫が伝わる
-    ctx!.font = smallFont
-    ctx!.fillText(`${threat.timeToImpact.toFixed(1)}s`, cx, cy)
   }
 
   /**
@@ -1037,16 +1021,15 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
    * （`AircraftSample.speedRate`）が ±1 m/s² を越えたら、ALT は上下の速さが ±2 m/s を
    * 越えたら。越えなければ出さない（水平の巡航でちらつかせない）
    */
-  function drawValueBoxes(sample: AircraftSample): void {
+  function drawValueBoxes(): void {
     // **録画の形（段 B1）。**上に見出し（SPEED・ALT）、下に数字の箱。箱は照準の側へ尖らせる
     const w = VALUE_BOX_WIDTH_REF * s
     const h = VALUE_BOX_HEIGHT_REF * s
     const point = VALUE_BOX_POINT_REF * s
     const pad = 8 * s
-    const trendOffset = (TREND_GAP_REF + TREND_WIDTH_REF / 2) * s
     ctx!.lineWidth = lineWidth
-    ctx!.strokeStyle = PRIMARY
-    ctx!.fillStyle = PRIMARY
+    ctx!.strokeStyle = primary
+    ctx!.fillStyle = primary
 
     const { innerX: sx, centerY: sy } = layout.speedBox
     valueBox(sx, sy, w, h, point, -1)
@@ -1058,7 +1041,6 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.textBaseline = 'middle'
     ctx!.textAlign = 'right'
     ctx!.fillText(`${Math.round(readout.speedKt)}`, sx - point - pad, sy)
-    drawTrend(sx - w - trendOffset, sy, trendOf(sample.speedRate, SPEED_TREND))
 
     const { innerX: ax, centerY: ay } = layout.altitudeBox
     valueBox(ax, ay, w, h, point, 1)
@@ -1070,7 +1052,6 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.textBaseline = 'middle'
     ctx!.textAlign = 'right'
     ctx!.fillText(`${Math.round(readout.altitudeFt)}`, ax + w - pad, ay)
-    drawTrend(ax + w + trendOffset, ay, trendOf(sample.velocity.y, CLIMB_TREND))
   }
 
   /**
@@ -1088,20 +1069,6 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.lineTo(far, cy + h / 2)
     ctx!.closePath()
     ctx!.stroke()
-  }
-
-  /** 増減の三角。1 は上向き、−1 は下向き、0 は描かない */
-  function drawTrend(cx: number, cy: number, trend: -1 | 0 | 1): void {
-    if (trend === 0) return
-    const h = 7 * s
-    const w = (TREND_WIDTH_REF * s) / 2
-    ctx!.beginPath()
-    ctx!.moveTo(cx, cy - trend * h)
-    ctx!.lineTo(cx + w, cy + trend * h)
-    ctx!.lineTo(cx - w, cy + trend * h)
-    ctx!.closePath()
-    ctx!.fillStyle = PRIMARY
-    ctx!.fill()
   }
 
   /**
@@ -1135,7 +1102,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       ctx!.lineTo(x + size, y + (size * k) / 4)
     }
     ctx!.stroke()
-    ctx!.strokeStyle = DIM
+    ctx!.strokeStyle = dim
     ctx!.lineWidth = u
     for (const ring of RADAR_RINGS) {
       ctx!.beginPath()
@@ -1145,7 +1112,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
 
     // 方位の文字。機首が上なので、自機の向きに合わせて回る
     ctx!.font = smallFont
-    ctx!.fillStyle = DIM
+    ctx!.fillStyle = dim
     ctx!.textAlign = 'center'
     ctx!.textBaseline = 'middle'
     for (const [label, bearing] of RADAR_LABELS) {
@@ -1163,7 +1130,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       ctx!.save()
       ctx!.translate(px, py)
       ctx!.rotate(relative)
-      ctx!.strokeStyle = PRIMARY
+      ctx!.strokeStyle = primary
       ctx!.lineWidth = 1.5 * u
       ctx!.strokeRect(-2.5 * u, -7 * u, 5 * u, 14 * u)
       ctx!.restore()
@@ -1187,7 +1154,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
         ctx!.lineTo(px, py + 4 * u)
         ctx!.lineTo(px - 4 * u, py)
         ctx!.closePath()
-        ctx!.strokeStyle = PRIMARY
+        ctx!.strokeStyle = primary
         ctx!.stroke()
       }
     }
@@ -1198,46 +1165,68 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.lineTo(cx + 4 * u, cy + 4 * u)
     ctx!.lineTo(cx - 4 * u, cy + 4 * u)
     ctx!.closePath()
-    ctx!.fillStyle = PRIMARY
+    ctx!.fillStyle = primary
     ctx!.fill()
     ctx!.restore()
 
     // 縁は切り抜きの外から描く（内側半分が切れないように）
-    ctx!.strokeStyle = DIM
+    ctx!.strokeStyle = dim
     ctx!.lineWidth = lineWidth
     ctx!.strokeRect(x, y, size, size)
   }
 
-  function drawReadouts(): void {
-    ctx!.font = smallFont
-    ctx!.textAlign = 'left'
-    ctx!.textBaseline = 'alphabetic'
-    ctx!.fillStyle = DIM
-
-    // **G・AOA・THR と AGL は段 B1 でやめた**（録画に無い、2026-10-15 ユーザーの決定）。
-    // 脚とフックは段 B2 で照準の下の状態の欄へ移すまで、ここに残す
-    const { x, y } = layout.readouts
-    // 脚。上げ切りのときは出さない（`gearLabel`）
-    const gear = gearLabel(readout.gearPosition)
-    if (gear !== null) ctx!.fillText(gear, x, y)
-    // フック（段 8）。上げ切りのときは出さない
-    const hook = hookLabel(readout.hookPosition)
-    if (hook !== null) ctx!.fillText(hook, x, y + READOUT_LINE_REF * s)
-
-    const warnings: string[] = []
-    if (readout.crashed) warnings.push('CRASH')
-    if (readout.stalled) warnings.push('STALL')
-    if (readout.loadFactor > AIRCRAFT.gLimit * 0.95) warnings.push('G LIMIT')
-    if (readout.aglFt < LOW_ALTITUDE_FT && !readout.crashed) warnings.push('LOW')
-    // 脚を出したまま速度の上限（250 kt、推測）を超えた
-    if (readout.gearOverspeed) warnings.push('GEAR SPEED')
-    // 損傷はここに出さない。右下の兵装の一覧へ移した（段 33、`drawArmament`）
-    if (warnings.length > 0) {
-      ctx!.font = font
-      ctx!.fillStyle = WARN
-      ctx!.textAlign = 'center'
-      ctx!.fillText(warnings.join('  '), layout.warnings.x, layout.warnings.y)
+  /**
+   * 照準の上下の欄（段 B2、録画に合わせた）。
+   *
+   * 上の欄は MISSILE ALERT か CAUTION を、枠つきの文字で点滅させる（録画は 6 コマ点いて 6 コマ消える）。
+   * 下の欄は CRASH・STALL を警告の色で、脚とフックを主線の色で、点滅させずに出す。録画の STALL も
+   * 点滅しない。段 B1 までの警告の横一列（高さの 70%）・左下の脚とフック・左上の脅威の輪はここへ移した。
+   * G LIMIT は出さない（ユーザーの決定、2026-10-16）
+   *
+   * @param frame 点滅の位相を決めるシムのフレーム。実時間は使わない
+   */
+  function drawStatus(threat: MissileThreat, frame: number): void {
+    const lowAltitude = readout.aglFt < LOW_ALTITUDE_FT && !readout.crashed
+    const caution = !readout.crashed && (lowAltitude || readout.gearOverspeed || readout.stalled)
+    statusUpperText = threat.active ? 'MISSILE ALERT' : caution ? 'CAUTION' : ''
+    // 点滅は出始めのフレームから数える。出た瞬間が点いているように。CAUTION は出始めを
+    // 持たないので、通し番号の位相で点滅させる
+    const since = threat.active ? threat.since : 0
+    const phase = (((frame - since) % BLINK_PERIOD_FRAMES) + BLINK_PERIOD_FRAMES) % BLINK_PERIOD_FRAMES
+    statusBlinkOn = phase < BLINK_ON_FRAMES
+    if (statusUpperText !== '' && statusBlinkOn) {
+      statusBox(statusUpperText, layout.statusUpper.x, layout.statusUpper.y, alert)
     }
+
+    const warning = readout.crashed ? 'CRASH' : readout.stalled ? 'STALL' : ''
+    const gear = gearLabel(readout.gearPosition)
+    const hook = hookLabel(readout.hookPosition)
+    const rows: [string, string][] = []
+    if (warning !== '') rows.push([warning, alert])
+    if (gear !== null) rows.push([gear, primary])
+    if (hook !== null) rows.push([hook, primary])
+    // 2 段まで。警告があれば、脚かフックの 1 つと並ぶ
+    const { x, y } = layout.statusLower
+    const shown = rows.slice(0, 2)
+    for (let i = 0; i < shown.length; i++) {
+      const [text, color] = shown[i]!
+      statusBox(text, x, y + STATUS_LINE_REF * s * i, color)
+    }
+    statusLowerText = shown.map((r) => r[0]).join(' / ')
+  }
+
+  /** 枠つきの 1 行。中心に置く */
+  function statusBox(text: string, cx: number, cy: number, color: string): void {
+    ctx!.font = statusFont
+    ctx!.textAlign = 'center'
+    ctx!.textBaseline = 'middle'
+    const w = ctx!.measureText(text).width + STATUS_PAD_REF * 2 * s
+    const h = STATUS_BOX_HEIGHT_REF * s
+    ctx!.strokeStyle = color
+    ctx!.lineWidth = lineWidth
+    ctx!.strokeRect(cx - w / 2, cy - h / 2, w, h)
+    ctx!.fillStyle = color
+    ctx!.fillText(text, cx, cy)
   }
 
   applySize()
@@ -1255,6 +1244,22 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
 
     get lockBoxOnScreen() {
       return lockOnScreen
+    },
+
+    get alertRed() {
+      return alertRed
+    },
+
+    get statusUpper() {
+      return statusUpperText
+    },
+
+    get statusBlinkOn() {
+      return statusBlinkOn
+    },
+
+    get statusLower() {
+      return statusLowerText
     },
 
     get shootShown() {
@@ -1276,8 +1281,17 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       applySize()
     },
 
-    update(sample, armament, viewProjection) {
+    update(sample, armament, viewProjection, frame) {
       computeReadout(sample, readout)
+      // **ミサイル警告のあいだは HUD 全体を赤にする**（段 B2、録画は 3 コマ以内に替わる）
+      const red = armament.threat.active
+      // **重ね方は `#hud`（host）に付ける。**`#hud` は `position: fixed` で独立した重なりの文脈を作るので、
+      // キャンバスに付けても透明な `#hud` の中で混ざるだけで、下の 3D の絵とは混ざらなかった
+      if (red !== alertRed) host.style.mixBlendMode = red ? 'screen' : ''
+      alertRed = red
+      primary = alertRed ? RED : GREEN
+      dim = alertRed ? RED_DIM : GREEN_DIM
+      alert = alertRed ? ALERT_SCREEN : ALERT
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, width, height)
@@ -1317,13 +1331,12 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
         )
         drawHeadingTape(readout.headingDeg)
       } else {
-        drawValueBoxes(sample)
+        drawValueBoxes()
       }
       drawArmament(armament)
       drawMission(armament.mission)
-      drawThreat(armament.threat)
       drawRadar(sample, armament)
-      drawReadouts()
+      drawStatus(armament.threat, frame)
     },
 
     dispose() {

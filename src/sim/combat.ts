@@ -251,6 +251,7 @@ export class Combat {
     this.advanceMissiles(dt)
     this.advanceIncomingMissiles(dt)
     // 警告はミサイルを進めたあと。逸れた瞬間に消えてほしい
+    const threatWasActive = this.threat.active
     measureThreat(
       this.incomingMissiles,
       player.position,
@@ -258,6 +259,9 @@ export class Combat {
       player.orientation,
       this.threat,
     )
+    // 出始めたフレームを覚える（段 B2、HUD の点滅の位相）。`frame` はこのステップを進める前の
+    // 番号で、進めたあとの `World.frame`（HUD とキャプチャが使う番号）は 1 つ先。そちらに揃える
+    if (this.threat.active && !threatWasActive) this.threat.since = frame + 1
     this.fireMissile(input, player, dt)
     this.updateDlz(player, dt)
   }

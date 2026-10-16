@@ -171,6 +171,14 @@ export class Combat {
   kills = 0
   /** 撃墜の記録と点数（段 32）。HUD の `SCORE` と撃墜の加点が読む */
   readonly score = new ScoreLog()
+  /**
+   * 自機の弾かミサイルが最後に当たったフレームと、最後に撃墜したフレーム（Phase 10 の段 B3）。
+   * HUD の結果の帯（HIT・DESTROYED）に使う。**`World.frame` の数え方**（このステップの番号 + 1）で持つ。
+   * HUD とキャプチャはステップを進めたあとの `World.frame` を使うので、そちらに揃える（段 B2 の
+   * `MissileThreat.since` と同じ）。まだ無ければ −1
+   */
+  lastHitFrame = -1
+  lastKillFrame = -1
 
   /**
    * いまのフレーム。爆発の寿命の判定に使う。
@@ -323,6 +331,7 @@ export class Combat {
       }
 
       this.hits++
+      this.lastHitFrame = this.frame + 1
       // 弾頭の炸裂。起爆した位置に出す
       this.effects.spawn(
         missile.detonation,
@@ -458,6 +467,7 @@ export class Combat {
         if (!hit.hit) continue
 
         this.hits++
+        this.lastHitFrame = this.frame + 1
         // 20mm 弾 1 発で耐久 1
         if (target.damage(1)) {
           this.kills++
@@ -627,12 +637,15 @@ export class Combat {
 
   /** 撃墜を記録する。機名と点数が無い相手は既定の値 */
   private recordKill(target: Combatant): void {
+    this.lastKillFrame = this.frame + 1
     this.score.record(this.frame, target.designation ?? DEFAULT_DESIGNATION, target.points ?? DEFAULT_POINTS)
   }
 
   reset(): void {
     this.gun.reset()
     this.lock.release()
+    this.lastHitFrame = -1
+    this.lastKillFrame = -1
     for (const missile of this.missiles) missile.reset()
     this.effects.reset()
     this.dlz.rMax = 0

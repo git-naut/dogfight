@@ -640,6 +640,9 @@ export interface TestHook {
   missileWarning: boolean
   /** 警告が出始めたフレーム（段 B2、HUD の点滅の位相） */
   missileWarningSince: number
+  /** 自機の弾かミサイルが最後に当たったフレームと、最後に撃墜したフレーム（段 B3、無ければ −1） */
+  lastHitFrame: number
+  lastKillFrame: number
   /** 警告の方位 rad。0 が正面、+ が右、±π が真後ろ */
   missileBearing: number
   /** 警告の着弾までの秒 */
@@ -842,6 +845,8 @@ export interface TestHook {
   hudStatusBlinkOn: boolean
   /** 照準の下の欄（`STALL`・`GEAR DOWN` など、2 段は ` / ` でつなぐ） */
   hudStatusLower: string
+  /** 結果の帯（`HIT`・`DESTROYED`・空）（段 B3） */
+  hudBanner: string
   /** SHOOT・目標の箱の数・画面の外の矢印（段 35） */
   hudShootShown: boolean
   hudTargetBoxCount: number

@@ -2,7 +2,6 @@ import type { AircraftSample } from '../sim/aircraft'
 import { GRAVITY } from '../sim/isa'
 import { Vec3 } from '../sim/vec3'
 import { MUZZLE_OFFSET, bulletTimeToRange } from '../sim/weapons/gun'
-import { AIRCRAFT_SIZE } from '../sim/weapons/hitbox'
 import type { LockState } from '../sim/weapons/lock'
 import {
   createScreenPoint,
@@ -38,6 +37,7 @@ import {
   STATUS_FONT_REF,
   STATUS_LINE_REF,
   STATUS_PAD_REF,
+  BANNER_FONT_REF,
   VALUE_BOX_HEIGHT_REF,
   VALUE_BOX_POINT_REF,
   VALUE_BOX_WIDTH_REF,
@@ -103,8 +103,32 @@ const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 const RETICLE_RADIUS = 16
 const RETICLE_CHEVRON = 26
 
-/** 目標の箱の半辺 画面画素（段 35） */
-const TARGET_BOX_HALF = 7
+/**
+ * 目標の箱とロックの印（段 B3、録画の 1920x1080 の画素）。録画はロック前の白い四角が約 33 画素、
+ * ロックした赤いひし形が約 35 画素（lesson 4 のコマ 11700 と 11760）
+ */
+const TARGET_BOX_HALF_REF = 16.5
+const LOCK_DIAMOND_HALF_REF = 17.5
+/** 目標の箱と距離・機種の色。録画は白 */
+const TARGET_WHITE = 'rgba(255, 255, 255, 0.85)'
+/** ロックの印の色。録画は赤 */
+const LOCK_RED = 'rgba(255, 80, 95, 0.9)'
+/**
+ * 結果の帯（段 B3）。録画は照準の上に半透明の明るい緑の帯を置き、文字は地より暗い緑。空の上で地が
+ * RGB 209,253,200・文字が 181,234,176、暗い所で地が 100,202,34・文字が 23,156,12。
+ *
+ * **最初は文字を地から抜いた**（抜いた所が透けて暗く見える狙い）。撮ると、明るい空の上では透けた
+ * 所が地より明るくなり、文字がほとんど読めなかった。いまは文字を暗い緑で上から塗る
+ */
+const BANNER_FILL = 'rgba(150, 255, 140, 0.78)'
+const BANNER_TEXT = 'rgba(30, 150, 40, 0.85)'
+/**
+ * 帯の長さ（フレーム）。録画は HIT が 10 コマ（0.33 秒）、2 コマ消えて、DESTROYED が 37 コマ
+ * （1.23 秒）。撃墜のときは HIT のあとに DESTROYED、落ちない当たりは HIT だけ
+ */
+const BANNER_HIT_FRAMES = 40
+const BANNER_GAP_FRAMES = 8
+const BANNER_DESTROYED_FRAMES = 148
 /**
  * 画面の外の相手を指す矢印を置く半径。画面の短い辺に対する割合（段 35）。
  *
@@ -190,9 +214,6 @@ const LOW_ALTITUDE_FT = 500
  */
 const GUN_REFERENCE_RANGE = 300
 
-/** ロックボックスの大きさの下限と上限 画面画素 */
-const LOCK_BOX_MIN = 11
-const LOCK_BOX_MAX = 90
 
 /**
  * 武装の状態。
@@ -234,6 +255,11 @@ export interface HudArmament {
    * ミッションのない台本で撮ってある。`drawThreat` と同じ作法
    */
   mission: HudMission | null
+  /**
+   * 自機の弾かミサイルが最後に当たったフレームと、最後に撃墜したフレーム（段 B3、結果の帯）。
+   * `World.frame` の数え方。まだ無ければ −1
+   */
+  hits: { lastHit: number; lastKill: number }
 }
 
 /**
@@ -315,6 +341,8 @@ export interface Hud {
   readonly statusBlinkOn: boolean
   /** 照準の下の欄の文字。2 段なら ` / ` でつなぐ */
   readonly statusLower: string
+  /** 結果の帯の文字（`HIT`・`DESTROYED`、無ければ空）（段 B3） */
+  readonly banner: string
   /** SHOOT を出しているか（段 35） */
   readonly shootShown: boolean
   /** 目標の箱を描いた数（段 35） */
@@ -367,6 +395,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   let labelFont = `${LABEL_FONT_REF * s}px ${FONT_FAMILY}`
   let smallFont = `${SMALL_FONT_REF * s}px ${FONT_FAMILY}`
   let statusFont = `${STATUS_FONT_REF * s}px ${FONT_FAMILY}`
+  let bannerFont = `${BANNER_FONT_REF * s}px ${FONT_FAMILY}`
   /** いま使う主線と補助線の色。ミサイル警告のあいだは赤（段 B2） */
   let primary = GREEN
   let dim = GREEN_DIM
@@ -376,14 +405,13 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   let statusUpperText = ''
   let statusLowerText = ''
   let statusBlinkOn = false
+  let bannerText = ''
   let reticleOnScreen = false
   let lockOnScreen = false
   let shootShown = false
   let targetBoxCount = 0
   let arrowShown = false
 
-  // ロックボックスの計算に使う。使い回す
-  const lockEdge = new Vec3()
 
   // ガンレティクルの計算に使う。使い回す
   const muzzleWorld = new Vec3()
@@ -412,6 +440,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     labelFont = `${LABEL_FONT_REF * s}px ${FONT_FAMILY}`
     smallFont = `${SMALL_FONT_REF * s}px ${FONT_FAMILY}`
     statusFont = `${STATUS_FONT_REF * s}px ${FONT_FAMILY}`
+    bannerFont = `${BANNER_FONT_REF * s}px ${FONT_FAMILY}`
     canvas.width = Math.max(1, Math.round(width * dpr))
     canvas.height = Math.max(1, Math.round(height * dpr))
     canvas.style.width = `${width}px`
@@ -756,116 +785,119 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   }
 
   /**
-   * ロックボックス。
+   * ロックの印（段 B3、録画に合わせた）。
    *
-   * 箱の大きさは目標の見かけの大きさに合わせる。翼幅の半分ぶん上へずらした
-   * 点を一緒に投影して、画面上の距離を半径として使う。**画角を HUD へ渡さずに
-   * 見かけの大きさが出せる。**画面の端では歪むが、ロックする相手はたいてい
-   * 中央寄りにいる。
+   * 録画はロックする前の敵に白い四角（約 33 画素）、ロックすると赤いひし形（約 35 画素）を付ける
+   * （lesson 4 のコマ 11706 → 11712）。大きさは見かけの大きさに合わせず固定にした。捕捉中は白い
+   * 四角の上に捕捉の進みの帯を出す（録画では見分けられない。ユーザーの決定で残した）。
    *
-   * 捕捉中は破線、ロックしたら実線の角括弧にする。段階が絵で分かるように、
-   * 形そのものを変える（色だけだと分かりにくい）。
+   * 距離と機種は印の右に 2 行（録画は `7024` と `F-16C`）。段 37 までの接近速度はやめた（録画に無い）
    */
-  function drawLockBox(m: Mat4, lock: HudLock): void {
+  function drawLockBox(m: Mat4, lock: HudLock, armament: HudArmament): void {
     lockOnScreen = false
     shootShown = false
     if (lock.state === 'none') return
 
     const center = projectPoint(m, lock.position.x, lock.position.y, lock.position.z, width, height, a)
     if (!center.inFront) return
-
-    lockEdge.copy(lock.position)
-    lockEdge.y += AIRCRAFT_SIZE.span * 0.5
-    const edge = projectPoint(m, lockEdge.x, lockEdge.y, lockEdge.z, width, height, b)
-    const measured = edge.inFront ? Math.hypot(edge.x - center.x, edge.y - center.y) : 0
-    const half = Math.min(LOCK_BOX_MAX * u, Math.max(LOCK_BOX_MIN * u, measured))
-
     lockOnScreen =
       center.x >= 0 && center.x <= width && center.y >= 0 && center.y <= height
 
     const locked = lock.state === 'locked'
-    ctx!.strokeStyle = primary
-    ctx!.lineWidth = locked ? lineWidth * 1.4 : lineWidth
-
+    const half = TARGET_BOX_HALF_REF * s
+    ctx!.lineWidth = lineWidth
     if (locked) {
-      // 四隅の角括弧。ロックしたことが形で分かる
-      const arm = half * 0.45
-      for (const sx of [-1, 1]) {
-        for (const sy of [-1, 1]) {
-          const cx = center.x + sx * half
-          const cy = center.y + sy * half
-          ctx!.beginPath()
-          ctx!.moveTo(cx - sx * arm, cy)
-          ctx!.lineTo(cx, cy)
-          ctx!.lineTo(cx, cy - sy * arm)
-          ctx!.stroke()
-        }
-      }
-    } else {
-      ctx!.setLineDash([5 * u, 4 * u])
-      ctx!.strokeRect(center.x - half, center.y - half, half * 2, half * 2)
-      ctx!.setLineDash([])
-      // 捕捉の進みを上辺の帯で見せる
-      ctx!.strokeStyle = dim
-      ctx!.lineWidth = 2.5 * u
+      const d = LOCK_DIAMOND_HALF_REF * s
+      ctx!.strokeStyle = LOCK_RED
       ctx!.beginPath()
-      ctx!.moveTo(center.x - half, center.y - half - 5 * u)
-      ctx!.lineTo(center.x - half + half * 2 * lock.progress, center.y - half - 5 * u)
+      ctx!.moveTo(center.x, center.y - d)
+      ctx!.lineTo(center.x + d, center.y)
+      ctx!.lineTo(center.x, center.y + d)
+      ctx!.lineTo(center.x - d, center.y)
+      ctx!.closePath()
+      ctx!.stroke()
+    } else {
+      ctx!.strokeStyle = TARGET_WHITE
+      ctx!.strokeRect(center.x - half, center.y - half, half * 2, half * 2)
+      // 捕捉の進みを上辺の外の帯で見せる
+      ctx!.strokeStyle = dim
+      ctx!.lineWidth = lineWidth * 1.5
+      ctx!.beginPath()
+      ctx!.moveTo(center.x - half, center.y - half - 6 * s)
+      ctx!.lineTo(center.x - half + half * 2 * lock.progress, center.y - half - 6 * s)
       ctx!.stroke()
     }
 
-    // 距離と接近速度。1,000 m を境に単位を変える
-    const rangeText =
-      lock.range >= 1000 ? `${(lock.range / 1000).toFixed(1)}K` : `${Math.round(lock.range)}`
-    ctx!.font = smallFont
-    ctx!.fillStyle = primary
-    ctx!.textAlign = 'left'
-    ctx!.textBaseline = 'top'
-    ctx!.fillText(rangeText, center.x + half + 6 * u, center.y - half)
-    ctx!.fillStyle = dim
-    ctx!.fillText(
-      `${lock.closingSpeed >= 0 ? '+' : ''}${Math.round(lock.closingSpeed)}`,
-      center.x + half + 6 * u,
-      center.y - half + 13 * u,
-    )
-
-    // **SHOOT（段 35、段 37 で計画書に合わせた）。**ロックしていて、距離が `rMin`〜`rNe` の内の
-    // とき。`rNe` は相手が反転して逃げても届く帯。段 35 では `rMax` までで出していたが、最大射程の
-    // 端は相手が逃げると届かない（計画書の段 32）。箱の下に出す。画面の中央は自機の機体が占めるので、
-    // 固定の位置には置かない
-    shootShown = locked && lock.range >= lock.dlz.rMin && lock.range <= lock.dlz.rNe && lock.dlz.rNe > 0
-    if (shootShown) {
-      ctx!.font = font
-      ctx!.fillStyle = primary
-      ctx!.textAlign = 'center'
-      ctx!.textBaseline = 'top'
-      ctx!.fillText('SHOOT', center.x, center.y + half + 6 * u)
+    // 距離（m の整数）と機種。ロック中の相手の機種は contacts の locked から引く
+    let designation = ''
+    for (let i = 0; i < armament.contactCount; i++) {
+      if (armament.contacts[i]!.locked) designation = armament.contacts[i]!.designation
     }
+    targetLabel(center.x + half + 6 * s, center.y - half, `${Math.round(lock.range)}`, designation, locked ? LOCK_RED : TARGET_WHITE)
+
+    // **SHOOT（段 35・37、段 B3 で録画の位置へ）。**ロックしていて、距離が `rMin`〜`rNe` の内のとき。
+    // 録画は HUD の下の中央に枠つきで出す（x 920〜998・y 690〜714）。段 B2 までは箱の下に付いて動いた
+    shootShown = locked && lock.range >= lock.dlz.rMin && lock.range <= lock.dlz.rNe && lock.dlz.rNe > 0
+    if (shootShown) statusBox('SHOOT', layout.shoot.x, layout.shoot.y, primary)
   }
 
   /**
-   * 目標の箱（段 35、参考画像に合わせた）。画面に写っている相手すべてに小さな四角と機名。
+   * 結果の帯（段 B3、録画に合わせた）。照準の上（録画 x 756〜1165・y 454〜489）に、撃墜なら HIT の
+   * あとに DESTROYED、落ちない当たりなら HIT だけを出す。1 フレームで出て 1 フレームで消える。
+   * 警告の赤い HUD のあいだも緑のまま（録画のコマ 17110 は MISSILE ALERT の下に緑の DESTROYED）
    *
-   * ロック中の相手は描かない（ロックボックスが描く）。遠い相手も箱の大きさは変えない。
+   * @param frame `World.frame`。命中と撃墜のフレームと同じ数え方
+   */
+  function drawBanner(hits: HudArmament['hits'], frame: number): void {
+    bannerText = ''
+    const killAge = hits.lastKill >= 0 ? frame - hits.lastKill : -1
+    const hitAge = hits.lastHit >= 0 ? frame - hits.lastHit : -1
+    if (killAge >= 0 && killAge < BANNER_HIT_FRAMES + BANNER_GAP_FRAMES + BANNER_DESTROYED_FRAMES) {
+      if (killAge < BANNER_HIT_FRAMES) bannerText = 'HIT'
+      else if (killAge >= BANNER_HIT_FRAMES + BANNER_GAP_FRAMES) bannerText = 'DESTROYED'
+    } else if (hitAge >= 0 && hitAge < BANNER_HIT_FRAMES) {
+      bannerText = 'HIT'
+    }
+    if (bannerText === '') return
+
+    const { x, y, w, h } = layout.bounds.banner
+    ctx!.fillStyle = BANNER_FILL
+    ctx!.fillRect(x, y, w, h)
+    ctx!.font = bannerFont
+    ctx!.textAlign = 'center'
+    ctx!.textBaseline = 'middle'
+    ctx!.fillStyle = BANNER_TEXT
+    ctx!.fillText(bannerText, x + w / 2, y + h / 2)
+  }
+
+  /** 印の右の 2 行（距離と機種）。左上を (x, y) に置く */
+  function targetLabel(x: number, y: number, range: string, designation: string, color: string): void {
+    ctx!.font = smallFont
+    ctx!.fillStyle = color
+    ctx!.textAlign = 'left'
+    ctx!.textBaseline = 'top'
+    ctx!.fillText(range, x, y)
+    if (designation !== '') ctx!.fillText(designation, x, y + SMALL_FONT_REF * s * 1.1)
+  }
+
+  /**
+   * 目標の箱（段 35、段 B3 で録画に合わせた）。画面に写っている相手すべてに白い四角（約 33 画素）と、
+   * 右に距離と機種の 2 行。ロック中の相手は描かない（ロックの印が描く）。大きさは変えない。
    * 交戦距離の相手は肉眼では数画素にしか写らないので、見つけるための印として置く
    */
-  function drawTargetBoxes(m: Mat4, armament: HudArmament): void {
+  function drawTargetBoxes(m: Mat4, sample: AircraftSample, armament: HudArmament): void {
     targetBoxCount = 0
     ctx!.lineWidth = lineWidth
-    ctx!.font = smallFont
-    ctx!.textAlign = 'center'
-    ctx!.textBaseline = 'top'
+    const half = TARGET_BOX_HALF_REF * s
     for (let i = 0; i < armament.contactCount; i++) {
       const c = armament.contacts[i]!
       if (c.locked) continue
       const p = projectPoint(m, c.x, c.y, c.z, width, height, a)
       if (!p.inFront || p.x < 0 || p.x > width || p.y < 0 || p.y > height) continue
-      const color = c.kind === 'enemy' ? WARN : primary
-      ctx!.strokeStyle = color
-      const bh = TARGET_BOX_HALF * u
-      ctx!.strokeRect(p.x - bh, p.y - bh, bh * 2, bh * 2)
-      ctx!.fillStyle = color
-      ctx!.fillText(c.designation, p.x, p.y + bh + 3 * u)
+      ctx!.strokeStyle = TARGET_WHITE
+      ctx!.strokeRect(p.x - half, p.y - half, half * 2, half * 2)
+      const range = Math.hypot(c.x - sample.position.x, c.y - sample.position.y, c.z - sample.position.z)
+      targetLabel(p.x + half + 6 * s, p.y - half, `${Math.round(range)}`, c.designation, TARGET_WHITE)
       targetBoxCount++
     }
   }
@@ -1257,6 +1289,10 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       return statusLowerText
     },
 
+    get banner() {
+      return bannerText
+    },
+
     get shootShown() {
       return shootShown
     },
@@ -1297,8 +1333,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       if (instruments === 'full') drawLadder(viewProjection, heading)
       drawBoresight(viewProjection)
       drawGunReticle(viewProjection, sample)
-      drawTargetBoxes(viewProjection, armament)
-      drawLockBox(viewProjection, armament.lock)
+      drawTargetBoxes(viewProjection, sample, armament)
+      drawLockBox(viewProjection, armament.lock, armament)
       drawArrow(viewProjection, sample, armament)
       drawFlightPath(viewProjection)
 
@@ -1329,6 +1365,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       drawMission(armament.mission)
       drawRadar(sample, armament)
       drawStatus(armament.threat, frame)
+      drawBanner(armament.hits, frame)
     },
 
     dispose() {

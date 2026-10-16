@@ -150,6 +150,8 @@ const hook = installTestHook({
   incomingMissiles: 0,
   missileWarning: false,
   missileWarningSince: 0,
+  lastHitFrame: -1,
+  lastKillFrame: -1,
   missileBearing: 0,
   missileTimeToImpact: 0,
   flaresLeft: 0,
@@ -187,6 +189,7 @@ const hook = installTestHook({
   hudStatusUpper: '',
   hudStatusBlinkOn: false,
   hudStatusLower: '',
+  hudBanner: '',
   hudTargetBoxCount: 0,
   hudArrowShown: false,
   preset: capture.preset,
@@ -520,6 +523,7 @@ async function main(): Promise<void> {
     lock: createHudLock(),
     flares: 0,
     threat: createMissileThreat(),
+    hits: { lastHit: -1, lastKill: -1 },
     // 器を使い回す。ミッションのない台本では null を入れて何も描かせない
     mission: { remainingFrames: 0, enemiesAlive: 0, outcome: 'none', score: 0, kill: null },
   }
@@ -591,6 +595,8 @@ async function main(): Promise<void> {
     armament.threat.timeToImpact = threat.timeToImpact
     armament.threat.count = threat.count
     armament.threat.since = threat.since
+    armament.hits.lastHit = currentWorld.combat.lastHitFrame
+    armament.hits.lastKill = currentWorld.combat.lastKillFrame
 
     const lock = currentWorld.combat.lock
     armament.lock.state = lock.state
@@ -629,6 +635,7 @@ async function main(): Promise<void> {
     hook.hudStatusUpper = hud.statusUpper
     hook.hudStatusBlinkOn = hud.statusBlinkOn
     hook.hudStatusLower = hud.statusLower
+    hook.hudBanner = hud.banner
     hook.hudTargetBoxCount = hud.targetBoxCount
     hook.hudArrowShown = hud.arrowShown
   }
@@ -696,6 +703,8 @@ async function main(): Promise<void> {
     hook.incomingMissiles = currentWorld.combat.incomingMissilesInFlight
     hook.missileWarning = currentWorld.combat.threat.active
     hook.missileWarningSince = currentWorld.combat.threat.since
+    hook.lastHitFrame = currentWorld.combat.lastHitFrame
+    hook.lastKillFrame = currentWorld.combat.lastKillFrame
     hook.missileBearing = currentWorld.combat.threat.bearing
     hook.missileTimeToImpact = currentWorld.combat.threat.timeToImpact
     hook.flaresLeft = currentWorld.countermeasures.left

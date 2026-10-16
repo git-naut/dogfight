@@ -398,6 +398,25 @@ test.describe('HUD', () => {
     expect(await page.locator('canvas.hud-canvas').count()).toBe(0)
   })
 
+  /**
+   * 段 B3（録画に合わせた）。撃墜すると結果の帯が HIT を 40 フレーム（録画の 10 コマ）、8 フレーム
+   * 消えて、DESTROYED を 148 フレーム（録画の 37 コマ）出す
+   */
+  test('撃墜すると HIT のあとに DESTROYED の帯が出て消える', async ({ page }) => {
+    const after = await capture(page, { script: 'missile-shot', frame: 900, hud: true })
+    const k = after.lastKillFrame
+    expect(k).toBeGreaterThan(0)
+    const at = async (frame: number) =>
+      (await capture(page, { script: 'missile-shot', frame, hud: true })).hudBanner
+    expect(await at(k - 1)).toBe('')
+    expect(await at(k)).toBe('HIT')
+    expect(await at(k + 39)).toBe('HIT')
+    expect(await at(k + 40)).toBe('')
+    expect(await at(k + 48)).toBe('DESTROYED')
+    expect(await at(k + 195)).toBe('DESTROYED')
+    expect(await at(k + 196)).toBe('')
+  })
+
   /** 段 B2。脚の表示は照準の下の欄（録画の STALL・AUTO PILOT と同じ欄）に出す */
   test('脚を出すと照準の下の欄に出て、上げ切ると消える', async ({ page }) => {
     const down = await capture(page, { script: 'gear-down', frame: 60, hud: true })

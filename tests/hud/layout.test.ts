@@ -110,6 +110,19 @@ describe('HUD の配置', () => {
     })
   })
 
+  /** 段 B3。結果の帯（録画 x 756〜1165・y 454〜489）と SHOOT（x 920〜998・y 690〜714） */
+  it('1920x1080 で結果の帯と SHOOT が録画の位置に合う（各辺 ±1%）', () => {
+    const { bounds } = computeLayout(1920, 1080)
+    const near = (r: Rect, x0: number, y0: number, x1: number, y1: number, what: string) => {
+      expect(Math.abs(r.x - x0), `${what} の左`).toBeLessThanOrEqual(19.2)
+      expect(Math.abs(r.x + r.w - x1), `${what} の右`).toBeLessThanOrEqual(19.2)
+      expect(Math.abs(r.y - y0), `${what} の上`).toBeLessThanOrEqual(10.8)
+      expect(Math.abs(r.y + r.h - y1), `${what} の下`).toBeLessThanOrEqual(10.8)
+    }
+    near(bounds.banner, 756, 454, 1165, 489, '結果の帯')
+    near(bounds.shoot, 920, 690, 998, 714, 'SHOOT')
+  })
+
   it('全画面の視点（full）の目盛りの位置は段 36 までの式のまま', () => {
     // 追従視点では描かない（段 36）。操縦席など別の視点のために残している
     const l = computeLayout(1280, 720)

@@ -58,6 +58,14 @@ export const STATUS_PAD_REF = 7
 export const STATUS_LINE_REF = 32
 
 /**
+ * 結果の帯（段 B3）。録画の DESTROYED は x 756〜1165・y 454〜489（幅 410・高さ 36）。文字は帯の
+ * 高さの 6 割ほど
+ */
+export const BANNER_WIDTH_REF = 410
+export const BANNER_HEIGHT_REF = 36
+export const BANNER_FONT_REF = 26
+
+/**
  * ミッション欄。録画の TIME と SCORE は x 100、大文字の上端 52 と 89 で、行の間隔は約 37
  */
 export const MISSION_LINE_REF = 37
@@ -102,6 +110,8 @@ export interface HudLayout {
   /** 照準の上の欄（CAUTION・MISSILE ALERT）と下の欄（STALL・脚など）の中心（段 B2） */
   readonly statusUpper: { readonly x: number; readonly y: number }
   readonly statusLower: { readonly x: number; readonly y: number }
+  /** SHOOT の枠の中心（段 B3、録画は HUD の下の中央 x 920〜998・y 690〜714） */
+  readonly shoot: { readonly x: number; readonly y: number }
   /**
    * SPEED と ALT の数字の箱。照準側の尖りの先の x と、箱の中心の高さ
    */
@@ -125,6 +135,8 @@ export type HudElement =
   | 'mission'
   | 'statusUpper'
   | 'statusLower'
+  | 'shoot'
+  | 'banner'
   | 'radar'
 
 /** 表示しうる最長の文字列の文字数。外接の箱の見積りに使う */
@@ -161,6 +173,7 @@ export function computeLayout(width: number, height: number): HudLayout {
   // 照準の上下の欄（録画: CAUTION の枠の中心 y 438.5、STALL の枠の中心 y 641.5）
   const statusUpper = { x: width * 0.5, y: height * (438.5 / 1080) }
   const statusLower = { x: width * 0.5, y: height * (641.5 / 1080) }
+  const shoot = { x: width * 0.5, y: height * (702 / 1080) }
   // SPEED と ALT の数字の箱（録画: SPEED の右端 700、ALT の左端 1216、数字の箱は y 522〜557）
   const speedBox = { innerX: width * (700 / 1920), centerY: height * (539.5 / 1080) }
   const altitudeBox = { innerX: width * (1216 / 1920), centerY: height * (539.5 / 1080) }
@@ -209,6 +222,15 @@ export function computeLayout(width: number, height: number): HudLayout {
       ...statusBox(statusLower, LONGEST.statusLower, s),
       h: STATUS_BOX_HEIGHT_REF * s + STATUS_LINE_REF * s,
     },
+    // SHOOT。枠つきの 1 行
+    shoot: statusBox(shoot, 5, s),
+    // 結果の帯。照準の上（録画の中心 y 471.5）
+    banner: {
+      x: width * 0.5 - (BANNER_WIDTH_REF * s) / 2,
+      y: height * (471.5 / 1080) - (BANNER_HEIGHT_REF * s) / 2,
+      w: BANNER_WIDTH_REF * s,
+      h: BANNER_HEIGHT_REF * s,
+    },
     // レーダー。方位の文字も正方形の内側に描く
     radar: { x: radar.x, y: radar.y, w: radar.size, h: radar.size },
   }
@@ -223,6 +245,7 @@ export function computeLayout(width: number, height: number): HudLayout {
     mission,
     statusUpper,
     statusLower,
+    shoot,
     speedBox,
     altitudeBox,
     radar,

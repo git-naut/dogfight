@@ -82,6 +82,24 @@ export const PROPELLANT_MASS = 25
 export const BURN_TIME = 5
 /** 推力 N。選んだ値 */
 export const THRUST = 9000
+
+/** モーター。推力 N と燃焼時間 秒。推進剤の質量は共通（`PROPELLANT_MASS`） */
+export interface MissileMotor {
+  readonly thrust: number
+  readonly burnTime: number
+}
+
+/** 既定のモーター（段 B3a まで全部のミサイル、いまは敵のミサイル） */
+export const DEFAULT_MOTOR: MissileMotor = { thrust: THRUST, burnTime: BURN_TIME }
+
+/**
+ * **自機のミサイルのモーター（Phase 10 の段 B3b）。**録画（ACE COMBAT 7 の講座 lesson 5）では、
+ * 距離の表示 2,025 の敵に発射から命中まで 2.13 秒（コマ 20027 → 20091）。距離の単位は ft と
+ * みなした（ユーザーの決定、617 m）。推進剤の総量（力積 45,000 N·s）は既定と同じにして、短く
+ * 強く燃やす。sim で測ると 617 m 先の同じ向きに逃げる的に 2.13 秒、1,200 m に 3.13 秒、射程は
+ * 11,900 m（既定は 12,070 m）。敵のミサイルは既定のまま（フレアで避けられる幅を保つ、ユーザーの決定）
+ */
+export const PLAYER_MOTOR: MissileMotor = { thrust: 20000, burnTime: 2.25 }
 /** 抗力係数。選んだ値 */
 const DRAG_COEFFICIENT = 0.5
 /** 基準面積 m²。直径から出す */
@@ -153,13 +171,18 @@ export interface MissileOptions {
    * を実演するには、同じ物理のまま定数だけを変える必要がある。
    */
   navConstant?: number
+  /** モーター。既定は `DEFAULT_MOTOR`。自機のミサイルは `PLAYER_MOTOR`（段 B3b） */
+  motor?: MissileMotor
 }
 
 export class Missile implements SmokeSource {
   readonly navConstant: number
 
+  readonly motorSpec: MissileMotor
+
   constructor(options: MissileOptions = {}) {
     this.navConstant = options.navConstant ?? NAV_CONSTANT
+    this.motorSpec = options.motor ?? DEFAULT_MOTOR
   }
 
   readonly position = new Vec3()
@@ -237,7 +260,7 @@ export class Missile implements SmokeSource {
 
     this.state = 'flying'
     this.life = MISSILE_LIFETIME
-    this.motor = BURN_TIME
+    this.motor = this.motorSpec.burnTime
     this.age = 0
     this.mass = MISSILE_MASS
     this.targetIndex = targetIndex
@@ -288,10 +311,10 @@ export class Missile implements SmokeSource {
       if (this.motor > 0) {
         // 燃焼の末端は 1 ステップに収まらない。押した時間で按分する
         const burn = Math.min(dt, this.motor)
-        acceleration.addScaledVector(forward, (THRUST / this.mass) * (burn / dt))
+        acceleration.addScaledVector(forward, (this.motorSpec.thrust / this.mass) * (burn / dt))
         this.motor -= dt
         // 推進剤を消費して軽くなる
-        this.mass -= (PROPELLANT_MASS / BURN_TIME) * burn
+        this.mass -= (PROPELLANT_MASS / this.motorSpec.burnTime) * burn
       }
 
       // 抗力は速度の逆向き

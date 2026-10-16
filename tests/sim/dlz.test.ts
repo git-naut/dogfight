@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createDlz, integrateMissile, maxRange, minimumRange, solveDlz } from '@sim/weapons/dlz'
-import { ARM_TIME, BURN_TIME, MISSILE_LIFETIME, Missile } from '@sim/weapons/missile'
+import { ARM_TIME, DEFAULT_MOTOR, MISSILE_LIFETIME, Missile, PLAYER_MOTOR } from '@sim/weapons/missile'
 import { Target } from '@sim/target'
 import { Quat } from '@sim/quat'
 import { Vec3 } from '@sim/vec3'
@@ -24,7 +24,7 @@ function hits(rangeM: number, targetSpeed: number, headOn: boolean): boolean {
   )
   // 反転して向かってくる相手（方位 180 度）
   if (headOn) (target as unknown as { heading: number }).heading = Math.PI
-  const missile = new Missile()
+  const missile = new Missile({ motor: PLAYER_MOTOR })
   missile.launch(ORIGIN, new Vec3(0, 0, -250), new Quat(), 0)
   let steps = 0
   while (missile.alive && steps < 120 * 70) {
@@ -49,8 +49,9 @@ function findLimit(targetSpeed: number, headOn: boolean): number {
 
 describe('前方積分', () => {
   it('燃焼中に伸び、燃え尽きたら鈍る', () => {
-    const at2 = integrateMissile(250, 3000, 2)
-    const at5 = integrateMissile(250, 3000, BURN_TIME)
+    // 段 B3b で自機のモーターを 2.25 秒の燃焼にした。燃焼の途中と燃え尽きた時点で比べる
+    const at2 = integrateMissile(250, 3000, 1)
+    const at5 = integrateMissile(250, 3000, PLAYER_MOTOR.burnTime)
     const at10 = integrateMissile(250, 3000, 10)
 
     expect(at5.speed).toBeGreaterThan(at2.speed)
@@ -61,7 +62,7 @@ describe('前方積分', () => {
 
   it('ミサイルの実物と 3% 以内で合う', () => {
     // 誘導なしで直進させたミサイルの飛距離と比べる
-    const missile = new Missile()
+    const missile = new Missile({ motor: PLAYER_MOTOR })
     missile.launch(ORIGIN, new Vec3(0, 0, -250), new Quat(), -1)
     const seconds = 10
     for (let i = 0; i < Math.round(seconds / FIXED_DT); i++) missile.step(FIXED_DT, null)
@@ -276,30 +277,36 @@ describe('前提', () => {
  * `overtook = true` を `false` にしても、`else if (overtook) break` を
  * 消しても落ちない。値の大きさを見ていなかった。
  */
+/**
+ * 打ち切りの筋道の検査。**モーターは段 B3a までの既定（`DEFAULT_MOTOR`）を明示して渡す。**値は
+ * その推力で実測して固定したもので、見ているのは筋道（追い越すまで切らない）。段 B3b で自機の
+ * モーターを替えても、この値は動かさない
+ */
 describe('追い越してから打ち切る', () => {
   it('発射直後の遅さで打ち切らない', () => {
     // 母機 180 m/s、目標が 300 m/s で離れる。ミサイルの初速は母機の速度なので
     // 最初は目標より遅い。**そこで打ち切ると 0 になる。**燃焼で追い越し、
     // 抗力で再び遅くなったところで切る
-    expect(Math.round(maxRange(180, 3000, 300))).toBe(7442)
+    expect(Math.round(maxRange(180, 3000, 300, DEFAULT_MOTOR))).toBe(7442)
   })
 
   it('打ち切らずに積分を続けると値が縮む', () => {
     // 追い越しの記録を落とすと break が効かず、遅くなったあとも積分が続いて
     // 詰めた距離が削られる。**上の 7442 はその上端でもある**
-    expect(Math.round(maxRange(180, 3000, 300))).toBeGreaterThan(7000)
-    expect(Math.round(maxRange(180, 3000, 300))).toBeLessThan(7900)
+    expect(Math.round(maxRange(180, 3000, 300, DEFAULT_MOTOR))).toBeGreaterThan(7000)
+    expect(Math.round(maxRange(180, 3000, 300, DEFAULT_MOTOR))).toBeLessThan(7900)
   })
 
   it('逃げない目標なら最初から追い越している', () => {
-    expect(Math.round(maxRange(180, 3000, 0))).toBe(25115)
+    expect(Math.round(maxRange(180, 3000, 0, DEFAULT_MOTOR))).toBe(25115)
   })
 })
 
 describe('DLZ の逆転を止める', () => {
   it('rNe は rMax を超えない', () => {
     // 目標がほぼ止まっていて、しかも自機から見て速く離れていく構図。
-    // 素の計算では rNe 25,870 m が rMax 3,358 m を追い越す。
+    // 素の計算では rNe 25,870 m が rMax 3,358 m を追い越す（段 B3a までのモーター）。
+    // 段 B3b で自機のモーターを短く強くして、rMax は 3,536 m になった
     // **clamp を外すと「反転して逃げても届く距離」が「そのまま飛ぶ前提の
     // 距離」より長くなる**という、意味の通らない答えが出る
     const dlz = solveDlz({
@@ -309,8 +316,8 @@ describe('DLZ の逆転を止める', () => {
       closingSpeed: -200,
     })
     expect(dlz.rNe).toBeLessThanOrEqual(dlz.rMax)
-    expect(Math.round(dlz.rMax)).toBe(3358)
-    expect(Math.round(dlz.rNe)).toBe(3358)
+    expect(Math.round(dlz.rMax)).toBe(3536)
+    expect(Math.round(dlz.rNe)).toBe(3536)
   })
 
   it('rMin は rNe を超えない', () => {

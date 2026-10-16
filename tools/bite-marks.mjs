@@ -874,6 +874,15 @@ export const BITE_MARKS = [
     why: '撃墜の加点が 30 秒も残り、次の撃墜まで出たままになる',
   },
   {
+    id: 'player-missile-default-motor',
+    kind: '定数の摂動',
+    file: 'src/sim/combat.ts',
+    find: '    () => new Missile({ motor: PLAYER_MOTOR }),',
+    replace: '    () => new Missile(),',
+    expect: 'tests/sim/playerMissileTime.test.ts',
+    why: '自機のミサイルが敵と同じ遅いモーターに戻り、617 m に 3.2 秒かかる（録画は 2.13 秒、段 B3b）',
+  },
+  {
     id: 'threat-since-not-latched',
     kind: '文の削除',
     file: 'src/sim/combat.ts',

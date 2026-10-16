@@ -153,20 +153,23 @@ export const SCENES = [
   // ミサイル。発射から 1.5 秒。煙が後方へ伸び、本体が前方にいる
   { name: 'missile-launch', script: 'missile-shot', frame: 300, hour: 16, coverage: 0, hud: true, watches: ['smoke'] },
   // 自機が自分の煙の筋に沿って飛ぶ。**near 面の見張り。**実測で
-  // このフレームの煙の中ほどがカメラの 0.1 m を通る（濃さ 1）
-  { name: 'missile-smoke-near', script: 'missile-near', frame: 841, hour: 16, coverage: 0, watches: ['smoke'] },
+  // このフレームの煙の中ほどがカメラの 0.1 m を通る（濃さ 1）。
+  // **段 B3b で自機のミサイルを速くしたので f841 から f721 へ移した。**煙の中心線と追従カメラの
+  // 最短距離を sim で測ると、元の速さの f841 が 1.06 m、新しい速さの f841 が 2.89 m、f721 が 0.99 m
+  { name: 'missile-smoke-near', script: 'missile-near', frame: 721, hour: 16, coverage: 0, watches: ['smoke'] },
   // 爆発。機銃で落とした 0.13 秒後。火球が膨らみ切る手前。
   // **耐久を 60 へ上げて撃墜が 0.95 秒になったので f90 から f130 へ移した**
   { name: 'explosion-gun', script: 'gun-pass', frame: 130, hour: 16, coverage: 0, watches: ['explosions', 'bloom'] },
   // ミサイルの命中。弾頭の炸裂と撃墜の 2 つが重なる。
-  // **台本を 1,200 m へ寄せたので命中が 5.56 秒 = f667 になった**
+  // **台本を 1,200 m へ寄せたので命中が 5.56 秒 = f667 になった**。段 B3b で自機のミサイルを
+  // 速くして命中が f496 になったので、同じ 0.10 秒後の f508 へ移した
   //
   // **芯が生きているフレームで撮る。**f700 は命中の 0.275 秒後で、芯は
   // `CORE_HOLD` 0.18 秒 + 0.12 秒の減衰で 0.30 秒に消える。実測でも
   // f700 の寄与は 118 画素・彩度 17 で、芯の色を変えても最大差が
   // 19 → 13 としか動かなかった。**芯を壊しても気づけない見張りだった。**
   // f679（0.10 秒後）なら 52 画素・彩度 27 で、色を変えると 45 へ動く
-  { name: 'explosion-missile', script: 'missile-shot', frame: 679, hour: 16, coverage: 0, watches: ['explosions'] },
+  { name: 'explosion-missile', script: 'missile-shot', frame: 508, hour: 16, coverage: 0, watches: ['explosions'] },
   // DLZ バー。正面から向かい合う構図で、rNe と rMax の帯が分かれる。
   // 実測で接近 481 m/s・rMax 40,304 m・rNe 12,070 m
   { name: 'hud-dlz', script: 'head-on', frame: 1080, hour: 16, coverage: 0, hud: true, watches: [] },

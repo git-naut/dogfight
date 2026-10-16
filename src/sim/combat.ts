@@ -12,7 +12,7 @@ import {
   type HitResult,
 } from './weapons/hitbox'
 import { Lock } from './weapons/lock'
-import { Missile, type SmokeSource } from './weapons/missile'
+import { Missile, PLAYER_MOTOR, type SmokeSource } from './weapons/missile'
 import { Effects, type ExplosionSource } from './effects'
 import {
   createMissileThreat,
@@ -153,7 +153,7 @@ export class Combat {
   /** ミサイル。撃った順に使い、飛び終われば器を再利用する */
   readonly missiles: readonly Missile[] = Array.from(
     { length: MISSILE_COUNT },
-    () => new Missile(),
+    () => new Missile({ motor: PLAYER_MOTOR }),
   )
 
   /** 残ミサイル */

@@ -1,13 +1,13 @@
 import { airDensity } from '../isa'
 import {
   ARM_TIME,
-  BURN_TIME,
   FUZE_RADIUS,
   MISSILE_DIAMETER,
   MISSILE_MASS,
   MISSILE_LIFETIME,
+  PLAYER_MOTOR,
   PROPELLANT_MASS,
-  THRUST,
+  type MissileMotor,
 } from './missile'
 
 /**
@@ -60,20 +60,22 @@ export function integrateMissile(
   launchSpeed: number,
   altitude: number,
   seconds: number,
+  /** モーター。既定は自機のミサイル（段 B3b） */
+  engine: MissileMotor = PLAYER_MOTOR,
 ): { distance: number; speed: number } {
   const density = airDensity(altitude)
   let speed = launchSpeed
   let mass = MISSILE_MASS
   let distance = 0
-  let motor = BURN_TIME
+  let motor = engine.burnTime
 
   const steps = Math.max(1, Math.round(seconds / DLZ_STEP))
   for (let i = 0; i < steps; i++) {
     let acceleration = 0
     if (motor > 0) {
       const burn = Math.min(DLZ_STEP, motor)
-      acceleration += (THRUST / mass) * (burn / DLZ_STEP)
-      mass -= (PROPELLANT_MASS / BURN_TIME) * burn
+      acceleration += (engine.thrust / mass) * (burn / DLZ_STEP)
+      mass -= (PROPELLANT_MASS / engine.burnTime) * burn
       motor -= DLZ_STEP
     }
     const drag = 0.5 * density * speed * speed * REFERENCE_AREA * DRAG_COEFFICIENT
@@ -109,11 +111,13 @@ export function maxRange(
   launchSpeed: number,
   altitude: number,
   targetSpeedAway: number,
+  /** モーター。既定は自機のミサイル（段 B3b） */
+  engine: MissileMotor = PLAYER_MOTOR,
 ): number {
   const density = airDensity(altitude)
   let speed = launchSpeed
   let mass = MISSILE_MASS
-  let motor = BURN_TIME
+  let motor = engine.burnTime
   /** ミサイルが目標に対して詰めた距離 */
   let closed = 0
   /** 一度でも目標より速くなったか。発射直後の遅さで打ち切らないため */
@@ -124,8 +128,8 @@ export function maxRange(
     let acceleration = 0
     if (motor > 0) {
       const burn = Math.min(DLZ_STEP, motor)
-      acceleration += (THRUST / mass) * (burn / DLZ_STEP)
-      mass -= (PROPELLANT_MASS / BURN_TIME) * burn
+      acceleration += (engine.thrust / mass) * (burn / DLZ_STEP)
+      mass -= (PROPELLANT_MASS / engine.burnTime) * burn
       motor -= DLZ_STEP
     }
     const drag = 0.5 * density * speed * speed * REFERENCE_AREA * DRAG_COEFFICIENT

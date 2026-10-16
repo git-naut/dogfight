@@ -74,22 +74,17 @@ const GREEN = 'rgba(215, 255, 220, 0.8)'
 /** 補助線。目盛りの細かいほう */
 const GREEN_DIM = 'rgba(215, 255, 220, 0.45)'
 /**
- * **ミサイル警告のあいだの HUD の色（段 B2）。**録画は警告のあいだ HUD 全体が赤みのある
- * ピンクに替わる。線の芯は暗い背景（RGB 58,55,63）で R +44・G +12・B +17、雲の上（203,191,189）
- * でも R +19・G +14・B +13 と、**どちらの背景でも明るくなる。**半透明を重ねる塗り方では両立しない
- * （最初に `rgba(205,95,120,0.3)` で作り、雲の上で背景より暗くなった）。
+ * **ミサイル警告のあいだの HUD の色（段 B2）。**録画は警告のあいだ HUD 全体が赤みのあるピンクに替わる。
  *
- * そこで警告のあいだは HUD のキャンバスを `mix-blend-mode: screen` で重ね、暗い背景の実測から
- * 色を解いた。スクリーンは `1 − (1 − 背景)(1 − 色)` なので、暗い背景で 102,67,80、雲の上で
- * 215,195,195 になる（録画 222,204,201）
+ * 録画の線は暗い背景でも雲の上でも背景より明るくなる（スクリーンの重ね方の振る舞い）。最初は
+ * それに合わせて `#hud` をスクリーンで重ねたが、明るい空の上ではほとんど読めなかった。ユーザーが
+ * 4 つの候補を並べた図から「通常の重ね方・半透明 45%」を選んだ（2026-10-16）。明るい空では
+ * 背景より暗い赤、暗い背景では明るい赤になる
  */
-const RED = 'rgb(57, 15, 23)'
-const RED_DIM = 'rgb(29, 8, 12)'
-/**
- * 警告のあいだの上の欄の文字（MISSILE ALERT）。スクリーンで重ねる。録画の文字は暗い背景
- * （65,70,79）で 144,100,112 なので、同じ式で解いた
- */
-const ALERT_SCREEN = 'rgb(106, 41, 48)'
+const RED = 'rgba(255, 95, 115, 0.45)'
+const RED_DIM = 'rgba(255, 95, 115, 0.25)'
+/** 警告のあいだの上下の欄の文字と枠（MISSILE ALERT・STALL・CRASH）。HUD の赤より濃い */
+const ALERT_RED = 'rgba(255, 110, 125, 0.7)'
 /**
  * 警告の無いときの上下の欄の警告の文字と枠（CAUTION・STALL・CRASH）。通常の重ね方。
  * 録画の CAUTION は空の上で 208,163,180。空（200,205,215）に重ねると 214,164,176 になる
@@ -376,7 +371,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   let primary = GREEN
   let dim = GREEN_DIM
   let alertRed = false
-  /** 上下の欄の警告の文字の色。警告のあいだはスクリーンで重ねる色 */
+  /** 上下の欄の警告の文字の色。警告のあいだは濃い赤 */
   let alert = ALERT
   let statusUpperText = ''
   let statusLowerText = ''
@@ -1285,13 +1280,10 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       computeReadout(sample, readout)
       // **ミサイル警告のあいだは HUD 全体を赤にする**（段 B2、録画は 3 コマ以内に替わる）
       const red = armament.threat.active
-      // **重ね方は `#hud`（host）に付ける。**`#hud` は `position: fixed` で独立した重なりの文脈を作るので、
-      // キャンバスに付けても透明な `#hud` の中で混ざるだけで、下の 3D の絵とは混ざらなかった
-      if (red !== alertRed) host.style.mixBlendMode = red ? 'screen' : ''
       alertRed = red
       primary = alertRed ? RED : GREEN
       dim = alertRed ? RED_DIM : GREEN_DIM
-      alert = alertRed ? ALERT_SCREEN : ALERT
+      alert = alertRed ? ALERT_RED : ALERT
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, width, height)

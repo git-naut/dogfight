@@ -388,6 +388,11 @@ export class Combat {
     return count
   }
 
+  /** 敵が撃ったミサイル。HUD のレーダーに描く（段 B5）。読むだけ */
+  get incomingMissileList(): readonly Missile[] {
+    return this.incomingMissiles
+  }
+
   /** 煙を読む口。描画へ渡す */
   get smokeSources(): readonly SmokeSource[] {
     // 敵のミサイルも煙を引く。描画の容量はここの長さで決まる

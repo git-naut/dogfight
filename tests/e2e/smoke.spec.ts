@@ -417,6 +417,15 @@ test.describe('HUD', () => {
     expect(await at(k + 196)).toBe('')
   })
 
+  /** 段 B5。レーダーの縮尺は、いちばん近い相手が外の円に入るいちばん小さい段（2・4・8・16・32 km） */
+  test('レーダーの縮尺がいちばん近い相手の距離で決まる', async ({ page }) => {
+    // missile-shot の標的は 1,200 m 先 → 2 km の段。撃墜したあと相手がいなければ 8 km
+    const near = await capture(page, { script: 'missile-shot', frame: 100, hud: true })
+    expect(near.hudRadarRange).toBe(2000)
+    const none = await capture(page, { script: 'level', frame: 240, hud: true })
+    expect(none.hudRadarRange).toBe(8000)
+  })
+
   /** 段 B2。脚の表示は照準の下の欄（録画の STALL・AUTO PILOT と同じ欄）に出す */
   test('脚を出すと照準の下の欄に出て、上げ切ると消える', async ({ page }) => {
     const down = await capture(page, { script: 'gear-down', frame: 60, hud: true })

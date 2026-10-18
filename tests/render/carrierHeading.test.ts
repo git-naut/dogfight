@@ -32,7 +32,7 @@ describe('空母の向き', () => {
   it.each(HEADINGS)('heading %f で、レーダーの空母の枠の向きが艦首の向きと一致する', (h) => {
     // 北を向いた自機から、空母の艦首の先 1,000 m の点を見る
     const bow = new THREE.Vector3(0, 0, -1).transformDirection(carrierAt(h).matrixWorld)
-    const p = radarPoint(bow.x * 1000, bow.z * 1000, 0)
+    const p = radarPoint(bow.x * 1000, bow.z * 1000, 0, 8000)
     const length = Math.hypot(p.x, p.y)
     // hud.ts は枠を canvas の rotate(k.heading − 自機の heading) で回す。(0, −1) は
     // (sin θ, −cos θ) へ写るので、艦首の点の方向と同じでなければならない

@@ -190,6 +190,7 @@ const hook = installTestHook({
   hudStatusBlinkOn: false,
   hudStatusLower: '',
   hudBanner: '',
+  hudRadarRange: 0,
   hudTargetBoxCount: 0,
   hudArrowShown: false,
   preset: capture.preset,
@@ -524,6 +525,7 @@ async function main(): Promise<void> {
     flares: 0,
     threat: createMissileThreat(),
     hits: { lastHit: -1, lastKill: -1 },
+    incoming: { count: 0, points: [] },
     // 器を使い回す。ミッションのない台本では null を入れて何も描かせない
     mission: { remainingFrames: 0, enemiesAlive: 0, outcome: 'none', score: 0, kill: null },
   }
@@ -562,6 +564,18 @@ async function main(): Promise<void> {
       if (e.alive) put(e, enemySamples[i]?.position ?? e.position, 'enemy')
     })
     armament.contactCount = n
+    // 敵のミサイル（段 B5）。飛んでいるものだけ。器は足りなければ足して使い回す
+    let m = 0
+    for (const missile of currentWorld.combat.incomingMissileList) {
+      if (missile.state !== 'flying') continue
+      const slot = (armament.incoming.points[m] ??= { x: 0, z: 0, vx: 0, vz: 0 })
+      slot.x = missile.position.x
+      slot.z = missile.position.z
+      slot.vx = missile.velocity.x
+      slot.vz = missile.velocity.z
+      m++
+    }
+    armament.incoming.count = m
     // 空母（段 37）。World が台本の配置を持つ
     armament.carrier = currentWorld.carrier
     armament.flares = currentWorld.countermeasures.left
@@ -636,6 +650,7 @@ async function main(): Promise<void> {
     hook.hudStatusBlinkOn = hud.statusBlinkOn
     hook.hudStatusLower = hud.statusLower
     hook.hudBanner = hud.banner
+    hook.hudRadarRange = hud.radarRange
     hook.hudTargetBoxCount = hud.targetBoxCount
     hook.hudArrowShown = hud.arrowShown
   }

@@ -847,6 +847,8 @@ export interface TestHook {
   hudStatusLower: string
   /** 結果の帯（`HIT`・`DESTROYED`・空）（段 B3） */
   hudBanner: string
+  /** レーダーの縮尺 m。いちばん外の円の半径が表す距離（段 B5） */
+  hudRadarRange: number
   /** SHOOT・目標の箱の数・画面の外の矢印（段 35） */
   hudShootShown: boolean
   hudTargetBoxCount: number

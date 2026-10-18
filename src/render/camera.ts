@@ -62,11 +62,32 @@ const OFFSET = new THREE.Vector3(0, 3.8, 19.5)
 /** 注視点を機首の先に置く距離 m */
 const LOOK_AHEAD = 60
 
-/** 位置と注視点の追従時定数 s */
-const POSITION_TAU = 0.09
+/**
+ * 位置と注視点の追従時定数 s。
+ *
+ * **Phase 10 の段 B4 で、位置を 0.09 から 0.3 へ延ばした**（録画に合わせた）。注視点は機首の先へ
+ * 素早く追い、位置（機体のまわりのどこから見るか）は遅れて追う。引くと機体が画面の下へずれ、
+ * 曲がると曲がる側と反対へずれる。録画（ACE COMBAT 7 の講座 lesson 2、1920x1080）は引くと下へ
+ * 50〜70 画素・約 0.8 秒で最大、ヨーで横へ 38〜44 画素。sim とこのカメラを手元で動かして測ると、
+ * 0.3 秒で引くと 0.8 秒で 62 画素・最大 70 画素、ヨーで 34 画素（0.09 秒では 11 画素と 7 画素）。
+ * 0.33 秒では引きが 78 画素で録画を超えた。押したときは録画が約 30 画素で、こちらは引きと同じ量
+ * （機体の機首下げの速さは変えない、ユーザーの決定）
+ */
+const POSITION_TAU = 0.3
 const TARGET_TAU = 0.05
-/** 機体のロールにカメラが追従する時定数 s */
-const ROLL_TAU = 0.14
+
+/**
+ * **ロールの追従（段 B4、録画に合わせた）。**録画は機体が画面上で 8〜11.5 度傾くまでカメラが
+ * 回らず、そこからは差を保って回り、止めると 0.4〜1.3 秒で水平に戻って約 1.5 度行き過ぎる。
+ * カメラのロールを機体のロールへ、ばねとダンパで引き寄せ、差を `ROLL_LAG_MAX` で抑える。
+ *
+ * 減衰比 0.52 は、10 度から戻るときの行き過ぎが 15%（1.5 度）になる値。固有角振動数 5.9 rad/s は、
+ * 戻り始めてから水平を越えるまで 0.42 秒・ほぼ止まるまで 1.3 秒になる値。段 B3 までは時定数
+ * 0.14 秒の指数の遅れで、ロールを続けると機体は画面上で最大 31.6 度傾いた
+ */
+const ROLL_LAG_MAX = (10 * Math.PI) / 180
+const ROLL_ZETA = 0.52
+const ROLL_OMEGA = 5.9
 
 /**
  * 画角 度（縦）。遅いとき `FOV_BASE`、`FOV_FULL_SPEED` で `FOV_FAST`。
@@ -103,6 +124,10 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
   const desiredLook = new THREE.Vector3()
   const target = new THREE.Vector3()
   const up = new THREE.Vector3(0, 1, 0)
+  /** カメラのロールの、機体に対する角速度 rad/s（ばねの状態） */
+  let rollRate = 0
+  const viewForward = new THREE.Vector3()
+  const bodyRight = new THREE.Vector3()
 
   const q = new THREE.Quaternion()
   const offset = new THREE.Vector3()
@@ -157,7 +182,6 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
 
       const kp = 1 - Math.exp(-dt / POSITION_TAU)
       const kt = 1 - Math.exp(-dt / TARGET_TAU)
-      const kr = 1 - Math.exp(-dt / ROLL_TAU)
 
       // **遅れは機体まわりの向きにだけ掛ける。**世界の位置を追わせると、等速でも
       // 速度 × 約 0.085 秒だけ後ろに残り、250 m/s で 15.5 m の定位置が 36 m に伸びて
@@ -168,8 +192,18 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
       camera.position.copy(craftPos).add(currentOffset)
       target.copy(craftPos).add(currentLook)
 
-      // ロールを遅らせて追う。即座に合わせると回転が読み取れない
-      up.lerp(bodyUp, kr).normalize()
+      // ロールを遅らせて追う（段 B4）。いまのカメラの上向きと機体の上向きの、視線まわりの角度の差を
+      // ばねとダンパで 0 へ寄せ、差は `ROLL_LAG_MAX` を超えさせない
+      viewForward.copy(target).sub(camera.position).normalize()
+      bodyRight.crossVectors(viewForward, bodyUp).normalize()
+      const lag = Math.atan2(up.dot(bodyRight), up.dot(bodyUp))
+      rollRate += (-ROLL_OMEGA * ROLL_OMEGA * lag - 2 * ROLL_ZETA * ROLL_OMEGA * rollRate) * dt
+      let next = lag + rollRate * dt
+      if (next > ROLL_LAG_MAX || next < -ROLL_LAG_MAX) {
+        next = Math.max(-ROLL_LAG_MAX, Math.min(ROLL_LAG_MAX, next))
+        rollRate = 0
+      }
+      up.copy(bodyUp).multiplyScalar(Math.cos(next)).addScaledVector(bodyRight, Math.sin(next)).normalize()
       camera.up.copy(up)
       camera.lookAt(target)
 
@@ -183,6 +217,7 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
       camera.position.copy(craftPos).add(currentOffset)
       target.copy(craftPos).add(currentLook)
       up.copy(bodyUp)
+      rollRate = 0
       camera.up.copy(up)
       camera.lookAt(target)
       applyFov(sample.speed)

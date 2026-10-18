@@ -90,6 +90,13 @@ export class KeyboardInput {
     // 押しているあいだ true。押した瞬間の判定は sim の `World` が持つ
     this.input.gearToggle = this.pressed.has('KeyG')
     this.input.hookToggle = this.pressed.has('KeyH')
+    // 段 B6。録画の「2 つ同時押し」をキーボードの同時押しに当てた。どちらも今まで打ち消し合って
+    // 何も起きなかった組（スロットルの増減、左右のヨー）なので、既存の操作とぶつからない
+    const shift = held('ShiftLeft') + held('ShiftRight') > 0
+    const ctrl = held('ControlLeft') + held('ControlRight') > 0
+    this.input.highG = shift && ctrl
+    this.input.autopilot = this.pressed.has('KeyQ') && this.pressed.has('KeyE')
+    this.input.switchTarget = this.pressed.has('KeyT')
 
     return this.input
   }
@@ -151,6 +158,10 @@ export const CONTROL_HELP: readonly ControlHelpEntry[] = [
   { keys: 'C', action: 'フレア', codes: ['KeyC'] },
   { keys: 'G', action: '脚の出し入れ', codes: ['KeyG'] },
   { keys: 'H', action: 'フックの上げ下ろし', codes: ['KeyH'] },
+  { keys: 'T', action: 'ターゲット切替', codes: ['KeyT'] },
+  // 同時押し（段 B6）。コードは上のヨーとスロットルの行と同じ
+  { keys: 'Q + E', action: 'オートパイロット', codes: ['KeyQ', 'KeyE'] },
+  { keys: 'Shift + Ctrl + S', action: 'ハイGターン', codes: ['ShiftLeft', 'ControlLeft', 'KeyS'] },
   { keys: '右ドラッグ', action: '視点', codes: [] },
   { keys: 'R', action: 'やり直す', codes: ['KeyR'] },
   // **判定はこのファイルにない。**`main.ts` がポーズを、`settingsPanel.ts` が

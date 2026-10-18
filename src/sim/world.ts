@@ -19,6 +19,7 @@ import {
 import { catapultLaunch } from './carrierDeck'
 import { carrierDeckSampler } from './deckContact'
 import type { InputState } from './input'
+import { AUTOPILOT_OVERRIDE, autopilotCommand } from './autopilot'
 import { defaultTerrain, type Terrain } from './terrain'
 import { Mission, type MissionSpec } from './mission'
 
@@ -160,6 +161,12 @@ export class World {
   private gearHeld = false
   /** 前のステップでフックのキーが押されていたか（段 8、脚と同じ理由で World が持つ） */
   private hookHeld = false
+  /** オートパイロットのボタン（段 B6）。押した瞬間を取るため前のステップの値を持つ */
+  private autopilotHeld = false
+  /** オートパイロットで置き換えた入力の器。使い回す */
+  private readonly autopilotInput: InputState = { ...({} as InputState) }
+  private readonly apRight = new Vec3()
+  private readonly apUp = new Vec3()
   private _frame = 0
 
   constructor(options: WorldOptions) {
@@ -323,7 +330,30 @@ export class World {
       return
     }
 
-    this.player.step(input, FIXED_DT, this.stepOptions)
+    // **オートパイロット（段 B6）。**押した瞬間に入れ、ロールかピッチを入れたら切る。入っている
+    // あいだは自機へ渡すロールとピッチを、翼を水平にして機首を水平線へ戻す指令で置き換える。
+    // 機銃やスロットルなど、ほかの入力はそのまま通す
+    const autopilotPressed = input.autopilot && !this.autopilotHeld
+    this.autopilotHeld = input.autopilot
+    if (autopilotPressed) this.player.autopilot = true
+    if (Math.abs(input.roll) > AUTOPILOT_OVERRIDE || Math.abs(input.pitch) > AUTOPILOT_OVERRIDE) {
+      this.player.autopilot = false
+    }
+    let flown = input
+    if (this.player.autopilot) {
+      this.player.orientation.right(this.apRight)
+      this.player.orientation.up(this.apUp)
+      const bank = Math.atan2(-this.apRight.y, this.apUp.y)
+      const speed = this.player.velocity.length()
+      const climb = speed > 1 ? Math.asin(Math.max(-1, Math.min(1, this.player.velocity.y / speed))) : 0
+      const command = autopilotCommand(bank, climb)
+      Object.assign(this.autopilotInput, input)
+      this.autopilotInput.roll = command.roll
+      this.autopilotInput.pitch = command.pitch
+      flown = this.autopilotInput
+    }
+
+    this.player.step(flown, FIXED_DT, this.stepOptions)
     for (const target of this.targets) target.step(FIXED_DT)
     for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)
     this.combat.step(input, this.player, FIXED_DT, this._frame)

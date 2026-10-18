@@ -1183,6 +1183,31 @@ test.describe('操作の型', () => {
     )
     expect(mode).toBe('expert')
   })
+
+  /**
+   * **オートパイロット（段 B6、ADR 0028）。**Q と E を同時に押すと入り、照準の下に
+   * AUTO PILOT が出る。ロールを入れると切れて消える。キーの割り当てから HUD までを通しで見る
+   */
+  test('Q と E の同時押しで AUTO PILOT が出て、ロールで消える', async ({ page }) => {
+    await openLive(page)
+    const lower = (): Promise<string> =>
+      page.evaluate(
+        () => (window as unknown as { __dogfight?: TestHook }).__dogfight?.hudStatusLower ?? '',
+      )
+    expect(await lower()).not.toContain('AUTO PILOT')
+    await page.keyboard.down('KeyQ')
+    await page.keyboard.down('KeyE')
+    await advanceFrames(page, 4)
+    await page.keyboard.up('KeyQ')
+    await page.keyboard.up('KeyE')
+    await advanceFrames(page, 4)
+    expect(await lower()).toContain('AUTO PILOT')
+    await page.keyboard.down('KeyD')
+    await advanceFrames(page, 4)
+    await page.keyboard.up('KeyD')
+    await advanceFrames(page, 2)
+    expect(await lower()).not.toContain('AUTO PILOT')
+  })
 })
 
 test.describe('リザルト', () => {

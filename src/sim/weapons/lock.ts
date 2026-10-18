@@ -129,6 +129,42 @@ export class Lock implements LockView {
    * 距離ではなく角度で選ぶ。遠くても正面にいる相手のほうが「狙っている」
    * 相手である。
    */
+  /**
+   * ターゲット切替（Phase 10 の段 B6）。追える範囲（機首から `SEEKER_TRACK_ANGLE`・`SEEKER_MAX_RANGE`）
+   * の候補を機首からの角度の順に並べ、いまの相手の次へ移して**すぐにロックする**（ユーザーの決定。
+   * 捕捉からやり直さない）。いまの相手がいなければ、いちばん機首に近い相手。候補が 1 つも無ければ
+   * 何もしない
+   *
+   * @returns 移したら true
+   */
+  cycle(position: Vec3, velocity: Vec3, orientation: Quat, targets: readonly Combatant[]): boolean {
+    orientation.forward(nose)
+    const candidates: { index: number; angle: number }[] = []
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i]!
+      if (!target.alive) continue
+      toTarget.subVectors(target.position, position)
+      const range = toTarget.length()
+      if (range > SEEKER_MAX_RANGE || range < 1e-6) continue
+      const cos = toTarget.dot(nose) / range
+      const angle = Math.acos(Math.min(1, Math.max(-1, cos)))
+      if (angle > SEEKER_TRACK_ANGLE) continue
+      candidates.push({ index: i, angle })
+    }
+    if (candidates.length === 0) return false
+    // 角度が同じなら番号の順。並びを決めて、同じ構図から同じ相手を選ぶ
+    candidates.sort((a, b) => a.angle - b.angle || a.index - b.index)
+    const at = this.state === 'none' ? -1 : candidates.findIndex((c) => c.index === this.index)
+    const next = candidates[(at + 1) % candidates.length]!
+    if (next.index === this.index && this.state === 'locked') return false
+    this.index = next.index
+    this.measure(position, velocity, targets[next.index]!)
+    this.state = 'locked'
+    this.acquired = SEEKER_ACQUIRE_TIME
+    this.progress = 1
+    return true
+  }
+
   private pick(position: Vec3, targets: readonly Combatant[]): number {
     let best = -1
     let bestAngle = SEEKER_ACQUIRE_ANGLE

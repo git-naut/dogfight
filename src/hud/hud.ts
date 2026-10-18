@@ -1328,6 +1328,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     const hook = hookLabel(readout.hookPosition)
     const rows: [string, string][] = []
     if (warning !== '') rows.push([warning, alert])
+    // オートパイロット（段 B6）。録画は STALL と同じ欄に緑の枠つきで出す
+    if (readout.autopilot) rows.push(['AUTO PILOT', primary])
     if (gear !== null) rows.push([gear, primary])
     if (hook !== null) rows.push([hook, primary])
     // 2 段まで。警告があれば、脚かフックの 1 つと並ぶ

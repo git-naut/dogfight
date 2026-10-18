@@ -178,6 +178,8 @@ export class Combat {
    * `MissileThreat.since` と同じ）。まだ無ければ −1
    */
   lastHitFrame = -1
+  /** ターゲット切替のボタン（段 B6）。押した瞬間を取るため前のステップの値を持つ */
+  private switchHeld = false
   lastKillFrame = -1
 
   /**
@@ -245,8 +247,14 @@ export class Combat {
     this.fireGun(input, player, dt)
 
     // ロックは当たり判定のあと。落とした相手を掴み続けない
+    // ターゲット切替（段 B6）は押した瞬間だけ。ロックを進める前に相手を移す
+    const switchPressed = input.switchTarget && !this.switchHeld
+    this.switchHeld = input.switchTarget
     if (player.crashed) this.lock.release()
     else {
+      if (switchPressed) {
+        this.lock.cycle(player.position, player.velocity, player.orientation, this.targets)
+      }
       this.lock.step(
         player.position,
         player.velocity,

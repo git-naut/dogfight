@@ -28,6 +28,18 @@ export interface InputState {
    * `World` が持つ（射出中は受け付けないため）
    */
   hookToggle: boolean
+  /**
+   * ハイGターン（Phase 10 の段 B6）。押しているあいだ、引いたときの旋回をきつくし、速さを失う。
+   * 録画は加減速の 2 つのボタンの同時押し、キーボードは Shift と Ctrl の同時押し
+   */
+  highG: boolean
+  /**
+   * オートパイロット（段 B6）。押した瞬間に入り、ロールかピッチを入れると切れる。押した瞬間の判定は
+   * `World` が持つ。録画はヨーの 2 つのボタンの同時押し、キーボードは Q と E の同時押し
+   */
+  autopilot: boolean
+  /** ターゲット切替（段 B6）。押した瞬間だけ効く。判定は `Combat` が持つ。キーボードは T */
+  switchTarget: boolean
 }
 
 export function neutralInput(): InputState {
@@ -41,6 +53,9 @@ export function neutralInput(): InputState {
     deployFlare: false,
     gearToggle: false,
     hookToggle: false,
+    highG: false,
+    autopilot: false,
+    switchTarget: false,
   }
 }
 

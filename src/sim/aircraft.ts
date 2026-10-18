@@ -80,6 +80,22 @@ export const GEAR_TRANSIT_SECONDS = 5
 export const GEAR_DRAG_COEFFICIENT = 0.02
 
 /**
+ * ハイGターン（Phase 10 の段 B6）。押して引いているあいだ、機首上げの速さの上限を何倍にするか。
+ * **推測。**録画（ACE COMBAT 7 の講座 lesson 2）からは旋回の速さを測れなかった（空が一面同じ色で
+ * 背景の特徴点が取れない）。ユーザーの決定で 1.4 倍
+ */
+export const HIGH_G_TURN_RATE = 1.4
+
+/**
+ * ハイGターンのあいだ足す抗力係数。録画では SPEED の表示が約 10 秒で 404 → 116（29% が残る）。
+ * 録画の高度はあまり上がっていないので、横に倒して回る旋回とみた。sim で 250 m/s・高度 3,000 m から
+ * 約 90 度倒して 9.6 秒引き続けると、0.12 で 55%・0.4 で 43%・0.8 で 34%・1.2 で 29% が残る。
+ * 1.2 にした（`tests/sim/highG.test.ts`）。普通の旋回は同じ条件で 75% が残る（録画の普通の旋回は
+ * 4 秒で 3% しか失わず、スロットルの状態が分からないので比では合わせていない）
+ */
+export const HIGH_G_DRAG_COEFFICIENT = 1.2
+
+/**
  * フラップを下ろし切ったときに足す形状の抗力係数。**入れていない（0）。**
  *
  * 一次資料を見つけていない。フラップで増えた揚力ぶんの誘導抗力は `dragCoefficient(cl)` が
@@ -278,6 +294,8 @@ export interface AircraftSample {
    * 小さい（先端が甲板に載る角度）。描画がこのまま回す
    */
   hookAngle: number
+  /** オートパイロットが入っているか（段 B6）。HUD の照準の下の欄に AUTO PILOT を出す */
+  autopilot: boolean
 }
 
 // 毎ステップの一時変数。使い回してゴミを出さない。
@@ -294,6 +312,11 @@ const tmpQuat = new Quat()
 const tmpHook = new Vec3()
 
 export class Aircraft {
+  /** ハイGターンが効いているか（段 B6）。押して引いているあいだ true。`step` が書く */
+  highGActive = false
+  /** オートパイロットが入っているか（段 B6）。`World` が書く */
+  autopilot = false
+
   readonly position = new Vec3()
   readonly velocity = new Vec3()
   readonly orientation = new Quat()
@@ -714,7 +737,10 @@ export class Aircraft {
     let pitchCommand = clamp(input.pitch, -1, 1)
     if (useLimiter) pitchCommand = applyAoaLimiter(pitchCommand, this.angleOfAttack)
 
-    const pitchCap = Math.min(AIRCRAFT.maxPitchRate, gLimitedPitchRate(this.speed))
+    // ハイGターン（段 B6）。押して引いているあいだだけ、機首上げの速さの上限を上げる
+    this.highGActive = input.highG && pitchCommand > 0
+    const highG = this.highGActive ? HIGH_G_TURN_RATE : 1
+    const pitchCap = Math.min(AIRCRAFT.maxPitchRate * highG, gLimitedPitchRate(this.speed) * highG)
     const targetPitch = pitchCommand * pitchCap * authority
     const targetRoll = clamp(input.roll, -1, 1) * AIRCRAFT.maxRollRate * authority
     const pilotYaw = clamp(input.yaw, -1, 1) * AIRCRAFT.maxYawRate * authority
@@ -778,7 +804,9 @@ export class Aircraft {
       // 脚とフラップの抗力は出ている割合に比例させる。フラップで増えた揚力の誘導抗力は
       // `dragCoefficient(cl)` が含む
       const cd =
-        dragCoefficient(cl) + (GEAR_DRAG_COEFFICIENT + FLAP_DRAG_COEFFICIENT) * this.gearPosition
+        dragCoefficient(cl) +
+        (GEAR_DRAG_COEFFICIENT + FLAP_DRAG_COEFFICIENT) * this.gearPosition +
+        (this.highGActive ? HIGH_G_DRAG_COEFFICIENT : 0)
       tmpAero.addScaledVector(tmpVelDir, -dragMagnitude(q, cd))
     }
 
@@ -902,6 +930,7 @@ export class Aircraft {
     out.gearCommandDown = this.gearCommandDown
     out.gearOverspeed = this.gearPosition > 0 && this.speed > GEAR_SPEED_LIMIT
     out.hookPosition = this.hookPosition
+    out.autopilot = this.autopilot
     out.hookAngle = this.hookAngle
     return out
   }
@@ -964,6 +993,7 @@ export function createAircraftSample(): AircraftSample {
     gearOverspeed: false,
     hookPosition: 0,
     hookAngle: 0,
+    autopilot: false,
   }
 }
 

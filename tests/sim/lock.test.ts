@@ -254,3 +254,51 @@ describe('解除', () => {
     expect(lock.progress).toBe(0)
   })
 })
+
+describe('ターゲット切替（段 B6、ADR 0028）', () => {
+  // 機首から 2 度・10 度・30 度。どれも追尾の視野（40 度）の内
+  const spread = (): Target[] => [
+    targetAt(Math.tan(10 * DEG) * 3000, 0, 3000),
+    targetAt(Math.tan(2 * DEG) * 3000, 0, 3000),
+    targetAt(Math.tan(30 * DEG) * 3000, 0, 3000),
+  ]
+  const velocity = new Vec3(0, 0, -250)
+
+  it('何も掴んでいなければ機首にいちばん近い相手を、すぐにロックする', () => {
+    const lock = new Lock()
+    const targets = spread()
+    expect(lock.cycle(ORIGIN, velocity, level(), targets)).toBe(true)
+    expect(lock.index).toBe(1)
+    expect(lock.state).toBe('locked')
+    expect(lock.progress).toBe(1)
+  })
+
+  it('押すたびに機首からの角の順に移り、最後のあとは最初へ戻る', () => {
+    const lock = new Lock()
+    const targets = spread()
+    const order: number[] = []
+    for (let i = 0; i < 4; i++) {
+      lock.cycle(ORIGIN, velocity, level(), targets)
+      order.push(lock.index)
+    }
+    expect(order).toEqual([1, 0, 2, 1])
+  })
+
+  it('移った相手は次の step でもロックのまま', () => {
+    const lock = new Lock()
+    const targets = spread()
+    lock.cycle(ORIGIN, velocity, level(), targets)
+    lock.cycle(ORIGIN, velocity, level(), targets)
+    lock.step(ORIGIN, velocity, level(), targets, FIXED_DT)
+    expect(lock.index).toBe(0)
+    expect(lock.state).toBe('locked')
+  })
+
+  it('視野の外と射程の外の相手は選ばない', () => {
+    const lock = new Lock()
+    const targets = [targetAt(3000, 0, 1000), targetAt(0, 0, SEEKER_MAX_RANGE + 1000)]
+    expect(lock.cycle(ORIGIN, velocity, level(), targets)).toBe(false)
+    expect(lock.state).toBe('none')
+    expect(SEEKER_TRACK_ANGLE).toBeLessThan(Math.atan2(3000, 1000))
+  })
+})

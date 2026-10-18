@@ -20,6 +20,8 @@ import { catapultLaunch } from './carrierDeck'
 import { carrierDeckSampler } from './deckContact'
 import type { InputState } from './input'
 import { AUTOPILOT_OVERRIDE, autopilotCommand } from './autopilot'
+import { createApproachGuide, updateApproachGuide, type ApproachGuide } from './approachGuide'
+import type { LandingResult } from './arrestor'
 import { defaultTerrain, type Terrain } from './terrain'
 import { Mission, type MissionSpec } from './mission'
 
@@ -151,6 +153,19 @@ export class World {
    * 1 回だけ）で動かない
    */
   readonly catapult: Catapult | null
+
+  /**
+   * 着艦の進入の計器の値（段 B7）。空母が無ければ `active` は常に false。**sim が持つ。**
+   * キャプチャは HUD を最後の 1 枚しか描かないので、描画側で積んだ状態は使えない
+   */
+  readonly approach: ApproachGuide = createApproachGuide()
+  /**
+   * HUD の結果の帯に出し続ける着艦の結果（段 B7）。罠（trap）とボルターだけ。次の試み
+   * （計器がまた出たとき）で消す。墜落は照準の下の CRASH が受け持つので入れない
+   */
+  landingNotice: LandingResult | null = null
+  /** 前のステップで見た `player.landing`。入れ替わった瞬間を取る */
+  private lastLanding: LandingResult | null = null
 
   private readonly stepOptions: StepOptions
   /**
@@ -357,6 +372,7 @@ export class World {
     for (const target of this.targets) target.step(FIXED_DT)
     for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)
     this.combat.step(input, this.player, FIXED_DT, this._frame)
+    this.updateLanding()
     this._frame++
 
     // **フレームを進めたあとに判定する。**制限時間は `frame >= limitFrames`
@@ -367,6 +383,22 @@ export class World {
       playerLosses: this.combat.losses,
       playerCrashed: this.player.crashed,
     })
+  }
+
+  /**
+   * 進入の計器と、結果の帯に出す着艦の結果を進める（段 B7）。結果が出たら持ち、計器が
+   * また出たら（次の試みに入ったら）消す
+   */
+  private updateLanding(): void {
+    if (this.carrier === null) return
+    updateApproachGuide(this.carrier, this.player, this.approach)
+    const landing = this.player.landing
+    if (landing !== this.lastLanding) {
+      this.lastLanding = landing
+      if (landing !== null && landing.kind !== 'crash') this.landingNotice = landing
+    } else if (this.approach.active) {
+      this.landingNotice = null
+    }
   }
 
   /** 描画用に補間した自機の状態を書き込む。 */

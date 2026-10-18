@@ -22,6 +22,9 @@ import {
   type HudReadout,
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
+import type { LandingResult } from '../sim/arrestor'
+import { BALL_CELLS, DATUM_CELL, YELLOW_CELLS, type ApproachGuide } from '../sim/approachGuide'
+import { landingNoticeText, lineupMarkOffset } from './approach'
 import { RADAR_OUTER_RING, RADAR_OWN_Y, RADAR_RINGS, radarBearing, radarPoint, radarRange } from './radar'
 import { offscreenDirection } from './arrow'
 import {
@@ -42,6 +45,15 @@ import {
   VALUE_BOX_POINT_REF,
   VALUE_BOX_WIDTH_REF,
   VALUE_LABEL_GAP_REF,
+  AOA_CHEVRON_OFFSET_REF,
+  AOA_CHEVRON_REF,
+  AOA_RING_REF,
+  BALL_CELL_HEIGHT_REF,
+  BALL_CELL_WIDTH_REF,
+  DATUM_ARM_REF,
+  DATUM_GAP_REF,
+  LINEUP_HALF_WIDTH_REF,
+  LINEUP_MARK_REF,
   type HudLayout,
   type VerticalTapeLayout,
 } from './layout'
@@ -85,6 +97,12 @@ const RED = 'rgba(255, 95, 115, 0.45)'
 const RED_DIM = 'rgba(255, 95, 115, 0.25)'
 /** 警告のあいだの上下の欄の文字と枠（MISSILE ALERT・STALL・CRASH）。HUD の赤より濃い */
 const ALERT_RED = 'rgba(255, 110, 125, 0.7)'
+/**
+ * 着艦の進入の計器の色（段 B7）。IFLOLS の上 10 セルの黄と下 2 セルの赤、迎角のドーナツの黄と
+ * 速すぎの赤（Jungemann 2000、PDF 24・67 頁）。遅すぎは緑で、HUD の緑（`primary`）で描く
+ */
+const BALL_YELLOW = 'rgba(255, 215, 90, 0.9)'
+const BALL_RED = 'rgba(255, 90, 90, 0.9)'
 /**
  * 警告の無いときの上下の欄の警告の文字と枠（CAUTION・STALL・CRASH）。通常の重ね方。
  * 録画の CAUTION は空の上で 208,163,180。空（200,205,215）に重ねると 214,164,176 になる
@@ -278,6 +296,10 @@ export interface HudArmament {
    * 読む。位置と速度は世界座標の水平の成分 m・m/s
    */
   incoming: { count: number; points: { x: number; z: number; vx: number; vz: number }[] }
+  /** 着艦の進入の計器の値（段 B7、`World.approach`）。空母の無い台本では null */
+  approach: ApproachGuide | null
+  /** 結果の帯に出し続ける着艦の結果（段 B7、`World.landingNotice`）。無ければ null */
+  landingNotice: LandingResult | null
 }
 
 /**
@@ -369,6 +391,8 @@ export interface Hud {
   readonly targetBoxCount: number
   /** 画面の外の相手を指す矢印を出しているか（段 35） */
   readonly arrowShown: boolean
+  /** 着艦の進入の計器を出しているか（段 B7） */
+  readonly approachShown: boolean
   resize(width: number, height: number, devicePixelRatio: number): void
   /**
    * 1 枚描き直す。
@@ -435,6 +459,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   let shootShown = false
   let targetBoxCount = 0
   let arrowShown = false
+  let approachShown = false
 
 
   // ガンレティクルの計算に使う。使い回す
@@ -893,7 +918,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
    *
    * @param frame `World.frame`。命中と撃墜のフレームと同じ数え方
    */
-  function drawBanner(hits: HudArmament['hits'], frame: number): void {
+  function drawBanner(hits: HudArmament['hits'], frame: number, landing: LandingResult | null): void {
     bannerText = ''
     const killAge = hits.lastKill >= 0 ? frame - hits.lastKill : -1
     const hitAge = hits.lastHit >= 0 ? frame - hits.lastHit : -1
@@ -903,6 +928,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     } else if (hitAge >= 0 && hitAge < BANNER_HIT_FRAMES) {
       bannerText = 'HIT'
     }
+    // 着艦の結果は次の試みまで出し続ける（段 B7）。撃墜の帯が出ているあいだはそちらが先
+    if (bannerText === '') bannerText = landingNoticeText(landing)
     if (bannerText === '') return
 
     const { x, y, w, h } = layout.bounds.banner
@@ -913,6 +940,103 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.textBaseline = 'middle'
     ctx!.fillStyle = BANNER_TEXT
     ctx!.fillText(bannerText, x + w / 2, y + h / 2)
+  }
+
+  /**
+   * 着艦の進入の計器（段 B7、ADR 0029）。脚を出して艦尾の後ろ 3,000 m 以内にいるあいだだけ出す。
+   * 出ていないときは 1 画素も変えない
+   *
+   * - ボール（照準の右）。12 セルの枠と、進入の線の高さのデータムの腕。ボールのセルだけを塗る。
+   *   上の 10 セルは黄、下の 2 セルは赤。外れたら塗らない
+   * - 迎角（照準の左）。オン・スピードは黄のドーナツ、遅すぎは上に緑の下向きの山形、速すぎは
+   *   下に赤の上向きの山形
+   * - ラインナップ（SHOOT の下）。横の目盛りに、着艦区域の中心線のある方へ縦の目印
+   */
+  function drawApproach(guide: ApproachGuide | null): void {
+    approachShown = guide !== null && guide.active
+    if (!approachShown) return
+    const g = guide!
+    ctx!.lineWidth = lineWidth
+
+    // ボール
+    const ball = layout.approachBall
+    const cellW = BALL_CELL_WIDTH_REF * s
+    const cellH = BALL_CELL_HEIGHT_REF * s
+    const top = ball.y - (BALL_CELLS / 2) * cellH
+    if (g.ballCell >= 0 && g.ballCell < BALL_CELLS) {
+      ctx!.fillStyle = g.ballCell < YELLOW_CELLS ? BALL_YELLOW : BALL_RED
+      ctx!.fillRect(ball.x - cellW / 2, top + g.ballCell * cellH, cellW, cellH)
+    }
+    ctx!.strokeStyle = dim
+    ctx!.beginPath()
+    for (let i = 0; i <= BALL_CELLS; i++) {
+      ctx!.moveTo(ball.x - cellW / 2, top + i * cellH)
+      ctx!.lineTo(ball.x + cellW / 2, top + i * cellH)
+    }
+    ctx!.moveTo(ball.x - cellW / 2, top)
+    ctx!.lineTo(ball.x - cellW / 2, top + BALL_CELLS * cellH)
+    ctx!.moveTo(ball.x + cellW / 2, top)
+    ctx!.lineTo(ball.x + cellW / 2, top + BALL_CELLS * cellH)
+    ctx!.stroke()
+    // データムの腕。進入の線の高さ（上から 6 セル目と 7 セル目の間）
+    const datumY = top + DATUM_CELL * cellH
+    const armIn = cellW / 2 + DATUM_GAP_REF * s
+    const armOut = armIn + DATUM_ARM_REF * s
+    ctx!.strokeStyle = primary
+    ctx!.beginPath()
+    ctx!.moveTo(ball.x - armOut, datumY)
+    ctx!.lineTo(ball.x - armIn, datumY)
+    ctx!.moveTo(ball.x + armIn, datumY)
+    ctx!.lineTo(ball.x + armOut, datumY)
+    ctx!.stroke()
+
+    // 迎角
+    const aoa = layout.approachAoa
+    const half = (AOA_CHEVRON_REF / 2) * s
+    const off = AOA_CHEVRON_OFFSET_REF * s
+    if (g.aoa === 'onSpeed') {
+      ctx!.strokeStyle = BALL_YELLOW
+      ctx!.beginPath()
+      ctx!.arc(aoa.x, aoa.y, AOA_RING_REF * s, 0, Math.PI * 2)
+      ctx!.stroke()
+    } else if (g.aoa === 'slow') {
+      // 上に下向きの山形（機首を下げろ）
+      ctx!.strokeStyle = primary
+      ctx!.beginPath()
+      ctx!.moveTo(aoa.x - half, aoa.y - off - half / 2)
+      ctx!.lineTo(aoa.x, aoa.y - off + half / 2)
+      ctx!.lineTo(aoa.x + half, aoa.y - off - half / 2)
+      ctx!.stroke()
+    } else {
+      // 下に上向きの山形（機首を上げろ）
+      ctx!.strokeStyle = BALL_RED
+      ctx!.beginPath()
+      ctx!.moveTo(aoa.x - half, aoa.y + off + half / 2)
+      ctx!.lineTo(aoa.x, aoa.y + off - half / 2)
+      ctx!.lineTo(aoa.x + half, aoa.y + off + half / 2)
+      ctx!.stroke()
+    }
+
+    // ラインナップ
+    const line = layout.approachLineup
+    const reach = LINEUP_HALF_WIDTH_REF * s
+    const mark = LINEUP_MARK_REF * s
+    ctx!.strokeStyle = primary
+    ctx!.beginPath()
+    ctx!.moveTo(line.x - reach, line.y)
+    ctx!.lineTo(line.x + reach, line.y)
+    for (const k of [-1, -0.5, 0, 0.5, 1]) {
+      const tick = k === 0 ? mark * 0.6 : mark * 0.35
+      ctx!.moveTo(line.x + k * reach, line.y - tick)
+      ctx!.lineTo(line.x + k * reach, line.y + tick)
+    }
+    ctx!.stroke()
+    const mx = line.x + lineupMarkOffset(g.lineupDeg) * reach
+    ctx!.strokeStyle = BALL_YELLOW
+    ctx!.beginPath()
+    ctx!.moveTo(mx, line.y - mark)
+    ctx!.lineTo(mx, line.y + mark)
+    ctx!.stroke()
   }
 
   /** 印の右の 2 行（距離と機種）。左上を (x, y) に置く */
@@ -1409,6 +1533,10 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       return arrowShown
     },
 
+    get approachShown() {
+      return approachShown
+    },
+
     resize(w, h, ratio) {
       width = w
       height = h
@@ -1469,7 +1597,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       drawMission(armament.mission)
       drawRadar(sample, armament)
       drawStatus(armament.threat, frame)
-      drawBanner(armament.hits, frame)
+      drawApproach(armament.approach)
+      drawBanner(armament.hits, frame, armament.landingNotice)
     },
 
     dispose() {

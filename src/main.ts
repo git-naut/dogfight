@@ -191,6 +191,10 @@ const hook = installTestHook({
   hudStatusLower: '',
   hudBanner: '',
   hudRadarRange: 0,
+  hudApproachShown: false,
+  hudBallCell: -1,
+  hudAoaCue: '',
+  hudLineupDeg: 0,
   hudTargetBoxCount: 0,
   hudArrowShown: false,
   preset: capture.preset,
@@ -526,6 +530,8 @@ async function main(): Promise<void> {
     threat: createMissileThreat(),
     hits: { lastHit: -1, lastKill: -1 },
     incoming: { count: 0, points: [] },
+    approach: null,
+    landingNotice: null,
     // 器を使い回す。ミッションのない台本では null を入れて何も描かせない
     mission: { remainingFrames: 0, enemiesAlive: 0, outcome: 'none', score: 0, kill: null },
   }
@@ -578,6 +584,8 @@ async function main(): Promise<void> {
     armament.incoming.count = m
     // 空母（段 37）。World が台本の配置を持つ
     armament.carrier = currentWorld.carrier
+    armament.approach = currentWorld.carrier !== null ? currentWorld.approach : null
+    armament.landingNotice = currentWorld.landingNotice
     armament.flares = currentWorld.countermeasures.left
 
     // ミッションが無ければ null。**HUD 側は null で何も描かない**ので、
@@ -651,6 +659,10 @@ async function main(): Promise<void> {
     hook.hudStatusLower = hud.statusLower
     hook.hudBanner = hud.banner
     hook.hudRadarRange = hud.radarRange
+    hook.hudApproachShown = hud.approachShown
+    hook.hudBallCell = currentWorld.approach.ballCell
+    hook.hudAoaCue = currentWorld.approach.aoa
+    hook.hudLineupDeg = currentWorld.approach.lineupDeg
     hook.hudTargetBoxCount = hud.targetBoxCount
     hook.hudArrowShown = hud.arrowShown
   }
@@ -1189,6 +1201,7 @@ async function main(): Promise<void> {
       agl: world.player.agl,
       speed: world.player.speed,
       climbAngle: climbAngleOf(world.player.velocity),
+      gearDown: world.player.gearPosition > 0,
     })
     const t0 = performance.now()
     /**

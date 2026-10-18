@@ -849,6 +849,14 @@ export interface TestHook {
   hudBanner: string
   /** レーダーの縮尺 m。いちばん外の円の半径が表す距離（段 B5） */
   hudRadarRange: number
+  /**
+   * 着艦の進入の計器（段 B7）。出しているか、ボールのセル（0 が上、外れたら −1 か 12）、
+   * 迎角の表示（`onSpeed`・`slow`・`fast`）、ラインナップのずれ 度（右が正）
+   */
+  hudApproachShown: boolean
+  hudBallCell: number
+  hudAoaCue: string
+  hudLineupDeg: number
   /** SHOOT・目標の箱の数・画面の外の矢印（段 35） */
   hudShootShown: boolean
   hudTargetBoxCount: number

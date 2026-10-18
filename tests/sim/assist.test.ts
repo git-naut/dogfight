@@ -23,7 +23,7 @@ import { climbAngleOf } from '@sim/ai/steering'
 
 /** 高いところを水平に飛んでいる状態 */
 function view(partial: Partial<AssistView> = {}): AssistView {
-  return { bank: 0, agl: 3000, speed: 250, climbAngle: 0, ...partial }
+  return { bank: 0, agl: 3000, speed: 250, climbAngle: 0, gearDown: false, ...partial }
 }
 
 describe('操作の型', () => {
@@ -162,6 +162,16 @@ describe('スタンダード', () => {
       expect(out.pitch).toBe(1)
     })
 
+    /** 着艦の進入は低いまま降りる。脚を出しているあいだは引き起こさない（段 B7、ADR 0029） */
+    it('脚を出していれば効かない', () => {
+      const out = applyAssist(
+        makeInput({ pitch: -0.3, roll: 0 }),
+        'standard',
+        view({ agl: 30, bank: 0, speed: 70, climbAngle: -0.06, gearDown: true }),
+      )
+      expect(out.pitch).toBe(-0.3)
+    })
+
     /** 速いほど、降下が急なほど早く効き始める（`recoverFloor` の性質） */
     it('速度と降下角で閾値が動く', () => {
       const slow = recoverFloor(250, 0, 0)
@@ -219,6 +229,7 @@ function fly(
         agl: player.agl,
         speed: player.speed,
         climbAngle: climbAngleOf(player.velocity),
+        gearDown: player.gearPosition > 0,
       },
     )
     world.step(input)
@@ -318,6 +329,7 @@ function chase(mode: ControlMode, seconds: number) {
         agl: player.agl,
         speed: player.speed,
         climbAngle: climbAngleOf(player.velocity),
+        gearDown: player.gearPosition > 0,
       }),
     )
     maxBank = Math.max(maxBank, Math.abs(player.bank))

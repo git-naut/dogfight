@@ -46,8 +46,8 @@ function readFields(): Set<string> {
 describe('HudArmament', () => {
   const fields = armamentFields()
 
-  it('項目が 11 個ある', () => {
-    // 段 B3（Phase 10）で hits、段 B5 で incoming を足して 11 個。足したらこの数も変える（足したことに気づくため）
+  it('項目が 13 個ある', () => {
+    // 段 B3（Phase 10）で hits、段 B5 で incoming、段 B7 で approach と landingNotice を足して 13 個。足したらこの数も変える（足したことに気づくため）
     expect(fields).toEqual([
       'rounds',
       'missiles',
@@ -60,6 +60,8 @@ describe('HudArmament', () => {
       'mission',
       'hits',
       'incoming',
+      'approach',
+      'landingNotice',
     ])
   })
 

@@ -2165,6 +2165,36 @@ test.describe('着艦の進入', () => {
     expect(hook.playerTouchdownSink).toBeCloseTo(3.69, 1)
     expect(hook.playerCrashCause).toBe('')
   })
+
+  /**
+   * **進入の計器（段 B7、ADR 0029）。**脚を出して艦尾の後ろ 3,000 m 以内で出る。値は sim の
+   * `World.approach` をそのまま読む。絵は基準画像 `hud-approach` が見る
+   */
+  test('進入の途中で計器が出て、ボール・迎角・ラインナップが読める', async ({ page }) => {
+    const hook = await capture(page, { script: 'carrier-trap', frame: 600, hud: true })
+    expect(hook.hudApproachShown).toBe(true)
+    expect(hook.hudBallCell).toBe(4)
+    expect(hook.hudAoaCue).toBe('onSpeed')
+    expect(hook.hudLineupDeg).toBeCloseTo(0.78, 1)
+    expect(hook.hudBanner).toBe('')
+  })
+
+  test('罠のあとは計器が消え、結果の帯に TRAP 2-WIRE を出し続ける', async ({ page }) => {
+    const hook = await capture(page, { script: 'carrier-trap', frame: 2600, hud: true })
+    expect(hook.hudApproachShown).toBe(false)
+    expect(hook.hudBanner).toBe('TRAP 2-WIRE')
+  })
+
+  test('ボルターのあとは結果の帯に BOLTER', async ({ page }) => {
+    const hook = await capture(page, { script: 'carrier-bolter', frame: 2600, hud: true })
+    expect(hook.hudApproachShown).toBe(false)
+    expect(hook.hudBanner).toBe('BOLTER')
+  })
+
+  test('空母の無い台本では計器を出さない', async ({ page }) => {
+    const hook = await capture(page, { frame: 240, hud: true })
+    expect(hook.hudApproachShown).toBe(false)
+  })
 })
 
 /**

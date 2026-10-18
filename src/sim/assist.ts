@@ -68,6 +68,11 @@ export interface AssistView {
   readonly speed: number
   /** 上昇角 rad。降下が負 */
   readonly climbAngle: number
+  /**
+   * 脚を出しているか（`gearPosition > 0`）。出しているあいだは地面の回避を掛けない（段 B7）。
+   * 着艦の進入は対地高度が低いまま降りるので、回避が引き起こして進入を壊す
+   */
+  readonly gearDown: boolean
 }
 
 /**
@@ -82,7 +87,7 @@ export interface AssistView {
  * |---|---|---|
  * | ロールの抑制 | 常に | 指令に係数を掛ける |
  * | 自動水平化 | ロール入力が無い | バンクを 0 へ戻す |
- * | 地面の回避 | 対地高度が閾値を割った | 水平へ戻してから引く |
+ * | 地面の回避 | 対地高度が閾値を割り、脚を上げている | 水平へ戻してから引く |
  *
  * 地面の回避は**水平へ戻すのが先**。傾いたまま引くと揚力が横を向いて旋回に
  * なり、降下が止まらない。実測で、バンク 82 度のまま `pitch: 1` を入れて
@@ -105,7 +110,7 @@ export function applyAssist(
 
   // 地面の回避。**水平へ戻すのが先**
   const floor = recoverFloor(view.speed, view.climbAngle, view.bank) * FLOOR_MARGIN
-  if (view.agl < floor) {
+  if (!view.gearDown && view.agl < floor) {
     roll = clamp(-view.bank * LEVEL_GAIN, -1, 1)
     // 水平に近づくまでは強く引かない。旋回で沈むのを防ぐ
     pitch = Math.abs(view.bank) < 0.5 ? 1 : 0.2

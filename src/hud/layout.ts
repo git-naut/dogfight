@@ -88,6 +88,22 @@ export const VALUE_BOX_POINT_REF = 12
 /** 見出しの基線から数字の箱の上端までの間 */
 export const VALUE_LABEL_GAP_REF = 4
 
+/**
+ * 着艦の進入の計器（段 B7、ADR 0029）。録画に着艦は無いので、大きさと置き場所は照準のまわりの
+ * 空きに合わせて決めた（推測）。ボールのセル 1 つの高さと幅、データムの腕の長さと間
+ */
+export const BALL_CELL_HEIGHT_REF = 12
+export const BALL_CELL_WIDTH_REF = 14
+export const DATUM_ARM_REF = 12
+export const DATUM_GAP_REF = 2
+/** 迎角の表示。ドーナツの半径と、上下の山形の幅と離れ */
+export const AOA_RING_REF = 9
+export const AOA_CHEVRON_REF = 12
+export const AOA_CHEVRON_OFFSET_REF = 22
+/** ラインナップの目盛り。片側の幅と、目印の高さ */
+export const LINEUP_HALF_WIDTH_REF = 90
+export const LINEUP_MARK_REF = 10
+
 /** 縦の目盛り。速度（左）と高度（右） */
 export interface VerticalTapeLayout {
   /** 目盛りの軸の x */
@@ -119,6 +135,13 @@ export interface HudLayout {
   readonly altitudeBox: { readonly innerX: number; readonly centerY: number }
   /** レーダーの正方形。左上と一辺（段 34） */
   readonly radar: { readonly x: number; readonly y: number; readonly size: number }
+  /**
+   * 着艦の進入の計器の中心（段 B7）。迎角は照準の左（SPEED の箱との間）、ボールは照準の右
+   * （ALT の箱との間）、ラインナップは SHOOT の下
+   */
+  readonly approachAoa: { readonly x: number; readonly y: number }
+  readonly approachBall: { readonly x: number; readonly y: number }
+  readonly approachLineup: { readonly x: number; readonly y: number }
   /** 各要素の外接の箱。重なりの検査に使う */
   readonly bounds: Readonly<Record<HudElement, Rect>>
 }
@@ -138,6 +161,9 @@ export type HudElement =
   | 'shoot'
   | 'banner'
   | 'radar'
+  | 'approachAoa'
+  | 'approachBall'
+  | 'approachLineup'
 
 /** 表示しうる最長の文字列の文字数。外接の箱の見積りに使う */
 const LONGEST = {
@@ -180,6 +206,14 @@ export function computeLayout(width: number, height: number): HudLayout {
   // レーダー（録画: 枠 x 100〜399、y 724〜1025）。一辺は縮尺で、左端と下端は画面の割合
   const radarSize = 300 * s
   const radar = { x: width * (100 / 1920), y: height * (1025 / 1080) - radarSize, size: radarSize }
+  // 着艦の進入の計器（段 B7）。照準は画面の中央。ボールは結果の帯の右端と ALT の箱の尖りの間に
+  // 収まる x、ラインナップは照準の下の欄（脚とフックで 2 段）と SHOOT の下
+  const approachAoa = { x: width * (780 / 1920), y: height * 0.5 }
+  const approachBall = { x: width * (1190 / 1920), y: height * 0.5 }
+  const approachLineup = { x: width * 0.5, y: height * (735 / 1080) }
+  const ballHalfW = (BALL_CELL_WIDTH_REF / 2 + DATUM_GAP_REF + DATUM_ARM_REF) * s
+  const ballHalfH = (BALL_CELL_HEIGHT_REF * 6) * s
+  const aoaHalfH = (AOA_CHEVRON_OFFSET_REF + AOA_CHEVRON_REF / 2) * s
 
   const boxW = VALUE_BOX_WIDTH_REF * s
   const boxH = VALUE_BOX_HEIGHT_REF * s
@@ -233,6 +267,20 @@ export function computeLayout(width: number, height: number): HudLayout {
     },
     // レーダー。方位の文字も正方形の内側に描く
     radar: { x: radar.x, y: radar.y, w: radar.size, h: radar.size },
+    // 着艦の進入の計器（段 B7）
+    approachAoa: {
+      x: approachAoa.x - (AOA_CHEVRON_REF / 2 + LINE_WIDTH_REF) * s,
+      y: approachAoa.y - aoaHalfH,
+      w: (AOA_CHEVRON_REF + LINE_WIDTH_REF * 2) * s,
+      h: aoaHalfH * 2,
+    },
+    approachBall: { x: approachBall.x - ballHalfW, y: approachBall.y - ballHalfH, w: ballHalfW * 2, h: ballHalfH * 2 },
+    approachLineup: {
+      x: approachLineup.x - (LINEUP_HALF_WIDTH_REF + LINE_WIDTH_REF) * s,
+      y: approachLineup.y - LINEUP_MARK_REF * s,
+      w: (LINEUP_HALF_WIDTH_REF + LINE_WIDTH_REF) * 2 * s,
+      h: LINEUP_MARK_REF * 2 * s,
+    },
   }
 
   return {
@@ -249,6 +297,9 @@ export function computeLayout(width: number, height: number): HudLayout {
     speedBox,
     altitudeBox,
     radar,
+    approachAoa,
+    approachBall,
+    approachLineup,
     bounds,
   }
 }

@@ -2183,6 +2183,8 @@ test.describe('着艦の進入', () => {
     const hook = await capture(page, { script: 'carrier-trap', frame: 2600, hud: true })
     expect(hook.hudApproachShown).toBe(false)
     expect(hook.hudBanner).toBe('TRAP 2-WIRE')
+    // 甲板の上は 500 ft 未満だが、脚を出しているので低高度の CAUTION は出さない（段 B7）
+    expect(hook.hudStatusUpper).toBe('')
   })
 
   test('ボルターのあとは結果の帯に BOLTER', async ({ page }) => {

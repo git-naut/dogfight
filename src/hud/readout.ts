@@ -146,6 +146,24 @@ export function gearLabel(position: number): string | null {
   return position >= 1 ? 'GEAR DOWN' : 'GEAR TRANSIT'
 }
 
+/** 低高度の CAUTION を出す対地高度 ft。150 m 相当（段 B2） */
+export const LOW_ALTITUDE_FT = 500
+
+/**
+ * 照準の上の欄の文字（段 B2）。ミサイル警告が先、次に CAUTION。CAUTION は低高度・脚の速度超過・
+ * 失速で出し、墜落したら出さない。
+ *
+ * **脚を出しているあいだは低高度では出さない**（段 B7、ユーザーの決定）。着艦の進入は最後の
+ * 約 1,000 m を 500 ft 未満で飛び、罠で止まったあとも甲板の上に残るので、出すと降りるあいだ
+ * ずっと点滅する。脚の速度超過と失速は脚を出していても出す
+ */
+export function upperStatusText(readout: HudReadout, missileAlert: boolean): string {
+  if (missileAlert) return 'MISSILE ALERT'
+  if (readout.crashed) return ''
+  const lowAltitude = readout.aglFt < LOW_ALTITUDE_FT && readout.gearPosition <= 0
+  return lowAltitude || readout.gearOverspeed || readout.stalled ? 'CAUTION' : ''
+}
+
 /** フックの表示（段 8）。上げ切りのときは出さない。脚と同じ作法 */
 export function hookLabel(position: number): string | null {
   if (position <= 0) return null

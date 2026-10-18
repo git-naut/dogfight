@@ -19,6 +19,7 @@ import {
   formatTimer,
   gearLabel,
   hookLabel,
+  upperStatusText,
   type HudReadout,
 } from './readout'
 import type { MissileThreat } from '../sim/weapons/warning'
@@ -228,9 +229,6 @@ const ALTITUDE_RANGE = 3000
 const HEADING_MINOR = 5
 const HEADING_MAJOR = 30
 const HEADING_RANGE = 30
-
-/** 低高度の警告を出す対地高度 ft。150 m 相当 */
-const LOW_ALTITUDE_FT = 500
 
 /**
  * ガンレティクルを合わせる基準の距離 m。
@@ -1435,9 +1433,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
    * @param frame 点滅の位相を決めるシムのフレーム。実時間は使わない
    */
   function drawStatus(threat: MissileThreat, frame: number): void {
-    const lowAltitude = readout.aglFt < LOW_ALTITUDE_FT && !readout.crashed
-    const caution = !readout.crashed && (lowAltitude || readout.gearOverspeed || readout.stalled)
-    statusUpperText = threat.active ? 'MISSILE ALERT' : caution ? 'CAUTION' : ''
+    statusUpperText = upperStatusText(readout, threat.active)
     // 点滅は出始めのフレームから数える。出た瞬間が点いているように。CAUTION は出始めを
     // 持たないので、通し番号の位相で点滅させる
     const since = threat.active ? threat.since : 0

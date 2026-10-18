@@ -12,6 +12,7 @@ import {
   formatTimer,
   gearLabel,
   trendOf,
+  upperStatusText,
 } from '@hud/readout'
 import { createAircraftSample } from '@sim/aircraft'
 import { Quat } from '@sim/quat'
@@ -265,5 +266,27 @@ describe('脚の表示', () => {
     const out = computeReadout(sample, createHudReadout())
     expect(out.gearPosition).toBe(0.4)
     expect(out.gearOverspeed).toBe(true)
+  })
+})
+
+describe('照準の上の欄（段 B2・B7）', () => {
+  const at = (partial: Partial<ReturnType<typeof createHudReadout>>) => ({ ...createHudReadout(), aglFt: 3000, ...partial })
+
+  it('500 ft 未満で CAUTION、ミサイル警告が先', () => {
+    expect(upperStatusText(at({ aglFt: 400 }), false)).toBe('CAUTION')
+    expect(upperStatusText(at({ aglFt: 400 }), true)).toBe('MISSILE ALERT')
+    expect(upperStatusText(at({ aglFt: 600 }), false)).toBe('')
+  })
+
+  /** 着艦の進入は 500 ft 未満を降りてくる（段 B7、ユーザーの決定） */
+  it('脚を出していれば低高度では出さない。脚の速度超過と失速は出す', () => {
+    expect(upperStatusText(at({ aglFt: 100, gearPosition: 1 }), false)).toBe('')
+    expect(upperStatusText(at({ aglFt: 100, gearPosition: 0.5 }), false)).toBe('')
+    expect(upperStatusText(at({ aglFt: 100, gearPosition: 1, gearOverspeed: true }), false)).toBe('CAUTION')
+    expect(upperStatusText(at({ aglFt: 100, gearPosition: 1, stalled: true }), false)).toBe('CAUTION')
+  })
+
+  it('墜落したら出さない', () => {
+    expect(upperStatusText(at({ aglFt: 0, crashed: true }), false)).toBe('')
   })
 })

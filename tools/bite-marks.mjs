@@ -1629,4 +1629,13 @@ export const BITE_MARKS = [
     expect: 'tests/sim/assist.test.ts',
     why: '標準の操縦で着艦の進入に入ると、地面の回避が引き起こして降りられない',
   },
+  {
+    id: 'caution-on-approach',
+    kind: '条件の固定',
+    file: 'src/hud/readout.ts',
+    find: '  const lowAltitude = readout.aglFt < LOW_ALTITUDE_FT && readout.gearPosition <= 0\n',
+    replace: '  const lowAltitude = readout.aglFt < LOW_ALTITUDE_FT\n',
+    expect: 'tests/hud/readout.test.ts',
+    why: '着艦の進入の最後と甲板の上で、赤い CAUTION が点滅し続ける',
+  },
 ]

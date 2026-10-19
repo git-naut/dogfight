@@ -1692,4 +1692,13 @@ export const BITE_MARKS = [
     expect: 'tests/hud/silhouette.test.ts',
     why: '損傷 41% でも輪郭が緑のまま（録画は黄みの緑）',
   },
+  {
+    id: 'camera-offset-old',
+    kind: '定数の摂動',
+    file: 'src/render/camera.ts',
+    find: 'const OFFSET = new THREE.Vector3(0, 5.55, 24.2)\n',
+    replace: 'const OFFSET = new THREE.Vector3(0, 3.8, 19.5)\n',
+    expect: 'tests/render/chaseCamera.test.ts',
+    why: '追従視点が段 C4 の前に戻り、機体が録画より 2 割大きく、上に写る',
+  },
 ]

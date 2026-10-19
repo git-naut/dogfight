@@ -44,9 +44,9 @@ describe('追従カメラ', () => {
     // 世界の位置を指数ラグで追っていたときは、250 m/s で 36.1 m、320 m/s で 41.8 m に伸びた
     for (const speed of [150, 250, 320]) {
       const { distance } = flyStraight(speed, fps)
-      // 定位置は後方 19.5 m・上 3.8 m（距離 19.9 m）
-      expect(distance, `${speed} m/s`).toBeGreaterThan(19.5)
-      expect(distance, `${speed} m/s`).toBeLessThan(20.3)
+      // 定位置は後方 24.2 m・上 5.55 m（距離 24.83 m、段 C4 で録画の見え方に合わせた）
+      expect(distance, `${speed} m/s`).toBeGreaterThan(24.4)
+      expect(distance, `${speed} m/s`).toBeLessThan(25.2)
     }
   })
 

@@ -5,14 +5,16 @@
 /** RGBA。0〜255 と 0〜1 */
 export type Rgba = readonly [number, number, number, number]
 
+import { DAMAGE_RED_RGBA, DAMAGE_YELLOW_RGBA, SILHOUETTE_RGBA } from './palette'
+
 /**
  * 輪郭の色の段。損傷 0 で HUD の緑、0.41 で黄（録画のコマ 600 の 0% と 19990 の 41% の色の差を
  * HUD の緑に掛けた）、0.75 で赤（**推測**。録画に 41% より大きい損傷は写っていない）。間は線形に
  */
 export const SILHOUETTE_STOPS: readonly (readonly [number, Rgba])[] = [
-  [0, [215, 255, 220, 0.8]],
-  [0.41, [255, 240, 150, 0.85]],
-  [0.75, [255, 110, 125, 0.85]],
+  [0, SILHOUETTE_RGBA],
+  [0.41, DAMAGE_YELLOW_RGBA],
+  [0.75, DAMAGE_RED_RGBA],
 ]
 
 /** 損傷（0〜1）での輪郭の色 */

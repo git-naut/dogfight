@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeLayout,
+  centeredBaseline,
   hudScale,
   FONT_REF,
   LABEL_FONT_REF,
@@ -129,5 +130,14 @@ describe('HUD の配置', () => {
     expect(l.speedTape).toEqual({ x: 1280 * 0.18, centerY: 720 * 0.5, halfHeight: 720 * 0.22 })
     expect(l.altitudeTape.x).toBe(1280 * 0.82)
     expect(l.headingTape).toEqual({ centerX: 640, y: 720 * 0.11, halfWidth: 256 })
+  })
+})
+
+describe('字の上下の中央（段 D3）', () => {
+  it('字形の上端と下端の真ん中が中心に来る基線を返す', () => {
+    // 上へ 22、下へ 0 の字なら、基線は中心より 11 下
+    expect(centeredBaseline(539, 22, 0)).toBe(550)
+    const y = centeredBaseline(100, 20, 4)
+    expect((y - 20 + (y + 4)) / 2).toBe(100)
   })
 })

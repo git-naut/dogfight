@@ -102,6 +102,15 @@ export const VALUE_BOX_POINT_REF = 12
 export const VALUE_LABEL_GAP_REF = 4
 
 /**
+ * 字の上下の中央を `centerY` に置く基線の y（段 D3、ユーザーの指示）。`ascent`・`descent` は実際の字形の
+ * 基線から上端・下端までの長さ（`measureText` の `actualBoundingBox*`）。canvas の `textBaseline =
+ * 'middle'` は書体の枠（em）の中央に置くので、数字は 1920x1080 で 2.5 画素上に寄っていた
+ */
+export function centeredBaseline(centerY: number, ascent: number, descent: number): number {
+  return centerY + (ascent - descent) / 2
+}
+
+/**
  * 着艦の進入の計器（段 B7、ADR 0029）。録画に着艦は無いので、大きさと置き場所は照準のまわりの
  * 空きに合わせて決めた（推測）。ボールのセル 1 つの高さと幅、データムの腕の長さと間
  */

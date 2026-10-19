@@ -27,6 +27,29 @@ import type { LandingResult } from '../sim/arrestor'
 import { BALL_CELLS, DATUM_CELL, YELLOW_CELLS, type ApproachGuide } from '../sim/approachGuide'
 import { landingNoticeText, lineupMarkOffset } from './approach'
 import { killBannerText } from './banner'
+import {
+  ALERT,
+  ALERT_RED,
+  APPROACH_RED,
+  APPROACH_YELLOW,
+  BANNER_FILL,
+  BANNER_TEXT,
+  LOCK_RED,
+  MAIN,
+  MAIN_DIM,
+  MISSILE_RED,
+  MISSILE_RED_DIM,
+  RADAR_DOT,
+  RADAR_FILL,
+  RADAR_FRAME,
+  RADAR_LINE,
+  RADAR_LINE_DIM,
+  RADAR_TARGET,
+  TEXT_SHADE,
+  TEXT_SHADE_WIDTH_REF,
+  TARGET_WHITE,
+  WARN,
+} from './palette'
 import { LAUNCHER_SHAPE, rgbaText, silhouetteColor } from './armament'
 import type { Launcher } from '../sim/combat'
 import { RADAR_OUTER_RING, RADAR_OWN_Y, RADAR_RINGS, radarBearing, radarPoint, radarRange } from './radar'
@@ -53,6 +76,7 @@ import {
   VALUE_BOX_POINT_REF,
   VALUE_BOX_WIDTH_REF,
   VALUE_LABEL_GAP_REF,
+  centeredBaseline,
   AOA_CHEVRON_OFFSET_REF,
   AOA_CHEVRON_REF,
   AOA_RING_REF,
@@ -90,9 +114,9 @@ import {
  * RGB 179,232,181、明るい空で白に近い。白に近い淡い緑を 8 割の濃さで重ねると、暗い背景で
  * RGB 189,230,193 になる。周りに広がる光りは無い（芯 2 画素、両脇は背景より暗い）ので付けない
  */
-const GREEN = 'rgba(215, 255, 220, 0.8)'
+const GREEN = MAIN
 /** 補助線。目盛りの細かいほう */
-const GREEN_DIM = 'rgba(215, 255, 220, 0.45)'
+const GREEN_DIM = MAIN_DIM
 /**
  * **ミサイル警告のあいだの HUD の色（段 B2）。**録画は警告のあいだ HUD 全体が赤みのあるピンクに替わる。
  *
@@ -101,26 +125,19 @@ const GREEN_DIM = 'rgba(215, 255, 220, 0.45)'
  * 4 つの候補を並べた図から「通常の重ね方・半透明 45%」を選んだ（2026-10-16）。明るい空では
  * 背景より暗い赤、暗い背景では明るい赤になる
  */
-const RED = 'rgba(255, 95, 115, 0.45)'
-const RED_DIM = 'rgba(255, 95, 115, 0.25)'
-/** 警告のあいだの上下の欄の文字と枠（MISSILE ALERT・STALL・CRASH）。HUD の赤より濃い */
-const ALERT_RED = 'rgba(255, 110, 125, 0.7)'
+const RED = MISSILE_RED
+const RED_DIM = MISSILE_RED_DIM
 /**
  * 着艦の進入の計器の色（段 B7）。IFLOLS の上 10 セルの黄と下 2 セルの赤、迎角のドーナツの黄と
  * 速すぎの赤（Jungemann 2000、PDF 24・67 頁）。遅すぎは緑で、HUD の緑（`primary`）で描く
  */
-const BALL_YELLOW = 'rgba(255, 215, 90, 0.9)'
-const BALL_RED = 'rgba(255, 90, 90, 0.9)'
-/**
- * 警告の無いときの上下の欄の警告の文字と枠（CAUTION・STALL・CRASH）。通常の重ね方。
- * 録画の CAUTION は空の上で 208,163,180。空（200,205,215）に重ねると 214,164,176 になる
- */
-const ALERT = 'rgba(225, 130, 145, 0.55)'
+const BALL_YELLOW = APPROACH_YELLOW
+const BALL_RED = APPROACH_RED
+// 色は `palette.ts` の表から取る（段 D3）。経緯（段 B2・B3・B5 の録画の値、帯の文字を抜くのをやめた理由）は
+// 表の注記と ADR 0023・0024・0027・0031
 /** 点滅の周期と、点いている長さ（フレーム）。録画は 6 コマ点いて 6 コマ消える（30fps、0.4 秒周期） */
 const BLINK_PERIOD_FRAMES = 48
 const BLINK_ON_FRAMES = 24
-/** 警告 */
-const WARN = 'rgba(255, 150, 90, 0.95)'
 
 /** 書体。大きさは縮尺で決める（`applySize`） */
 const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
@@ -135,19 +152,6 @@ const RETICLE_CHEVRON = 26
  */
 const TARGET_BOX_HALF_REF = 16.5
 const LOCK_DIAMOND_HALF_REF = 17.5
-/** 目標の箱と距離・機種の色。録画は白 */
-const TARGET_WHITE = 'rgba(255, 255, 255, 0.85)'
-/** ロックの印の色。録画は赤 */
-const LOCK_RED = 'rgba(255, 80, 95, 0.9)'
-/**
- * 結果の帯（段 B3）。録画は照準の上に半透明の明るい緑の帯を置き、文字は地より暗い緑。空の上で地が
- * RGB 209,253,200・文字が 181,234,176、暗い所で地が 100,202,34・文字が 23,156,12。
- *
- * **最初は文字を地から抜いた**（抜いた所が透けて暗く見える狙い）。撮ると、明るい空の上では透けた
- * 所が地より明るくなり、文字がほとんど読めなかった。いまは文字を暗い緑で上から塗る
- */
-const BANNER_FILL = 'rgba(150, 255, 140, 0.78)'
-const BANNER_TEXT = 'rgba(30, 150, 40, 0.85)'
 /**
  * 画面の外の相手を指す矢印を置く半径。画面の短い辺に対する割合（段 35）。
  *
@@ -165,11 +169,6 @@ const arrowScratch = { x: 0, y: 0 }
  * 地。録画は背景（RGB 166,166,152）の上で 71,107,59。半透明を重ねる式で解くと、この色と濃さで 3 色とも
  * 合う（濃さの解は R 0.65・G 0.69・B 0.70）。最初に置いた 0.38 では灰色がかって薄かった
  */
-const RADAR_FILL = 'rgba(20, 80, 20, 0.68)'
-const RADAR_LINE = 'rgba(110, 225, 105, 0.9)'
-const RADAR_LINE_DIM = 'rgba(110, 225, 105, 0.45)'
-const RADAR_DOT = 'rgba(140, 240, 130, 0.35)'
-const RADAR_TARGET = 'rgba(255, 85, 90, 0.95)'
 /** 扇の内側の点の間隔（録画の 1920x1080 の画素） */
 const RADAR_DOT_STEP_REF = 6
 /** レーダーの方位の文字 */
@@ -419,7 +418,6 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   const canvas = document.createElement('canvas')
   canvas.className = 'hud-canvas'
   host.append(canvas)
-
   const ctx = canvas.getContext('2d')
   if (ctx === null) throw new Error('HUD の 2D コンテキストが取れない')
 
@@ -854,7 +852,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.textAlign = 'left'
     ctx!.textBaseline = 'middle'
     // 基準距離は右のシェブロンの外（段 37 で 21 から移した）
-    ctx!.fillText(`${GUN_REFERENCE_RANGE}`, p.x + (RETICLE_CHEVRON + 8) * u, p.y)
+    shadedText(`${GUN_REFERENCE_RANGE}`, p.x + (RETICLE_CHEVRON + 8) * u, p.y)
   }
 
   /**
@@ -1041,8 +1039,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.fillStyle = color
     ctx!.textAlign = 'left'
     ctx!.textBaseline = 'top'
-    ctx!.fillText(range, x, y)
-    if (designation !== '') ctx!.fillText(designation, x, y + SMALL_FONT_REF * s * 1.1)
+    shadedText(range, x, y)
+    if (designation !== '') shadedText(designation, x, y + SMALL_FONT_REF * s * 1.1)
   }
 
   /**
@@ -1138,9 +1136,9 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       const rowY = y + ARMAMENT_LINE_REF * s * i
       ctx!.fillStyle = warn ? WARN : primary
       ctx!.textAlign = 'left'
-      ctx!.fillText(name, labelX, rowY)
+      shadedText(name, labelX, rowY)
       ctx!.textAlign = 'right'
-      ctx!.fillText(value, valueX, rowY)
+      shadedText(value, valueX, rowY)
     }
 
     // 自機の輪郭。録画と同じく一覧の下に、薄く塗って縁を引く（段 C3 で録画の大きさへ）。
@@ -1157,7 +1155,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       else ctx!.lineTo(px, py)
     }
     ctx!.closePath()
-    const color = damaged ? rgbaText(silhouetteColor(damage)) : primary
+    // 損傷 0 でも輪郭は録画の濃い緑（段 D3）。警告の赤い HUD のあいだは HUD と同じ赤
+    const color = alertRed ? primary : rgbaText(silhouetteColor(damage))
     ctx!.fillStyle = color
     ctx!.globalAlpha = SILHOUETTE_FILL_ALPHA
     ctx!.fill()
@@ -1221,18 +1220,18 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     // TARGET 機名 +点。残り時間は決着したらそこで止まる（`Mission.remainingFrames`）
     ctx!.font = font
     ctx!.fillStyle = failed ? WARN : primary
-    ctx!.fillText(`TIME ${formatTimer(mission.remainingFrames)}`, x, y)
+    shadedText(`TIME ${formatTimer(mission.remainingFrames)}`, x, y)
     ctx!.fillStyle = primary
-    ctx!.fillText(`SCORE ${formatScore(mission.score)}`, x, y + MISSION_LINE_REF * s)
+    shadedText(`SCORE ${formatScore(mission.score)}`, x, y + MISSION_LINE_REF * s)
     if (mission.kill !== null) {
-      ctx!.fillText(`TARGET ${mission.kill.designation} +${mission.kill.points}`, x, y + MISSION_LINE_REF * s * 2)
+      shadedText(`TARGET ${mission.kill.designation} +${mission.kill.points}`, x, y + MISSION_LINE_REF * s * 2)
     }
 
     // 残敵。0 になったら成功。**レーダー（段 34）が入っても残す。**レーダーは位置を見せるが、
     // 勝ち負けに直結する残りの数は見せない
     ctx!.font = smallFont
     ctx!.fillStyle = settled ? (failed ? WARN : primary) : dim
-    ctx!.fillText(`ENEMY ${mission.enemiesAlive}`, x, y + MISSION_LINE_REF * s * 3)
+    shadedText(`ENEMY ${mission.enemiesAlive}`, x, y + MISSION_LINE_REF * s * 3)
   }
 
   /**
@@ -1257,22 +1256,26 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.textBaseline = 'alphabetic'
     ctx!.font = labelFont
     ctx!.textAlign = 'left'
-    ctx!.fillText('SPEED', sx - w, sy - h / 2 - VALUE_LABEL_GAP_REF * s)
+    shadedText('SPEED', sx - w, sy - h / 2 - VALUE_LABEL_GAP_REF * s)
+    // 数字は字形の上下の中央を箱の中央に置く（段 D3）
     ctx!.font = font
-    ctx!.textBaseline = 'middle'
+    ctx!.textBaseline = 'alphabetic'
     ctx!.textAlign = 'right'
-    ctx!.fillText(`${Math.round(readout.speedKt)}`, sx - point - pad, sy)
+    const digits = ctx!.measureText('0123456789')
+    const ascent = digits.actualBoundingBoxAscent
+    const descent = digits.actualBoundingBoxDescent
+    shadedText(`${Math.round(readout.speedKt)}`, sx - point - pad, centeredBaseline(sy, ascent, descent))
 
     const { innerX: ax, centerY: ay } = layout.altitudeBox
     valueBox(ax, ay, w, h, point, 1)
     ctx!.textBaseline = 'alphabetic'
     ctx!.font = labelFont
     ctx!.textAlign = 'right'
-    ctx!.fillText('ALT', ax + w, ay - h / 2 - VALUE_LABEL_GAP_REF * s)
+    shadedText('ALT', ax + w, ay - h / 2 - VALUE_LABEL_GAP_REF * s)
     ctx!.font = font
-    ctx!.textBaseline = 'middle'
+    ctx!.textBaseline = 'alphabetic'
     ctx!.textAlign = 'right'
-    ctx!.fillText(`${Math.round(readout.altitudeFt)}`, ax + w - pad, ay)
+    shadedText(`${Math.round(readout.altitudeFt)}`, ax + w - pad, centeredBaseline(ay, ascent, descent))
   }
 
   /**
@@ -1443,8 +1446,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.fill()
     ctx!.restore()
 
-    // 縁は切り抜きの外から描く（内側半分が切れないように）
-    ctx!.strokeStyle = line
+    // 縁は切り抜きの外から描く（内側半分が切れないように）。録画の枠は中の線より明るい（段 D3）
+    ctx!.strokeStyle = alertRed ? primary : RADAR_FRAME
     ctx!.lineWidth = lineWidth
     ctx!.strokeRect(x, y, size, size)
   }
@@ -1500,7 +1503,26 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.lineWidth = lineWidth
     ctx!.strokeRect(cx - w / 2, cy - h / 2, w, h)
     ctx!.fillStyle = color
-    ctx!.fillText(text, cx, cy)
+    shadedText(text, cx, cy)
+  }
+
+  /**
+   * 文字を、暗い半透明の縁取りを付けて書く（段 D3、ユーザーの決定）。録画は線と文字の下の背景を約 7 割に
+   * 暗くする。画面全体に影を重ねる形は中央値で 2〜3 fps 重かった（mission-01 が 60fps を割った）ので、
+   * 文字だけに縁取りを 1 回引く。線の太さと色は書いたあと元へ戻す
+   */
+  function shadedText(text: string, x: number, y: number): void {
+    const width = ctx!.lineWidth
+    const stroke = ctx!.strokeStyle
+    const join = ctx!.lineJoin
+    ctx!.lineWidth = TEXT_SHADE_WIDTH_REF * s
+    ctx!.strokeStyle = TEXT_SHADE
+    ctx!.lineJoin = 'round'
+    ctx!.strokeText(text, x, y)
+    ctx!.lineWidth = width
+    ctx!.strokeStyle = stroke
+    ctx!.lineJoin = join
+    ctx!.fillText(text, x, y)
   }
 
   applySize()

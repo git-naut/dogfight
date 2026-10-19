@@ -87,13 +87,21 @@ export const GEAR_DRAG_COEFFICIENT = 0.02
 export const HIGH_G_TURN_RATE = 1.4
 
 /**
- * ハイGターンのあいだ足す抗力係数。録画では SPEED の表示が約 10 秒で 404 → 116（29% が残る）。
- * 録画の高度はあまり上がっていないので、横に倒して回る旋回とみた。sim で 250 m/s・高度 3,000 m から
- * 約 90 度倒して 9.6 秒引き続けると、0.12 で 55%・0.4 で 43%・0.8 で 34%・1.2 で 29% が残る。
- * 1.2 にした（`tests/sim/highG.test.ts`）。普通の旋回は同じ条件で 75% が残る（録画の普通の旋回は
- * 4 秒で 3% しか失わず、スロットルの状態が分からないので比では合わせていない）
+ * ハイGターンの減速（段 B6、段 C2 で録画に合わせ直した）。減速は `HIGH_G_POWER / 速さ`（m/s²）で、
+ * 速さが落ちるほど強くなる。上限は `HIGH_G_DECELERATION`。
+ *
+ * 録画（lesson 2、コマ 8945〜9233）の SPEED は 404 kt から 1.8 秒で 366・5.8 秒で 263・7.8 秒で 196・
+ * 9.6 秒で 116（91・65・49・29%）。高度は 4,679 → 5,459 ft と上がる。減り方は終わりほど速い
+ * （最後の 1.8 秒で 80 kt）。
+ *
+ * 段 B6 では抗力係数を 1.2 足していた。速さの 2 乗で効くので速いうちに減りすぎ、同じ始まりで 1.8 秒に
+ * 61〜63% まで落ちた。一定の減速でも、終わりの減り方が鈍った。速さに反比例させると、同じ始まり
+ * （404 kt・1,426 m、0.25 秒倒してから引く、高度は +913 ft）で 90・56・43・33% になる
+ * （`tests/sim/highG.test.ts`）。800 は sim で探した値
  */
-export const HIGH_G_DRAG_COEFFICIENT = 1.2
+export const HIGH_G_POWER = 800
+/** 減速の上限 m/s²。遅いところで速さに反比例する減速が際限なく大きくならないように */
+export const HIGH_G_DECELERATION = 20
 
 /**
  * フラップを下ろし切ったときに足す形状の抗力係数。**入れていない（0）。**
@@ -803,11 +811,12 @@ export class Aircraft {
       tmpAero.addScaledVector(tmpLiftDir, liftMagnitude(q, cl))
       // 脚とフラップの抗力は出ている割合に比例させる。フラップで増えた揚力の誘導抗力は
       // `dragCoefficient(cl)` が含む
-      const cd =
-        dragCoefficient(cl) +
-        (GEAR_DRAG_COEFFICIENT + FLAP_DRAG_COEFFICIENT) * this.gearPosition +
-        (this.highGActive ? HIGH_G_DRAG_COEFFICIENT : 0)
+      const cd = dragCoefficient(cl) + (GEAR_DRAG_COEFFICIENT + FLAP_DRAG_COEFFICIENT) * this.gearPosition
       tmpAero.addScaledVector(tmpVelDir, -dragMagnitude(q, cd))
+      // ハイGターンの減速。速さによらずほぼ一定に減らす（録画は約 30 kt/秒で直線に近く減る）
+      if (this.highGActive) {
+        tmpAero.addScaledVector(tmpVelDir, -AIRCRAFT.mass * Math.min(HIGH_G_DECELERATION, HIGH_G_POWER / speed))
+      }
     }
 
     tmpForce.copy(tmpAero)

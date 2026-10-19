@@ -35,10 +35,38 @@ function run(highG: boolean, seconds: number): { ratio: number; turnedDeg: numbe
 }
 
 describe('ハイGターン', () => {
-  it('9.6 秒引き続けると速さが約 29% まで落ちる（録画は 10 秒で 29%）', () => {
-    const { ratio } = run(true, 9.6)
-    expect(ratio).toBeGreaterThan(0.25)
-    expect(ratio).toBeLessThan(0.33)
+  /**
+   * 録画（lesson 2、コマ 8945〜9233）と同じ始まり（404 kt・高度 4,679 ft）で、0.25 秒右へ倒してから
+   * 引き続ける。録画の SPEED の割合は 1.8 秒で 91%・5.8 秒で 65%・7.8 秒で 49%・9.6 秒で 29%、
+   * 合格は各 ±10 ポイント（段 C2、ユーザーの決定）。高度は録画と同じく上がる（録画 +780 ft）
+   */
+  it('録画と同じ始まりで、速さの減り方が録画の ±10 ポイントの内', () => {
+    const KT = 1.943844
+    const script = {
+      name: 'high-g-recording',
+      seed: 1,
+      spawn: { altitude: 1426, speed: 404 / KT },
+      keyframes: [
+        { frame: 0, input: { roll: 1 } },
+        { frame: 30, input: { roll: 0, pitch: 1, highG: true } },
+      ],
+    } as unknown as ReplayScript
+    const { world, player } = createWorldFromScript(script)
+    const recorded: [number, number][] = [
+      [1.8, 0.91],
+      [5.8, 0.65],
+      [7.8, 0.49],
+      [9.6, 0.29],
+    ]
+    const v0 = world.player.speed
+    const a0 = world.player.altitude
+    let f = 0
+    for (const [t, ratio] of recorded) {
+      for (; f < 30 + Math.round(t * HZ); f++) world.step(player.at(f, world.player))
+      expect(Math.abs(world.player.speed / v0 - ratio), `${t} 秒`).toBeLessThanOrEqual(0.1)
+    }
+    expect(world.player.altitude).toBeGreaterThan(a0)
+    expect(world.player.crashed).toBe(false)
   })
 
   it('普通の旋回は同じ条件で 7 割以上が残る', () => {

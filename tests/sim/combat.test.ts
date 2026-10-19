@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createWorldFromScript, runScript, World } from '@sim/world'
 import { SCRIPTS } from '@sim/scripts'
 import { TARGET_INTEGRITY } from '@sim/target'
-import { MAGAZINE, ROUNDS_PER_SECOND } from '@sim/weapons/gun'
+import { ROUNDS_PER_SECOND } from '@sim/weapons/gun'
 import { makeInput } from '@sim/input'
 import { FIXED_DT } from '@sim/loop'
 import { Vec3 } from '@sim/vec3'
@@ -74,9 +74,11 @@ describe('gun-pass — 機銃で標的を落とす', () => {
     }
   })
 
-  it('残弾が減る', () => {
+  /** 段 D2。録画の兵装の欄は GUN の数を出さず「---」。自機の機銃は弾が尽きない */
+  it('撃っても弾は尽きない', () => {
     const w = runScript(SCRIPTS['gun-pass'], SEC * 2)
-    expect(w.combat.rounds).toBe(MAGAZINE - 200)
+    expect(w.combat.roundsFired).toBe(200)
+    expect(w.combat.rounds).toBe(Infinity)
   })
 
   it('2 回再生しても命中数が一致する', () => {
@@ -202,7 +204,7 @@ describe('リセット', () => {
     world.combat.reset()
     expect(world.combat.hits).toBe(0)
     expect(world.combat.kills).toBe(0)
-    expect(world.combat.rounds).toBe(MAGAZINE)
+    expect(world.combat.rounds).toBe(Infinity)
     expect(world.combat.roundsFired).toBe(0)
     world.combat.gun.advance(FIXED_DT, 2300)
     expect(world.combat.bulletsInFlight).toBe(0)

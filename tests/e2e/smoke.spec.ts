@@ -799,12 +799,13 @@ test.describe('機銃', () => {
     expect(hook.targetsAlive).toBe(1)
   })
 
-  test('残弾が減る', async ({ page }) => {
-    // 1 秒（120 フレーム）撃って 100 発減る。**携行弾は 1,800 発**
-    // （`MAGAZINE`。公表値 578 発から Phase 7 で増やした）。この写しは
-    // sim を import しないので、値を変えたらここも直す
+  /**
+   * 1 秒（120 フレーム）で 100 発撃つ。**自機の機銃は弾が尽きない**（段 D2、録画の GUN は「---」）。
+   * 残弾は Infinity で、フックの JSON では null になるので、撃った数で見る
+   */
+  test('1 秒で 100 発撃つ', async ({ page }) => {
     const hook = await capture(page, { script: 'gun-pass', frame: 120 })
-    expect(hook.rounds).toBe(1800 - 100)
+    expect(hook.roundsFired).toBe(100)
   })
 
   test('曳光弾は 5 発に 1 発', async ({ page }) => {

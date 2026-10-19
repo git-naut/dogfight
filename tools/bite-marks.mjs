@@ -1710,4 +1710,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/chaseCameraFeel.test.ts',
     why: 'ヨーのずれが録画（38〜44 画素）より小さい 32 画素に戻る',
   },
+  {
+    id: 'gun-magazine-back',
+    kind: '定数の摂動',
+    file: 'src/sim/combat.ts',
+    find: '  readonly gun = new Gun(BULLET_POOL, Infinity)\n',
+    replace: '  readonly gun = new Gun(BULLET_POOL, 1800)\n',
+    expect: 'tests/sim/combat.test.ts',
+    why: '自機の機銃の弾が尽きるようになり、兵装の欄の GUN が「---」でなく数になる',
+  },
 ]

@@ -1127,7 +1127,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.font = font
     ctx!.textBaseline = 'alphabetic'
     const rows: [string, string, boolean][] = [
-      ['GUN', `${armament.rounds}`, armament.rounds <= 0],
+      // 弾が尽きない機銃は録画と同じく「---」（段 D2）
+      ['GUN', Number.isFinite(armament.rounds) ? `${armament.rounds}` : '---', armament.rounds <= 0],
       ['MSL', `${armament.missiles}`, armament.missiles <= 0],
       ['FLR', `${armament.flares}`, armament.flares <= 0],
       ['DMG', `${Math.round(damage * 100)}%`, damaged],

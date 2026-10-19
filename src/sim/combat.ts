@@ -4,7 +4,7 @@ import type { Aircraft, TerrainSampler } from './aircraft'
 import { DEFAULT_DESIGNATION, DEFAULT_POINTS, type Combatant, type HeatSource } from './combatant'
 import { ScoreLog } from './score'
 import type { InputState } from './input'
-import { Gun, MUZZLE_OFFSET, type Bullet, type BulletSource } from './weapons/gun'
+import { BULLET_POOL, Gun, MUZZLE_OFFSET, type Bullet, type BulletSource } from './weapons/gun'
 import {
   boundingRadius,
   createHitResult,
@@ -145,7 +145,11 @@ const midpoint = new Vec3()
 const hit: HitResult = createHitResult()
 
 export class Combat {
-  readonly gun = new Gun()
+  /**
+   * 自機の機銃。**弾は尽きない**（段 D2、ユーザーの決定）。録画の兵装の欄は GUN の数を出さず「---」
+   * （ACE COMBAT 7 の講座 lesson 1・5）。段 D1 までは 1,800 発だった
+   */
+  readonly gun = new Gun(BULLET_POOL, Infinity)
   /** シーカーの捕捉。ミサイルの発射条件になる */
   readonly lock = new Lock()
   /**

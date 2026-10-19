@@ -1701,4 +1701,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/chaseCamera.test.ts',
     why: '追従視点が段 C4 の前に戻り、機体が録画より 2 割大きく、上に写る',
   },
+  {
+    id: 'camera-lateral-lag-short',
+    kind: '定数の摂動',
+    file: 'src/render/camera.ts',
+    find: 'const POSITION_TAU_LATERAL = 0.4\n',
+    replace: 'const POSITION_TAU_LATERAL = 0.3\n',
+    expect: 'tests/render/chaseCameraFeel.test.ts',
+    why: 'ヨーのずれが録画（38〜44 画素）より小さい 32 画素に戻る',
+  },
 ]

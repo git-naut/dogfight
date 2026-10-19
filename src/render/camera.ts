@@ -82,6 +82,12 @@ const LOOK_AHEAD = 60
  * （機体の機首下げの速さは変えない、ユーザーの決定）
  */
 const POSITION_TAU = 0.3
+/**
+ * 機体の左右の向きの位置の時定数 s（段 D1）。ヨーのずれが段 C4 で 32 画素になり、録画（38〜44 画素）
+ * より小さかった。左右だけ延ばし、0.4 秒で 41 画素（0.3 で 32・0.5 で 48・0.6 で 55）。引きとロールは
+ * 変わらない（66 画素・10.0 度）
+ */
+const POSITION_TAU_LATERAL = 0.4
 const TARGET_TAU = 0.05
 
 /**
@@ -127,6 +133,8 @@ export interface ChaseCamera {
 export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera {
   /** 機体から見たカメラと注視点の位置（世界の向き）。遅れはここにだけ掛ける */
   const currentOffset = new THREE.Vector3()
+  const offsetError = new THREE.Vector3()
+  const bodyRightAxis = new THREE.Vector3()
   const currentLook = new THREE.Vector3()
   const desiredOffset = new THREE.Vector3()
   const desiredLook = new THREE.Vector3()
@@ -169,6 +177,7 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
     desiredLook.copy(forward).multiplyScalar(LOOK_AHEAD)
 
     bodyUp.set(0, 1, 0).applyQuaternion(q)
+    bodyRightAxis.set(1, 0, 0).applyQuaternion(q)
   }
 
   function applyFov(speed: number): void {
@@ -195,7 +204,12 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
       // 速度 × 約 0.085 秒だけ後ろに残り、250 m/s で 15.5 m の定位置が 36 m に伸びて
       // 機体が半分の大きさに写っていた（2026-10-02 に測った。キャプチャは snap なので
       // 基準画像には出ない）。平行移動は機体と一緒にして、距離を速度で変えない
-      currentOffset.lerp(desiredOffset, kp)
+      // 機体の左右の向きだけ遅れを長くする（段 D1）。ヨーのずれを録画の幅へ広げ、引きは変えない
+      const kpLat = 1 - Math.exp(-dt / POSITION_TAU_LATERAL)
+      offsetError.copy(desiredOffset).sub(currentOffset)
+      const lateral = offsetError.dot(bodyRightAxis)
+      offsetError.addScaledVector(bodyRightAxis, -lateral)
+      currentOffset.addScaledVector(offsetError, kp).addScaledVector(bodyRightAxis, lateral * kpLat)
       currentLook.lerp(desiredLook, kt)
       camera.position.copy(craftPos).add(currentOffset)
       target.copy(craftPos).add(currentLook)

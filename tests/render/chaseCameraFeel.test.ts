@@ -89,10 +89,11 @@ describe('追従カメラの手触り（録画に合わせた）', () => {
     expect(at08 / peak).toBeGreaterThan(0.8)
   })
 
-  it('ヨーで機体が横へ 25〜45 画素ずれる（録画 38〜44 画素、段 B3 までは 7 画素）', () => {
+  /** 段 D1 で、左右だけ位置の遅れを 0.4 秒にして録画の幅へ広げた（段 C4 のあとは 32 画素） */
+  it('ヨーで機体が横へ 38〜44 画素ずれる（録画 38〜44 画素、段 B3 までは 7 画素）', () => {
     const { rows } = fly({ yaw: -1 }, 2.0)
     const peak = Math.max(...rows.map((r) => Math.abs(r.dx)))
-    expect(peak).toBeGreaterThanOrEqual(25)
-    expect(peak).toBeLessThanOrEqual(45)
+    expect(peak).toBeGreaterThanOrEqual(38)
+    expect(peak).toBeLessThanOrEqual(44)
   })
 })

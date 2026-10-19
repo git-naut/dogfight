@@ -26,6 +26,7 @@ import type { MissileThreat } from '../sim/weapons/warning'
 import type { LandingResult } from '../sim/arrestor'
 import { BALL_CELLS, DATUM_CELL, YELLOW_CELLS, type ApproachGuide } from '../sim/approachGuide'
 import { landingNoticeText, lineupMarkOffset } from './approach'
+import { killBannerText } from './banner'
 import { RADAR_OUTER_RING, RADAR_OWN_Y, RADAR_RINGS, radarBearing, radarPoint, radarRange } from './radar'
 import { offscreenDirection } from './arrow'
 import {
@@ -141,13 +142,6 @@ const LOCK_RED = 'rgba(255, 80, 95, 0.9)'
  */
 const BANNER_FILL = 'rgba(150, 255, 140, 0.78)'
 const BANNER_TEXT = 'rgba(30, 150, 40, 0.85)'
-/**
- * 帯の長さ（フレーム）。録画は HIT が 10 コマ（0.33 秒）、2 コマ消えて、DESTROYED が 37 コマ
- * （1.23 秒）。撃墜のときは HIT のあとに DESTROYED、落ちない当たりは HIT だけ
- */
-const BANNER_HIT_FRAMES = 40
-const BANNER_GAP_FRAMES = 8
-const BANNER_DESTROYED_FRAMES = 148
 /**
  * 画面の外の相手を指す矢印を置く半径。画面の短い辺に対する割合（段 35）。
  *
@@ -918,14 +912,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
    */
   function drawBanner(hits: HudArmament['hits'], frame: number, landing: LandingResult | null): void {
     bannerText = ''
-    const killAge = hits.lastKill >= 0 ? frame - hits.lastKill : -1
-    const hitAge = hits.lastHit >= 0 ? frame - hits.lastHit : -1
-    if (killAge >= 0 && killAge < BANNER_HIT_FRAMES + BANNER_GAP_FRAMES + BANNER_DESTROYED_FRAMES) {
-      if (killAge < BANNER_HIT_FRAMES) bannerText = 'HIT'
-      else if (killAge >= BANNER_HIT_FRAMES + BANNER_GAP_FRAMES) bannerText = 'DESTROYED'
-    } else if (hitAge >= 0 && hitAge < BANNER_HIT_FRAMES) {
-      bannerText = 'HIT'
-    }
+    bannerText = killBannerText(hits.lastHit, hits.lastKill, frame)
     // 着艦の結果は次の試みまで出し続ける（段 B7）。撃墜の帯が出ているあいだはそちらが先
     if (bannerText === '') bannerText = landingNoticeText(landing)
     if (bannerText === '') return

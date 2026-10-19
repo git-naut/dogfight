@@ -1638,4 +1638,22 @@ export const BITE_MARKS = [
     expect: 'tests/hud/readout.test.ts',
     why: '着艦の進入の最後と甲板の上で、赤い CAUTION が点滅し続ける',
   },
+  {
+    id: 'banner-destroyed-long',
+    kind: '定数の摂動',
+    file: 'src/hud/banner.ts',
+    find: 'export const BANNER_DESTROYED_FRAMES = 120\n',
+    replace: 'export const BANNER_DESTROYED_FRAMES = 148\n',
+    expect: 'tests/hud/banner.test.ts',
+    why: 'DESTROYED が録画（1.0 秒）より 0.23 秒長く残る（段 B3 の読み違えに戻る）',
+  },
+  {
+    id: 'banner-gap-back',
+    kind: '条件の固定',
+    file: 'src/hud/banner.ts',
+    find: "    return killAge < BANNER_HIT_FRAMES ? 'HIT' : 'DESTROYED'\n",
+    replace: "    return killAge < BANNER_HIT_FRAMES ? 'HIT' : killAge < BANNER_HIT_FRAMES + 8 ? '' : 'DESTROYED'\n",
+    expect: 'tests/hud/banner.test.ts',
+    why: 'HIT と DESTROYED のあいだに録画に無いすき間ができる',
+  },
 ]

@@ -399,8 +399,8 @@ test.describe('HUD', () => {
   })
 
   /**
-   * 段 B3（録画に合わせた）。撃墜すると結果の帯が HIT を 40 フレーム（録画の 10 コマ）、8 フレーム
-   * 消えて、DESTROYED を 148 フレーム（録画の 37 コマ）出す
+   * 段 B3（録画に合わせた）。撃墜すると結果の帯が HIT を 40 フレーム（録画の 10 コマ）出し、すき間なしに
+   * DESTROYED を 120 フレーム（録画の 30 コマ）出す。すき間と長さは録画との突き合わせで直した（段 C1）
    */
   test('撃墜すると HIT のあとに DESTROYED の帯が出て消える', async ({ page }) => {
     const after = await capture(page, { script: 'missile-shot', frame: 900, hud: true })
@@ -411,10 +411,9 @@ test.describe('HUD', () => {
     expect(await at(k - 1)).toBe('')
     expect(await at(k)).toBe('HIT')
     expect(await at(k + 39)).toBe('HIT')
-    expect(await at(k + 40)).toBe('')
-    expect(await at(k + 48)).toBe('DESTROYED')
-    expect(await at(k + 195)).toBe('DESTROYED')
-    expect(await at(k + 196)).toBe('')
+    expect(await at(k + 40)).toBe('DESTROYED')
+    expect(await at(k + 159)).toBe('DESTROYED')
+    expect(await at(k + 160)).toBe('')
   })
 
   /** 段 B5。レーダーの縮尺は、いちばん近い相手が外の円に入るいちばん小さい段（2・4・8・16・32 km） */

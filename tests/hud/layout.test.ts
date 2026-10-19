@@ -106,7 +106,7 @@ describe('HUD の配置', () => {
       nearX(l.armament.valueX, 1821, '兵装の数の右')
       nearY(l.armament.y - FONT_REF * 0.7, 708, '兵装の上')
       nearX(l.silhouette.cx, 1698, '輪郭の中心 x')
-      nearY(l.silhouette.cy, 955, '輪郭の中心 y')
+      nearY(l.silhouette.cy, 939.5, '輪郭の中心 y（段 C3 で機体の部分の中心へ）')
     })
   })
 

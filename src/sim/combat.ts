@@ -38,12 +38,20 @@ import { createDlz, solveDlz, type Dlz } from './weapons/dlz'
 export const MISSILE_COUNT = 8
 
 /**
- * 発射の間隔 秒。
+ * 発射機（左右の 2 つ）が撃ったあと次の 1 発を満たすまでの秒（段 C3、録画に合わせた）。
  *
- * 押しっぱなしで全弾が 1 フレームに出るのを防ぐ。押しっぱなしでは 1 発しか
- * 出さないので二重の歯止めになるが、離して押し直す速さには上限が要る。
+ * 録画（lesson 5）は左右を交互に撃ち、撃った側の兵装の欄の印が下から満ちていく。コマ 20022 で
+ * 左を撃ち、20152 で満ちた（130 コマ）。右は 20035 で撃ち、20155 の編集の切れ目で 7 割だった。
+ * 満ちるまでその側では撃てないので、続けて撃てるのは 2 発まで。段 C2 までは 0.8 秒おきに何発でも
+ * 撃てた（ユーザーの決定で録画に合わせた）
  */
-export const MISSILE_INTERVAL = 0.8
+export const MISSILE_RELOAD = 4.3
+
+/** 発射機の状態。`progress` は満ちた割合（1 で撃てる）。`empty` は残りが無くもう満ちない */
+export interface Launcher {
+  progress: number
+  empty: boolean
+}
 
 /** ミサイル 1 発が与えるダメージ。標的の耐久 20 を 1 発で削り切る */
 const MISSILE_DAMAGE = 100
@@ -160,8 +168,13 @@ export class Combat {
   missilesLeft = MISSILE_COUNT
   /** 撃ったミサイルの総数 */
   missilesFired = 0
-  /** 前回の発射からの経過 秒。間隔の判定に使う */
-  private sinceLaunch = MISSILE_INTERVAL
+  /** 左右の発射機（0 が左、1 が右）。HUD の兵装の欄の印に出す（段 C3） */
+  readonly launchers: readonly [Launcher, Launcher] = [
+    { progress: 1, empty: false },
+    { progress: 1, empty: false },
+  ]
+  /** 次に撃つ側。左から交互 */
+  private nextSide = 0
   /** 前ステップで引き金が押されていたか。押しっぱなしで連射しない */
   private missileHeld = false
 
@@ -365,11 +378,13 @@ export class Combat {
   /**
    * ミサイルの発射。
    *
-   * ロックが立っているときだけ出す。押しっぱなしでは 1 発しか出さず、
-   * 離して押し直すか間隔が空くのを待つ。
+   * ロックが立っているときだけ出す。押しっぱなしでは 1 発しか出さず、離して押し直す。
+   * 左右の発射機を交互に使い、満ちていない側は飛ばして反対の側から撃つ（段 C3）
    */
   private fireMissile(input: InputState, player: Aircraft, dt: number): void {
-    this.sinceLaunch += dt
+    for (const launcher of this.launchers) {
+      if (!launcher.empty && launcher.progress < 1) launcher.progress = Math.min(1, launcher.progress + dt / MISSILE_RELOAD)
+    }
     const pressed = input.fireMissile && !player.crashed
     const edge = pressed && !this.missileHeld
     this.missileHeld = pressed
@@ -377,7 +392,8 @@ export class Combat {
     if (!edge) return
     if (this.lock.state !== 'locked') return
     if (this.missilesLeft <= 0) return
-    if (this.sinceLaunch < MISSILE_INTERVAL) return
+    const side = this.readySide()
+    if (side < 0) return
 
     const missile = this.missiles.find((m) => m.state !== 'flying')
     if (missile === undefined) return
@@ -385,8 +401,22 @@ export class Combat {
     // パイロンの位置は入れていない。翼下 3 m の差は誘導に効かない
     missile.launch(player.position, player.velocity, player.orientation, this.lock.index)
     this.missilesLeft--
-    this.sinceLaunch = 0
     this.missilesFired++
+    // 撃った側は、反対の側に載っているぶんを除いてもまだ残りがあれば満たし直す
+    const other = this.launchers[1 - side]!
+    const launcher = this.launchers[side]!
+    launcher.progress = 0
+    launcher.empty = this.missilesLeft - (other.empty ? 0 : 1) <= 0
+    this.nextSide = 1 - side
+  }
+
+  /** 撃てる側。次の番の側が満ちていなければ反対の側。どちらも撃てなければ −1 */
+  private readySide(): number {
+    for (const side of [this.nextSide, 1 - this.nextSide]) {
+      const launcher = this.launchers[side]!
+      if (!launcher.empty && launcher.progress >= 1) return side
+    }
+    return -1
   }
 
   /** 飛んでいるミサイルの数 */
@@ -667,7 +697,11 @@ export class Combat {
     this.sinceDlz = DLZ_INTERVAL
     this.missilesLeft = MISSILE_COUNT
     this.missilesFired = 0
-    this.sinceLaunch = MISSILE_INTERVAL
+    for (const launcher of this.launchers) {
+      launcher.progress = 1
+      launcher.empty = false
+    }
+    this.nextSide = 0
     this.missileHeld = false
     this.hits = 0
     this.kills = 0

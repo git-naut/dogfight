@@ -530,6 +530,7 @@ async function main(): Promise<void> {
     threat: createMissileThreat(),
     hits: { lastHit: -1, lastKill: -1 },
     incoming: { count: 0, points: [] },
+    launchers: [],
     approach: null,
     landingNotice: null,
     // 器を使い回す。ミッションのない台本では null を入れて何も描かせない
@@ -584,6 +585,7 @@ async function main(): Promise<void> {
     armament.incoming.count = m
     // 空母（段 37）。World が台本の配置を持つ
     armament.carrier = currentWorld.carrier
+    armament.launchers = currentWorld.combat.launchers
     armament.approach = currentWorld.carrier !== null ? currentWorld.approach : null
     armament.landingNotice = currentWorld.landingNotice
     armament.flares = currentWorld.countermeasures.left

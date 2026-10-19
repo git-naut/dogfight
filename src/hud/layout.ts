@@ -75,7 +75,20 @@ export const MISSION_LINE_REF = 37
  * 行の間隔は約 35（GUN 708〜731、MSL 747〜772、…）。その下に自機の輪郭（中心 1698, 955）
  */
 export const ARMAMENT_LINE_REF = 35
-export const SILHOUETTE_SIZE_REF = 100
+/**
+ * 自機の輪郭の幅と高さ（段 C3、録画のコマ 600 で測った機体の部分 x 1636〜1759・y 882〜997）。
+ * 段 C2 までは 100×100 だった
+ */
+export const SILHOUETTE_WIDTH_REF = 124
+export const SILHOUETTE_HEIGHT_REF = 115
+/**
+ * 左右の発射機の印（段 C3）。録画は輪郭の左右に縦長のミサイルの形（幅 16・高さ 82、中心 x 1611.5 と
+ * 1784、y 913〜995）。輪郭の中心からの横のずれ、中心の高さのずれ、印の大きさ
+ */
+export const LAUNCHER_OFFSET_REF = 86.25
+export const LAUNCHER_DY_REF = 14.5
+export const LAUNCHER_WIDTH_REF = 16
+export const LAUNCHER_HEIGHT_REF = 82
 
 /**
  * SPEED と ALT の箱。録画は見出しが上、数字の箱が下の 2 段（SPEED 611〜700・y 500〜557）。
@@ -193,7 +206,8 @@ export function computeLayout(width: number, height: number): HudLayout {
 
   // 兵装（録画: 見出し x 1656、数の右端 x 1821、GUN の大文字の下端 731）
   const armament = { labelX: width * (1656 / 1920), valueX: width * (1821 / 1920), y: height * (731 / 1080) }
-  const silhouette = { cx: width * (1698 / 1920), cy: height * (955 / 1080) }
+  // 輪郭の中心（録画の機体の部分 1698, 939.5。段 C2 までは下の 2 発を含めた 955 だった）
+  const silhouette = { cx: width * (1698 / 1920), cy: height * (939.5 / 1080) }
   // ミッション（録画: x 100、TIME の大文字の下端 75）
   const mission = { x: width * (100 / 1920), y: height * (75 / 1080) }
   // 照準の上下の欄（録画: CAUTION の枠の中心 y 438.5、STALL の枠の中心 y 641.5）
@@ -237,10 +251,12 @@ export function computeLayout(width: number, height: number): HudLayout {
     },
     // 兵装。4 行（GUN・MSL・FLR・DMG）と、その下の自機の輪郭
     armament: {
-      x: Math.min(armament.labelX, silhouette.cx - (SILHOUETTE_SIZE_REF * s) / 2),
+      x: Math.min(armament.labelX, silhouette.cx - (LAUNCHER_OFFSET_REF + LAUNCHER_WIDTH_REF / 2) * s),
       y: armament.y - font,
-      w: armament.valueX - Math.min(armament.labelX, silhouette.cx - (SILHOUETTE_SIZE_REF * s) / 2),
-      h: silhouette.cy + (SILHOUETTE_SIZE_REF * s) / 2 - (armament.y - font),
+      w:
+        Math.max(armament.valueX, silhouette.cx + (LAUNCHER_OFFSET_REF + LAUNCHER_WIDTH_REF / 2) * s) -
+        Math.min(armament.labelX, silhouette.cx - (LAUNCHER_OFFSET_REF + LAUNCHER_WIDTH_REF / 2) * s),
+      h: silhouette.cy + (SILHOUETTE_HEIGHT_REF * s) / 2 - (armament.y - font),
     },
     // ミッション。TIME / SCORE / TARGET と敵の数（4 行目、小さい字）
     mission: {

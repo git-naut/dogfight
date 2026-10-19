@@ -27,6 +27,8 @@ import type { LandingResult } from '../sim/arrestor'
 import { BALL_CELLS, DATUM_CELL, YELLOW_CELLS, type ApproachGuide } from '../sim/approachGuide'
 import { landingNoticeText, lineupMarkOffset } from './approach'
 import { killBannerText } from './banner'
+import { LAUNCHER_SHAPE, rgbaText, silhouetteColor } from './armament'
+import type { Launcher } from '../sim/combat'
 import { RADAR_OUTER_RING, RADAR_OWN_Y, RADAR_RINGS, radarBearing, radarPoint, radarRange } from './radar'
 import { offscreenDirection } from './arrow'
 import {
@@ -36,7 +38,11 @@ import {
   LABEL_FONT_REF,
   LINE_WIDTH_REF,
   MISSION_LINE_REF,
-  SILHOUETTE_SIZE_REF,
+  SILHOUETTE_HEIGHT_REF,
+  SILHOUETTE_WIDTH_REF,
+  LAUNCHER_DY_REF,
+  LAUNCHER_HEIGHT_REF,
+  LAUNCHER_OFFSET_REF,
   SMALL_FONT_REF,
   STATUS_BOX_HEIGHT_REF,
   STATUS_FONT_REF,
@@ -189,6 +195,9 @@ const SILHOUETTE = [
 
 const DEG = Math.PI / 180
 
+/** 輪郭の中の塗りの濃さ（段 C3）。録画の輪郭は中も薄く光る */
+const SILHOUETTE_FILL_ALPHA = 0.3
+
 /**
  * ピッチラダーの刻み 度。
  *
@@ -288,6 +297,8 @@ export interface HudArmament {
    * 読む。位置と速度は世界座標の水平の成分 m・m/s
    */
   incoming: { count: number; points: { x: number; z: number; vx: number; vz: number }[] }
+  /** 左右の発射機（段 C3、`Combat.launchers`）。0 が左。兵装の欄の印に出す */
+  launchers: readonly Launcher[]
   /** 着艦の進入の計器の値（段 B7、`World.approach`）。空母の無い台本では null */
   approach: ApproachGuide | null
   /** 結果の帯に出し続ける着艦の結果（段 B7、`World.landingNotice`）。無ければ null */
@@ -1131,28 +1142,56 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       ctx!.fillText(value, valueX, rowY)
     }
 
-    // 自機の輪郭。録画と同じく一覧の下に置く
-    const size = SILHOUETTE_SIZE_REF * s
+    // 自機の輪郭。録画と同じく一覧の下に、薄く塗って縁を引く（段 C3 で録画の大きさへ）。
+    // **損傷は全体で 1 つの色。**sim は部位ごとの損傷を持たない（耐久 1 本）。損傷 0 は HUD の緑
+    // （警告の赤い HUD のあいだは赤）、そこから黄、赤へ（`silhouetteColor`）
     const { cx, cy } = layout.silhouette
+    const w = SILHOUETTE_WIDTH_REF * s
+    const h = SILHOUETTE_HEIGHT_REF * s
     ctx!.beginPath()
     for (let i = 0; i < SILHOUETTE.length; i += 2) {
-      const px = cx + SILHOUETTE[i]! * size
-      const py = cy + SILHOUETTE[i + 1]! * size
+      const px = cx + SILHOUETTE[i]! * w
+      const py = cy + SILHOUETTE[i + 1]! * h
       if (i === 0) ctx!.moveTo(px, py)
       else ctx!.lineTo(px, py)
     }
     ctx!.closePath()
-    // **損傷は全体で 1 つの色。**sim は部位ごとの損傷を持たない（耐久 1 本）。
-    // 傷つくほど濃く塗る
-    if (damaged) {
-      ctx!.fillStyle = WARN
-      ctx!.globalAlpha = 0.15 + 0.6 * damage
-      ctx!.fill()
-      ctx!.globalAlpha = 1
-    }
-    ctx!.strokeStyle = damaged ? WARN : primary
+    const color = damaged ? rgbaText(silhouetteColor(damage)) : primary
+    ctx!.fillStyle = color
+    ctx!.globalAlpha = SILHOUETTE_FILL_ALPHA
+    ctx!.fill()
+    ctx!.globalAlpha = 1
+    ctx!.strokeStyle = color
     ctx!.lineWidth = lineWidth
     ctx!.stroke()
+
+    // 左右の発射機の印（段 C3）。撃てる側は塗りつぶし、満ちている途中は下から進みのぶんを塗る。
+    // 残りが無い側は縁だけ
+    for (let side = 0; side < armament.launchers.length; side++) {
+      const launcher = armament.launchers[side]!
+      const x = cx + (side === 0 ? -1 : 1) * LAUNCHER_OFFSET_REF * s
+      const top = cy + (LAUNCHER_DY_REF - LAUNCHER_HEIGHT_REF / 2) * s
+      ctx!.beginPath()
+      for (let i = 0; i < LAUNCHER_SHAPE.length; i += 2) {
+        const px = x + LAUNCHER_SHAPE[i]! * s
+        const py = top + LAUNCHER_SHAPE[i + 1]! * s
+        if (i === 0) ctx!.moveTo(px, py)
+        else ctx!.lineTo(px, py)
+      }
+      ctx!.closePath()
+      const filled = launcher.empty ? 0 : launcher.progress
+      if (filled > 0) {
+        ctx!.save()
+        ctx!.clip()
+        ctx!.fillStyle = primary
+        const fillH = LAUNCHER_HEIGHT_REF * s * filled
+        ctx!.fillRect(x - 10 * s, top + LAUNCHER_HEIGHT_REF * s - fillH, 20 * s, fillH)
+        ctx!.restore()
+      }
+      ctx!.strokeStyle = launcher.empty ? dim : primary
+      ctx!.lineWidth = lineWidth
+      ctx!.stroke()
+    }
   }
 
   /**

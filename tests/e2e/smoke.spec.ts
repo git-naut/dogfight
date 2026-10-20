@@ -977,6 +977,20 @@ test.describe('ミサイル', () => {
     expect(hook.missilesDrawn).toBe(1)
   })
 
+  /**
+   * 段 B9。左右に 1 発ずつ吊るし、撃った側は消えて、満ちたら（4.3 秒）戻る。missile-shot は 120 フレーム目
+   * に左を撃つので、f124 で 1 発、満ちる f636 のあとの f660 で 2 発に戻る
+   */
+  test('吊るしたミサイルは撃つと消え、満ちたら戻る', async ({ page }) => {
+    const before = await capture(page, { script: 'missile-shot', frame: 116 })
+    expect(before.hungMissilesShown).toBe(2)
+    const fired = await capture(page, { script: 'missile-shot', frame: 124 })
+    expect(fired.missilesFired).toBe(1)
+    expect(fired.hungMissilesShown).toBe(1)
+    const refilled = await capture(page, { script: 'missile-shot', frame: 660 })
+    expect(refilled.hungMissilesShown).toBe(2)
+  })
+
   test('比例航法で命中して標的が落ちる', async ({ page }) => {
     // 実測。3,000 m の的に 9 秒で当たる
     const hook = await capture(page, { script: 'missile-shot', frame: 1200 })

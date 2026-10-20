@@ -176,6 +176,7 @@ const hook = installTestHook({
   hudLockBoxOnScreen: false,
   missilesInFlight: 0,
   missilesDrawn: 0,
+  hungMissilesShown: 2,
   missilesFired: 0,
   missilesLeft: 0,
   explosionsAlive: 0,
@@ -769,6 +770,7 @@ async function main(): Promise<void> {
     hook.lockProgress = currentWorld.combat.lock.progress
     hook.missilesInFlight = currentWorld.combat.missilesInFlight
     hook.missilesDrawn = view.missilesDrawn
+    hook.hungMissilesShown = view.hungMissilesShown
     hook.missilesFired = currentWorld.combat.missilesFired
     hook.missilesLeft = currentWorld.combat.missilesLeft
     hook.explosionsAlive = currentWorld.combat.explosionsAliveAt(
@@ -814,6 +816,7 @@ async function main(): Promise<void> {
     view.setTrailSource(world.player)
     view.setBulletSources(world.combat.bulletSources)
     view.setSmokeSources(world.combat.smokeSources)
+    view.setLauncherSource(world.combat.launchers)
     view.setDamageSmokeSources(world.damageSmokeSources)
     view.setFlareSources(world.flares)
     view.setExplosionSource(world.combat.explosions)
@@ -1159,6 +1162,7 @@ async function main(): Promise<void> {
   view.setTrailSource(world.player)
   view.setBulletSources(world.combat.bulletSources)
   view.setSmokeSources(world.combat.smokeSources)
+  view.setLauncherSource(world.combat.launchers)
   view.setDamageSmokeSources(world.damageSmokeSources)
   view.setExplosionSource(world.combat.explosions)
   let lastTime = performance.now()
@@ -1192,6 +1196,7 @@ async function main(): Promise<void> {
       view.setTrailSource(world.player)
       view.setBulletSources(world.combat.bulletSources)
       view.setSmokeSources(world.combat.smokeSources)
+      view.setLauncherSource(world.combat.launchers)
       view.setDamageSmokeSources(world.damageSmokeSources)
     view.setFlareSources(world.flares)
       view.setExplosionSource(world.combat.explosions)

@@ -1800,4 +1800,22 @@ export const BITE_MARKS = [
     expect: 'tests/hud/palette.test.ts',
     why: 'ロックの印が段 D5 までの鮮やかな赤に戻り、録画の淡いピンクから外れる',
   },
+  {
+    id: 'pylon-side-swapped',
+    kind: '符号の反転',
+    file: 'src/sim/combat.ts',
+    find: 'player.orientation.rotate(PYLON_OFFSETS[side]!, launchPoint).add(player.position)',
+    replace: 'player.orientation.rotate(PYLON_OFFSETS[1 - side]!, launchPoint).add(player.position)',
+    expect: 'tests/sim/missileLauncher.test.ts',
+    why: '左を撃つのに右の吊るしから出る（段 B9）',
+  },
+  {
+    id: 'pylon-center-launch',
+    kind: '文の削除',
+    file: 'src/sim/combat.ts',
+    find: 'player.orientation.rotate(PYLON_OFFSETS[side]!, launchPoint).add(player.position)\n',
+    replace: 'launchPoint.copy(player.position)\n',
+    expect: 'tests/sim/missileLauncher.test.ts',
+    why: '段 B8 までのように機体の中心から放つ',
+  },
 ]

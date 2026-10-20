@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { MISSILE_DIAMETER, MISSILE_LENGTH } from '../../sim/weapons/missile'
+import { PYLON_OFFSETS, type Launcher } from '../../sim/combat'
 
 /**
  * ミサイルの本体。
@@ -97,18 +98,25 @@ function mergeGeometries(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return geometry
 }
 
-export function createMissileViews(capacity: number): MissileViews {
-  const geometry = createBodyGeometry()
-  const triangleCount = geometry.getAttribute('position').count / 3
-
-  // 機体と同じ物理ベースの材質。空の環境反射が効く。
-  // AC3D の spec を金属度にすると鏡になるという Phase 4 の教訓があるので、
-  // ここも誘電体寄りにしておく
-  const material = new THREE.MeshStandardMaterial({
+/**
+ * 弾体の材質。飛んでいるミサイルと吊るしたミサイルで同じ見た目にする。
+ *
+ * 機体と同じ物理ベースの材質。空の環境反射が効く。AC3D の spec を金属度にすると鏡になるという
+ * Phase 4 の教訓があるので、ここも誘電体寄りにしておく
+ */
+function createMissileMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
     color: 0xb9bcc0,
     roughness: 0.55,
     metalness: 0.15,
   })
+}
+
+export function createMissileViews(capacity: number): MissileViews {
+  const geometry = createBodyGeometry()
+  const triangleCount = geometry.getAttribute('position').count / 3
+
+  const material = createMissileMaterial()
 
   const group = new THREE.Group()
   group.frustumCulled = false
@@ -156,6 +164,62 @@ export function createMissileViews(capacity: number): MissileViews {
       material.dispose()
       group.clear()
       instances.length = 0
+    },
+  }
+}
+
+/** 吊るしたミサイル（段 B9） */
+export interface HungMissiles {
+  /** 自機の物体の子に付ける。位置は機体の座標 */
+  readonly object: THREE.Object3D
+  /** 見せている本数 */
+  readonly shown: number
+  /** 発射機の状態を写す。満ちている側だけ見せる */
+  update(launchers: readonly Launcher[]): void
+  dispose(): void
+}
+
+/**
+ * 左右の発射機に吊るしたミサイル（段 B9、ADR 0034）。
+ *
+ * 録画（lesson 5 のコマ 20019〜20040）は、翼の付け根の下にミサイルを吊るし、撃った 1 発だけが
+ * 消える。満ちたあと戻るかは録画で見分けられず、兵装の欄の印が満ちるのに合わせて戻す（推測、
+ * ユーザーの決定）。位置は sim が放つ点（`PYLON_OFFSETS`）と同じなので、撃ったフレームに吊るした
+ * 弾体が消え、同じ所から飛ぶ弾体に替わる
+ */
+export function createHungMissiles(): HungMissiles {
+  const geometry = createBodyGeometry()
+  const material = createMissileMaterial()
+  const group = new THREE.Group()
+  const meshes = PYLON_OFFSETS.map((offset) => {
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.set(offset.x, offset.y, offset.z)
+    group.add(mesh)
+    return mesh
+  })
+  let shown = meshes.length
+
+  return {
+    object: group,
+
+    get shown() {
+      return shown
+    },
+
+    update(launchers) {
+      shown = 0
+      for (let side = 0; side < meshes.length; side++) {
+        const launcher = launchers[side]
+        const visible = launcher === undefined || (!launcher.empty && launcher.progress >= 1)
+        meshes[side]!.visible = visible
+        if (visible) shown++
+      }
+    },
+
+    dispose() {
+      geometry.dispose()
+      material.dispose()
+      group.clear()
     },
   }
 }

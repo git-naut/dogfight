@@ -824,6 +824,8 @@ export interface TestHook {
   missilesInFlight: number
   /** 描いたミサイルの数。sim の数と一致するはず */
   missilesDrawn: number
+  /** 自機に吊るして見せているミサイルの数（段 B9）。撃った側は満ちるまで消える */
+  hungMissilesShown: number
   /** 撃ったミサイルの総数 */
   missilesFired: number
   /** 残ミサイル */

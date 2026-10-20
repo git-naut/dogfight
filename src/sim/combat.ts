@@ -48,6 +48,18 @@ export const MISSILE_COUNT = 8
  */
 export const MISSILE_RELOAD = 4.3
 
+/**
+ * 左右の発射機に吊るしたミサイルの重心（機体の座標 m、0 が左）。段 B9。
+ *
+ * 録画（lesson 5 のコマ 20019〜20023）は、翼の付け根の下に吊るしたミサイルから炎の尾が出る。自機の
+ * F/A-18E のモデル（`public/aircraft/f18e.glb`）の、いちばん内側のパイロンの下に吊るす。パイロンは
+ * x ±2.29、下端 y −0.177、前後 z −1.06〜+1.89（いちばん低いのは前の −1.06〜+0.04）。弾体の半径 0.064 と
+ * 隙間 0.02 を下へ取り、前後はパイロンの中央 +0.41 に置いた。下端の中央（−0.51）に置くと、後ろ上方の
+ * カメラからはパイロンの後ろ半分の陰に入り、尾翼の先しか見えなかった（実機で撮って確かめた）。
+ * 描画の吊るしたミサイル（`src/render/weapons/missileView.ts`）も同じ値を読む
+ */
+export const PYLON_OFFSETS: readonly [Vec3, Vec3] = [new Vec3(-2.29, -0.26, 0.41), new Vec3(2.29, -0.26, 0.41)]
+
 /** 発射機の状態。`progress` は満ちた割合（1 で撃てる）。`empty` は残りが無くもう満ちない */
 export interface Launcher {
   progress: number
@@ -146,6 +158,7 @@ const fireDir = new Vec3()
 const gunAccel = new Vec3()
 const toTarget = new Vec3()
 const midpoint = new Vec3()
+const launchPoint = new Vec3()
 const hit: HitResult = createHitResult()
 
 export class Combat {
@@ -415,8 +428,9 @@ export class Combat {
     const missile = this.missiles.find((m) => m.state !== 'flying')
     if (missile === undefined) return
 
-    // パイロンの位置は入れていない。翼下 3 m の差は誘導に効かない
-    missile.launch(player.position, player.velocity, player.orientation, this.lock.index)
+    // 撃つ側の吊るしから放つ（段 B9）。段 B8 までは機体の中心から出していた
+    player.orientation.rotate(PYLON_OFFSETS[side]!, launchPoint).add(player.position)
+    missile.launch(launchPoint, player.velocity, player.orientation, this.lock.index)
     this.missilesLeft--
     this.missilesFired++
     // 撃った側は、反対の側に載っているぶんを除いてもまだ残りがあれば満たし直す

@@ -9,6 +9,8 @@ import type { Flare } from '../sim/weapons/flare'
 import type { ExplosionSource } from '../sim/effects'
 import type { BulletSource } from '../sim/weapons/gun'
 import type { SmokeSource } from '../sim/weapons/missile'
+import type { Launcher } from '../sim/combat'
+import { createHungMissiles } from './weapons/missileView'
 import type { PresetName, QualitySettings } from './quality'
 import type { TerrainStats } from '../sim/terrain'
 import { cloudTime } from './clouds/geometry'
@@ -141,6 +143,8 @@ export interface SceneHandle {
   readonly tracersDrawn: number
   /** 描いたミサイルの数 */
   readonly missilesDrawn: number
+  /** 自機に吊るして見せているミサイルの数（段 B9）。0〜2 */
+  readonly hungMissilesShown: number
   /** 描いた爆発の数 */
   readonly explosionsDrawn: number
   /**
@@ -248,6 +252,8 @@ export interface SceneHandle {
   setBulletSources(sources: readonly BulletSource[]): void
   /** 煙の履歴を読む先を渡す。ワールドを作り直したら呼び直す */
   setSmokeSources(sources: readonly SmokeSource[]): void
+  /** 左右の発射機を読む先を渡す（段 B9、吊るしたミサイル）。ワールドを作り直したら呼び直す */
+  setLauncherSource(launchers: readonly Launcher[]): void
   /** ダメージの煙の履歴を読む先を渡す。ワールドを作り直したら呼び直す */
   setDamageSmokeSources(sources: readonly DamageSmokeSource[]): void
   /** フレアの読み口。`World.countermeasures.flares` を渡す */
@@ -363,6 +369,11 @@ export async function createScene(
   let bulletSources: readonly BulletSource[] = []
   /** 煙の履歴を読む先 */
   let smokeSources: readonly SmokeSource[] = []
+  /** 左右の発射機を読む先。無ければ両方とも吊るす */
+  let launcherSource: readonly Launcher[] = []
+  // 吊るしたミサイル（段 B9）。自機の子に付けるので、機体と一緒に動く
+  const hungMissiles = createHungMissiles()
+  aircraft.object.add(hungMissiles.object)
   let damageSmokeSources: readonly DamageSmokeSource[] = []
   let flareSources: readonly Flare[] = []
   /** 爆発を読む先 */
@@ -476,6 +487,10 @@ export async function createScene(
       return missileViews.drawn
     },
 
+    get hungMissilesShown() {
+      return hungMissiles.shown
+    },
+
     get explosionsDrawn() {
       return explosions.drawn
     },
@@ -553,6 +568,7 @@ export async function createScene(
       targetViews.update(targets)
       enemyViews.update(enemies)
       missileViews.update(missiles)
+      hungMissiles.update(launcherSource)
 
       aircraft.object.position.set(
         sample.position.x,
@@ -721,6 +737,10 @@ export async function createScene(
       smokeSources = sources
     },
 
+    setLauncherSource(launchers) {
+      launcherSource = launchers
+    },
+
     setDamageSmokeSources(sources) {
       damageSmokeSources = sources
     },
@@ -750,6 +770,7 @@ export async function createScene(
     },
 
     dispose() {
+      hungMissiles.dispose()
       pipeline.dispose()
     },
   }

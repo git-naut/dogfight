@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createWorldFromScript } from '@sim/world'
-import { MISSILE_COUNT, MISSILE_RELOAD } from '@sim/combat'
+import { MISSILE_COUNT, MISSILE_RELOAD, PYLON_OFFSETS } from '@sim/combat'
+import { Quat } from '@sim/quat'
 import { Vec3 } from '@sim/vec3'
 
 /**
@@ -62,6 +63,45 @@ describe('左右の発射機', () => {
     const { world } = fly(presses, 2 + (MISSILE_COUNT + 2) * (MISSILE_RELOAD / 2 + 0.05) + 1)
     expect(world.combat.missilesLeft).toBe(0)
     expect(world.combat.launchers.every((l) => l.empty)).toBe(true)
+  })
+
+  /**
+   * 段 B9。撃つ側の吊るし（内側のパイロンの下）から放つ。発射したステップの位置を機体の座標に戻して、
+   * 左は −x、右は +x にあることを見る
+   */
+  it('左は左の吊るしから、右は右の吊るしから出る', () => {
+    const presses = [2, 2.2]
+    const keyframes = presses.flatMap((t) => [
+      { frame: Math.round(t * HZ), input: { fireMissile: true } },
+      { frame: Math.round(t * HZ) + 1, input: { fireMissile: false } },
+    ])
+    const script = {
+      name: 'launcher-side',
+      seed: 20260816,
+      spawn: { altitude: 3000, speed: 250 },
+      targets: [{ offset: new Vec3(0, 0, -8000), speed: 240 }],
+      keyframes,
+    }
+    const { world, player } = createWorldFromScript(script as never)
+    const local: Vec3[] = []
+    let last = 0
+    for (let f = 0; f < 3 * HZ; f++) {
+      world.step(player.at(f, world.player))
+      if (world.combat.missilesFired > last) {
+        last = world.combat.missilesFired
+        // 撃つ処理はステップの最後（機体を進めたあと）なので、発射したステップのミサイルの位置が放った点
+        const missile = world.combat.missiles.filter((m) => m.state === 'flying').at(-1)!
+        const offset = new Vec3().subVectors(missile.position, world.player.position)
+        local.push(new Quat().copy(world.player.orientation).invert().rotate(offset))
+      }
+    }
+    expect(local.length).toBe(2)
+    for (const [i, side] of [-1, 1].entries()) {
+      const p = local[i]!
+      expect(Math.sign(p.x)).toBe(side)
+      expect(Math.abs(p.x)).toBeCloseTo(PYLON_OFFSETS[1].x, 0)
+      expect(p.y).toBeCloseTo(PYLON_OFFSETS[1].y, 0)
+    }
   })
 
   it('残り 1 発になったら、撃った側は満ち直さない', () => {

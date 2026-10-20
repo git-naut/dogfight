@@ -1791,4 +1791,13 @@ export const BITE_MARKS = [
     expect: 'tests/sim/gunLead.test.ts',
     why: '照準が 900 m 先の相手にも吸い付く（決めた 800 m を超える）',
   },
+  {
+    id: 'lock-color-old',
+    kind: '定数の摂動',
+    file: 'src/hud/palette.ts',
+    find: "export const LOCK_PINK = 'rgba(233, 139, 150, 0.45)'\n",
+    replace: "export const LOCK_PINK = 'rgba(255, 80, 95, 0.9)'\n",
+    expect: 'tests/hud/palette.test.ts',
+    why: 'ロックの印が段 D5 までの鮮やかな赤に戻り、録画の淡いピンクから外れる',
+  },
 ]

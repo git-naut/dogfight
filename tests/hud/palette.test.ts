@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ALERT, MAIN, RADAR_FILL, RADAR_FRAME, RADAR_LINE, SILHOUETTE_RGBA, TARGET_WHITE } from '@hud/palette'
+import { ALERT, LOCK_PINK, MAIN, RADAR_FILL, RADAR_FRAME, RADAR_LINE, SILHOUETTE_RGBA, TARGET_WHITE } from '@hud/palette'
 import { centeredBaseline } from '@hud/layout'
 
 /**
@@ -49,6 +49,10 @@ describe('HUD の色の表', () => {
 
   it('レーダーの地の濃さは 0.55（段 D5、ユーザーの決定。録画の実測は 0.68）', () => {
     expect(parse(RADAR_FILL)[3]).toBe(0.55)
+  })
+
+  it('ロックの印は、録画の背景 100,123,121 の上で録画の芯 160,130,134 に合う（段 D6）', () => {
+    near(over(parse(LOCK_PINK), [100, 123, 121]), [160, 130, 134], 6, 'ロックの印')
   })
 
   it('目標の白は、雲（214,211,200）の上で録画の芯 247,247,233 に近い', () => {

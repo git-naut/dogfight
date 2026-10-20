@@ -34,7 +34,7 @@ import {
   APPROACH_YELLOW,
   BANNER_FILL,
   BANNER_TEXT,
-  LOCK_RED,
+  LOCK_PINK,
   MAIN,
   MAIN_DIM,
   MISSILE_RED,
@@ -146,9 +146,24 @@ const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
  * 機銃の照準の円の半径・中の小さな丸の半径・中の短い線の長さ（段 D4、録画の 1920x1080 の画素）。
  * 録画の円は半径 42〜49 画素（lesson 4 で 42 前後、lesson 5 で 49 前後）。段 D3 までは半径 24 画素だった
  */
-const RETICLE_RADIUS_REF = 45
-const RETICLE_INNER_REF = 6
-const RETICLE_TICK_REF = 10
+const RETICLE_RADIUS_REF = 44
+/**
+ * 照準の形（段 D6、録画のコマ 19996 を半径ごと・角度ごとに数えた）。外の丸は半径 40〜49 に画素があり、
+ * 線は太い（4）。目盛りは同じ長さで丸の外 2〜6。内側の円弧は半径 27〜31（29）で、画面の上（−100 度）から
+ * 右回りに下（+100 度）まで。中心は小さな点
+ */
+const RETICLE_LINE_REF = 4
+const RETICLE_TICK_FROM_REF = 2
+const RETICLE_TICK_TO_REF = 6
+const RETICLE_ARC_RADIUS_REF = 29
+const RETICLE_ARC_LINE_REF = 3
+const RETICLE_ARC_FROM = (-100 * Math.PI) / 180
+const RETICLE_ARC_TO = (100 * Math.PI) / 180
+const RETICLE_DOT_REF = 1.5
+/** 画面の中央の −○− の印（段 D6、録画の lesson 1 のコマ 60・1490） */
+const FPM_RADIUS_REF = 7.5
+const FPM_HALF_SPAN_REF = 25.5
+const FPM_TAIL_REF = 7.5
 
 /**
  * 目標の箱とロックの印（段 B3、録画の 1920x1080 の画素）。録画はロック前の白い四角が約 33 画素、
@@ -156,6 +171,8 @@ const RETICLE_TICK_REF = 10
  */
 const TARGET_BOX_HALF_REF = 16.5
 const LOCK_DIAMOND_HALF_REF = 17.5
+/** ロックしたときの四角の半分（段 D6、録画のコマ 20020 で約 42 画素） */
+const LOCK_SQUARE_HALF_REF = 21
 /**
  * 画面の外の相手を指す矢印を置く半径。画面の短い辺に対する割合（段 35）。
  *
@@ -775,7 +792,9 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       p.inFront && p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height
     if (!p.inFront) return
 
-    const r = 9 * u
+    // 録画の −○− の印（段 D6。lesson 1 のコマ 60・1490、全幅 51・全高 27）。丸は半径 7.5、左右の線は
+    // 中心から 25.5 まで、上の線は丸の上から 7.5。段 D5 までは丸が半径 13.5 で約 2 倍だった
+    const r = FPM_RADIUS_REF * s
     ctx!.strokeStyle = primary
     ctx!.lineWidth = lineWidth
     ctx!.beginPath()
@@ -783,12 +802,12 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.stroke()
 
     ctx!.beginPath()
-    ctx!.moveTo(p.x - r - 10 * u, p.y)
+    ctx!.moveTo(p.x - FPM_HALF_SPAN_REF * s, p.y)
     ctx!.lineTo(p.x - r, p.y)
     ctx!.moveTo(p.x + r, p.y)
-    ctx!.lineTo(p.x + r + 10 * u, p.y)
+    ctx!.lineTo(p.x + FPM_HALF_SPAN_REF * s, p.y)
     ctx!.moveTo(p.x, p.y - r)
-    ctx!.lineTo(p.x, p.y - r - 7 * u)
+    ctx!.lineTo(p.x, p.y - r - FPM_TAIL_REF * s)
     ctx!.stroke()
   }
 
@@ -816,28 +835,33 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     const p = projectPoint(m, impact.x, impact.y, impact.z, width, height, a)
     reticleOnScreen = p.inFront && p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height
     if (!p.inFront) return
+    // 録画の照準（段 D6、lesson 5 のコマ 19996・lesson 4 のコマ 12746）。太い外の丸、同じ長さの短い目盛り
+    // 12 本、内側の右に円弧（上から右回りに下まで約 200 度）、中心の点。録画で中に見えた −○− は画面の
+    // 中央の印が重なっていたもので、照準の一部ではない
     const r = RETICLE_RADIUS_REF * s
     ctx!.strokeStyle = primary
-    ctx!.lineWidth = lineWidth
+    ctx!.lineWidth = RETICLE_LINE_REF * s
     ctx!.beginPath()
     ctx!.arc(p.x, p.y, r, 0, Math.PI * 2)
-    // 目盛り。円の 12 方向（30 度ごと）に外へ短い線。上下左右の 4 本は長く
+    ctx!.stroke()
+    ctx!.lineWidth = lineWidth
+    ctx!.beginPath()
     for (let k = 0; k < 12; k++) {
       const angle = (k * Math.PI) / 6
-      const length = (k % 3 === 0 ? 8 : 5) * s
       const c = Math.cos(angle)
       const sn = Math.sin(angle)
-      ctx!.moveTo(p.x + c * r, p.y + sn * r)
-      ctx!.lineTo(p.x + c * (r + length), p.y + sn * (r + length))
+      ctx!.moveTo(p.x + c * (r + RETICLE_TICK_FROM_REF * s), p.y + sn * (r + RETICLE_TICK_FROM_REF * s))
+      ctx!.lineTo(p.x + c * (r + RETICLE_TICK_TO_REF * s), p.y + sn * (r + RETICLE_TICK_TO_REF * s))
     }
     ctx!.stroke()
-    // 中の小さな丸と、右へ短い線（録画の中の印）
-    const inner = RETICLE_INNER_REF * s
+    ctx!.lineWidth = RETICLE_ARC_LINE_REF * s
     ctx!.beginPath()
-    ctx!.arc(p.x, p.y, inner, 0, Math.PI * 2)
-    ctx!.moveTo(p.x + inner, p.y)
-    ctx!.lineTo(p.x + inner + RETICLE_TICK_REF * s, p.y)
+    ctx!.arc(p.x, p.y, RETICLE_ARC_RADIUS_REF * s, RETICLE_ARC_FROM, RETICLE_ARC_TO)
     ctx!.stroke()
+    ctx!.fillStyle = primary
+    ctx!.beginPath()
+    ctx!.arc(p.x, p.y, RETICLE_DOT_REF * s, 0, Math.PI * 2)
+    ctx!.fill()
   }
 
   /**
@@ -860,11 +884,13 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       center.x >= 0 && center.x <= width && center.y >= 0 && center.y <= height
 
     const locked = lock.state === 'locked'
-    const half = TARGET_BOX_HALF_REF * s
+    const half = (locked ? LOCK_SQUARE_HALF_REF : TARGET_BOX_HALF_REF) * s
     ctx!.lineWidth = lineWidth
     if (locked) {
+      // 録画（コマ 20020）はロックすると淡いピンクの四角と、その中のひし形（段 D6）
       const d = LOCK_DIAMOND_HALF_REF * s
-      ctx!.strokeStyle = LOCK_RED
+      ctx!.strokeStyle = LOCK_PINK
+      ctx!.strokeRect(center.x - half, center.y - half, half * 2, half * 2)
       ctx!.beginPath()
       ctx!.moveTo(center.x, center.y - d)
       ctx!.lineTo(center.x + d, center.y)
@@ -889,7 +915,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     for (let i = 0; i < armament.contactCount; i++) {
       if (armament.contacts[i]!.locked) designation = armament.contacts[i]!.designation
     }
-    targetLabel(center.x + half + 6 * s, center.y - half, `${Math.round(lock.range)}`, designation, locked ? LOCK_RED : TARGET_WHITE)
+    // 距離と機種の文字は、ロック前は白、ロックしたら主の緑（録画のコマ 20020 の「2018 / F-16C」）
+    targetLabel(center.x + half + 6 * s, center.y - half, `${Math.round(lock.range)}`, designation, locked ? primary : TARGET_WHITE)
 
     // **SHOOT（段 35・37、段 B3 で録画の位置へ）。**ロックしていて、距離が `rMin`〜`rNe` の内のとき。
     // 録画は HUD の下の中央に枠つきで出す（x 920〜998・y 690〜714）。段 B2 までは箱の下に付いて動いた

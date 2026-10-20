@@ -1746,4 +1746,13 @@ export const BITE_MARKS = [
     expect: 'tests/hud/layout.test.ts',
     why: 'SPEED・ALT の数字が箱の中央から字の高さぶん上へずれる',
   },
+  {
+    id: 'radar-fill-dark',
+    kind: '定数の摂動',
+    file: 'src/hud/palette.ts',
+    find: "export const RADAR_FILL = 'rgba(20, 80, 20, 0.55)'\n",
+    replace: "export const RADAR_FILL = 'rgba(20, 80, 20, 0.68)'\n",
+    expect: 'tests/hud/palette.test.ts',
+    why: 'レーダーの地が段 D5 の前の濃さに戻り、ユーザーが選んだ薄さでなくなる',
+  },
 ]

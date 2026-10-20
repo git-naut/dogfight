@@ -71,8 +71,11 @@ export const LOCK_RED = 'rgba(255, 80, 95, 0.9)'
  */
 export const BANNER_FILL = 'rgba(150, 255, 140, 0.78)'
 export const BANNER_TEXT = 'rgba(30, 150, 40, 0.85)'
-/** レーダーの地・点の模様・目標（段 B5） */
-export const RADAR_FILL = 'rgba(20, 80, 20, 0.68)'
+/**
+ * レーダーの地・点の模様・目標（段 B5）。地の濃さは段 B5 で録画に合わせた 0.68 から、ユーザーの指示で
+ * 0.55 へ薄くした（段 D5、2026-10-20。0.68・0.55・0.45・0.35 を実機で撮って選んだ）
+ */
+export const RADAR_FILL = 'rgba(20, 80, 20, 0.55)'
 export const RADAR_DOT = 'rgba(140, 240, 130, 0.35)'
 export const RADAR_TARGET = 'rgba(255, 85, 90, 0.95)'
 /** 輪郭の損傷 41% の黄（段 C3、録画のコマ 19990 の色の差から）。着艦の計器の黄もこれ */

@@ -47,6 +47,10 @@ describe('HUD の色の表', () => {
     expect(SILHOUETTE_RGBA[2]).toBeLessThan(main[2] - 30)
   })
 
+  it('レーダーの地の濃さは 0.55（段 D5、ユーザーの決定。録画の実測は 0.68）', () => {
+    expect(parse(RADAR_FILL)[3]).toBe(0.55)
+  })
+
   it('目標の白は、雲（214,211,200）の上で録画の芯 247,247,233 に近い', () => {
     near(over(parse(TARGET_WHITE), [214, 211, 200]), [247, 247, 233], 16, '目標の白')
   })

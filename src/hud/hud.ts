@@ -1,7 +1,5 @@
 import type { AircraftSample } from '../sim/aircraft'
-import { GRAVITY } from '../sim/isa'
 import { Vec3 } from '../sim/vec3'
-import { MUZZLE_OFFSET, bulletTimeToRange } from '../sim/weapons/gun'
 import type { LockState } from '../sim/weapons/lock'
 import {
   createScreenPoint,
@@ -149,16 +147,12 @@ const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 const RETICLE_RADIUS_REF = 44
 /**
  * 照準の形（段 D6、録画のコマ 19996 を半径ごと・角度ごとに数えた）。外の丸は半径 40〜49 に画素があり、
- * 線は太い（4）。目盛りは同じ長さで丸の外 2〜6。内側の円弧は半径 27〜31（29）で、画面の上（−100 度）から
- * 右回りに下（+100 度）まで。中心は小さな点
+ * 線は太い（4）。目盛りは同じ長さで丸の外 2〜6。中心は小さな点。録画の内側の円弧（半径 27〜31、画面の上
+ * から右回りに下まで）は、ユーザーの決定で描かない
  */
 const RETICLE_LINE_REF = 4
 const RETICLE_TICK_FROM_REF = 2
 const RETICLE_TICK_TO_REF = 6
-const RETICLE_ARC_RADIUS_REF = 29
-const RETICLE_ARC_LINE_REF = 3
-const RETICLE_ARC_FROM = (-100 * Math.PI) / 180
-const RETICLE_ARC_TO = (100 * Math.PI) / 180
 const RETICLE_DOT_REF = 1.5
 /** 画面の中央の −○− の印（段 D6、録画の lesson 1 のコマ 60・1490） */
 const FPM_RADIUS_REF = 7.5
@@ -253,18 +247,6 @@ const HEADING_MINOR = 5
 const HEADING_MAJOR = 30
 const HEADING_RANGE = 30
 
-/**
- * ガンレティクルを合わせる基準の距離 m。
- *
- * 機銃の着弾点は距離で変わる（弾が落ちるので、遠いほど下に当たる）。距離が
- * 決まらないと 1 点に描けない。ロックオンを入れるまでは基準の距離で置き、
- * 数字を添えて「この距離での着弾点」だと分かるようにする。
- *
- * 300 m にしたのは、弾の飛行時間が 0.32 秒・落ちが 0.5 m で、実際に狙って
- * 当たる間合いだから。**この距離での機軸と着弾点の差は 0.5 m しかないので、
- * レティクルはほぼ機首の十字に重なる。**遠い距離を基準にすると離れる。
- */
-const GUN_REFERENCE_RANGE = 300
 
 
 /**
@@ -489,13 +471,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   let approachShown = false
 
 
-  // ガンレティクルの計算に使う。使い回す
-  const muzzleWorld = new Vec3()
+  // ガンレティクルの位置。使い回す
   const impact = new Vec3()
-  /** 基準の距離まで飛ぶ時間 秒。定数なので 1 度だけ解く */
-  const gunFlightTime = bulletTimeToRange(GUN_REFERENCE_RANGE)
-  /** 基準の距離での重力の落ち m */
-  const gunDrop = 0.5 * GRAVITY * gunFlightTime * gunFlightTime
 
   // 使い回す。毎フレーム作らない
   const a = createScreenPoint()
@@ -814,30 +791,25 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   /**
    * 機銃の照準（段 D4、録画に合わせた）。
    *
-   * 録画は目盛り付きの大きな丸（1920x1080 で半径 42〜49 画素）と、中の小さな丸と短い線。敵が近いと敵に
-   * 重なり（lesson 4 のコマ 12734〜12758・15512〜15548）、遠いと中央付近に置かれる。ここでは 800 m 以内で
-   * 機首の前にいる相手の未来位置（`Combat.gunLead.future`）に置き、いなければ基準の距離の着弾点に置く。
-   * 段 D3 まであった左右のシェブロン・基準の距離「300」・機首の十字は録画に無いのでやめた（ユーザーの決定）
-   *
-   * 基準の距離の着弾点は、銃口から機軸へ距離ぶん進み、重力の落ちを引いた点。**方向ではなく点として
-   * 投影する。**距離が決まっている点なので、無限遠として扱うと落ちが効かない
+   * 録画は目盛り付きの大きな丸（1920x1080 で半径 42〜49 画素）。敵が近いと敵に重なる（lesson 4 のコマ
+   * 12734〜12758・15512〜15548）。800 m 以内で機首の前にいる相手の未来位置（`Combat.gunLead.future`）に置き、
+   * **相手がいなければ出さない**（段 D6 の追記、ユーザーの決定）。録画では敵が遠いと中央付近に出ているが、
+   * 吸い付く範囲に入った時から出す。段 D3 まであった左右のシェブロン・基準の距離「300」・機首の十字は
+   * 録画に無いのでやめた（ユーザーの決定）
    */
-  function drawGunReticle(m: Mat4, sample: AircraftSample, gun: HudArmament['gun']): void {
+  function drawGunReticle(m: Mat4, gun: HudArmament['gun']): void {
     gunSnappedShown = gun.snapped
-    if (gun.snapped) {
-      impact.set(gun.future.x, gun.future.y, gun.future.z)
-    } else {
-      sample.orientation.rotate(MUZZLE_OFFSET, muzzleWorld)
-      muzzleWorld.add(sample.position)
-      impact.copy(muzzleWorld).addScaledVector(readout.nose, GUN_REFERENCE_RANGE)
-      impact.y -= gunDrop
-    }
+    // 吸い付く相手がいるときだけ出す（段 D6 の追記、ユーザーの決定）。段 D6 まではいつも出し、相手が
+    // いなければ 300 m の着弾点に置いていた
+    reticleOnScreen = false
+    if (!gun.snapped) return
+    impact.set(gun.future.x, gun.future.y, gun.future.z)
     const p = projectPoint(m, impact.x, impact.y, impact.z, width, height, a)
     reticleOnScreen = p.inFront && p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height
     if (!p.inFront) return
     // 録画の照準（段 D6、lesson 5 のコマ 19996・lesson 4 のコマ 12746）。太い外の丸、同じ長さの短い目盛り
-    // 12 本、内側の右に円弧（上から右回りに下まで約 200 度）、中心の点。録画で中に見えた −○− は画面の
-    // 中央の印が重なっていたもので、照準の一部ではない
+    // 12 本、中心の点。録画にある内側の右の円弧は、ユーザーの決定で描かない。録画で中に見えた −○− は
+    // 画面の中央の印が重なっていたもので、照準の一部ではない
     const r = RETICLE_RADIUS_REF * s
     ctx!.strokeStyle = primary
     ctx!.lineWidth = RETICLE_LINE_REF * s
@@ -853,10 +825,6 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       ctx!.moveTo(p.x + c * (r + RETICLE_TICK_FROM_REF * s), p.y + sn * (r + RETICLE_TICK_FROM_REF * s))
       ctx!.lineTo(p.x + c * (r + RETICLE_TICK_TO_REF * s), p.y + sn * (r + RETICLE_TICK_TO_REF * s))
     }
-    ctx!.stroke()
-    ctx!.lineWidth = RETICLE_ARC_LINE_REF * s
-    ctx!.beginPath()
-    ctx!.arc(p.x, p.y, RETICLE_ARC_RADIUS_REF * s, RETICLE_ARC_FROM, RETICLE_ARC_TO)
     ctx!.stroke()
     ctx!.fillStyle = primary
     ctx!.beginPath()
@@ -1624,7 +1592,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       // **ピッチの梯子と方位の目盛り、縦の目盛りは追従視点では描かない**（段 36、参考画像に
       // 合わせた）。描画のコードは操縦席など別の視点のために残す（`instruments: 'full'`）
       if (instruments === 'full') drawLadder(viewProjection, heading)
-      drawGunReticle(viewProjection, sample, armament.gun)
+      drawGunReticle(viewProjection, armament.gun)
       drawTargetBoxes(viewProjection, sample, armament)
       drawLockBox(viewProjection, armament.lock, armament)
       drawArrow(viewProjection, sample, armament)

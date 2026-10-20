@@ -848,9 +848,21 @@ test.describe('機銃', () => {
     expect(after.targetInstances).toBe(0)
   })
 
-  test('ガンレティクルが画面に入る', async ({ page }) => {
+  /**
+   * 段 D6 の追記。照準は吸い付く相手（800 m 以内・機首の前）がいるときだけ出す。
+   * **level だけでは足りない。**相手が一度もいないと未来位置は原点のままで、条件を外しても照準は画面の外に
+   * 置かれて通ってしまう（手で外して確かめた）。前方 11.6 km に 5 機いる hud-mission で、出ないことを見る
+   */
+  test('ガンレティクルは前の相手がいるときだけ画面に出る', async ({ page }) => {
     const hook = await capture(page, { script: 'gun-pass', frame: 60, hud: true })
     expect(hook.hudGunReticleOnScreen).toBe(true)
+    const none = await capture(page, { script: 'level', frame: 240, hud: true })
+    expect(none.hudGunReticleOnScreen).toBe(false)
+    const far = SCENES.find((s) => s.name === 'hud-mission')
+    if (far === undefined) throw new Error('場面 hud-mission が無い')
+    const farHook = await capture(page, far)
+    expect(farHook.hudGunSnapped).toBe(false)
+    expect(farHook.hudGunReticleOnScreen).toBe(false)
   })
 
   test('弾は寿命で消える。上限で止まる', async ({ page }) => {

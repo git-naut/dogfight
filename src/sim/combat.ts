@@ -12,6 +12,7 @@ import {
   type HitResult,
 } from './weapons/hitbox'
 import { Lock } from './weapons/lock'
+import { GUN_ASSIST_ANGLE, GUN_SNAP_ANGLE, GUN_SNAP_RANGE, createGunLead, solveGunLead } from './weapons/gunLead'
 import { Missile, PLAYER_MOTOR, type SmokeSource } from './weapons/missile'
 import { Effects, type ExplosionSource } from './effects'
 import {
@@ -140,6 +141,9 @@ const muzzle = new Vec3()
 const nose = new Vec3()
 const right = new Vec3()
 const up = new Vec3()
+const toGunTarget = new Vec3()
+const fireDir = new Vec3()
+const gunAccel = new Vec3()
 const toTarget = new Vec3()
 const midpoint = new Vec3()
 const hit: HitResult = createHitResult()
@@ -172,6 +176,15 @@ export class Combat {
   missilesLeft = MISSILE_COUNT
   /** 撃ったミサイルの総数 */
   missilesFired = 0
+  /**
+   * 機銃の照準の吸い付き（段 D4）。`gunSnapped` が true のとき、`gunLead.future` が HUD の照準を置く
+   * 未来位置。このステップの値で、次のステップの射撃が使う
+   */
+  readonly gunLead = createGunLead()
+  gunSnapped = false
+  /** 前のステップで照準が見ていた相手と、その速度（加速度を出すため） */
+  private gunTargetIndex = -1
+  private readonly gunTargetVelocity = new Vec3()
   /** 左右の発射機（0 が左、1 が右）。HUD の兵装の欄の印に出す（段 C3） */
   readonly launchers: readonly [Launcher, Launcher] = [
     { progress: 1, empty: false },
@@ -469,6 +482,7 @@ export class Combat {
 
   /** 発射。機体の姿勢から銃口の位置と向きを出す */
   private fireGun(input: InputState, player: Aircraft, dt: number): void {
+    this.gunSnapped = false
     if (player.crashed) {
       this.gun.fire(dt, false, muzzle, nose, right, up, player.velocity, this.rng)
       return
@@ -479,7 +493,43 @@ export class Combat {
     player.orientation.rotate(MUZZLE_OFFSET, muzzle)
     muzzle.add(player.position)
 
-    this.gun.fire(dt, input.fireGun, muzzle, nose, right, up, player.velocity, this.rng)
+    // 照準の吸い付き（段 D4）。800 m 以内で機首から 30 度以内の相手のうち、いちばん機首に近い相手の
+    // 未来位置を出す。その向きが機首から 5 度以内なら、弾をその向きへ撃つ
+    let best = -1
+    let bestAngle = GUN_SNAP_ANGLE
+    for (let i = 0; i < this.targets.length; i++) {
+      const target = this.targets[i]!
+      if (!target.alive) continue
+      toGunTarget.subVectors(target.position, muzzle)
+      const range = toGunTarget.length()
+      if (range > GUN_SNAP_RANGE || range < 1) continue
+      const angle = Math.acos(Math.min(1, Math.max(-1, toGunTarget.dot(nose) / range)))
+      if (angle <= bestAngle) {
+        bestAngle = angle
+        best = i
+      }
+    }
+    fireDir.copy(nose)
+    if (best >= 0) {
+      const target = this.targets[best]!
+      // 相手の加速度は前のステップからの速度の変化で見る（同じ相手を続けて見ているときだけ）
+      if (best === this.gunTargetIndex && dt > 0) {
+        gunAccel.subVectors(target.velocity, this.gunTargetVelocity).multiplyScalar(1 / dt)
+      } else {
+        gunAccel.set(0, 0, 0)
+      }
+      this.gunTargetIndex = best
+      this.gunTargetVelocity.copy(target.velocity)
+      solveGunLead(muzzle, player.velocity, target.position, target.velocity, this.gunLead, gunAccel)
+      this.gunSnapped = true
+      if (Math.acos(Math.min(1, Math.max(-1, this.gunLead.aim.dot(nose)))) <= GUN_ASSIST_ANGLE) {
+        fireDir.copy(this.gunLead.aim)
+      }
+    } else {
+      this.gunTargetIndex = -1
+    }
+
+    this.gun.fire(dt, input.fireGun, muzzle, fireDir, right, up, player.velocity, this.rng)
   }
 
   /**
@@ -706,6 +756,8 @@ export class Combat {
       launcher.empty = false
     }
     this.nextSide = 0
+    this.gunSnapped = false
+    this.gunTargetIndex = -1
     this.missileHeld = false
     this.hits = 0
     this.kills = 0

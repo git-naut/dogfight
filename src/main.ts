@@ -197,6 +197,7 @@ const hook = installTestHook({
   hudLineupDeg: 0,
   hudTargetBoxCount: 0,
   hudArrowShown: false,
+  hudGunSnapped: false,
   preset: capture.preset,
   hour: capture.hour,
   volume: 0,
@@ -531,6 +532,7 @@ async function main(): Promise<void> {
     hits: { lastHit: -1, lastKill: -1 },
     incoming: { count: 0, points: [] },
     launchers: [],
+    gun: { snapped: false, future: { x: 0, y: 0, z: 0 } },
     approach: null,
     landingNotice: null,
     // 器を使い回す。ミッションのない台本では null を入れて何も描かせない
@@ -586,6 +588,8 @@ async function main(): Promise<void> {
     // 空母（段 37）。World が台本の配置を持つ
     armament.carrier = currentWorld.carrier
     armament.launchers = currentWorld.combat.launchers
+    armament.gun.snapped = currentWorld.combat.gunSnapped
+    armament.gun.future = currentWorld.combat.gunLead.future
     armament.approach = currentWorld.carrier !== null ? currentWorld.approach : null
     armament.landingNotice = currentWorld.landingNotice
     armament.flares = currentWorld.countermeasures.left
@@ -667,6 +671,7 @@ async function main(): Promise<void> {
     hook.hudLineupDeg = currentWorld.approach.lineupDeg
     hook.hudTargetBoxCount = hud.targetBoxCount
     hook.hudArrowShown = hud.arrowShown
+    hook.hudGunSnapped = hud.gunSnapped
   }
 
   /**

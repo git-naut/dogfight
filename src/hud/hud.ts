@@ -142,9 +142,13 @@ const BLINK_ON_FRAMES = 24
 /** 書体。大きさは縮尺で決める（`applySize`） */
 const FONT_FAMILY = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
 
-/** 機銃の照準の円の半径と、左右のシェブロンの先端までの距離 画面画素（段 37） */
-const RETICLE_RADIUS = 16
-const RETICLE_CHEVRON = 26
+/**
+ * 機銃の照準の円の半径・中の小さな丸の半径・中の短い線の長さ（段 D4、録画の 1920x1080 の画素）。
+ * 録画の円は半径 42〜49 画素（lesson 4 で 42 前後、lesson 5 で 49 前後）。段 D3 までは半径 24 画素だった
+ */
+const RETICLE_RADIUS_REF = 45
+const RETICLE_INNER_REF = 6
+const RETICLE_TICK_REF = 10
 
 /**
  * 目標の箱とロックの印（段 B3、録画の 1920x1080 の画素）。録画はロック前の白い四角が約 33 画素、
@@ -298,6 +302,8 @@ export interface HudArmament {
   incoming: { count: number; points: { x: number; z: number; vx: number; vz: number }[] }
   /** 左右の発射機（段 C3、`Combat.launchers`）。0 が左。兵装の欄の印に出す */
   launchers: readonly Launcher[]
+  /** 機銃の照準の吸い付き（段 D4、`Combat.gunSnapped`・`gunLead.future`）。吸い付いていれば照準を未来位置に置く */
+  gun: { snapped: boolean; future: { x: number; y: number; z: number } }
   /** 着艦の進入の計器の値（段 B7、`World.approach`）。空母の無い台本では null */
   approach: ApproachGuide | null
   /** 結果の帯に出し続ける着艦の結果（段 B7、`World.landingNotice`）。無ければ null */
@@ -393,6 +399,8 @@ export interface Hud {
   readonly targetBoxCount: number
   /** 画面の外の相手を指す矢印を出しているか（段 35） */
   readonly arrowShown: boolean
+  /** 機銃の照準が敵の未来位置に吸い付いているか（段 D4） */
+  readonly gunSnapped: boolean
   /** 着艦の進入の計器を出しているか（段 B7） */
   readonly approachShown: boolean
   resize(width: number, height: number, devicePixelRatio: number): void
@@ -460,6 +468,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   let shootShown = false
   let targetBoxCount = 0
   let arrowShown = false
+  let gunSnappedShown = false
   let approachShown = false
 
 
@@ -783,76 +792,52 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     ctx!.stroke()
   }
 
-  /** 機首の向き。射撃の基準になるので細く出す */
-  function drawBoresight(m: Mat4): void {
-    const nose = readout.nose
-    const p = projectDirection(m, nose.x, nose.y, nose.z, width, height, b)
-    if (!p.inFront) return
-    ctx!.strokeStyle = dim
-    ctx!.lineWidth = u
-    ctx!.beginPath()
-    ctx!.moveTo(p.x - 7 * u, p.y)
-    ctx!.lineTo(p.x + 7 * u, p.y)
-    ctx!.moveTo(p.x, p.y - 7 * u)
-    ctx!.lineTo(p.x, p.y + 7 * u)
-    ctx!.stroke()
-  }
-
   /**
-   * ガンレティクル。基準の距離での着弾点。
+   * 機銃の照準（段 D4、録画に合わせた）。
    *
-   * 銃口から機軸へ距離ぶん進み、重力の落ちを引いた点を投影する。**方向ではなく
-   * 点として投影する。**距離が決まっている点なので、無限遠として扱うと落ちが
-   * 効かない。
+   * 録画は目盛り付きの大きな丸（1920x1080 で半径 42〜49 画素）と、中の小さな丸と短い線。敵が近いと敵に
+   * 重なり（lesson 4 のコマ 12734〜12758・15512〜15548）、遠いと中央付近に置かれる。ここでは 800 m 以内で
+   * 機首の前にいる相手の未来位置（`Combat.gunLead.future`）に置き、いなければ基準の距離の着弾点に置く。
+   * 段 D3 まであった左右のシェブロン・基準の距離「300」・機首の十字は録画に無いのでやめた（ユーザーの決定）
    *
-   * 弾が機体の速度を引き継ぐぶんは入れていない。機体と同じ速度で飛ぶ相手に
-   * 対しては、機体座標で見た着弾点がこの式になる。
+   * 基準の距離の着弾点は、銃口から機軸へ距離ぶん進み、重力の落ちを引いた点。**方向ではなく点として
+   * 投影する。**距離が決まっている点なので、無限遠として扱うと落ちが効かない
    */
-  function drawGunReticle(m: Mat4, sample: AircraftSample): void {
-    sample.orientation.rotate(MUZZLE_OFFSET, muzzleWorld)
-    muzzleWorld.add(sample.position)
-    impact.copy(muzzleWorld).addScaledVector(readout.nose, GUN_REFERENCE_RANGE)
-    impact.y -= gunDrop
-
+  function drawGunReticle(m: Mat4, sample: AircraftSample, gun: HudArmament['gun']): void {
+    gunSnappedShown = gun.snapped
+    if (gun.snapped) {
+      impact.set(gun.future.x, gun.future.y, gun.future.z)
+    } else {
+      sample.orientation.rotate(MUZZLE_OFFSET, muzzleWorld)
+      muzzleWorld.add(sample.position)
+      impact.copy(muzzleWorld).addScaledVector(readout.nose, GUN_REFERENCE_RANGE)
+      impact.y -= gunDrop
+    }
     const p = projectPoint(m, impact.x, impact.y, impact.z, width, height, a)
     reticleOnScreen = p.inFront && p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height
     if (!p.inFront) return
-
+    const r = RETICLE_RADIUS_REF * s
     ctx!.strokeStyle = primary
     ctx!.lineWidth = lineWidth
     ctx!.beginPath()
-    ctx!.arc(p.x, p.y, RETICLE_RADIUS * u, 0, Math.PI * 2)
-    // **目盛り（段 37、計画書の段 32）。**円の 12 方向（30 度ごと）に外へ短い線。上下左右の 4 本は長く
+    ctx!.arc(p.x, p.y, r, 0, Math.PI * 2)
+    // 目盛り。円の 12 方向（30 度ごと）に外へ短い線。上下左右の 4 本は長く
     for (let k = 0; k < 12; k++) {
       const angle = (k * Math.PI) / 6
-      const length = (k % 3 === 0 ? 5 : 3) * u
+      const length = (k % 3 === 0 ? 8 : 5) * s
       const c = Math.cos(angle)
       const sn = Math.sin(angle)
-      ctx!.moveTo(p.x + c * RETICLE_RADIUS * u, p.y + sn * RETICLE_RADIUS * u)
-      ctx!.lineTo(p.x + c * (RETICLE_RADIUS * u + length), p.y + sn * (RETICLE_RADIUS * u + length))
-    }
-    // **シェブロン（段 37）。**円の左に <、右に > を外向きに置く。照準の位置が目に入りやすい。
-    // 先端が外側、腕は円の側へ戻す（最初に逆向きに描いて、内向きの > < になった）
-    for (const side of [-1, 1]) {
-      const tipX = p.x + side * RETICLE_CHEVRON * u
-      ctx!.moveTo(tipX - side * 5 * u, p.y - 6 * u)
-      ctx!.lineTo(tipX, p.y)
-      ctx!.lineTo(tipX - side * 5 * u, p.y + 6 * u)
+      ctx!.moveTo(p.x + c * r, p.y + sn * r)
+      ctx!.lineTo(p.x + c * (r + length), p.y + sn * (r + length))
     }
     ctx!.stroke()
-
-    // 中心の点。着弾点そのもの
-    ctx!.fillStyle = primary
+    // 中の小さな丸と、右へ短い線（録画の中の印）
+    const inner = RETICLE_INNER_REF * s
     ctx!.beginPath()
-    ctx!.arc(p.x, p.y, 1.6 * u, 0, Math.PI * 2)
-    ctx!.fill()
-
-    ctx!.font = smallFont
-    ctx!.fillStyle = dim
-    ctx!.textAlign = 'left'
-    ctx!.textBaseline = 'middle'
-    // 基準距離は右のシェブロンの外（段 37 で 21 から移した）
-    shadedText(`${GUN_REFERENCE_RANGE}`, p.x + (RETICLE_CHEVRON + 8) * u, p.y)
+    ctx!.arc(p.x, p.y, inner, 0, Math.PI * 2)
+    ctx!.moveTo(p.x + inner, p.y)
+    ctx!.lineTo(p.x + inner + RETICLE_TICK_REF * s, p.y)
+    ctx!.stroke()
   }
 
   /**
@@ -1574,6 +1559,10 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       return targetBoxCount
     },
 
+    get gunSnapped() {
+      return gunSnappedShown
+    },
+
     get arrowShown() {
       return arrowShown
     },
@@ -1608,8 +1597,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       // **ピッチの梯子と方位の目盛り、縦の目盛りは追従視点では描かない**（段 36、参考画像に
       // 合わせた）。描画のコードは操縦席など別の視点のために残す（`instruments: 'full'`）
       if (instruments === 'full') drawLadder(viewProjection, heading)
-      drawBoresight(viewProjection)
-      drawGunReticle(viewProjection, sample)
+      drawGunReticle(viewProjection, sample, armament.gun)
       drawTargetBoxes(viewProjection, sample, armament)
       drawLockBox(viewProjection, armament.lock, armament)
       drawArrow(viewProjection, sample, armament)

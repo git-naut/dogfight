@@ -206,7 +206,8 @@ describe('台本越し', () => {
     const acquiring = runScript(SCRIPTS['gun-pass'], SEC * 0.5)
     expect(acquiring.combat.lock.state).toBe('acquiring')
     expect(acquiring.combat.lock.progress).toBeCloseTo(0.71, 2)
-    expect(acquiring.targets[0]!.integrity).toBe(41)
+    // 段 D4 で当たりが 1 発減り、41 → 42
+    expect(acquiring.targets[0]!.integrity).toBe(42)
 
     const locked = runScript(SCRIPTS['gun-pass'], SEC * 0.7)
     expect(locked.combat.lock.state).toBe('locked')

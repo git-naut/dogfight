@@ -861,6 +861,8 @@ export interface TestHook {
   hudShootShown: boolean
   hudTargetBoxCount: number
   hudArrowShown: boolean
+  /** 機銃の照準が敵の未来位置に吸い付いているか（段 D4） */
+  hudGunSnapped: boolean
   preset: PresetName
   hour: number
   // 飛行状態

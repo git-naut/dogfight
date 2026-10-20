@@ -17,10 +17,14 @@ import { Vec3 } from '@sim/vec3'
 const SEC = 120
 
 describe('gun-pass — 機銃で標的を落とす', () => {
-  it('0.5 秒で 50 発撃って 19 発当たる', () => {
+  /**
+   * 段 D4 で弾を未来位置へ寄せるようになり、19 発から 18 発になった。相手が真っすぐ前にいるので、
+   * 機首の向き（重力で少し落ちる）と未来位置へ寄せた向きの差は小さく、散布の当たり方が 1 発変わった
+   */
+  it('0.5 秒で 50 発撃って 18 発当たる', () => {
     const w = runScript(SCRIPTS['gun-pass'], SEC * 0.5)
     expect(w.combat.roundsFired).toBe(50)
-    expect(w.combat.hits).toBe(19)
+    expect(w.combat.hits).toBe(18)
   })
 
   it('1 秒以内に撃墜できる', () => {
@@ -38,7 +42,8 @@ describe('gun-pass — 機銃で標的を落とす', () => {
 
     const w = runScript(SCRIPTS['gun-pass'], SEC * 1)
     expect(w.combat.score.total).toBe(200)
-    expect(w.combat.score.latest(w.frame)).toMatchObject({ frame: 108, designation: 'DRONE', points: 200 })
+    // 撃墜は段 D4 で f108 → f112（当たりが 1 発遅れた）
+    expect(w.combat.score.latest(w.frame)).toMatchObject({ frame: 112, designation: 'DRONE', points: 200 })
 
     // 撃墜から 2.6 秒（3.5 秒の時点）はまだ出ている
     const shown = runScript(SCRIPTS['gun-pass'], SEC * 3.5)
@@ -55,7 +60,7 @@ describe('gun-pass — 機銃で標的を落とす', () => {
     const w = runScript(SCRIPTS['mission-kill'], 168)
     expect(w.combat.kills).toBe(1)
     expect(w.combat.score.total).toBe(200)
-    expect(w.combat.score.latest(w.frame)).toMatchObject({ frame: 108, designation: 'DRONE' })
+    expect(w.combat.score.latest(w.frame)).toMatchObject({ frame: 112, designation: 'DRONE' })
     expect(w.enemiesAlive).toBe(1)
     expect(w.mission?.outcome).toBe('running')
   })

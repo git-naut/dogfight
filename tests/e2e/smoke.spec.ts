@@ -803,6 +803,16 @@ test.describe('機銃', () => {
    * 1 秒（120 フレーム）で 100 発撃つ。**自機の機銃は弾が尽きない**（段 D2、録画の GUN は「---」）。
    * 残弾は Infinity で、フックの JSON では null になるので、撃った数で見る
    */
+  /**
+   * 段 D4。800 m 以内で機首の前にいる相手には、照準が未来位置へ吸い付く。相手がいなければ吸い付かない
+   */
+  test('前の敵に照準が吸い付き、相手がいなければ吸い付かない', async ({ page }) => {
+    const near = await capture(page, { script: 'enemy-ahead', frame: 240, hud: true })
+    expect(near.hudGunSnapped).toBe(true)
+    const none = await capture(page, { script: 'level', frame: 240, hud: true })
+    expect(none.hudGunSnapped).toBe(false)
+  })
+
   test('1 秒で 100 発撃つ', async ({ page }) => {
     const hook = await capture(page, { script: 'gun-pass', frame: 120 })
     expect(hook.roundsFired).toBe(100)

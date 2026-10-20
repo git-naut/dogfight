@@ -256,16 +256,7 @@ export class Gun {
       if (bullet.life <= 0) continue
 
       bullet.previous.copy(bullet.position)
-
-      const speed = bullet.velocity.length()
-      if (speed > 0) {
-        const density = airDensity(bullet.position.y)
-        // a = DRAG_K · (ρ/ρ₀) · v² を速度の逆向きへ
-        const decel = DRAG_K * (density / SEA_LEVEL_DENSITY) * speed * speed
-        bullet.velocity.addScaledVector(bullet.velocity, (-decel * dt) / speed)
-      }
-      bullet.velocity.y -= GRAVITY * dt
-      bullet.position.addScaledVector(bullet.velocity, dt)
+      stepBullet(bullet.position, bullet.velocity, dt)
 
       // 地面に当たったら消す。高いところでは地形を引かない
       if (bullet.position.y < groundLimit) {
@@ -377,6 +368,21 @@ export function bulletSpeedAfter(seconds: number, muzzle = MUZZLE_SPEED): number
 /** 抗力だけを見た飛距離 m */
 export function bulletRangeAfter(seconds: number, muzzle = MUZZLE_SPEED): number {
   return Math.log(1 + DRAG_K * muzzle * seconds) / DRAG_K
+}
+
+/**
+ * 弾を 1 ステップ進める（抗力・重力）。`Gun.advance` と機銃の未来位置（`gunLead.ts`）が同じ式を使う。
+ * a = DRAG_K · (ρ/ρ₀) · v² を速度の逆向きへ
+ */
+export function stepBullet(position: Vec3, velocity: Vec3, dt: number): void {
+  const speed = velocity.length()
+  if (speed > 0) {
+    const density = airDensity(position.y)
+    const decel = DRAG_K * (density / SEA_LEVEL_DENSITY) * speed * speed
+    velocity.addScaledVector(velocity, (-decel * dt) / speed)
+  }
+  velocity.y -= GRAVITY * dt
+  position.addScaledVector(velocity, dt)
 }
 
 /**

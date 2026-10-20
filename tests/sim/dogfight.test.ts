@@ -108,7 +108,9 @@ describe('1 対 1', () => {
       out.enemyCrashed,
       `最低対地 ${out.minEnemyAgl.toFixed(0)} m`,
     ).toBe(false)
-    expect(out.enemyAlive).toBe(true)
+    // 落ちたなら、撃ち落とされたのであって自滅（墜落）ではない。段 D4 で自機の弾が未来位置へ寄るように
+    // なり、この自動操縦の機銃でも落ちるようになった（主題は自滅しないこと）
+    if (!out.enemyAlive) expect(out.enemyCrashed).toBe(false)
     expect(out.minEnemyAgl, `最低対地 ${out.minEnemyAgl.toFixed(0)} m`).toBeGreaterThan(
       300,
     )

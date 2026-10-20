@@ -282,6 +282,14 @@ export interface QualitySettings {
   flareSprites: number
 
   /**
+   * ミサイルの発射炎と炎の尾の板の数（1 発あたり、段 B9）。0 で描かない。
+   *
+   * 発射炎の 3 枚（赤みの橙・黄みの橙・黄みの白）と、炎の尾の 3 枚と噴射口の白い芯の 4 枚で 7 枚。
+   * low はフレアと同じく切る
+   */
+  missileFlameSprites: number
+
+  /**
    * ダメージの煙のリボンの分割数。0 で煙なし。
    *
    * `missileTrailSegments` と同じ考え方。sim が持つ履歴（384 本 = 12.8 秒）の
@@ -335,6 +343,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     explosionBlobs: 0,
     explosionSmokeTrails: 0,
     flareSprites: 0,
+    missileFlameSprites: 0,
     damageSmokeSegments: 0,
   },
   medium: {
@@ -372,6 +381,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     explosionBlobs: 2,
     explosionSmokeTrails: 2,
     flareSprites: 6,
+    missileFlameSprites: 7,
     damageSmokeSegments: 128,
   },
   high: {
@@ -417,6 +427,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     explosionBlobs: 4,
     explosionSmokeTrails: 3,
     flareSprites: 12,
+    missileFlameSprites: 7,
     damageSmokeSegments: 256,
   },
   ultra: {
@@ -462,6 +473,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     explosionBlobs: 6,
     explosionSmokeTrails: 5,
     flareSprites: 12,
+    missileFlameSprites: 7,
     damageSmokeSegments: 384,
   },
 }

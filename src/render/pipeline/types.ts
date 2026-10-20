@@ -12,6 +12,7 @@ import type { DamageSmokeView } from '../damageSmoke'
 import type { Explosions } from '../weapons/explosions'
 import type { ExplosionTrails } from '../weapons/explosionTrails'
 import type { Flares } from '../weapons/flares'
+import type { MissileFlames } from '../weapons/missileFlames'
 import type { AircraftTrails } from '../aircraft/trails'
 import type { TerrainMesh } from '../terrain/terrainMesh'
 import type { Water } from '../terrain/water'
@@ -362,6 +363,8 @@ export interface ScenePipeline {
   readonly explosions: Explosions
   readonly explosionTrails: ExplosionTrails
   readonly flares: Flares
+  /** ミサイルの発射炎と炎の尾（段 B9） */
+  readonly missileFlames: MissileFlames
   readonly trails: AircraftTrails
 
   /** 太陽高度 rad */

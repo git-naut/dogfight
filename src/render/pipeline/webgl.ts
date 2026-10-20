@@ -164,6 +164,7 @@ export async function createWebGLPipeline(
     explosions,
     explosionTrails,
     flares,
+    missileFlames,
     trails,
   } = views
 
@@ -302,6 +303,7 @@ export async function createWebGLPipeline(
     explosions,
     explosionTrails,
     flares,
+    missileFlames,
     trails,
 
     get sunElevation() {

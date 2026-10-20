@@ -991,6 +991,21 @@ test.describe('ミサイル', () => {
     expect(refilled.hungMissilesShown).toBe(2)
   })
 
+  /**
+   * 段 B9。発射炎は撃って 2 コマ以内、炎の尾はモーターが燃えているあいだ（自機のミサイルは 2.25 秒）。
+   * missile-shot は 120 フレーム目に撃つので、f121 で発射炎、f132 で炎の尾だけ、f420 で何も出ない
+   */
+  test('発射炎は撃った直後だけ、炎の尾は燃えているあいだ出る', async ({ page }) => {
+    const flash = await capture(page, { script: 'missile-shot', frame: 121 })
+    expect(flash.missileFlashesDrawn).toBe(1)
+    const flame = await capture(page, { script: 'missile-shot', frame: 132 })
+    expect(flame.missileFlashesDrawn).toBe(0)
+    expect(flame.missileFlamesDrawn).toBe(1)
+    const burnt = await capture(page, { script: 'missile-shot', frame: 420 })
+    expect(burnt.missilesInFlight).toBe(1)
+    expect(burnt.missileFlamesDrawn).toBe(0)
+  })
+
   test('比例航法で命中して標的が落ちる', async ({ page }) => {
     // 実測。3,000 m の的に 9 秒で当たる
     const hook = await capture(page, { script: 'missile-shot', frame: 1200 })

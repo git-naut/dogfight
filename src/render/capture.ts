@@ -826,6 +826,10 @@ export interface TestHook {
   missilesDrawn: number
   /** 自機に吊るして見せているミサイルの数（段 B9）。撃った側は満ちるまで消える */
   hungMissilesShown: number
+  /** 発射炎を出しているミサイルの数（段 B9）。発射から 2 コマ以内 */
+  missileFlashesDrawn: number
+  /** 炎の尾を出しているミサイルの数（段 B9）。モーターが燃えているあいだ */
+  missileFlamesDrawn: number
   /** 撃ったミサイルの総数 */
   missilesFired: number
   /** 残ミサイル */

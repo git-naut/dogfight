@@ -28,10 +28,11 @@ import { getScript, isScriptName } from '@sim/scripts'
 describe('基準画像の構図', () => {
   const snapshotDir = fileURLToPath(new URL('../e2e/smoke.spec.ts-snapshots', import.meta.url))
 
-  it('45 枚ある', () => {
+  it('46 枚ある', () => {
     // 段 32 で `hud-mission-kill`（撃墜の加点の行）を足して 43 枚。Phase 9 の段 6 で
-    // `gear-transit`（脚が畳まれる途中）を足して 44 枚。Phase 10 の段 B7 で `hud-approach` を足して 45 枚
-    expect(SCENES.length).toBe(45)
+    // `gear-transit`（脚が畳まれる途中）を足して 44 枚。Phase 10 の段 B7 で `hud-approach` を足して 45 枚。
+    // 段 B9 で `missile-flame`（撃った直後の発射炎と炎の尾）を足して 46 枚
+    expect(SCENES.length).toBe(46)
   })
 
   it('名前が重複しない', () => {
@@ -69,8 +70,9 @@ describe('基準画像の構図', () => {
     // `npm run exact` が動いたカットで決めた。**荷重倍数が 1.5 を割ると鎖が
     // 恒等になるので、水平飛行の 32 枚は切っても絵が動かない。10 枚とも
     // `MUTATE=1` で発火した。
+    // 段 B9 で 64 件へ。`missile-flame` の `missiles` と `explosions` は、`MUTATE=1` で 2 件とも発火した
     const total = SCENES.reduce((sum, s) => sum + (s.watches?.length ?? 0), 0)
-    expect(total).toBe(62)
+    expect(total).toBe(64)
     const empty = SCENES.filter((s) => (s.watches ?? []).length === 0).map((s) => s.name)
     // **段 23 で 3 枚に減った。**`aircraft-vortex-fade` は 1.9 G で風圧が
     // 効くので `lens` が載った（渦そのものは薄すぎて載せられていない）
@@ -91,7 +93,7 @@ describe('基準画像の構図', () => {
     expect(SCENES.filter((s) => s.hud === true).length).toBe(15)
   })
 
-  it('空母が写らないのは 40 枚', () => {
+  it('空母が写らないのは 41 枚', () => {
     const withCarrier = SCENES.filter((s) => getScript(s.script).carrier !== undefined)
     expect(withCarrier.map((s) => s.name)).toEqual([
       'hud-mission',
@@ -100,14 +102,14 @@ describe('基準画像の構図', () => {
       'catapult',
       'carrier',
     ])
-    expect(SCENES.length - withCarrier.length).toBe(40)
+    expect(SCENES.length - withCarrier.length).toBe(41)
   })
 
-  it('ミッションが走らないのは 42 枚', () => {
+  it('ミッションが走らないのは 43 枚', () => {
     const withMission = SCENES.filter((s) => getScript(s.script).missionSeconds !== undefined)
     // `mission-kill` は空母を持たないミッション（段 32）
     expect(withMission.map((s) => s.name)).toEqual(['hud-mission', 'hud-mission-failed', 'hud-mission-kill'])
-    expect(SCENES.length - withMission.length).toBe(42)
+    expect(SCENES.length - withMission.length).toBe(43)
   })
 })
 

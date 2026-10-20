@@ -152,6 +152,9 @@ export const SCENES = [
   { name: 'hud-acquiring', script: 'target-ahead', frame: 40, hour: 16, coverage: 0, hud: true, watches: ['targets'] },
   // ミサイル。発射から 1.5 秒。煙が後方へ伸び、本体が前方にいる
   { name: 'missile-launch', script: 'missile-shot', frame: 300, hour: 16, coverage: 0, hud: true, watches: ['smoke'] },
+  // 撃った直後（段 B9）。発射炎が薄れかけ、炎の尾が画面の下へ伸びる。発射炎と炎の尾は爆発の組の子なので、
+  // ミサイルを消しても爆発を消しても消える
+  { name: 'missile-flame', script: 'missile-shot', frame: 124, hour: 16, coverage: 0, watches: ['missiles', 'explosions'] },
   // 自機が自分の煙の筋に沿って飛ぶ。**near 面の見張り。**実測で
   // このフレームの煙の中ほどがカメラの 0.1 m を通る（濃さ 1）。
   // **段 B3b で自機のミサイルを速くしたので f841 から f721 へ移した。**煙の中心線と追従カメラの

@@ -282,6 +282,8 @@ describe('品質プリセットの表', () => {
       'explosionSmokeTrails',
       'damageSmokeSegments',
       'flareSprites',
+      // 発射炎と炎の尾。low では出さない（段 B9）
+      'missileFlameSprites',
       // 空から焼く環境反射。low では焼かない
       'skyEnvironmentSize',
       // ブルーム。low では掛けない

@@ -287,12 +287,15 @@ export async function createNodePipeline(
     const forward = camera.getWorldDirection(new THREE.Vector3())
     views.explosions.prewarm(camera.position, forward)
     views.explosionTrails.prewarm(camera.position, forward)
+    // 発射炎と炎の尾も同じパスで描くので、最初の発射で組む待ちが出ないよう先に組む（段 B9）
+    views.missileFlames.prewarm(camera.position, forward)
     // 本番と同じくパスの `updateBefore` を通して描く（`createOverlayPass` の注記）
     drawOverlayOnce(renderer)
     // 元に戻す。空の源で更新すれば、全部の枠が隠れる
     const none = { length: 0, explosionAt: () => { throw new Error('爆発は無い') } }
     views.explosions.update(none, 0, camera.position, forward)
     views.explosionTrails.update(none, 0, camera.position, forward)
+    views.missileFlames.update([], camera.position, forward)
   }
 
   // 機体の影。**投げ手の側で `castShadow` を立てる。**光の側は
@@ -598,6 +601,7 @@ export async function createNodePipeline(
     explosions: views.explosions,
     explosionTrails: views.explosionTrails,
     flares: views.flares,
+    missileFlames: views.missileFlames,
     trails: views.trails,
 
     get sunElevation() {

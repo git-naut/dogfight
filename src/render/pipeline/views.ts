@@ -17,6 +17,7 @@ import { createTracers, type Tracers } from '../weapons/tracers'
 import { createMissileViews, type MissileViews } from '../weapons/missileView'
 import { createMissileSmoke, type MissileSmoke } from '../weapons/missileSmoke'
 import { createFlares, type Flares } from '../weapons/flares'
+import { createMissileFlames, type MissileFlames } from '../weapons/missileFlames'
 import { FLARE_CAPACITY } from '../../sim/weapons/flare'
 import { createExplosions, type Explosions } from '../weapons/explosions'
 import {
@@ -64,6 +65,7 @@ export interface SceneViews {
   /** 爆発の白い煙の尾（段 29f）。場面のパスで描く */
   readonly explosionTrails: ExplosionTrails
   readonly flares: Flares
+  readonly missileFlames: MissileFlames
   readonly trails: AircraftTrails
   dispose(): void
 }
@@ -221,6 +223,20 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   flares.object.visible = options.showFlares ?? true
   scene.add(flares.object)
 
+  // ミサイルの発射炎と炎の尾（段 B9）。飛んでいるミサイルの器と同じ数。
+  // **爆発の組の子にする。**node 経路は爆発の組を霞の後ろのパスで描く。場面のパスに置くと、深度を
+  // 書かない暈と炎の尾に後ろの地形の距離で霞が掛かり、炎の尾がまったく写らなかった（実機で撮った）。
+  // 材質は爆発と同じく、場面の物に隠される判定を持つ作り手で組む
+  const missileFlames: MissileFlames = createMissileFlames(
+    MISSILE_CAPACITY,
+    quality,
+    input.explosionSprite ?? sprite,
+    // 発射炎だけは場面の物に隠さない（`createMissileFlames` の `flashSprite`）
+    sprite,
+  )
+  missileFlames.object.visible = options.showMissiles ?? true
+  explosions.object.add(missileFlames.object)
+
   // コントレイルと翼端渦。履歴は sim が持つので、ここは読んで張るだけ
   const trails: AircraftTrails = createAircraftTrails(quality)
   trails.object.visible = options.showTrails ?? true
@@ -240,6 +256,7 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
     explosions,
     explosionTrails,
     flares,
+    missileFlames,
     trails,
 
     dispose() {
@@ -249,6 +266,7 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
       // 実装されているのに呼ばれておらず、板のジオメトリと材質が残る。
       // 抜き出すついでに直した（絵は動かない。破棄は終了時にしか走らない）
       flares.dispose()
+      missileFlames.dispose()
       missileSmoke.dispose()
       damageSmoke.dispose()
       missileViews.dispose()

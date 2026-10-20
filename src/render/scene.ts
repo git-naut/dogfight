@@ -29,10 +29,14 @@ import {
 export interface MissilePose {
   position: THREE.Vector3
   quaternion: THREE.Quaternion
+  /** 発射からの秒（補間した値）。発射炎の長さを測る（段 B9） */
+  age: number
+  /** モーターが燃えているか。炎の尾を出す（段 B9） */
+  burning: boolean
 }
 
 export function createMissilePose(): MissilePose {
-  return { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() }
+  return { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), age: 0, burning: false }
 }
 
 /**
@@ -145,6 +149,10 @@ export interface SceneHandle {
   readonly missilesDrawn: number
   /** 自機に吊るして見せているミサイルの数（段 B9）。0〜2 */
   readonly hungMissilesShown: number
+  /** 発射炎を出しているミサイルの数（段 B9） */
+  readonly missileFlashesDrawn: number
+  /** 炎の尾を出しているミサイルの数（段 B9） */
+  readonly missileFlamesDrawn: number
   /** 描いた爆発の数 */
   readonly explosionsDrawn: number
   /**
@@ -342,6 +350,7 @@ export async function createScene(
     explosions,
     explosionTrails,
     flares,
+    missileFlames,
     trails,
   } = pipeline
 
@@ -369,6 +378,8 @@ export async function createScene(
   let bulletSources: readonly BulletSource[] = []
   /** 煙の履歴を読む先 */
   let smokeSources: readonly SmokeSource[] = []
+  /** 直近の sync で受けたミサイル。発射炎と炎の尾はカメラが決まったあとに置く */
+  let lastMissiles: readonly MissilePose[] = []
   /** 左右の発射機を読む先。無ければ両方とも吊るす */
   let launcherSource: readonly Launcher[] = []
   // 吊るしたミサイル（段 B9）。自機の子に付けるので、機体と一緒に動く
@@ -491,6 +502,14 @@ export async function createScene(
       return hungMissiles.shown
     },
 
+    get missileFlashesDrawn() {
+      return missileFlames.flashesDrawn
+    },
+
+    get missileFlamesDrawn() {
+      return missileFlames.flamesDrawn
+    },
+
     get explosionsDrawn() {
       return explosions.drawn
     },
@@ -568,6 +587,7 @@ export async function createScene(
       targetViews.update(targets)
       enemyViews.update(enemies)
       missileViews.update(missiles)
+      lastMissiles = missiles
       hungMissiles.update(launcherSource)
 
       aircraft.object.position.set(
@@ -690,6 +710,8 @@ export async function createScene(
       // フレア。**自機のすぐ後ろに出るのでカメラの至近を通る。**
       // 板が near 面を跨がないよう clampRadiusToNear で絞る
       flares.update(flareSources, cameraWorld, cameraForward)
+      // 発射炎と炎の尾（段 B9）。フレアと同じくカメラの至近を通る
+      missileFlames.update(lastMissiles, cameraWorld, cameraForward)
 
       // 爆発。**経過秒はフレーム番号から出す。**実時間を渡すと
       // キャプチャモードで絵が固定されない

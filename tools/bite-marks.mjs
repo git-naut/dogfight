@@ -1818,4 +1818,22 @@ export const BITE_MARKS = [
     expect: 'tests/sim/missileLauncher.test.ts',
     why: '段 B8 までのように機体の中心から放つ',
   },
+  {
+    id: 'launch-flash-long',
+    kind: '定数の摂動',
+    file: 'src/render/weapons/missileFlames.ts',
+    find: 'export const LAUNCH_FLASH_SECONDS = 2 / 30\n',
+    replace: 'export const LAUNCH_FLASH_SECONDS = 4 / 30\n',
+    expect: 'tests/render/missileFlames.test.ts',
+    why: '発射炎が 4 コマ出る（録画は 1 コマ、合意した幅は 2 コマ以内）',
+  },
+  {
+    id: 'flame-ignores-burning',
+    kind: '条件の固定',
+    file: 'src/render/weapons/missileFlames.ts',
+    find: '        if (missile.burning) {\n',
+    replace: '        if (true) {\n',
+    expect: 'tests/render/missileFlames.test.ts',
+    why: 'モーターが燃え尽きても炎の尾が出続ける',
+  },
 ]

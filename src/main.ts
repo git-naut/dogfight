@@ -177,6 +177,8 @@ const hook = installTestHook({
   missilesInFlight: 0,
   missilesDrawn: 0,
   hungMissilesShown: 2,
+  missileFlashesDrawn: 0,
+  missileFlamesDrawn: 0,
   missilesFired: 0,
   missilesLeft: 0,
   explosionsAlive: 0,
@@ -302,6 +304,9 @@ function collectMissilePoses(world: World, alpha: number): MissilePose[] {
       missileScratch.orientation.z,
       missileScratch.orientation.w,
     )
+    // 経過は位置と同じく補間する。`age` はステップの終わりの値なので、alpha の残りぶん戻す
+    pose.age = Math.max(0, missile.age - (1 - alpha) * FIXED_DT)
+    pose.burning = missile.motor > 0
     count++
   }
   activeMissilePoses.length = 0
@@ -771,6 +776,8 @@ async function main(): Promise<void> {
     hook.missilesInFlight = currentWorld.combat.missilesInFlight
     hook.missilesDrawn = view.missilesDrawn
     hook.hungMissilesShown = view.hungMissilesShown
+    hook.missileFlashesDrawn = view.missileFlashesDrawn
+    hook.missileFlamesDrawn = view.missileFlamesDrawn
     hook.missilesFired = currentWorld.combat.missilesFired
     hook.missilesLeft = currentWorld.combat.missilesLeft
     hook.explosionsAlive = currentWorld.combat.explosionsAliveAt(

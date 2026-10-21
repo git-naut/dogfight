@@ -1836,4 +1836,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/missileFlames.test.ts',
     why: 'モーターが燃え尽きても炎の尾が出続ける',
   },
+  {
+    id: 'flare-band-forward',
+    kind: '符号の反転',
+    file: 'src/render/weapons/flares.ts',
+    find: 'backward.set(-flare.velocity.x / speed, -flare.velocity.y / speed, -flare.velocity.z / speed)',
+    replace: 'backward.set(flare.velocity.x / speed, flare.velocity.y / speed, flare.velocity.z / speed)',
+    expect: 'tests/render/flareFire.test.ts',
+    why: 'フレアの帯が進む向きの前へ伸びる（段 B9）',
+  },
 ]

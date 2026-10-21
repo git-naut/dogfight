@@ -10,6 +10,7 @@ import {
   type RadialSpriteMaterial,
 } from './radialSprite'
 import type { QualitySettings } from '../quality'
+import { BAND_HOT_COLOR, HOT_COLOR, RED_ORANGE, YELLOW_ORANGE, placeBand } from './fireSprites'
 
 /**
  * フレアの描画。
@@ -39,38 +40,17 @@ export const FLARE_RADIUS = 1.6
  */
 export const FLARE_SMOKE_RADIUS = 3.2
 
-/**
- * 燃えているあいだの色。白い光。
+/*
+ * 火の色（段 B9 で改めた）。段 B8 までは白い光で、燃えているあいだ (0.30, 0.28, 0.25)・点火の瞬間
+ * (1.2, 1.1, 0.95) を混ぜていた。マグネシウムの炎は白に近いという理由で色を付けず、出力は
+ * rgb(221,219,216)・彩度 5 だった。後ろの海面の霞で寄与が透過率 0.13 まで落ちるので、芯は深度を
+ * 書いていた。
  *
- * **色は付けない。**マグネシウムの炎は白に近く、赤みは出ない。閃光との差は
- * 色相ではなく明るさで見せる。
- *
- * **深度を書かないと潰れる。**フレアは目線より下に出るので、後ろに 300 km の
- * 海面がいる。大気のパスがその距離の霞をビルボードに掛け、寄与が透過率 0.13
- * まで落ちる。不透明な芯を分けて深度を書かせる（`CORE_CUT`）。
- *
- * 露出後 `(1.80, 1.68, 1.50)` で出力 `rgb(221,219,216)`、彩度 5。空の
- * `rgb(160,177,195)` に対して 60 階調ぶん明るい。
+ * ユーザーの指示（2026-10-21）で、ミサイルの炎の尾と同じ赤みの橙の火と帯に寄せた。色は
+ * `fireSprites.ts`。録画（lesson 5 のコマ 23400〜23520）はフレアの説明の区間だが、撒いた火そのものは
+ * 写っていない（機体の左下の光はフレアに引き寄せられたミサイルの爆発とみた）。値は推測。霞の後ろの
+ * パス（爆発の組の子）で描くので、深度を書く芯は要らない
  */
-const FLARE_COLOR = new THREE.Color(0.30, 0.28, 0.25)
-
-/**
- * 点火の瞬間の色。白熱。
- *
- * マグネシウム系の火工品は点火から一瞬で最大光度へ達する。AgX は明るい色ほど
- * 彩度を落とすので、**白く飛ばしたいときはその性質を逆に使う。**露出後を
- * 1 より大きく置くと脱色域に入って白熱になる。
- *
- * モデルで掃引した推移（通常合成・不透明度 1・深度あり）。
- *
- * | 色 | 露出後 | 出力 | 彩度 |
- * | (1.20, 1.10, 0.95) | (7.20, 6.60, 5.70) | `rgb(247,246,244)` | 3 |
- * | (0.45, 0.42, 0.38) | (2.70, 2.52, 2.28) | `rgb(231,229,227)` | 4 |
- * | (0.30, 0.28, 0.25) | (1.80, 1.68, 1.50) | `rgb(221,219,216)` | 5 |
- *
- * `flashIntensity` で混ぜる。**どちらも無彩色なので、推移するのは明るさだけ。**
- */
-const FLASH_COLOR = new THREE.Color(1.2, 1.1, 0.95)
 
 /**
  * 閃光のときに半径を何倍にするか。
@@ -167,6 +147,19 @@ const SHRINK_DISTANCE = 60
  */
 const MIN_CAMERA_DISTANCE = 8
 
+/**
+ * 火の帯の長さと太さ m（段 B9、ユーザーの指示でミサイルの炎の尾に寄せた。値は推測）。進む向きの
+ * 後ろへ伸ばす。外は赤みの橙、内は黄みの橙、芯は黄みの白（加算）
+ */
+const BAND_LENGTH = 6
+const BAND_WIDTH = 1.6
+const BAND_INNER_LENGTH = 4.5
+const BAND_INNER_WIDTH = 0.8
+const BAND_HOT_LENGTH = 3.5
+const BAND_HOT_WIDTH = 0.4
+/** 黄みの白い芯の半径 m。点火の閃光では `FLASH_RADIUS_GAIN` で膨らむ */
+const HOT_RADIUS = 0.5
+
 export interface Flares {
   readonly object: THREE.Object3D
   /** 実際に描いた数。E2E とデバッグから読む */
@@ -176,6 +169,11 @@ export interface Flares {
     cameraPosition: THREE.Vector3,
     cameraForward: THREE.Vector3,
   ): void
+  /**
+   * 材質を先に組むため、1 発ぶんの全部の板を不透明度 0 でカメラの前に置く（段 B9。霞の後ろのパスで
+   * 描くようにしたので、爆発と同じく最初の 1 発で組む待ちが出る）。描いたあとは空の列で更新して隠す
+   */
+  prewarm(cameraPosition: THREE.Vector3, cameraForward: THREE.Vector3): void
   setQuality(quality: QualitySettings): void
   dispose(): void
 }
@@ -184,25 +182,15 @@ const NOT_ENABLED: Flares = {
   object: new THREE.Group(),
   drawn: 0,
   update() {},
+  prewarm() {},
   setQuality() {},
   dispose() {},
 }
 
 const scratch = new THREE.Vector3()
 const lookMatrix = new THREE.Matrix4()
-/** 閃光の色を混ぜる器。毎フレーム作らない */
-const flashColor = new THREE.Color()
-
-/**
- * 材質の色を差し替える。
- *
- * **`lerp` の結果をそのまま渡すと全部のフレアが同じ色になる。**器は 1 つしか
- * ないので、uniform には値を写す必要がある。スロットごとに材質を持つのは
- * このため（`createFlares` の `slots`）
- */
-function setColor(mesh: THREE.Mesh, color: THREE.Color): void {
-  radialSpriteHandle(mesh.material as THREE.Material)!.setColor(color)
-}
+/** 帯を伸ばす向き（進む向きの逆）。毎フレーム作らない */
+const backward = new THREE.Vector3()
 
 export function createFlares(
   capacity: number,
@@ -219,50 +207,61 @@ export function createFlares(
 
   const quad = new THREE.PlaneGeometry(1, 1)
 
-  const radial = (
-    color: THREE.Color,
-    falloff: number,
-    additive: boolean,
-    opaqueCore = false,
-  ): RadialSpriteMaterial =>
-    makeRadialSprite(sprite, { color, falloff, additive, opaqueCore })
+  const radial = (color: THREE.Color, falloff: number, additive: boolean): RadialSpriteMaterial =>
+    makeRadialSprite(sprite, { color, falloff, additive })
 
+  /**
+   * 1 発 7 枚（段 B9）。ユーザーの指示で、ミサイルの炎と同じ赤みの橙に寄せた（`fireSprites.ts`）。
+   * 段 B8 までは白い火の玉（`FLARE_COLOR`）と白い煙の 3 枚で、芯は深度を書いていた。霞の後ろのパスでは
+   * 深度を書く芯が暗い輪になるので、どの層も深度を書かない
+   */
   interface Slot {
-    /** 不透明な芯。深度を書くので大気のパスが自分の距離で霞を掛ける */
+    /** 黄みの橙の芯 */
     core: THREE.Mesh
-    /** 柔らかい暈。深度は書かない */
+    /** 赤みの橙の暈 */
     fire: THREE.Mesh
+    /** 黄みの白い芯（加算）。点火の閃光で膨らむ */
+    hot: THREE.Mesh
+    /** 進む向きの後ろへ伸ばす帯。外・内・芯 */
+    band: THREE.Mesh
+    bandInner: THREE.Mesh
+    bandHot: THREE.Mesh
     smoke: THREE.Mesh
   }
 
   const materials: THREE.Material[] = []
-  const slots: Slot[] = Array.from({ length: capacity }, () => {
-    // 火は芯が明るく縁が締まる。煙はふわりと広がる。
-    // **3 層すべて通常合成。**加算は赤にならない（`FLARE_COLOR`）
-    const coreMaterial = radial(FLARE_COLOR, 1.8, false, true)
-    const fireMaterial = radial(FLARE_COLOR, 1.8, false)
-    const smokeMaterial = radial(SMOKE_COLOR, 0.9, false)
-    materials.push(coreMaterial.material, fireMaterial.material, smokeMaterial.material)
-
-    const core = new THREE.Mesh(quad, coreMaterial.material)
-    const fire = new THREE.Mesh(quad, fireMaterial.material)
-    const smoke = new THREE.Mesh(quad, smokeMaterial.material)
-    for (const mesh of [core, fire, smoke]) {
-      mesh.frustumCulled = false
-      mesh.visible = false
-    }
+  function layer(color: THREE.Color, falloff: number, additive: boolean, order: number): THREE.Mesh {
+    const made = radial(color, falloff, additive)
+    materials.push(made.material)
+    const mesh = new THREE.Mesh(quad, made.material)
+    mesh.frustumCulled = false
+    mesh.visible = false
     // **`group.add` の順序では決まらない。**three は透明を
     // `renderOrder → z 降順 → id 昇順` で並べ替える
-    // （`WebGLRenderLists.js` の `reversePainterSortStable`）。3 層は同じ位置に
-    // 置くので z が一致し、`renderOrder` を書かないと生成順（id）で決まる。
-    // 加算だった頃は順序が結果を変えないので露出しなかった
-    smoke.renderOrder = -1
-    core.renderOrder = 1
-    group.add(smoke)
-    group.add(fire)
-    group.add(core)
-    return { core, fire, smoke }
-  })
+    // （`WebGLRenderLists.js` の `reversePainterSortStable`）。層は同じ位置に
+    // 置くので z が一致し、`renderOrder` を書かないと生成順（id）で決まる
+    mesh.renderOrder = order
+    group.add(mesh)
+    return mesh
+  }
+  const slots: Slot[] = Array.from({ length: capacity }, () => ({
+    smoke: layer(SMOKE_COLOR, 0.9, false, -1),
+    fire: layer(RED_ORANGE, 0.8, false, 0),
+    band: layer(RED_ORANGE, 0.8, false, 0),
+    core: layer(YELLOW_ORANGE, 1.2, false, 1),
+    bandInner: layer(YELLOW_ORANGE, 1.2, false, 1),
+    hot: layer(HOT_COLOR, 1.4, true, 2),
+    bandHot: layer(BAND_HOT_COLOR, 1.4, true, 2),
+  }))
+  const allLayers = (slot: Slot): THREE.Mesh[] => [
+    slot.smoke,
+    slot.fire,
+    slot.band,
+    slot.core,
+    slot.bandInner,
+    slot.hot,
+    slot.bandHot,
+  ]
 
   let drawn = 0
 
@@ -321,9 +320,7 @@ export function createFlares(
         const slot = slots[i]!
         const flare = flares[i]
         if (!enabled || flare === undefined || !flare.alive) {
-          slot.core.visible = false
-          slot.fire.visible = false
-          slot.smoke.visible = false
+          for (const mesh of allLayers(slot)) mesh.visible = false
           continue
         }
 
@@ -344,17 +341,22 @@ export function createFlares(
         // 火工品は一瞬で最大光度へ達するので、膨らませると閃光に見えない
         const fireOpacity = FLARE_OPACITY * fireFade
         const fireRadius = FLARE_RADIUS * (1 + FLASH_RADIUS_GAIN * flash)
-        // 白熱と赤を混ぜる。`flash` が 1 なら白、0 なら赤
-        flashColor.copy(FLARE_COLOR).lerp(FLASH_COLOR, flash)
-        setColor(slot.core, flashColor)
-        setColor(slot.fire, flashColor)
+        // 閃光は黄みの白い芯を膨らませて出す（段 B8 までは火の色を白へ混ぜていた）
+        if (place(slot.fire, world, fireRadius, fireOpacity, cameraPosition, cameraForward)) drawn++
+        place(slot.core, world, fireRadius * 0.55, fireOpacity, cameraPosition, cameraForward)
+        place(slot.hot, world, HOT_RADIUS * (1 + 2 * FLASH_RADIUS_GAIN * flash), fireOpacity, cameraPosition, cameraForward)
 
-        // 芯と暈は同じ大きさと濃さで置く。芯の側が `CORE_CUT` で内側だけ残す
-        place(slot.core, world, fireRadius, fireOpacity, cameraPosition, cameraForward)
-        if (
-          place(slot.fire, world, fireRadius, fireOpacity, cameraPosition, cameraForward)
-        ) {
-          drawn++
+        // 帯は進む向きの後ろへ伸ばす。速さが無ければ出さない
+        const speed = Math.hypot(flare.velocity.x, flare.velocity.y, flare.velocity.z)
+        if (speed > 1) {
+          backward.set(-flare.velocity.x / speed, -flare.velocity.y / speed, -flare.velocity.z / speed)
+          placeBand(slot.band, world, backward, BAND_LENGTH, BAND_WIDTH, fireOpacity, cameraPosition, cameraForward)
+          placeBand(slot.bandInner, world, backward, BAND_INNER_LENGTH, BAND_INNER_WIDTH, fireOpacity, cameraPosition, cameraForward)
+          placeBand(slot.bandHot, world, backward, BAND_HOT_LENGTH, BAND_HOT_WIDTH, fireOpacity, cameraPosition, cameraForward)
+        } else {
+          slot.band.visible = false
+          slot.bandInner.visible = false
+          slot.bandHot.visible = false
         }
         place(
           slot.smoke,
@@ -364,6 +366,18 @@ export function createFlares(
           cameraPosition,
           cameraForward,
         )
+      }
+    },
+
+    prewarm(cameraPosition, cameraForward) {
+      const slot = slots[0]
+      if (slot === undefined) return
+      scratch.copy(cameraPosition).addScaledVector(cameraForward, 50)
+      for (const mesh of allLayers(slot)) {
+        mesh.position.copy(scratch)
+        mesh.scale.setScalar(1)
+        radialSpriteHandle(mesh.material as THREE.Material)!.setOpacity(0)
+        mesh.visible = true
       }
     },
 

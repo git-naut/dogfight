@@ -208,13 +208,16 @@ export const SCENES = [
   // 横並びだったころは 113x31 だった。
   // **色は付けない。**最も赤い画素で赤み 3・彩度 3。深度書きを落とすと
   // 大気の霞に潰れて寄与そのものが減る（`docs/decisions/0008` の表）
+  // **段 B9 で改めた。**ユーザーの指示でミサイルの炎と同じ赤みの橙の火と帯にし、霞の後ろのパスで描く
   { name: 'enemy-flare', script: 'enemy-flare', frame: 180, hour: 16, coverage: 0, watches: ['flares'] },
   // 点火の閃光。**f180 には写らない**（撒いてから 1.49 秒後で、閃光は
   // `FLARE_FLASH_SECONDS` 0.25 秒で終わる）。この台本は f1 で撒くので、
   // f10 は経過 0.075 秒にあたる。**この 1 枚が閃光の見張り。**
   // 実測で寄与は 119 画素・最大 169 階調（定常の 64 より強い）。
   // **閃光を落とすとここが暗くなる。**色ではなく明るさで見張る
-  { name: 'enemy-flare-flash', script: 'enemy-flare', frame: 10, hour: 16, coverage: 0, watches: ['flares', 'bloom'] },
+  // 段 B9 で `bloom` を外した。フレアを霞の後ろのパスへ移し、ブルームのあとで重ねるようになったので、
+  // ブルームを切っても絵が動かない（`MUTATE=1` で発火しなかった）
+  { name: 'enemy-flare-flash', script: 'enemy-flare', frame: 10, hour: 16, coverage: 0, watches: ['flares'] },
   // ミッションの時計と残敵。**走行中は HUD 緑。**左上に置く（中央上部は
   // 方位テープとその上の現在方位・三角、さらに上へピッチラダーの目盛が
   // 来て埋まっている）。

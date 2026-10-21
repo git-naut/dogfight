@@ -1,12 +1,12 @@
 import * as THREE from 'three'
 import { MISSILE_LENGTH } from '../../sim/weapons/missile'
-import { clampRadiusToNear } from './explosions'
 import {
   createGlRadialSprite,
   makeRadialSprite,
   radialSpriteHandle,
   type RadialSpriteFactory,
 } from './radialSprite'
+import { BAND_HOT_COLOR, HOT_COLOR, RED_ORANGE, YELLOW_ORANGE, placeBand, placeRound } from './fireSprites'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -54,32 +54,11 @@ const FLAME_HOT_WIDTH = 0.5
 /** 噴射口の白い芯の半径 m */
 const NOZZLE_HOT_RADIUS = 0.35
 
-/**
- * 色。**爆発の火の玉で測った教訓（`explosions.ts` の `FIREBALL_COLOR`・`CORE_COLOR`）を踏む。**
- *
- * - 露出 6 倍のあとで 1 を越えると AgX が白へ寄せて彩度が消える。最初の版は芯 (0.9, 0.55, 0.28)・
- *   暈 (0.7, 0.24, 0.06) で、出力は白い点と淡い桃色のにじみになった。次の (0.5, 0.24, 0.07) でも
- *   いちばん明るい画素は rgb(221,165,125)・彩度 0.43 の肌色だった
- * - 赤は通常合成でしか出ない。加算は空が敷いた明るさより G と B を下げられない
- *
- * そこで、赤みの橙と黄みの橙は露出後が 1 未満に収まる値を通常合成で置き、録画の黄みの白い芯は加算で
- * 重ねて出す（爆発の `HOT_CORE_COLOR` と同じ形）
- */
-/** 赤みの橙。発射炎のまわりと炎の尾の外側 */
-const RED_ORANGE = new THREE.Color(0.16, 0.04, 0.008)
-/** 黄みの橙。発射炎の芯と炎の尾の内側 */
-const YELLOW_ORANGE = new THREE.Color(0.17, 0.08, 0.016)
-/** 黄みの白。露出前の値で、加算で重ねる */
-const HOT_COLOR = new THREE.Color(1.0, 0.8, 0.45)
-/** 炎の尾の芯の黄みの白。尾は長いので、発射炎の芯より抑える */
-const FLAME_HOT_COLOR = new THREE.Color(0.6, 0.45, 0.24)
+// 色は `fireSprites.ts`（フレアと共有）。露出後 1 未満の赤みの橙を通常合成、黄みの白い芯だけ加算
 
 const GLOW_OPACITY = 1
 const CORE_OPACITY = 1
 const HOT_OPACITY = 1
-
-/** これより近い板は描かない m。画面を塗りつぶさないため（`flares.ts` の `MIN_CAMERA_DISTANCE`） */
-const MIN_CAMERA_DISTANCE = 8
 
 /** 描画が読むミサイル 1 発ぶん。`scene.ts` の `MissilePose` と同じ形 */
 export interface MissileFlameSource {
@@ -120,12 +99,6 @@ const NOT_ENABLED: MissileFlames = {
 const forward = new THREE.Vector3()
 const backward = new THREE.Vector3()
 const nozzle = new THREE.Vector3()
-const middle = new THREE.Vector3()
-const toCamera = new THREE.Vector3()
-const side = new THREE.Vector3()
-const normal = new THREE.Vector3()
-const basis = new THREE.Matrix4()
-const lookMatrix = new THREE.Matrix4()
 const scratch = new THREE.Vector3()
 const MINUS_Z = new THREE.Vector3(0, 0, -1)
 
@@ -182,7 +155,7 @@ export function createMissileFlames(
     flashCore: layer(YELLOW_ORANGE, 1.2, 1, false, flashSprite),
     flameInner: layer(YELLOW_ORANGE, 1.2, 1),
     flashHot: layer(HOT_COLOR, 1.4, 2, true, flashSprite),
-    flameHot: layer(FLAME_HOT_COLOR, 1.4, 2, true),
+    flameHot: layer(BAND_HOT_COLOR, 1.4, 2, true),
     nozzleHot: layer(HOT_COLOR, 1.4, 2, true),
   }))
   const allLayers = (slot: Slot): THREE.Mesh[] => [
@@ -197,63 +170,6 @@ export function createMissileFlames(
 
   let flashesDrawn = 0
   let flamesDrawn = 0
-
-  function hide(mesh: THREE.Mesh): false {
-    mesh.visible = false
-    return false
-  }
-
-  /** カメラを向く丸い板を置く。描いたら true */
-  function placeRound(
-    mesh: THREE.Mesh,
-    position: THREE.Vector3,
-    radius: number,
-    opacity: number,
-    cameraPosition: THREE.Vector3,
-    cameraForward: THREE.Vector3,
-  ): boolean {
-    scratch.subVectors(position, cameraPosition)
-    if (opacity <= 0.004 || scratch.lengthSq() < MIN_CAMERA_DISTANCE ** 2) return hide(mesh)
-    const clamped = clampRadiusToNear(scratch.dot(cameraForward), radius)
-    if (clamped <= 0) return hide(mesh)
-    mesh.position.copy(position)
-    mesh.quaternion.setFromRotationMatrix(lookMatrix.lookAt(cameraPosition, position, THREE.Object3D.DEFAULT_UP))
-    mesh.scale.setScalar(clamped * 2)
-    radialSpriteHandle(mesh.material as THREE.Material)!.setOpacity(opacity)
-    mesh.visible = true
-    return true
-  }
-
-  /**
-   * 噴射口から後ろへ伸ばした板を置く。軸の周りに回して面をカメラへ向ける。描いたら true。
-   *
-   * 板の中心は噴射口から `length / 2` 後ろ。中心がカメラの near 面より手前なら描かない
-   */
-  function placeAxial(
-    mesh: THREE.Mesh,
-    length: number,
-    width: number,
-    opacity: number,
-    cameraPosition: THREE.Vector3,
-    cameraForward: THREE.Vector3,
-  ): boolean {
-    middle.copy(nozzle).addScaledVector(backward, length / 2)
-    toCamera.subVectors(cameraPosition, middle)
-    if (toCamera.lengthSq() < MIN_CAMERA_DISTANCE ** 2) return hide(mesh)
-    if (clampRadiusToNear(-toCamera.dot(cameraForward), width / 2) <= 0) return hide(mesh)
-    side.crossVectors(backward, toCamera)
-    // 真後ろから見ると軸が点になる。そのときは横の向きを決め打ちにする
-    if (side.lengthSq() < 1e-8) side.set(1, 0, 0)
-    side.normalize()
-    normal.crossVectors(side, backward).normalize()
-    basis.makeBasis(side, backward, normal)
-    mesh.position.copy(middle)
-    mesh.quaternion.setFromRotationMatrix(basis)
-    mesh.scale.set(width, length, 1)
-    radialSpriteHandle(mesh.material as THREE.Material)!.setOpacity(opacity)
-    mesh.visible = true
-    return true
-  }
 
   return {
     object: group,
@@ -289,9 +205,9 @@ export function createMissileFlames(
 
         // 炎の尾。燃えているあいだ
         if (missile.burning) {
-          const flameShown = placeAxial(slot.flame, FLAME_LENGTH, FLAME_WIDTH, GLOW_OPACITY, cameraPosition, cameraForward)
-          placeAxial(slot.flameInner, FLAME_INNER_LENGTH, FLAME_INNER_WIDTH, CORE_OPACITY, cameraPosition, cameraForward)
-          placeAxial(slot.flameHot, FLAME_HOT_LENGTH, FLAME_HOT_WIDTH, HOT_OPACITY, cameraPosition, cameraForward)
+          const flameShown = placeBand(slot.flame, nozzle, backward, FLAME_LENGTH, FLAME_WIDTH, GLOW_OPACITY, cameraPosition, cameraForward)
+          placeBand(slot.flameInner, nozzle, backward, FLAME_INNER_LENGTH, FLAME_INNER_WIDTH, CORE_OPACITY, cameraPosition, cameraForward)
+          placeBand(slot.flameHot, nozzle, backward, FLAME_HOT_LENGTH, FLAME_HOT_WIDTH, HOT_OPACITY, cameraPosition, cameraForward)
           placeRound(slot.nozzleHot, nozzle, NOZZLE_HOT_RADIUS, HOT_OPACITY, cameraPosition, cameraForward)
           if (flameShown) flamesDrawn++
         } else {

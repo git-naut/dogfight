@@ -219,9 +219,15 @@ export async function createSceneViews(input: SceneViewsInput): Promise<SceneVie
   // フレア。積んでいる数ぶんの器を作る。同時に燃えるのはもっと少ないが、
   // 器を増やさないので使い回しで足りる
   // 自機ぶん + 敵 8 機ぶん。同時に燃えるのはずっと少ないが、器を使い回す
-  const flares: Flares = createFlares(FLARE_CAPACITY * (1 + MAX_TARGETS), quality, sprite)
+  // **段 B9 で爆発の組の子にした。**ミサイルの炎と同じ赤みの橙の火と帯に寄せたので、霞の後ろのパスで
+  // 描く（場面のパスでは深度を書かない帯に霞が掛かって消える）。材質は場面の物に隠される判定を持つ作り手
+  const flares: Flares = createFlares(
+    FLARE_CAPACITY * (1 + MAX_TARGETS),
+    quality,
+    input.explosionSprite ?? sprite,
+  )
   flares.object.visible = options.showFlares ?? true
-  scene.add(flares.object)
+  explosions.object.add(flares.object)
 
   // ミサイルの発射炎と炎の尾（段 B9）。飛んでいるミサイルの器と同じ数。
   // **爆発の組の子にする。**node 経路は爆発の組を霞の後ろのパスで描く。場面のパスに置くと、深度を

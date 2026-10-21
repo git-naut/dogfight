@@ -1287,6 +1287,7 @@ async function main(): Promise<void> {
       missilesFired: world.combat.missilesFired,
       throttle: world.player.throttle,
       threatened: world.combat.threat.active,
+      timeToImpact: world.combat.threat.timeToImpact,
     })
 
     // 決着したらリザルトを出す。**毎フレーム作り直さない。**出ていなければ

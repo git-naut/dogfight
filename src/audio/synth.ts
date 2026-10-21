@@ -14,6 +14,7 @@
  * 確かめる（`tests/e2e/smoke.spec.ts` の「音」）。`AudioContext` に
  * 狭めると、その検査が書けない。
  */
+import { WARBLE_PERIOD_FAR, WARNING_TONE_HZ, WARNING_WARBLE_CENTS } from './warningTone'
 
 /**
  * クリップを防ぐリミッタ。
@@ -194,32 +195,96 @@ export function playLaunch(
   src.stop(when + duration)
 }
 
+/** ミサイル警告の声。追われているあいだ鳴らし続ける（段 B10） */
+export interface WarningVoice {
+  /** 鳴らし始める。すでに鳴っていれば何もしない */
+  start(): void
+  /** 止める。短くフェードして切る */
+  stop(): void
+  /** 揺れの周期 秒を変える（`warblePeriod`） */
+  setPeriod(seconds: number): void
+  dispose(): void
+}
+
+/** 一定の高さの声と揺れる声の大きさ。段 B9 までの断続音（矩形波 0.32）と耳で並ぶ程度にした（推測） */
+const WARNING_STEADY_GAIN = 0.11
+const WARNING_WARBLE_GAIN = 0.08
+
 /**
- * ミサイル警告。
+ * ミサイル警告（段 B10、ADR 0035）。
  *
- * 矩形波の断続。**HUD の警告と同じ意味を持たせる。**耳障りにする必要が
- * あるので方形波を使うが、そのままだと痛いのでローパスで角を落とす。
+ * 録画の警告音は約 766 Hz の倍音を持つ持続音で、高さが一瞬下がって戻る揺れが周期的に入る
+ * （`warningTone.ts`）。のこぎり波を 2 本重ね、1 本は一定の高さ、もう 1 本は正弦波の低周波で高さを
+ * 0〜−57 セント揺らす。段 B9 までは 880 Hz の矩形波 0.12 秒を 0.5 秒おきに鳴らす断続音だった。
+ *
+ * 倍音の 3〜6 倍（2,298〜4,596 Hz）を残すため、ローパスは 6 kHz に置く
  */
-export function playWarningBeep(
-  ctx: BaseAudioContext,
-  destination: AudioNode,
-  when = ctx.currentTime,
-): void {
-  const duration = 0.12
-  const osc = ctx.createOscillator()
-  osc.type = 'square'
-  osc.frequency.value = 880
+export function createWarningVoice(ctx: BaseAudioContext, destination: AudioNode): WarningVoice {
+  const steady = ctx.createOscillator()
+  steady.type = 'sawtooth'
+  steady.frequency.value = WARNING_TONE_HZ
+  const warble = ctx.createOscillator()
+  warble.type = 'sawtooth'
+  warble.frequency.value = WARNING_TONE_HZ
+  // 揺れは 0〜−57 セント。中心を −28.5 に置き、正弦波で ±28.5 振る
+  warble.detune.value = -WARNING_WARBLE_CENTS / 2
+  const lfo = ctx.createOscillator()
+  lfo.type = 'sine'
+  lfo.frequency.value = 1 / WARBLE_PERIOD_FAR
+  const depth = ctx.createGain()
+  depth.gain.value = WARNING_WARBLE_CENTS / 2
+  lfo.connect(depth).connect(warble.detune)
+
+  const steadyGain = ctx.createGain()
+  steadyGain.gain.value = WARNING_STEADY_GAIN
+  const warbleGain = ctx.createGain()
+  warbleGain.gain.value = WARNING_WARBLE_GAIN
   const filter = ctx.createBiquadFilter()
   filter.type = 'lowpass'
-  filter.frequency.value = 2600
+  filter.frequency.value = 6000
   const gain = ctx.createGain()
-  gain.gain.setValueAtTime(0.0001, when)
-  gain.gain.exponentialRampToValueAtTime(0.32, when + 0.008)
-  gain.gain.setValueAtTime(0.32, when + duration - 0.02)
-  gain.gain.exponentialRampToValueAtTime(0.0001, when + duration)
-  osc.connect(filter).connect(gain).connect(destination)
-  osc.start(when)
-  osc.stop(when + duration)
+  gain.gain.value = 0
+
+  steady.connect(steadyGain).connect(filter)
+  warble.connect(warbleGain).connect(filter)
+  filter.connect(gain).connect(destination)
+  steady.start()
+  warble.start()
+  lfo.start()
+
+  let playing = false
+  return {
+    start(): void {
+      if (playing) return
+      playing = true
+      const now = ctx.currentTime
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      gain.gain.linearRampToValueAtTime(1, now + 0.02)
+    },
+    stop(): void {
+      if (!playing) return
+      playing = false
+      const now = ctx.currentTime
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      // **切るのは 30 ms。**即座に 0 にするとプツッと鳴る（機銃と同じ）
+      gain.gain.linearRampToValueAtTime(0, now + 0.03)
+    },
+    setPeriod(seconds: number): void {
+      // 周期の変わり目で揺れが跳ねないよう、短く寄せる
+      lfo.frequency.setTargetAtTime(1 / seconds, ctx.currentTime, 0.05)
+    },
+    dispose(): void {
+      try {
+        steady.stop()
+        warble.stop()
+        lfo.stop()
+      } catch {
+        // すでに止まっている
+      }
+    },
+  }
 }
 
 /**

@@ -4,12 +4,14 @@ import {
   createEngineVoice,
   playExplosion,
   playLaunch,
-  playWarningBeep,
+  createWarningVoice,
   createLimiter,
   createSoftClip,
   type GunVoice,
   type EngineVoice,
+  type WarningVoice,
 } from './synth'
+import { warblePeriod } from './warningTone'
 import {
   diffCounters,
   limitExplosions,
@@ -39,6 +41,8 @@ export interface AudioView extends AudioCounters {
   readonly throttle: number
   /** ミサイルに追われているか。HUD の警告と同じ条件 */
   readonly threatened: boolean
+  /** いちばん近いミサイルの着弾までの秒（段 B10）。警告音の揺れの周期を縮める */
+  readonly timeToImpact: number
 }
 
 export interface GameAudio {
@@ -49,14 +53,6 @@ export interface GameAudio {
   /** 止める。ページを離れるとき */
   dispose(): void
 }
-
-/**
- * 警告音の間隔 秒。
- *
- * **HUD の点滅と同じ速さにしない。**目と耳が別々に主張すると落ち着かない。
- * 0.5 秒はロックオン警報の実機の感覚に近く、切迫を伝えつつ会話を邪魔しない
- */
-const WARNING_INTERVAL = 0.5
 
 /**
  * 機銃の発射速度 発/秒。
@@ -90,11 +86,11 @@ export function createGameAudio(volume: number): GameAudio | null {
   const noise = createNoiseBuffer(ctx)
   const gun: GunVoice = createGunVoice(ctx, master, noise, ROUNDS_PER_SECOND)
   const engine: EngineVoice = createEngineVoice(ctx, master, noise)
+  // 段 B10 で持続音にした。段 B9 までは 0.5 秒おきの断続音（`WARNING_INTERVAL`）
+  const warning: WarningVoice = createWarningVoice(ctx, master)
 
   /** 前のフレームのカウンタ。最初のフレームは差を取らない */
   let previous: AudioCounters | null = null
-  /** 次に警告音を鳴らす時刻。`ctx.currentTime` と比べる */
-  let nextWarningAt = 0
 
   return {
     update(view: AudioView): void {
@@ -124,14 +120,12 @@ export function createGameAudio(volume: number): GameAudio | null {
         playLaunch(ctx, master, noise, now + i * 0.06)
       }
 
+      // 追われているあいだ鳴らし続け、着弾が近づくほど揺れを速める（段 B10）
       if (view.threatened) {
-        if (now >= nextWarningAt) {
-          playWarningBeep(ctx, master, now)
-          nextWarningAt = now + WARNING_INTERVAL
-        }
+        warning.setPeriod(warblePeriod(view.timeToImpact))
+        warning.start()
       } else {
-        // 追われなくなったら次の警告は即座に鳴らせるようにする
-        nextWarningAt = 0
+        warning.stop()
       }
 
       engine.setThrottle(view.throttle)
@@ -144,6 +138,7 @@ export function createGameAudio(volume: number): GameAudio | null {
     dispose(): void {
       gun.dispose()
       engine.dispose()
+      warning.dispose()
       void ctx.close()
     },
   }

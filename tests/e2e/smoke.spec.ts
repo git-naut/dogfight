@@ -1864,6 +1864,31 @@ test.describe('効果音', () => {
   })
 
   /**
+   * 段 B10。警告音は録画の形（約 766 Hz の倍音を持つ持続音）。3〜6 倍の高さ（2,298〜4,596 Hz）に山があり、
+   * 追われているあいだ途切れない。書き出した 1 秒の 0.1〜0.9 秒を測る（`src/audio/probe.ts`）
+   */
+  test('警告音は 766 Hz の倍音を持つ持続音', async ({ page }) => {
+    await page.goto('/dogfight/?capture=1&frame=60&audioprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const handle = await page.waitForFunction(
+      () =>
+        (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
+      undefined,
+      { timeout: waitBudgetMs(60_000) },
+    )
+    // `TestHook.audioProbe` は大きさだけの素の形で書いてある（`capture.ts` の作法）。形は `unknown` を経て読む
+    const probe = (await handle.jsonValue()) as unknown as {
+      warningShape: { harmonicPeaksDb: number[]; continuity: number }
+    }
+    // 実測は山 48〜58 dB、途切れの比 0.73（2026-10-21）
+    expect(probe.warningShape.harmonicPeaksDb).toHaveLength(4)
+    for (const [i, db] of probe.warningShape.harmonicPeaksDb.entries()) {
+      expect(db, `${i + 3} 倍の高さに山が無い`).toBeGreaterThan(10)
+    }
+    expect(probe.warningShape.continuity, '途切れている').toBeGreaterThan(0.6)
+  })
+
+  /**
    * **全部が同時に鳴ってもクリップしない。**
    *
    * `DynamicsCompressorNode` はルックアヘッドを持たないので瞬間的な

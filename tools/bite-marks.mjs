@@ -1872,4 +1872,22 @@ export const BITE_MARKS = [
     expect: 'tests/audio/warningTone.test.ts',
     why: '着弾が近づいても揺れの周期が縮まない（字幕の「間隔が短くなる」）',
   },
+  {
+    id: 'locator-not-sharper',
+    kind: '定数の摂動',
+    file: 'src/hud/arrow.ts',
+    find: 'export const LOCATOR_WIDTH_FAR_REF = 14\n',
+    replace: 'export const LOCATOR_WIDTH_FAR_REF = 30\n',
+    expect: 'tests/hud/arrow.test.ts',
+    why: '遠い相手でも印の底が細くならず、鋭くならない（段 D8）',
+  },
+  {
+    id: 'locator-base-near-center',
+    kind: '定数の摂動',
+    file: 'src/hud/arrow.ts',
+    find: 'export const LOCATOR_BASE_RADIUS_REF = 85\n',
+    replace: 'export const LOCATOR_BASE_RADIUS_REF = 40\n',
+    expect: 'tests/hud/arrow.test.ts',
+    why: '印の底が照準に重なる（録画は中心から 約 80〜90 画素）',
+  },
 ]

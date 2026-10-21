@@ -51,7 +51,7 @@ import {
 import { LAUNCHER_SHAPE, rgbaText, silhouetteColor } from './armament'
 import type { Launcher } from '../sim/combat'
 import { RADAR_OUTER_RING, RADAR_OWN_Y, RADAR_RINGS, radarBearing, radarPoint, radarRange } from './radar'
-import { offscreenDirection } from './arrow'
+import { locatorShape, offscreenDirection, type LocatorShape } from './arrow'
 import {
   computeLayout,
   ARMAMENT_LINE_REF,
@@ -168,14 +168,13 @@ const TARGET_BOX_HALF_REF = 16.5
 const LOCK_DIAMOND_HALF_REF = 17.5
 /** ロックしたときの四角の半分（段 D6、録画のコマ 20020 で約 42 画素） */
 const LOCK_SQUARE_HALF_REF = 21
-/**
- * 画面の外の相手を指す矢印を置く半径。画面の短い辺に対する割合（段 35）。
- *
- * 0.28 では真後ろを指す矢印が自機のノズルの間に重なり、炎とまぎれた（missile-warning）。
- * 0.4 で機体の下に出る。上向きは方位の目盛りの高さに来るが、段 36 で追従視点から消す
+/*
+ * 画面の外の相手を指す印（段 D8 で録画のターゲットロケーターにした）。寸法は `arrow.ts`。
+ * 段 35 では短い辺の 40% に塗りつぶしの小さな三角を置いていた。0.28 では真後ろを指す三角が自機の
+ * ノズルの間に重なり、炎とまぎれたため。録画の印は線だけなので、中心から 85 画素に置く
  */
-const ARROW_RADIUS = 0.4
 const arrowScratch = { x: 0, y: 0 }
+const locatorScratch: LocatorShape = { tipX: 0, tipY: 0, leftX: 0, leftY: 0, notchX: 0, notchY: 0, rightX: 0, rightY: 0 }
 
 /**
  * レーダーの色（段 B5、録画に合わせた）。録画は枠と線が緑（RGB 95,193,90）、地は半透明の暗い緑で、
@@ -1047,10 +1046,12 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   }
 
   /**
-   * 画面の外の相手を指す矢印（段 35）。**いちばん近い相手を 1 つだけ。**
+   * 画面の外の相手を指す印（段 35、段 D8 で録画のターゲットロケーターにした）。**いちばん近い相手を 1 つだけ。**
    *
-   * 画面の中心のまわり（短い辺の 40%）に三角を置き、相手の方へ向ける。後ろの相手は
-   * 投影が折り返すので、向きの計算は `arrow.ts` に切り出してテストで固めた
+   * 録画（lesson 5 のコマ 19660〜19730）の、線だけの細長い三角錐。先端・底の左右・底のくぼみを結び、
+   * 先端からくぼみへ稜線を引く。塗らない。底は画面の中心から 85 画素、長さ 115 画素で、遠い相手ほど
+   * 底を細くして鋭くする（ユーザーの決定）。色は主の緑で、右に機種名を出す。後ろの相手は投影が
+   * 折り返すので、向きの計算は `arrow.ts` に切り出してテストで固めた
    */
   function drawArrow(m: Mat4, sample: AircraftSample, armament: HudArmament): void {
     arrowShown = false
@@ -1071,19 +1072,37 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
     if (dir === null) return
     arrowShown = true
 
-    const r = Math.min(width, height) * ARROW_RADIUS
-    const tipX = width / 2 + dir.x * r
-    const tipY = height / 2 + dir.y * r
-    // 三角。先端が相手の方、底辺は向きに直交
-    const back = 12 * u
-    const side = 7 * u
+    const shape = locatorShape(dir, best, width / 2, height / 2, s, locatorScratch)
+    ctx!.strokeStyle = primary
+    ctx!.lineWidth = lineWidth
+    ctx!.lineJoin = 'miter'
     ctx!.beginPath()
-    ctx!.moveTo(tipX, tipY)
-    ctx!.lineTo(tipX - dir.x * back - dir.y * side, tipY - dir.y * back + dir.x * side)
-    ctx!.lineTo(tipX - dir.x * back + dir.y * side, tipY - dir.y * back - dir.x * side)
+    ctx!.moveTo(shape.tipX, shape.tipY)
+    ctx!.lineTo(shape.leftX, shape.leftY)
+    ctx!.lineTo(shape.notchX, shape.notchY)
+    ctx!.lineTo(shape.rightX, shape.rightY)
     ctx!.closePath()
-    ctx!.fillStyle = c.kind === 'enemy' ? WARN : primary
-    ctx!.fill()
+    // 稜線。先端からくぼみへ
+    ctx!.moveTo(shape.tipX, shape.tipY)
+    ctx!.lineTo(shape.notchX, shape.notchY)
+    ctx!.stroke()
+
+    // 機種名。印の長さの中ほどの、右の側（録画は右に置く）。左を指すときも印に重ねない
+    if (c.designation !== '') {
+      const midX = (shape.tipX + shape.notchX) / 2
+      const midY = (shape.tipY + shape.notchY) / 2
+      ctx!.font = smallFont
+      ctx!.fillStyle = primary
+      ctx!.textBaseline = 'middle'
+      const gap = 10 * s
+      if (dir.x >= -0.2) {
+        ctx!.textAlign = 'left'
+        shadedText(c.designation, Math.max(shape.leftX, shape.rightX, shape.tipX, midX) + gap, midY)
+      } else {
+        ctx!.textAlign = 'right'
+        shadedText(c.designation, Math.min(shape.leftX, shape.rightX, shape.tipX, midX) - gap, midY)
+      }
+    }
   }
 
   /**

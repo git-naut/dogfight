@@ -1,0 +1,82 @@
+[
+  {
+    "name": "engine-turbine",
+    "loop": true,
+    "seconds": 10,
+    "decodedSeconds": 10,
+    "rmsDb": -18,
+    "peakDb": -9.5,
+    "bytes": 74178,
+    "seamBefore": 0.29,
+    "seamDecoded": 0.81
+  },
+  {
+    "name": "engine-idle",
+    "loop": true,
+    "seconds": 10,
+    "decodedSeconds": 10,
+    "rmsDb": -18,
+    "peakDb": -5.8,
+    "bytes": 74176,
+    "seamBefore": 0.89,
+    "seamDecoded": 0.79
+  },
+  {
+    "name": "engine-burner",
+    "loop": true,
+    "seconds": 8,
+    "decodedSeconds": 8,
+    "rmsDb": -18,
+    "peakDb": -10.2,
+    "bytes": 64575,
+    "seamBefore": 0.53,
+    "seamDecoded": 0.78
+  },
+  {
+    "name": "burner-light",
+    "loop": false,
+    "seconds": 4.5,
+    "decodedSeconds": 4.5,
+    "rmsDb": -8.3,
+    "peakDb": -1,
+    "bytes": 36750
+  },
+  {
+    "name": "flyby",
+    "loop": false,
+    "seconds": 20,
+    "decodedSeconds": 20,
+    "rmsDb": -21.5,
+    "peakDb": -1,
+    "bytes": 144410
+  },
+  {
+    "name": "gun-loop",
+    "loop": true,
+    "seconds": 1.9,
+    "decodedSeconds": 1.9,
+    "rmsDb": -18,
+    "peakDb": -8.7,
+    "bytes": 19024,
+    "seamBefore": 2.46,
+    "seamDecoded": 1.19
+  },
+  {
+    "name": "gun-tail",
+    "loop": false,
+    "seconds": 1.5,
+    "decodedSeconds": 1.5,
+    "rmsDb": -17.3,
+    "peakDb": -1,
+    "bytes": 10436
+  },
+  {
+    "name": "missile-launch",
+    "loop": false,
+    "seconds": 2.3,
+    "decodedSeconds": 2.3,
+    "rmsDb": -13.3,
+    "peakDb": -1,
+    "bytes": 20771
+  }
+]

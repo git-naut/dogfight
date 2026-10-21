@@ -1889,6 +1889,41 @@ test.describe('効果音', () => {
   })
 
   /**
+   * 段 B11a。実録音の効果音（`public/audio/`、`tools/audio-import.mjs`）をブラウザで読み戻す。Opus は頭と
+   * 終わりに余白を持つので、読み戻した長さが書き出す前の長さと合うか、ループの継ぎ目に段差が出ないかを見る
+   */
+  test('実録音の効果音をブラウザで読み戻せ、ループの継ぎ目に段差がない', async ({ page }) => {
+    await page.goto('/dogfight/?capture=1&frame=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const manifest = (await (await page.request.get('/dogfight/audio/manifest.json')).json()) as {
+      name: string
+      loop: boolean
+      seconds: number
+    }[]
+    const results = await page.evaluate(async (entries) => {
+      const ctx = new OfflineAudioContext(1, 1, 48000)
+      const out: { name: string; seconds: number; seam: number }[] = []
+      for (const e of entries) {
+        const data = await (await fetch(`/dogfight/audio/${e.name}.ogg`)).arrayBuffer()
+        const buffer = await ctx.decodeAudioData(data)
+        const x = buffer.getChannelData(0)
+        const diffs: number[] = []
+        for (let i = 1; i < x.length; i++) diffs.push(Math.abs(x[i]! - x[i - 1]!))
+        diffs.sort((a, b) => a - b)
+        const median = diffs[diffs.length >> 1] || 1e-9
+        out.push({ name: e.name, seconds: buffer.duration, seam: Math.abs(x[0]! - x[x.length - 1]!) / median })
+      }
+      return out
+    }, manifest)
+    expect(results).toHaveLength(8)
+    for (const [i, r] of results.entries()) {
+      const e = manifest[i]!
+      expect(Math.abs(r.seconds - e.seconds), `${e.name} の長さ`).toBeLessThanOrEqual(0.005)
+      if (e.loop) expect(r.seam, `${e.name} の継ぎ目`).toBeLessThanOrEqual(3)
+    }
+  })
+
+  /**
    * **全部が同時に鳴ってもクリップしない。**
    *
    * `DynamicsCompressorNode` はルックアヘッドを持たないので瞬間的な

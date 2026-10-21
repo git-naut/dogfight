@@ -98,7 +98,19 @@ F/A-18C は SGI 形式の 512×512。F-16 は PNG で、`f16.png` が 2048×2048
 
 | ファイル | 名称 | 作者 | ライセンス | 取得元 | 取得日 |
 |---|---|---|---|---|---|
-| （未取得） | | | | | |
+| public/audio/engine-turbine.ogg | Jet Turbine Noise | qubodup | CC0 | [Freesound 205581](https://freesound.org/s/205581/) | 2026-10-05 |
+| public/audio/engine-idle.ogg | Idle F-22 Jet Plane | qubodup | CC0 | [Freesound 187734](https://freesound.org/s/187734/) | 2026-10-05 |
+| public/audio/engine-burner.ogg | Afterburner sound | StoneyJ | CC0 | [Freesound 104883](https://freesound.org/s/104883/) | 2026-10-05 |
+| public/audio/burner-light.ogg | Eurofighter afterburner woomph | surrey_film | CC0 | [Freesound 162242](https://freesound.org/s/162242/) | 2026-10-05 |
+| public/audio/flyby.ogg | F-18 hornet pass 01 | FreqMan | CC0 | [Freesound 135495](https://freesound.org/s/135495/) | 2026-10-05 |
+| public/audio/gun-loop.ogg・gun-tail.ogg | M61A2 Minigun | Seidhepriest | CC0 | [Freesound 611449](https://freesound.org/s/611449/) | 2026-10-05 |
+| public/audio/missile-launch.ogg | AGM-114 Hellfire Rocket Missile Launch | qubodup | CC0 | [Freesound 162368](https://freesound.org/s/162368/) | 2026-10-05 |
+
+取得日はユーザーがダウンロードへ落とした日。ライセンスは 2026-10-22 に各ページの原文で確かめ直し、ファイルの長さがページの長さと 10 ms 以内で一致することも確かめた。
+
+**元のファイルはコミットしない。**合わせて 約 58 MB あり、CC0 は元のファイルを添える義務を持たない。`tools/audio-import.mjs` が区間を切り出し、Opus（64 kbps）で `public/audio/` に書き出す。切り出した区間は同じ台本に書いてある。
+
+**611449 は録った場所や出所の記載が無い。**ページは CC0 だが、ゲームなどから抜いた音の恐れを否定できない。M61 系の実録音として、ユーザーの選択で使う（2026-10-22）。出所の分かる代わりは [Freesound 163119](https://freesound.org/s/163119/)（Navy MK 15 Phalanx CIWS、qubodup、CC0）。
 
 ## 調達先の候補
 

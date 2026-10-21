@@ -12,6 +12,7 @@ import {
   type WarningVoice,
 } from './synth'
 import { warblePeriod } from './warningTone'
+import { createRecordedEngineVoice, loadEngineSamples, type RecordedEngineVoice } from './recorded'
 import {
   diffCounters,
   limitExplosions,
@@ -48,11 +49,16 @@ export interface AudioView extends AudioCounters {
 export interface GameAudio {
   /** 毎フレーム呼ぶ */
   update(view: AudioView): void
+  /** エンジンが実録音に切り替わったか（段 B11b）。読み込みの前と、読み込めなかったときは false */
+  readonly engineRecorded: boolean
   /** 音量 0..1。設定画面から呼ぶ */
   setVolume(volume: number): void
   /** 止める。ページを離れるとき */
   dispose(): void
 }
+
+/** 合成音から実録音のエンジンへ入れ替える秒（段 B11b） */
+const ENGINE_SWAP_SECONDS = 0.5
 
 /**
  * 機銃の発射速度 発/秒。
@@ -85,7 +91,26 @@ export function createGameAudio(volume: number): GameAudio | null {
 
   const noise = createNoiseBuffer(ctx)
   const gun: GunVoice = createGunVoice(ctx, master, noise, ROUNDS_PER_SECOND)
-  const engine: EngineVoice = createEngineVoice(ctx, master, noise)
+  // 合成音のエンジンは専用のバスを通す。実録音が読めたら下げて止める（段 B11b）
+  const synthBus = ctx.createGain()
+  synthBus.connect(master)
+  let engine: EngineVoice | null = createEngineVoice(ctx, synthBus, noise)
+  let recorded: RecordedEngineVoice | null = null
+  let lastThrottle = 0
+  let disposed = false
+  // **読み込みは待たない。**読み終わるまでは合成音で鳴らし、読めたら 0.5 秒で入れ替える
+  void loadEngineSamples(ctx, import.meta.env.BASE_URL).then((samples) => {
+    if (samples === null || disposed) return
+    recorded = createRecordedEngineVoice(ctx, master, samples, 0)
+    recorded.setThrottle(lastThrottle)
+    recorded.setLevel(1, ENGINE_SWAP_SECONDS)
+    const now = ctx.currentTime
+    synthBus.gain.setValueAtTime(1, now)
+    synthBus.gain.linearRampToValueAtTime(0, now + ENGINE_SWAP_SECONDS)
+    const synth = engine
+    engine = null
+    setTimeout(() => synth?.dispose(), (ENGINE_SWAP_SECONDS + 0.1) * 1000)
+  })
   // 段 B10 で持続音にした。段 B9 までは 0.5 秒おきの断続音（`WARNING_INTERVAL`）
   const warning: WarningVoice = createWarningVoice(ctx, master)
 
@@ -128,7 +153,13 @@ export function createGameAudio(volume: number): GameAudio | null {
         warning.stop()
       }
 
-      engine.setThrottle(view.throttle)
+      engine?.setThrottle(view.throttle)
+      recorded?.setThrottle(view.throttle)
+      lastThrottle = view.throttle
+    },
+
+    get engineRecorded(): boolean {
+      return recorded !== null
     },
 
     setVolume(value: number): void {
@@ -136,8 +167,10 @@ export function createGameAudio(volume: number): GameAudio | null {
     },
 
     dispose(): void {
+      disposed = true
       gun.dispose()
-      engine.dispose()
+      engine?.dispose()
+      recorded?.dispose()
       warning.dispose()
       void ctx.close()
     },

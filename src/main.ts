@@ -43,7 +43,7 @@ import {
   runManualCloudDiag,
   showCloudDiag,
 } from './render/cloudDiag'
-import { probeAudio } from './audio/probe'
+import { probeAudio, renderEngineSweep } from './audio/probe'
 import {
   loadSettings,
   saveSettings,
@@ -205,6 +205,8 @@ const hook = installTestHook({
   hour: capture.hour,
   volume: 0,
   audioReady: false,
+  audioEngineRecorded: false,
+  audioSweep: null,
   programs: 0,
   compileMs: 0,
   gearDown: false,
@@ -360,11 +362,24 @@ async function main(): Promise<void> {
   // キャプチャの早期 return より前に置く。`OfflineAudioContext` なので
   // 実時間を待たず、1.5 秒ぶんの合成がミリ秒で終わる
   if (capture.audioProbe) {
-    void probeAudio().then((result) => {
+    void probeAudio(import.meta.env.BASE_URL).then((result) => {
       hook.audioProbe = result as unknown as Record<
         string,
         { rms: number; peak: number }
       >
+    })
+  }
+
+  // 試聴用の書き出し（段 B11b）。16 ビットにして base64 で置く。Windows の node が読んで WAV にする
+  if (capture.audioSweep) {
+    void renderEngineSweep(import.meta.env.BASE_URL).then((data) => {
+      if (data === null) return
+      const pcm = new Int16Array(data.length)
+      for (let i = 0; i < data.length; i++) pcm[i] = Math.max(-1, Math.min(1, data[i] ?? 0)) * 32767
+      let binary = ''
+      const bytes = new Uint8Array(pcm.buffer)
+      for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+      hook.audioSweep = btoa(binary)
     })
   }
 
@@ -1289,6 +1304,7 @@ async function main(): Promise<void> {
       threatened: world.combat.threat.active,
       timeToImpact: world.combat.threat.timeToImpact,
     })
+    hook.audioEngineRecorded = audio?.engineRecorded ?? false
 
     // 決着したらリザルトを出す。**毎フレーム作り直さない。**出ていなければ
     // 1 回だけ。R でやり直すと `hide()` が呼ばれて畳まれる

@@ -206,6 +206,8 @@ export interface CaptureConfig {
    * `?bench=` や `?sweep=1` と同じ、計測のためのモード
    */
   audioProbe: boolean
+  /** 試聴用に、実録音のエンジンでスロットルを 0 から 1 へ上げる 8 秒を書き出す（段 B11b、`?audiosweep=1`） */
+  audioSweep: boolean
   /**
    * 描画バックエンドの経路。`?gpu=0|1|2|3`。
    *
@@ -451,6 +453,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? params.get('sound') === '1'
       : params.get('capture') !== '1',
     audioProbe: params.get('audioprobe') === '1',
+    audioSweep: params.get('audiosweep') === '1',
     gpu: clampInt(params.get('gpu'), 0, 3, 0),
     webgl: params.get('webgl') === '1',
     // **足し込みのプローブで代表点を出す。**`?uvmode=world`。
@@ -655,6 +658,10 @@ export interface TestHook {
   volume: number
   /** 効果音が使える状態か。START を押すまで false */
   audioReady: boolean
+  /** エンジンが実録音に切り替わったか（段 B11b）。読み込みの前と、読み込めなかったときは false */
+  audioEngineRecorded: boolean
+  /** `?audiosweep=1` の書き出し。44.1 kHz・1 チャンネルの 16 ビットを base64 にしたもの。読めなければ null */
+  audioSweep: string | null
   /**
    * 生成済みのシェーダプログラム数（`renderer.info.programs`）。
    *

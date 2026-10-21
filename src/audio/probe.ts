@@ -9,6 +9,7 @@ import {
   createSoftClip,
 } from './synth'
 import { WARNING_TONE_HZ } from './warningTone'
+import { createRecordedEngineVoice, loadEngineSamples } from './recorded'
 
 /**
  * 音の自己診断。
@@ -47,6 +48,79 @@ export interface AudioProbe {
   readonly worstCase: AudioProbeResult
   /** 警告音の形（段 B10）。持続音の倍音の山と、途切れないか */
   readonly warningShape: WarningShape
+  /**
+   * 実録音のエンジン（段 B11b）。スロットル 0.2・0.7・1.0 で 1.5 秒ずつ書き出し、鳴り始めの 0.5 秒を
+   * 除いて測る。音のファイルを読めなかったら null
+   */
+  readonly engineLayers: readonly EngineLayerProbe[] | null
+}
+
+export interface EngineLayerProbe {
+  readonly throttle: number
+  /** 全体の大きさ dBFS */
+  readonly rmsDb: number
+  /** 音色の重心 Hz（48 点の強さの重み付き平均） */
+  readonly centroidHz: number
+  /** アフターバーナーの帯（200〜800 Hz）の強さ dB（相対） */
+  readonly burnerBandDb: number
+}
+
+/** 周波数ごとの強さを測る点。40 Hz〜12 kHz を対数で 48 点 */
+const BAND_FREQS = Array.from({ length: 48 }, (_, i) => 40 * Math.pow(12000 / 40, i / 47))
+
+function measureEngine(buffer: AudioBuffer, throttle: number): EngineLayerProbe {
+  const data = buffer.getChannelData(0)
+  const rate = buffer.sampleRate
+  const start = Math.floor(0.5 * rate)
+  const end = data.length
+  let sum = 0
+  for (let i = start; i < end; i++) sum += (data[i] ?? 0) ** 2
+  const rms = Math.sqrt(sum / (end - start))
+  const powers = BAND_FREQS.map((f) => powerAt(data, start, end, f, rate))
+  let weighted = 0
+  let total = 0
+  let band = 0
+  BAND_FREQS.forEach((f, i) => {
+    weighted += f * powers[i]!
+    total += powers[i]!
+    if (f >= 200 && f <= 800) band += powers[i]!
+  })
+  return {
+    throttle,
+    rmsDb: 20 * Math.log10(rms + 1e-12),
+    centroidHz: weighted / (total + 1e-12),
+    burnerBandDb: 10 * Math.log10(band + 1e-12),
+  }
+}
+
+/** 実録音のエンジンを `throttle` で 1.5 秒書き出す */
+async function renderRecordedEngine(baseUrl: string, throttle: number): Promise<EngineLayerProbe | null> {
+  const ctx = new OfflineAudioContext(1, Math.floor(RATE * 1.5), RATE)
+  const samples = await loadEngineSamples(ctx, baseUrl)
+  if (samples === null) return null
+  createRecordedEngineVoice(ctx, ctx.destination, samples).setThrottle(throttle)
+  return measureEngine(await ctx.startRendering(), throttle)
+}
+
+/**
+ * 試聴用。実録音のエンジンで、スロットルを `seconds` 秒かけて 0 から 1 へ上げた音を書き出す
+ * （`?audiosweep=1`）。0.05 秒ごとに止めてスロットルを進めるので、ゲームの毎フレームの更新に近い
+ */
+export async function renderEngineSweep(baseUrl: string, seconds = 8): Promise<Float32Array | null> {
+  const ctx = new OfflineAudioContext(1, Math.floor(RATE * seconds), RATE)
+  const samples = await loadEngineSamples(ctx, baseUrl)
+  if (samples === null) return null
+  const voice = createRecordedEngineVoice(ctx, ctx.destination, samples)
+  voice.setThrottle(0)
+  const step = 0.05
+  for (let t = step; t < seconds - step; t += step) {
+    const at = t
+    void ctx.suspend(at).then(() => {
+      voice.setThrottle(Math.min(1, at / (seconds - 1)))
+      void ctx.resume()
+    })
+  }
+  return (await ctx.startRendering()).getChannelData(0)
 }
 
 /** 警告音の形。`probeAudio` が警告音を 1 秒書き出して測る */
@@ -137,7 +211,7 @@ async function renderOne(
  * から書き出す。**`currentTime` は 0 のまま進まない**（`startRendering`
  * を呼ぶまで時間は動かない）ので、予約は 0 秒起点で入る。
  */
-export async function probeAudio(): Promise<AudioProbe> {
+export async function probeAudio(baseUrl: string): Promise<AudioProbe> {
   // 警告音は 1 秒書き出し、大きさと形の両方を測る（段 B10。段 B9 までは 0.2 秒の断続音 1 回）
   const warningBuffer = await renderBuffer(1.0, (ctx) => createWarningVoice(ctx, ctx.destination).start())
   const warning = measure(warningBuffer)
@@ -164,5 +238,7 @@ export async function probeAudio(): Promise<AudioProbe> {
       createEngineVoice(ctx, master, noise).setThrottle(1)
     }),
   ])
-  return { explosion, launch, warning, gun, engine, worstCase, warningShape }
+  const layers = await Promise.all([0.2, 0.7, 1].map((t) => renderRecordedEngine(baseUrl, t)))
+  const engineLayers = layers.every((l) => l !== null) ? (layers as EngineLayerProbe[]) : null
+  return { explosion, launch, warning, gun, engine, worstCase, warningShape, engineLayers }
 }

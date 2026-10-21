@@ -1971,6 +1971,53 @@ test.describe('効果音', () => {
       .toBe(true)
   })
 
+  /**
+   * 段 B11b。START のあと、実録音（`public/audio/`）を読み終えるとエンジンが合成音から入れ替わる
+   */
+  test('START のあとエンジンが実録音に切り替わる', async ({ page }) => {
+    await page.goto('/dogfight/?script=level&precompile=0')
+    await page.waitForFunction(
+      () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
+      undefined,
+      { timeout: waitBudgetMs(120_000) },
+    )
+    expect((await readHook(page))?.audioEngineRecorded).toBe(false)
+    await page.locator('.title-start').click()
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioEngineRecorded),
+        { timeout: waitBudgetMs(30_000) },
+      )
+      .toBe(true)
+  })
+
+  /**
+   * 段 B11b。実録音のエンジンを 0.2・0.7・1.0 で書き出して測る（`src/audio/probe.ts`）。上げるほど大きく、
+   * 0.7 は 0.2 より音色が高く、1.0 はアフターバーナーの帯（200〜800 Hz）が 0.7 より 6 dB 以上強い
+   */
+  test('エンジンの 3 層がスロットルで重なる', async ({ page }) => {
+    await page.goto('/dogfight/?capture=1&frame=60&audioprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const handle = await page.waitForFunction(
+      () =>
+        (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
+      undefined,
+      { timeout: waitBudgetMs(60_000) },
+    )
+    // `TestHook.audioProbe` は大きさだけの素の形で書いてある（`capture.ts` の作法）。形は `unknown` を経て読む
+    const probe = (await handle.jsonValue()) as unknown as {
+      engineLayers: { throttle: number; rmsDb: number; centroidHz: number; burnerBandDb: number }[] | null
+    }
+    const [low, mid, full] = probe.engineLayers ?? []
+    expect(low && mid && full, '実録音を読めていない').toBeTruthy()
+    // 実測は −23.75・−20.13・−14.71 dBFS（2026-10-22）
+    expect(mid!.rmsDb - low!.rmsDb).toBeGreaterThan(2)
+    expect(full!.rmsDb - mid!.rmsDb).toBeGreaterThan(2)
+    expect(mid!.centroidHz).toBeGreaterThan(low!.centroidHz)
+    expect(full!.burnerBandDb - mid!.burnerBandDb).toBeGreaterThan(6)
+  })
+
   test('?sound=0 では作らない', async ({ page }) => {
     await page.goto('/dogfight/?script=level&sound=0&precompile=0')
     await page.waitForFunction(

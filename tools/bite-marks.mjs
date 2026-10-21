@@ -1890,4 +1890,22 @@ export const BITE_MARKS = [
     expect: 'tests/hud/arrow.test.ts',
     why: '印の底が照準に重なる（録画は中心から 約 80〜90 画素）',
   },
+  {
+    id: 'engine-mix-flat',
+    kind: '定数の摂動',
+    file: 'src/audio/engineMix.ts',
+    find: '  out.turbine = 0.15 + 0.8 * smoothstep(0, AUGMENTATION_THROTTLE, t)\n',
+    replace: '  out.turbine = 0.15 + 0.55 * smoothstep(0, AUGMENTATION_THROTTLE, t)\n',
+    expect: 'tests/audio/engineMix.test.ts',
+    why: '最初の幅に戻り、スロットルを上げてもエンジンが大きくならない（段 B11b）',
+  },
+  {
+    id: 'burner-always-on',
+    kind: '条件の固定',
+    file: 'src/audio/engineMix.ts',
+    find: '  out.burner = 0.8 * smoothstep(AUGMENTATION_THROTTLE, 1, t)\n',
+    replace: '  out.burner = 0.8\n',
+    expect: 'tests/audio/engineMix.test.ts',
+    why: 'アフターバーナーの音が低いスロットルでも鳴る',
+  },
 ]

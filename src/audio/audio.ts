@@ -13,9 +13,16 @@ import {
 } from './synth'
 import { warblePeriod } from './warningTone'
 import {
+  createSpatialVoices,
+  type AudioEnemy,
+  type AudioExplosions,
+  type AudioListener,
+} from './spatialVoices'
+import {
   createRecordedEngineVoice,
   createRecordedGunVoice,
   loadEngineSamples,
+  loadSamples,
   loadWeaponSamples,
   playRecordedLaunch,
   type RecordedEngineVoice,
@@ -53,6 +60,15 @@ export interface AudioView extends AudioCounters {
   readonly threatened: boolean
   /** いちばん近いミサイルの着弾までの秒（段 B10）。警告音の揺れの周期を縮める */
   readonly timeToImpact: number
+  /** 自機（段 B11d）。音を置く向きと距離、ドップラーの基準 */
+  readonly listener: AudioListener
+  /** 敵機（段 B11d）。エンジン音・通過音・発射の音を置く */
+  readonly enemies: readonly AudioEnemy[]
+  /** 爆発（段 B11d）。新しい順に位置を読む */
+  readonly explosions: AudioExplosions | null
+  /** すれ違った回数と、最後にすれ違った敵機の添字（段 B11d、sim の `World.flybyCount`） */
+  readonly flybyCount: number
+  readonly lastFlybyEnemy: number
 }
 
 export interface GameAudio {
@@ -62,6 +78,8 @@ export interface GameAudio {
   readonly engineRecorded: boolean
   /** 機銃とミサイルが実録音に切り替わったか（段 B11c） */
   readonly weaponsRecorded: boolean
+  /** 鳴らしている敵機のエンジン音の数（段 B11d） */
+  readonly enemyEnginesPlaying: number
   /** 音量 0..1。設定画面から呼ぶ */
   setVolume(volume: number): void
   /** 止める。ページを離れるとき */
@@ -137,6 +155,19 @@ export function createGameAudio(volume: number): GameAudio | null {
     engine = null
     setTimeout(() => synth?.dispose(), (ENGINE_SWAP_SECONDS + 0.1) * 1000)
   })
+  // 立体の音（段 B11d）。爆発と敵のミサイルの発射は起きた位置に置く。敵機のエンジン音と通過音は
+  // タービンと通過音を読めてから鳴らす
+  const spatial = createSpatialVoices(ctx, master, {
+    playExplosion: (out, when) => playExplosion(ctx, out, noise, when),
+    playLaunch: (out, when) => {
+      if (weapons !== null) playRecordedLaunch(ctx, out, weapons, when)
+      else playLaunch(ctx, out, noise, when)
+    },
+  })
+  void loadSamples(ctx, import.meta.env.BASE_URL, ['engine-turbine', 'flyby'] as const).then((samples) => {
+    if (samples === null || disposed) return
+    spatial.setSamples({ turbine: samples['engine-turbine'], flyby: samples.flyby })
+  })
   // 段 B10 で持続音にした。段 B9 までは 0.5 秒おきの断続音（`WARNING_INTERVAL`）
   const warning: WarningVoice = createWarningVoice(ctx, master)
 
@@ -164,10 +195,16 @@ export function createGameAudio(volume: number): GameAudio | null {
       else gun.stop()
 
       const now = ctx.currentTime
-      for (let i = 0; i < events.explosions; i++) {
-        // **同じ時刻に重ねない。**位相が揃うと振幅が単純に足し合わさる
-        playExplosion(ctx, master, noise, now + i * 0.04)
-      }
+      // 爆発・敵機のエンジン音・通過音・敵のミサイルの発射は、起きた位置に置く（段 B11d）
+      spatial.update({
+        listener: view.listener,
+        enemies: view.enemies,
+        explosions: view.explosions,
+        newExplosions: events.explosions,
+        flybyCount: view.flybyCount,
+        lastFlybyEnemy: view.lastFlybyEnemy,
+      })
+      // 自機のミサイルの発射は自機の位置で鳴らす
       for (let i = 0; i < events.launches; i++) {
         if (weapons !== null) playRecordedLaunch(ctx, master, weapons, now + i * 0.06)
         else playLaunch(ctx, master, noise, now + i * 0.06)
@@ -194,6 +231,10 @@ export function createGameAudio(volume: number): GameAudio | null {
       return weapons !== null
     },
 
+    get enemyEnginesPlaying(): number {
+      return spatial.enemyEnginesPlaying
+    },
+
     setVolume(value: number): void {
       master.gain.setTargetAtTime(clamp01(value), ctx.currentTime, 0.05)
     },
@@ -203,6 +244,7 @@ export function createGameAudio(volume: number): GameAudio | null {
       gun.dispose()
       engine?.dispose()
       recorded?.dispose()
+      spatial.dispose()
       warning.dispose()
       void ctx.close()
     },

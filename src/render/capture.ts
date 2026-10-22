@@ -208,9 +208,10 @@ export interface CaptureConfig {
   audioProbe: boolean
   /**
    * 試聴用の書き出し。`?audiosweep=1` は実録音のエンジンでスロットルを 0 から 1 へ上げる 8 秒（段 B11b）、
-   * `?audiosweep=weapons` は機銃と余韻とミサイルの 6 秒（段 B11c）。無ければ null
+   * `?audiosweep=weapons` は機銃と余韻とミサイルの 6 秒（段 B11c）、`?audiosweep=spatial` は敵機がすれ違う
+   * 2 チャンネルの 8 秒（段 B11d、左右を交互に並べる）。無ければ null
    */
-  audioSweep: 'engine' | 'weapons' | null
+  audioSweep: 'engine' | 'weapons' | 'spatial' | null
   /**
    * 描画バックエンドの経路。`?gpu=0|1|2|3`。
    *
@@ -456,7 +457,14 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? params.get('sound') === '1'
       : params.get('capture') !== '1',
     audioProbe: params.get('audioprobe') === '1',
-    audioSweep: params.get('audiosweep') === '1' ? 'engine' : params.get('audiosweep') === 'weapons' ? 'weapons' : null,
+    audioSweep:
+      params.get('audiosweep') === '1'
+        ? 'engine'
+        : params.get('audiosweep') === 'weapons'
+          ? 'weapons'
+          : params.get('audiosweep') === 'spatial'
+            ? 'spatial'
+            : null,
     gpu: clampInt(params.get('gpu'), 0, 3, 0),
     webgl: params.get('webgl') === '1',
     // **足し込みのプローブで代表点を出す。**`?uvmode=world`。

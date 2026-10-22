@@ -24,6 +24,7 @@ import { createApproachGuide, updateApproachGuide, type ApproachGuide } from './
 import type { LandingResult } from './arrestor'
 import { defaultTerrain, type Terrain } from './terrain'
 import { Mission, type MissionSpec } from './mission'
+import { FlybyTracker } from './flyby'
 
 export type { InputState } from './input'
 export { neutralInput, makeInput } from './input'
@@ -183,6 +184,12 @@ export class World {
   private readonly apRight = new Vec3()
   private readonly apUp = new Vec3()
   private _frame = 0
+  /** すれ違いの判定（段 B11d）。音の層が数の差を見て通過の音を鳴らす */
+  private readonly flyby = new FlybyTracker()
+  /** すれ違った回数。増えていくだけ */
+  flybyCount = 0
+  /** 最後にすれ違った敵機の番号（`enemies` の添字）。まだなら −1 */
+  lastFlybyEnemy = -1
 
   constructor(options: WorldOptions) {
     this.seed = options.seed
@@ -374,6 +381,7 @@ export class World {
     this.combat.step(input, this.player, FIXED_DT, this._frame)
     this.updateLanding()
     this._frame++
+    this.updateFlyby()
 
     // **フレームを進めたあとに判定する。**制限時間は `frame >= limitFrames`
     // で見るので、進める前だと 1 フレーム早く切れる
@@ -436,6 +444,31 @@ export class World {
    */
   get damageSmokeSources(): readonly DamageSmokeSource[] {
     return this.enemies.map((enemy) => enemy.smoke)
+  }
+
+  /** 生きている敵機と自機の距離を見て、すれ違いを数える（段 B11d） */
+  private updateFlyby(): void {
+    const now = this._frame * FIXED_DT
+    const p = this.player.position
+    for (let i = 0; i < this.enemies.length; i++) {
+      const enemy = this.enemies[i]!
+      if (!enemy.alive) {
+        this.flyby.forget(i)
+        continue
+      }
+      const q = enemy.aircraft.position
+      if (this.flyby.update(i, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z), now)) {
+        this.flybyCount++
+        this.lastFlybyEnemy = i
+      }
+    }
+  }
+
+  /** 敵機がミサイルを撃った総数（段 B11d）。音の層が差を見て、撃った敵機の位置で発射の音を鳴らす */
+  get enemyMissilesFired(): number {
+    let n = 0
+    for (const enemy of this.enemies) n += enemy.missilesFired
+    return n
   }
 
   /** 生きている敵機の数 */

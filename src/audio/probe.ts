@@ -9,10 +9,12 @@ import {
   createSoftClip,
 } from './synth'
 import { WARNING_TONE_HZ } from './warningTone'
+import { createSpatialVoices } from './spatialVoices'
 import {
   createRecordedEngineVoice,
   createRecordedGunVoice,
   loadEngineSamples,
+  loadSamples,
   loadWeaponSamples,
   playRecordedLaunch,
 } from './recorded'
@@ -61,6 +63,93 @@ export interface AudioProbe {
   readonly engineLayers: readonly EngineLayerProbe[] | null
   /** 実録音の機銃とミサイル（段 B11c）。音のファイルを読めなかったら null */
   readonly weapons: WeaponProbe | null
+  /** 立体の音（段 B11d） */
+  readonly spatial: SpatialProbe
+}
+
+export interface SpatialProbe {
+  /** 自機の左 200 m に置いた音の、左 − 右の大きさ dB */
+  readonly leftDb: number
+  /** 自機の右 200 m に置いた音の、右 − 左の大きさ dB */
+  readonly rightDb: number
+  /** 前 100 m と前 1,000 m に置いた音の大きさの差 dB（近い − 遠い） */
+  readonly distanceDb: number
+}
+
+/** 2 チャンネルで、自機の座標 `at` に置いた雑音を 0.5 秒書き出し、左右の大きさ dBFS を返す */
+async function renderPlaced(at: { x: number; y: number; z: number }): Promise<{ left: number; right: number }> {
+  const ctx = new OfflineAudioContext(2, Math.floor(RATE * 0.5), RATE)
+  const spatial = createSpatialVoices(ctx, ctx.destination, { playExplosion() {}, playLaunch() {} })
+  const listener = { position: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } }
+  const out = spatial.placeAt(at, listener)
+  const src = ctx.createBufferSource()
+  src.buffer = createNoiseBuffer(ctx)
+  src.loop = true
+  src.connect(out)
+  src.start()
+  const buffer = await ctx.startRendering()
+  const rms = (data: Float32Array) => {
+    let sum = 0
+    for (const v of data) sum += v * v
+    return 20 * Math.log10(Math.sqrt(sum / data.length) + 1e-12)
+  }
+  return { left: rms(buffer.getChannelData(0)), right: rms(buffer.getChannelData(1)) }
+}
+
+/**
+ * 試聴用。2 チャンネルで 8 秒。敵機が前方の左から自機の 50 m 横をすれ違って右後ろへ抜ける（自機との速さの差
+ * 300 m/s）。敵機のエンジン音・ドップラー・通過音（すれ違った直後）が入る（`?audiosweep=spatial`）
+ */
+export async function renderSpatialDemo(baseUrl: string): Promise<Float32Array | null> {
+  const seconds = 8
+  const ctx = new OfflineAudioContext(2, Math.floor(RATE * seconds), RATE)
+  const samples = await loadSamples(ctx, baseUrl, ['engine-turbine', 'flyby'] as const)
+  if (samples === null) return null
+  const spatial = createSpatialVoices(ctx, ctx.destination, { playExplosion() {}, playLaunch() {} })
+  spatial.setSamples({ turbine: samples['engine-turbine'], flyby: samples.flyby })
+  const listener = { position: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } }
+  // 4 秒で真横（x = −50 → +50 へ斜めに抜ける）。z は −1,200 から +1,200 へ
+  const enemy = { aircraft: { position: { x: -50, y: 0, z: -1200 }, velocity: { x: 0, y: 0, z: 300 } }, alive: true, missilesFired: 0 }
+  let flybyCount = 0
+  let passed = false
+  const step = 0.05
+  for (let t = 0; t < seconds - step; t += step) {
+    const at = t
+    void ctx.suspend(at).then(() => {
+      enemy.aircraft.position.z = -1200 + 300 * at
+      enemy.aircraft.position.x = -50 + 25 * at
+      if (!passed && enemy.aircraft.position.z > 0) {
+        passed = true
+        flybyCount++
+      }
+      spatial.update({ listener, enemies: [enemy], explosions: null, newExplosions: 0, flybyCount, lastFlybyEnemy: 0 })
+      void ctx.resume()
+    })
+  }
+  const buffer = await ctx.startRendering()
+  // 左右を交互に並べて返す（書き出す側が 2 チャンネルの WAV にする）
+  const l = buffer.getChannelData(0)
+  const r = buffer.getChannelData(1)
+  const out = new Float32Array(l.length * 2)
+  for (let i = 0; i < l.length; i++) {
+    out[2 * i] = l[i] ?? 0
+    out[2 * i + 1] = r[i] ?? 0
+  }
+  return out
+}
+
+async function probeSpatial(): Promise<SpatialProbe> {
+  const [left, right, near, far] = await Promise.all([
+    renderPlaced({ x: -200, y: 0, z: 0 }),
+    renderPlaced({ x: 200, y: 0, z: 0 }),
+    renderPlaced({ x: 0, y: 0, z: -100 }),
+    renderPlaced({ x: 0, y: 0, z: -1000 }),
+  ])
+  return {
+    leftDb: left.left - left.right,
+    rightDb: right.right - right.left,
+    distanceDb: near.left - far.left,
+  }
 }
 
 export interface WeaponProbe {
@@ -325,5 +414,6 @@ export async function probeAudio(baseUrl: string): Promise<AudioProbe> {
   const layers = await Promise.all([0.2, 0.7, 1].map((t) => renderRecordedEngine(baseUrl, t)))
   const engineLayers = layers.every((l) => l !== null) ? (layers as EngineLayerProbe[]) : null
   const weapons = await probeWeapons(baseUrl)
-  return { explosion, launch, warning, gun, engine, worstCase, warningShape, engineLayers, weapons }
+  const spatial = await probeSpatial()
+  return { explosion, launch, warning, gun, engine, worstCase, warningShape, engineLayers, weapons, spatial }
 }

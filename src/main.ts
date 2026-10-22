@@ -43,7 +43,7 @@ import {
   runManualCloudDiag,
   showCloudDiag,
 } from './render/cloudDiag'
-import { probeAudio, renderEngineSweep, renderWeaponDemo } from './audio/probe'
+import { probeAudio, renderEngineSweep, renderSpatialDemo, renderWeaponDemo } from './audio/probe'
 import {
   loadSettings,
   saveSettings,
@@ -373,7 +373,12 @@ async function main(): Promise<void> {
 
   // 試聴用の書き出し（段 B11b）。16 ビットにして base64 で置く。Windows の node が読んで WAV にする
   if (capture.audioSweep) {
-    const render = capture.audioSweep === 'weapons' ? renderWeaponDemo : renderEngineSweep
+    const render =
+      capture.audioSweep === 'weapons'
+        ? renderWeaponDemo
+        : capture.audioSweep === 'spatial'
+          ? renderSpatialDemo
+          : renderEngineSweep
     void render(import.meta.env.BASE_URL).then((data) => {
       if (data === null) return
       const pcm = new Int16Array(data.length)
@@ -1305,6 +1310,11 @@ async function main(): Promise<void> {
       throttle: world.player.throttle,
       threatened: world.combat.threat.active,
       timeToImpact: world.combat.threat.timeToImpact,
+      listener: world.player,
+      enemies: world.enemies,
+      explosions: world.combat.explosions,
+      flybyCount: world.flybyCount,
+      lastFlybyEnemy: world.lastFlybyEnemy,
     })
     hook.audioEngineRecorded = audio?.engineRecorded ?? false
     hook.audioWeaponsRecorded = audio?.weaponsRecorded ?? false

@@ -2058,6 +2058,28 @@ test.describe('効果音', () => {
     expect(full!.burnerBandDb - mid!.burnerBandDb).toBeGreaterThan(6)
   })
 
+  /**
+   * 段 B11d。2 チャンネルで、自機の左右 200 m と前 100 m・1,000 m に置いた雑音を書き出して測る
+   * （`src/audio/probe.ts`）。左の音は左が、右の音は右が 6 dB 以上大きく、近い音は遠い音より 12 dB 以上大きい
+   */
+  test('音は自機から見た向きと距離に置かれる', async ({ page }) => {
+    await page.goto('/dogfight/?capture=1&frame=60&audioprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const handle = await page.waitForFunction(
+      () =>
+        (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
+      undefined,
+      { timeout: waitBudgetMs(60_000) },
+    )
+    // `TestHook.audioProbe` は大きさだけの素の形で書いてある（`capture.ts` の作法）。形は `unknown` を経て読む
+    const probe = (await handle.jsonValue()) as unknown as {
+      spatial: { leftDb: number; rightDb: number; distanceDb: number }
+    }
+    expect(probe.spatial.leftDb, '左に置いた音が左から聞こえない').toBeGreaterThan(6)
+    expect(probe.spatial.rightDb, '右に置いた音が右から聞こえない').toBeGreaterThan(6)
+    expect(probe.spatial.distanceDb, '遠い音が小さくならない').toBeGreaterThan(12)
+  })
+
   test('?sound=0 では作らない', async ({ page }) => {
     await page.goto('/dogfight/?script=level&sound=0&precompile=0')
     await page.waitForFunction(

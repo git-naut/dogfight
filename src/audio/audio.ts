@@ -12,7 +12,16 @@ import {
   type WarningVoice,
 } from './synth'
 import { warblePeriod } from './warningTone'
-import { createRecordedEngineVoice, loadEngineSamples, type RecordedEngineVoice } from './recorded'
+import {
+  createRecordedEngineVoice,
+  createRecordedGunVoice,
+  loadEngineSamples,
+  loadWeaponSamples,
+  playRecordedLaunch,
+  type RecordedEngineVoice,
+  type RecordedGunVoice,
+  type WeaponSamples,
+} from './recorded'
 import {
   diffCounters,
   limitExplosions,
@@ -51,6 +60,8 @@ export interface GameAudio {
   update(view: AudioView): void
   /** エンジンが実録音に切り替わったか（段 B11b）。読み込みの前と、読み込めなかったときは false */
   readonly engineRecorded: boolean
+  /** 機銃とミサイルが実録音に切り替わったか（段 B11c） */
+  readonly weaponsRecorded: boolean
   /** 音量 0..1。設定画面から呼ぶ */
   setVolume(volume: number): void
   /** 止める。ページを離れるとき */
@@ -90,7 +101,9 @@ export function createGameAudio(volume: number): GameAudio | null {
   master.connect(createLimiter(ctx)).connect(createSoftClip(ctx)).connect(ctx.destination)
 
   const noise = createNoiseBuffer(ctx)
-  const gun: GunVoice = createGunVoice(ctx, master, noise, ROUNDS_PER_SECOND)
+  let gun: GunVoice | RecordedGunVoice = createGunVoice(ctx, master, noise, ROUNDS_PER_SECOND)
+  let gunFiring = false
+  let weapons: WeaponSamples | null = null
   // 合成音のエンジンは専用のバスを通す。実録音が読めたら下げて止める（段 B11b）
   const synthBus = ctx.createGain()
   synthBus.connect(master)
@@ -98,6 +111,19 @@ export function createGameAudio(volume: number): GameAudio | null {
   let recorded: RecordedEngineVoice | null = null
   let lastThrottle = 0
   let disposed = false
+  // 機銃とミサイル（段 B11c）。読めたら入れ替える。撃っている最中なら合成音を止めて実録音で続ける
+  void loadWeaponSamples(ctx, import.meta.env.BASE_URL).then((samples) => {
+    if (samples === null || disposed) return
+    weapons = samples
+    const recordedGun = createRecordedGunVoice(ctx, master, samples)
+    const synthGun = gun
+    if (gunFiring) {
+      synthGun.stop()
+      recordedGun.start()
+    }
+    gun = recordedGun
+    setTimeout(() => synthGun.dispose(), 100)
+  })
   // **読み込みは待たない。**読み終わるまでは合成音で鳴らし、読めたら 0.5 秒で入れ替える
   void loadEngineSamples(ctx, import.meta.env.BASE_URL).then((samples) => {
     if (samples === null || disposed) return
@@ -133,7 +159,8 @@ export function createGameAudio(volume: number): GameAudio | null {
         missilesFired: view.missilesFired,
       }
 
-      if (isFiring(events)) gun.start()
+      gunFiring = isFiring(events)
+      if (gunFiring) gun.start()
       else gun.stop()
 
       const now = ctx.currentTime
@@ -142,7 +169,8 @@ export function createGameAudio(volume: number): GameAudio | null {
         playExplosion(ctx, master, noise, now + i * 0.04)
       }
       for (let i = 0; i < events.launches; i++) {
-        playLaunch(ctx, master, noise, now + i * 0.06)
+        if (weapons !== null) playRecordedLaunch(ctx, master, weapons, now + i * 0.06)
+        else playLaunch(ctx, master, noise, now + i * 0.06)
       }
 
       // 追われているあいだ鳴らし続け、着弾が近づくほど揺れを速める（段 B10）
@@ -160,6 +188,10 @@ export function createGameAudio(volume: number): GameAudio | null {
 
     get engineRecorded(): boolean {
       return recorded !== null
+    },
+
+    get weaponsRecorded(): boolean {
+      return weapons !== null
     },
 
     setVolume(value: number): void {

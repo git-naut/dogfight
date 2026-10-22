@@ -9,7 +9,13 @@ import {
   createSoftClip,
 } from './synth'
 import { WARNING_TONE_HZ } from './warningTone'
-import { createRecordedEngineVoice, loadEngineSamples } from './recorded'
+import {
+  createRecordedEngineVoice,
+  createRecordedGunVoice,
+  loadEngineSamples,
+  loadWeaponSamples,
+  playRecordedLaunch,
+} from './recorded'
 
 /**
  * 音の自己診断。
@@ -53,6 +59,84 @@ export interface AudioProbe {
    * 除いて測る。音のファイルを読めなかったら null
    */
   readonly engineLayers: readonly EngineLayerProbe[] | null
+  /** 実録音の機銃とミサイル（段 B11c）。音のファイルを読めなかったら null */
+  readonly weapons: WeaponProbe | null
+}
+
+export interface WeaponProbe {
+  /** 撃っているあいだ（0.2〜0.9 秒）の 20 ms ごとの大きさの、最小と平均の比 */
+  readonly gunContinuity: number
+  /** 撃っているあいだ（0.2〜0.9 秒）の大きさ dBFS */
+  readonly gunRmsDb: number
+  /** 撃ち止めの直後（1.05〜1.25 秒）と、そのあと（1.8〜2.0 秒）の大きさ dBFS */
+  readonly tailEarlyDb: number
+  readonly tailLateDb: number
+  /** ミサイルの発射音が聞こえる長さ 秒（−60 dBFS を越える最後の時刻） */
+  readonly missileSeconds: number
+}
+
+function windowRmsDb(data: Float32Array, rate: number, from: number, to: number): number {
+  const a = Math.floor(from * rate)
+  const b = Math.floor(to * rate)
+  let sum = 0
+  for (let i = a; i < b; i++) sum += (data[i] ?? 0) ** 2
+  return 20 * Math.log10(Math.sqrt(sum / (b - a)) + 1e-12)
+}
+
+async function probeWeapons(baseUrl: string): Promise<WeaponProbe | null> {
+  const gunCtx = new OfflineAudioContext(1, Math.floor(RATE * 2), RATE)
+  const samples = await loadWeaponSamples(gunCtx, baseUrl)
+  if (samples === null) return null
+  const gun = createRecordedGunVoice(gunCtx, gunCtx.destination, samples)
+  gun.start()
+  void gunCtx.suspend(1.0).then(() => {
+    gun.stop()
+    void gunCtx.resume()
+  })
+  const gunData = (await gunCtx.startRendering()).getChannelData(0)
+  const win = Math.floor(0.02 * RATE)
+  const rms: number[] = []
+  for (let i = Math.floor(0.2 * RATE); i + win <= Math.floor(0.9 * RATE); i += win) {
+    let sum = 0
+    for (let j = i; j < i + win; j++) sum += (gunData[j] ?? 0) ** 2
+    rms.push(Math.sqrt(sum / win))
+  }
+  const mean = rms.reduce((x, y) => x + y, 0) / rms.length
+
+  const missileCtx = new OfflineAudioContext(1, Math.floor(RATE * 3), RATE)
+  const missileSamples = await loadWeaponSamples(missileCtx, baseUrl)
+  if (missileSamples === null) return null
+  playRecordedLaunch(missileCtx, missileCtx.destination, missileSamples, 0)
+  const missileData = (await missileCtx.startRendering()).getChannelData(0)
+  let last = 0
+  const floor = 10 ** (-60 / 20)
+  for (let i = 0; i < missileData.length; i++) if (Math.abs(missileData[i] ?? 0) > floor) last = i
+
+  return {
+    gunContinuity: Math.min(...rms) / (mean + 1e-12),
+    gunRmsDb: windowRmsDb(gunData, RATE, 0.2, 0.9),
+    tailEarlyDb: windowRmsDb(gunData, RATE, 1.05, 1.25),
+    tailLateDb: windowRmsDb(gunData, RATE, 1.8, 2.0),
+    missileSeconds: last / RATE,
+  }
+}
+
+/**
+ * 試聴用。実録音の機銃を 1.5 秒撃って止め（余韻）、1 秒あけてミサイルを撃つ流れを書き出す
+ * （`?audiosweep=weapons`）
+ */
+export async function renderWeaponDemo(baseUrl: string): Promise<Float32Array | null> {
+  const ctx = new OfflineAudioContext(1, Math.floor(RATE * 6), RATE)
+  const samples = await loadWeaponSamples(ctx, baseUrl)
+  if (samples === null) return null
+  const gun = createRecordedGunVoice(ctx, ctx.destination, samples)
+  gun.start()
+  void ctx.suspend(1.5).then(() => {
+    gun.stop()
+    void ctx.resume()
+  })
+  playRecordedLaunch(ctx, ctx.destination, samples, 3.0)
+  return (await ctx.startRendering()).getChannelData(0)
 }
 
 export interface EngineLayerProbe {
@@ -240,5 +324,6 @@ export async function probeAudio(baseUrl: string): Promise<AudioProbe> {
   ])
   const layers = await Promise.all([0.2, 0.7, 1].map((t) => renderRecordedEngine(baseUrl, t)))
   const engineLayers = layers.every((l) => l !== null) ? (layers as EngineLayerProbe[]) : null
-  return { explosion, launch, warning, gun, engine, worstCase, warningShape, engineLayers }
+  const weapons = await probeWeapons(baseUrl)
+  return { explosion, launch, warning, gun, engine, worstCase, warningShape, engineLayers, weapons }
 }

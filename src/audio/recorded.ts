@@ -1,5 +1,5 @@
 /**
- * 実録音の効果音を読み込んで鳴らす（Phase 10 の段 B11b、ADR 0038）。
+ * 実録音の効果音を読み込んで鳴らす（Phase 10 の段 B11b・B11c、ADR 0038・0039）。
  *
  * 音のファイルは `tools/audio-import.mjs` が `public/audio/` に書き出した Opus（ADR 0037）。
  * **読み込みに失敗しても止めない。**null を返し、呼ぶ側は合成音のまま鳴らす。音は無くても遊べる
@@ -11,20 +11,39 @@ export const ENGINE_SAMPLES = ['engine-idle', 'engine-turbine', 'engine-burner',
 export type EngineSampleName = (typeof ENGINE_SAMPLES)[number]
 export type EngineSamples = Record<EngineSampleName, AudioBuffer>
 
-/** `baseUrl`（`import.meta.env.BASE_URL`）の `audio/` から読み、デコードする。1 本でも失敗したら null */
-export async function loadEngineSamples(ctx: BaseAudioContext, baseUrl: string): Promise<EngineSamples | null> {
+/** 機銃のループと余韻、ミサイルの発射（段 B11c） */
+export const WEAPON_SAMPLES = ['gun-loop', 'gun-tail', 'missile-launch'] as const
+export type WeaponSampleName = (typeof WEAPON_SAMPLES)[number]
+export type WeaponSamples = Record<WeaponSampleName, AudioBuffer>
+
+/** `baseUrl`（`import.meta.env.BASE_URL`）の `audio/` から `names` を読み、デコードする。1 本でも失敗したら null */
+export async function loadSamples<N extends string>(
+  ctx: BaseAudioContext,
+  baseUrl: string,
+  names: readonly N[],
+): Promise<Record<N, AudioBuffer> | null> {
   try {
     const buffers = await Promise.all(
-      ENGINE_SAMPLES.map(async (name) => {
+      names.map(async (name) => {
         const response = await fetch(`${baseUrl}audio/${name}.ogg`)
         if (!response.ok) throw new Error(`${name}: ${response.status}`)
         return ctx.decodeAudioData(await response.arrayBuffer())
       }),
     )
-    return Object.fromEntries(ENGINE_SAMPLES.map((name, i) => [name, buffers[i]!])) as EngineSamples
+    return Object.fromEntries(names.map((name, i) => [name, buffers[i]!])) as Record<N, AudioBuffer>
   } catch {
     return null
   }
+}
+
+/** エンジンの 4 本を読む */
+export function loadEngineSamples(ctx: BaseAudioContext, baseUrl: string): Promise<EngineSamples | null> {
+  return loadSamples(ctx, baseUrl, ENGINE_SAMPLES)
+}
+
+/** 武器の 3 本を読む */
+export function loadWeaponSamples(ctx: BaseAudioContext, baseUrl: string): Promise<WeaponSamples | null> {
+  return loadSamples(ctx, baseUrl, WEAPON_SAMPLES)
 }
 
 /** 実録音のエンジン。合成音の `EngineVoice` と同じ口に、全体の大きさを足した */
@@ -116,4 +135,75 @@ export function createRecordedEngineVoice(
       }
     },
   }
+}
+
+/**
+ * 実録音の機銃（段 B11c、ADR 0039）。撃っているあいだ M61A2 の連射のループを鳴らし、止めたら余韻を
+ * 1 回鳴らす。合成音の `GunVoice` と同じ口
+ */
+export interface RecordedGunVoice {
+  start(): void
+  stop(): void
+  dispose(): void
+}
+
+/** 機銃のループと余韻の大きさ。合成音の機銃（rms 0.095）と耳で並ぶ程度にした（推測） */
+const GUN_GAIN = 0.8
+/** 撃ち始めと撃ち止めの寄せ 秒。即座に切るとプツッと鳴る（合成音と同じ） */
+const GUN_EDGE = 0.02
+
+export function createRecordedGunVoice(ctx: BaseAudioContext, destination: AudioNode, samples: WeaponSamples): RecordedGunVoice {
+  const src = ctx.createBufferSource()
+  src.buffer = samples['gun-loop']
+  src.loop = true
+  const gain = ctx.createGain()
+  gain.gain.value = 0
+  src.connect(gain).connect(destination)
+  src.start()
+  let firing = false
+  return {
+    start(): void {
+      if (firing) return
+      firing = true
+      const now = ctx.currentTime
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      gain.gain.linearRampToValueAtTime(GUN_GAIN, now + GUN_EDGE)
+    },
+    stop(): void {
+      if (!firing) return
+      firing = false
+      const now = ctx.currentTime
+      gain.gain.cancelScheduledValues(now)
+      gain.gain.setValueAtTime(gain.gain.value, now)
+      gain.gain.linearRampToValueAtTime(0, now + GUN_EDGE)
+      // 撃ち止めの余韻。ループが消えるのと同時に鳴らし始める
+      const tail = ctx.createBufferSource()
+      tail.buffer = samples['gun-tail']
+      const tailGain = ctx.createGain()
+      tailGain.gain.value = GUN_GAIN
+      tail.connect(tailGain).connect(destination)
+      tail.start(now)
+    },
+    dispose(): void {
+      try {
+        src.stop()
+      } catch {
+        // すでに止まっている
+      }
+    },
+  }
+}
+
+/** ミサイルの発射音の大きさ。ピーク −1 dBFS にそろえてあるので下げる（推測） */
+const MISSILE_LAUNCH_GAIN = 0.35
+
+/** 実録音のミサイルの発射音を `when` に 1 回鳴らす（段 B11c） */
+export function playRecordedLaunch(ctx: BaseAudioContext, destination: AudioNode, samples: WeaponSamples, when = ctx.currentTime): void {
+  const src = ctx.createBufferSource()
+  src.buffer = samples['missile-launch']
+  const gain = ctx.createGain()
+  gain.gain.value = MISSILE_LAUNCH_GAIN
+  src.connect(gain).connect(destination)
+  src.start(when)
 }

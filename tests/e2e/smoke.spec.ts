@@ -1990,6 +1990,46 @@ test.describe('効果音', () => {
         { timeout: waitBudgetMs(30_000) },
       )
       .toBe(true)
+    // 段 B11c。機銃とミサイルも読み終えると入れ替わる
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioWeaponsRecorded),
+        { timeout: waitBudgetMs(30_000) },
+      )
+      .toBe(true)
+  })
+
+  /**
+   * 段 B11c。実録音の機銃を 1 秒撃って止め、ミサイルを 1 発撃って測る（`src/audio/probe.ts`）。撃っているあいだ
+   * 途切れず、止めたあと余韻が鳴って小さくなり、ミサイルの発射音は切り出した 2.3 秒ぶん鳴る
+   */
+  test('機銃とミサイルの実録音が鳴る', async ({ page }) => {
+    await page.goto('/dogfight/?capture=1&frame=60&audioprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const handle = await page.waitForFunction(
+      () =>
+        (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
+      undefined,
+      { timeout: waitBudgetMs(60_000) },
+    )
+    // `TestHook.audioProbe` は大きさだけの素の形で書いてある（`capture.ts` の作法）。形は `unknown` を経て読む
+    const probe = (await handle.jsonValue()) as unknown as {
+      weapons: {
+        gunContinuity: number
+        gunRmsDb: number
+        tailEarlyDb: number
+        tailLateDb: number
+        missileSeconds: number
+      } | null
+    }
+    const w = probe.weapons
+    expect(w, '実録音を読めていない').not.toBeNull()
+    expect(w!.gunContinuity, '撃っているあいだ途切れる').toBeGreaterThan(0.6)
+    expect(w!.tailEarlyDb, '撃ち止めの余韻が鳴らない').toBeGreaterThan(w!.gunRmsDb - 12)
+    expect(w!.tailEarlyDb - w!.tailLateDb, '余韻が小さくならない').toBeGreaterThan(6)
+    expect(w!.missileSeconds).toBeGreaterThan(2.2)
+    expect(w!.missileSeconds).toBeLessThanOrEqual(2.31)
   })
 
   /**

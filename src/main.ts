@@ -43,7 +43,7 @@ import {
   runManualCloudDiag,
   showCloudDiag,
 } from './render/cloudDiag'
-import { probeAudio, renderEngineSweep } from './audio/probe'
+import { probeAudio, renderEngineSweep, renderWeaponDemo } from './audio/probe'
 import {
   loadSettings,
   saveSettings,
@@ -206,6 +206,7 @@ const hook = installTestHook({
   volume: 0,
   audioReady: false,
   audioEngineRecorded: false,
+  audioWeaponsRecorded: false,
   audioSweep: null,
   programs: 0,
   compileMs: 0,
@@ -372,7 +373,8 @@ async function main(): Promise<void> {
 
   // 試聴用の書き出し（段 B11b）。16 ビットにして base64 で置く。Windows の node が読んで WAV にする
   if (capture.audioSweep) {
-    void renderEngineSweep(import.meta.env.BASE_URL).then((data) => {
+    const render = capture.audioSweep === 'weapons' ? renderWeaponDemo : renderEngineSweep
+    void render(import.meta.env.BASE_URL).then((data) => {
       if (data === null) return
       const pcm = new Int16Array(data.length)
       for (let i = 0; i < data.length; i++) pcm[i] = Math.max(-1, Math.min(1, data[i] ?? 0)) * 32767
@@ -1305,6 +1307,7 @@ async function main(): Promise<void> {
       timeToImpact: world.combat.threat.timeToImpact,
     })
     hook.audioEngineRecorded = audio?.engineRecorded ?? false
+    hook.audioWeaponsRecorded = audio?.weaponsRecorded ?? false
 
     // 決着したらリザルトを出す。**毎フレーム作り直さない。**出ていなければ
     // 1 回だけ。R でやり直すと `hide()` が呼ばれて畳まれる

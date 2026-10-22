@@ -65,6 +65,53 @@ export interface AudioProbe {
   readonly weapons: WeaponProbe | null
   /** 立体の音（段 B11d） */
   readonly spatial: SpatialProbe
+  /** 敵機の機銃（段 B11c の追加）。音のファイルを読めなかったら null */
+  readonly enemyGun: EnemyGunProbe | null
+}
+
+export interface EnemyGunProbe {
+  /** 左 300 m で撃っている敵機に鳴らした数（1 のはず） */
+  readonly playing: number
+  /** そのときの左 − 右の大きさ dB */
+  readonly leftDb: number
+  /** 撃っていない敵機に鳴らした数（0 のはず） */
+  readonly silentPlaying: number
+}
+
+/** 敵機の機銃の音。左 300 m の敵機が `shooting` なら 0.05 秒ごとに弾を 5 発ずつ増やして 1 秒書き出す */
+async function renderEnemyGun(baseUrl: string, shooting: boolean): Promise<{ playing: number; leftDb: number } | null> {
+  const ctx = new OfflineAudioContext(2, Math.floor(RATE * 1), RATE)
+  const samples = await loadSamples(ctx, baseUrl, ['engine-turbine', 'flyby', 'gun-loop'] as const)
+  if (samples === null) return null
+  const spatial = createSpatialVoices(ctx, ctx.destination, { playExplosion() {}, playLaunch() {} })
+  spatial.setSamples({ turbine: samples['engine-turbine'], flyby: samples.flyby, gunLoop: samples['gun-loop'] })
+  const listener = { position: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } }
+  // エンジン音の範囲（1.5 km）より外に置けないので、エンジン音は鳴る。左右の差はエンジン音と合わせて測る
+  const enemy = { aircraft: { position: { x: -300, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 } }, alive: true, missilesFired: 0, roundsFired: 0 }
+  let playing = 0
+  const step = 0.05
+  for (let t = step; t < 1 - step; t += step) {
+    const at = t
+    void ctx.suspend(at).then(() => {
+      if (shooting) enemy.roundsFired += 5
+      spatial.update({ listener, enemies: [enemy], explosions: null, newExplosions: 0, flybyCount: 0, lastFlybyEnemy: -1 })
+      playing = Math.max(playing, spatial.enemyGunsPlaying)
+      void ctx.resume()
+    })
+  }
+  const buffer = await ctx.startRendering()
+  const rms = (data: Float32Array) => {
+    let sum = 0
+    for (const v of data) sum += v * v
+    return 20 * Math.log10(Math.sqrt(sum / data.length) + 1e-12)
+  }
+  return { playing, leftDb: rms(buffer.getChannelData(0)) - rms(buffer.getChannelData(1)) }
+}
+
+async function probeEnemyGun(baseUrl: string): Promise<EnemyGunProbe | null> {
+  const [shooting, silent] = await Promise.all([renderEnemyGun(baseUrl, true), renderEnemyGun(baseUrl, false)])
+  if (shooting === null || silent === null) return null
+  return { playing: shooting.playing, leftDb: shooting.leftDb, silentPlaying: silent.playing }
 }
 
 export interface SpatialProbe {
@@ -103,13 +150,13 @@ async function renderPlaced(at: { x: number; y: number; z: number }): Promise<{ 
 export async function renderSpatialDemo(baseUrl: string): Promise<Float32Array | null> {
   const seconds = 8
   const ctx = new OfflineAudioContext(2, Math.floor(RATE * seconds), RATE)
-  const samples = await loadSamples(ctx, baseUrl, ['engine-turbine', 'flyby'] as const)
+  const samples = await loadSamples(ctx, baseUrl, ['engine-turbine', 'flyby', 'gun-loop'] as const)
   if (samples === null) return null
   const spatial = createSpatialVoices(ctx, ctx.destination, { playExplosion() {}, playLaunch() {} })
-  spatial.setSamples({ turbine: samples['engine-turbine'], flyby: samples.flyby })
+  spatial.setSamples({ turbine: samples['engine-turbine'], flyby: samples.flyby, gunLoop: samples['gun-loop'] })
   const listener = { position: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } }
   // 4 秒で真横（x = −50 → +50 へ斜めに抜ける）。z は −1,200 から +1,200 へ
-  const enemy = { aircraft: { position: { x: -50, y: 0, z: -1200 }, velocity: { x: 0, y: 0, z: 300 } }, alive: true, missilesFired: 0 }
+  const enemy = { aircraft: { position: { x: -50, y: 0, z: -1200 }, velocity: { x: 0, y: 0, z: 300 } }, alive: true, missilesFired: 0, roundsFired: 0 }
   let flybyCount = 0
   let passed = false
   const step = 0.05
@@ -415,5 +462,6 @@ export async function probeAudio(baseUrl: string): Promise<AudioProbe> {
   const engineLayers = layers.every((l) => l !== null) ? (layers as EngineLayerProbe[]) : null
   const weapons = await probeWeapons(baseUrl)
   const spatial = await probeSpatial()
-  return { explosion, launch, warning, gun, engine, worstCase, warningShape, engineLayers, weapons, spatial }
+  const enemyGun = await probeEnemyGun(baseUrl)
+  return { explosion, launch, warning, gun, engine, worstCase, warningShape, engineLayers, weapons, spatial, enemyGun }
 }

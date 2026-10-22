@@ -2080,6 +2080,29 @@ test.describe('効果音', () => {
     expect(probe.spatial.distanceDb, '遠い音が小さくならない').toBeGreaterThan(12)
   })
 
+  /**
+   * 敵機の機銃。左 300 m で撃っている敵機には 1 本鳴らし、左が大きい。撃っていない敵機には鳴らさない
+   * （`src/audio/probe.ts`）
+   */
+  test('撃っている敵機の位置で機銃の音が鳴る', async ({ page }) => {
+    await page.goto('/dogfight/?capture=1&frame=60&audioprobe=1')
+    await page.waitForSelector('body[data-capture-ready="1"]')
+    const handle = await page.waitForFunction(
+      () =>
+        (window as unknown as { __dogfight?: TestHook }).__dogfight?.audioProbe ?? null,
+      undefined,
+      { timeout: waitBudgetMs(60_000) },
+    )
+    // `TestHook.audioProbe` は大きさだけの素の形で書いてある（`capture.ts` の作法）。形は `unknown` を経て読む
+    const probe = (await handle.jsonValue()) as unknown as {
+      enemyGun: { playing: number; leftDb: number; silentPlaying: number } | null
+    }
+    expect(probe.enemyGun, '実録音を読めていない').not.toBeNull()
+    expect(probe.enemyGun!.playing).toBe(1)
+    expect(probe.enemyGun!.leftDb).toBeGreaterThan(6)
+    expect(probe.enemyGun!.silentPlaying).toBe(0)
+  })
+
   test('?sound=0 では作らない', async ({ page }) => {
     await page.goto('/dogfight/?script=level&sound=0&precompile=0')
     await page.waitForFunction(

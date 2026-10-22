@@ -32,6 +32,7 @@ import {
 import {
   diffCounters,
   limitExplosions,
+  gunHeld,
   isFiring,
   type AudioCounters,
   type AudioEvents,
@@ -80,6 +81,8 @@ export interface GameAudio {
   readonly weaponsRecorded: boolean
   /** 鳴らしている敵機のエンジン音の数（段 B11d） */
   readonly enemyEnginesPlaying: number
+  /** 鳴らしている敵機の機銃の音の数 */
+  readonly enemyGunsPlaying: number
   /** 音量 0..1。設定画面から呼ぶ */
   setVolume(volume: number): void
   /** 止める。ページを離れるとき */
@@ -121,6 +124,8 @@ export function createGameAudio(volume: number): GameAudio | null {
   const noise = createNoiseBuffer(ctx)
   let gun: GunVoice | RecordedGunVoice = createGunVoice(ctx, master, noise, ROUNDS_PER_SECOND)
   let gunFiring = false
+  /** 最後に自機の弾が出た時刻（`ctx.currentTime`）。50 ms のあいだは撃っている扱い */
+  let lastShotAt = -Infinity
   let weapons: WeaponSamples | null = null
   // 合成音のエンジンは専用のバスを通す。実録音が読めたら下げて止める（段 B11b）
   const synthBus = ctx.createGain()
@@ -164,9 +169,9 @@ export function createGameAudio(volume: number): GameAudio | null {
       else playLaunch(ctx, out, noise, when)
     },
   })
-  void loadSamples(ctx, import.meta.env.BASE_URL, ['engine-turbine', 'flyby'] as const).then((samples) => {
+  void loadSamples(ctx, import.meta.env.BASE_URL, ['engine-turbine', 'flyby', 'gun-loop'] as const).then((samples) => {
     if (samples === null || disposed) return
-    spatial.setSamples({ turbine: samples['engine-turbine'], flyby: samples.flyby })
+    spatial.setSamples({ turbine: samples['engine-turbine'], flyby: samples.flyby, gunLoop: samples['gun-loop'] })
   })
   // 段 B10 で持続音にした。段 B9 までは 0.5 秒おきの断続音（`WARNING_INTERVAL`）
   const warning: WarningVoice = createWarningVoice(ctx, master)
@@ -190,7 +195,9 @@ export function createGameAudio(volume: number): GameAudio | null {
         missilesFired: view.missilesFired,
       }
 
-      gunFiring = isFiring(events)
+      // 弾の出ないフレームが混じっても撃ち止めにしない（`GUN_HOLD_SECONDS`）
+      if (isFiring(events)) lastShotAt = ctx.currentTime
+      gunFiring = gunHeld(lastShotAt, ctx.currentTime)
       if (gunFiring) gun.start()
       else gun.stop()
 
@@ -233,6 +240,10 @@ export function createGameAudio(volume: number): GameAudio | null {
 
     get enemyEnginesPlaying(): number {
       return spatial.enemyEnginesPlaying
+    },
+
+    get enemyGunsPlaying(): number {
+      return spatial.enemyGunsPlaying
     },
 
     setVolume(value: number): void {

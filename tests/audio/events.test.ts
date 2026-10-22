@@ -3,6 +3,8 @@ import {
   diffCounters,
   limitExplosions,
   isFiring,
+  gunHeld,
+  GUN_HOLD_SECONDS,
   MAX_EXPLOSIONS_PER_FRAME,
   type AudioCounters,
 } from '../../src/audio/events'
@@ -78,5 +80,55 @@ describe('機銃', () => {
 
   it('撃っていなければ偽', () => {
     expect(isFiring({ shots: 0, explosions: 3, launches: 1 })).toBe(false)
+  })
+})
+
+describe('機銃を撃っている扱い（段 B11c の直し）', () => {
+  it('最後に弾が出てから 50 ms のあいだは撃っている扱い', () => {
+    expect(GUN_HOLD_SECONDS).toBe(0.05)
+    expect(gunHeld(1, 1)).toBe(true)
+    expect(gunHeld(1, 1.049)).toBe(true)
+    expect(gunHeld(1, 1.05)).toBe(false)
+    expect(gunHeld(-Infinity, 0)).toBe(false)
+  })
+
+  /**
+   * 144 Hz の画面で撃ち続ける。sim は毎秒 120 ステップ・機銃は毎秒 100 発なので、フレームごとの弾の数は
+   * 0 か 1。弾の数だけで判定すると撃ち止めが何度も起きるが、50 ms 保てば撃ち止めは最後の 1 回だけ
+   */
+  it('144 Hz で撃ち続けても撃ち止めは最後の 1 回', () => {
+    const frame = 1 / 144
+    const step = 1 / 120
+    let simTime = 0
+    let rounds = 0
+    let fired = 0
+    let lastShotAt = -Infinity
+    let firing = false
+    let stopsByShots = 0
+    let stopsHeld = 0
+    let previousByShots = false
+    // 3 秒ぶん回す（2 秒で撃ち止める）
+    for (let i = 0; i < 432; i++) {
+      const now = i * frame
+      // 2 秒撃って止める
+      const before = rounds
+      while (simTime + step <= now) {
+        simTime += step
+        if (simTime <= 2) {
+          fired += 100 * step
+          rounds = Math.floor(fired)
+        }
+      }
+      const shots = rounds - before
+      const byShots = isFiring({ shots, explosions: 0, launches: 0 })
+      if (previousByShots && !byShots) stopsByShots++
+      previousByShots = byShots
+      if (byShots) lastShotAt = now
+      const held = gunHeld(lastShotAt, now)
+      if (firing && !held) stopsHeld++
+      firing = held
+    }
+    expect(stopsByShots).toBeGreaterThan(10)
+    expect(stopsHeld).toBe(1)
   })
 })

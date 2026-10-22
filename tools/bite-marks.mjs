@@ -1935,4 +1935,13 @@ export const BITE_MARKS = [
     expect: 'tests/sim/flyby.test.ts',
     why: '300 m の外ですれ違っても通過音が鳴る',
   },
+  {
+    id: 'gun-hold-off',
+    kind: '定数の摂動',
+    file: 'src/audio/events.ts',
+    find: 'export const GUN_HOLD_SECONDS = 0.05\n',
+    replace: 'export const GUN_HOLD_SECONDS = 0\n',
+    expect: 'tests/audio/events.test.ts',
+    why: '144 Hz の画面で撃ち続けても撃ち止めが何度も起き、余韻が鳴り続ける',
+  },
 ]

@@ -207,6 +207,7 @@ const hook = installTestHook({
   audioReady: false,
   audioEngineRecorded: false,
   audioWeaponsRecorded: false,
+  audioEnemyGunsPlaying: 0,
   audioSweep: null,
   programs: 0,
   compileMs: 0,
@@ -1318,6 +1319,7 @@ async function main(): Promise<void> {
     })
     hook.audioEngineRecorded = audio?.engineRecorded ?? false
     hook.audioWeaponsRecorded = audio?.weaponsRecorded ?? false
+    hook.audioEnemyGunsPlaying = audio?.enemyGunsPlaying ?? 0
 
     // 決着したらリザルトを出す。**毎フレーム作り直さない。**出ていなければ
     // 1 回だけ。R でやり直すと `hide()` が呼ばれて畳まれる

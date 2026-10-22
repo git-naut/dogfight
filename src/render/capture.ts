@@ -673,6 +673,8 @@ export interface TestHook {
   audioEngineRecorded: boolean
   /** 機銃とミサイルが実録音に切り替わったか（段 B11c） */
   audioWeaponsRecorded: boolean
+  /** 鳴らしている敵機の機銃の音の数 */
+  audioEnemyGunsPlaying: number
   /** `?audiosweep=1` の書き出し。44.1 kHz・1 チャンネルの 16 ビットを base64 にしたもの。読めなければ null */
   audioSweep: string | null
   /**

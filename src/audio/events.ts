@@ -78,3 +78,18 @@ export function limitExplosions(events: AudioEvents): AudioEvents {
 export function isFiring(events: AudioEvents): boolean {
   return events.shots > 0
 }
+
+/**
+ * 最後に弾が出てから、撃っている扱いを保つ秒（段 B11c の直し）。
+ *
+ * sim は毎秒 120 ステップ、機銃は毎秒 100 発なので、6 ステップに 1 回ほど弾の出ないステップがある。
+ * 60 Hz の画面は 1 フレームに 2 ステップ進むので弾が 0 発のフレームは無いが、120 Hz・144 Hz の画面では
+ * 撃ち続けていても 0 発のフレームが混じり、そのたびに撃ち止めと判定されて余韻が鳴っていた。
+ * 弾の間隔（10 ms）と sim の 1 ステップ（8.3 ms）より十分長く、撃ち止めの遅れが耳に付かない長さにした
+ */
+export const GUN_HOLD_SECONDS = 0.05
+
+/** 最後に弾が出た時刻 `lastShotAt` から、今 `now` も撃っている扱いか */
+export function gunHeld(lastShotAt: number, now: number): boolean {
+  return now - lastShotAt < GUN_HOLD_SECONDS
+}

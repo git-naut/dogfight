@@ -484,6 +484,7 @@ async function main(): Promise<void> {
     ...(capture.bloomEmissive !== null ? { bloomEmissive: capture.bloomEmissive } : {}),
     ...(capture.emissiveGain !== null ? { emissiveGain: capture.emissiveGain } : {}),
     lens: capture.lens,
+    heatHaze: capture.heatHaze,
     lensStage: capture.lensStage,
     illuminance: capture.illuminance,
     showAircraftShadow: capture.showAircraftShadow,

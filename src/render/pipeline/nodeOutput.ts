@@ -1,9 +1,15 @@
 import { Color, type Texture } from 'three'
 import {
   Fn,
+  clamp,
+  cos,
+  dot,
   float,
+  length,
   max,
   min,
+  screenUV,
+  sin,
   directionToColor,
   luminance,
   mix,
@@ -18,6 +24,7 @@ import {
 } from 'three/tsl'
 import type { Camera, Node, Scene } from 'three/webgpu'
 import { overlayCompositeNode } from '../overlayNodes'
+import { HAZE_MAX_PIXELS } from '../heatHaze'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -255,6 +262,68 @@ export interface NodeOutputInput {
    * 動いたらどの段が動かしたのかを 1 つずつ切って見る。既定は全部。
    */
   lensStage?: LensStage
+  /** 陽炎の範囲と強さの uniform（ADR 0041）。無ければ掛けない */
+  heatHaze?: HeatHazeUniforms
+  /** 陽炎を鎖に入れるか。`?haze=0` で外す */
+  showHeatHaze?: boolean
+}
+
+/** 陽炎の uniform。座標は NDC（上が +1）、太さは NDC の縦の長さの単位（`heatHaze.ts`） */
+export interface HeatHazeUniforms {
+  start: Node<'vec2'>
+  end: Node<'vec2'>
+  /** x が始まりの太さ、y が終わりの太さ */
+  radius: Node<'vec2'>
+  strength: Node<'float'>
+  /** 揺れの時刻 秒。フレームの番号から出す */
+  time: Node<'float'>
+  /** 画面の縦横比（横 ÷ 縦） */
+  aspect: Node<'float'>
+}
+
+/**
+ * 陽炎のずれ（`screenUV` の単位）。範囲の外では 0 になる。
+ *
+ * 画面の位置を NDC（上が +1）にして横を縦横比で伸ばし、範囲の軸（始まり→終わり）へのいちばん近い点との
+ * 距離で包む。太さは軸に沿って始まりから終わりへ広げ、縁は太さの 4 割から外へ薄くし、終わりの 4 分の 1
+ * で消す。揺れは 2 方向のさざ波を掛け合わせ、時刻で流す。最大のずれは 1080 の画面で `HAZE_MAX_PIXELS`
+ */
+function heatHazeOffset(h: HeatHazeUniforms): Node<'vec2'> {
+  const u = screenUV as unknown as { x: Node<'float'>; y: Node<'float'> }
+  const aspect = h.aspect as unknown as { mul(n: unknown): Node<'float'> }
+  const px = (u.x as unknown as { mul(n: number): { sub(n: number): { mul(n: unknown): Node<'float'> } } }).mul(2).sub(1).mul(h.aspect)
+  const py = float(1).sub((u.y as unknown as { mul(n: number): Node<'float'> }).mul(2))
+  const p = vec2(px, py)
+  const start = h.start as unknown as { x: Node<'float'>; y: Node<'float'> }
+  const end = h.end as unknown as { x: Node<'float'>; y: Node<'float'> }
+  const a = vec2(aspect.mul(start.x), start.y)
+  const b = vec2(aspect.mul(end.x), end.y)
+  const ab = (b as unknown as { sub(n: unknown): Node<'vec2'> }).sub(a)
+  const ap = (p as unknown as { sub(n: unknown): Node<'vec2'> }).sub(a)
+  const t = clamp(
+    (dot(ap, ab) as unknown as { div(n: unknown): Node<'float'> }).div(max(dot(ab, ab), float(1e-6))),
+    0,
+    1,
+  )
+  const nearest = (a as unknown as { add(n: unknown): Node<'vec2'> }).add((ab as unknown as { mul(n: unknown): Node<'vec2'> }).mul(t))
+  const d = length((p as unknown as { sub(n: unknown): Node<'vec2'> }).sub(nearest))
+  const radius = h.radius as unknown as { x: Node<'float'>; y: Node<'float'> }
+  const r = mix(radius.x, radius.y, t) as unknown as { mul(n: number): Node<'float'> }
+  const edge = smoothstep(r.mul(0.4), r as unknown as Node<'float'>, d) as unknown as { oneMinus(): { mul(n: unknown): Node<'float'> } }
+  const tail = smoothstep(float(0.75), float(1), t) as unknown as { oneMinus(): Node<'float'> }
+  const mask = edge.oneMinus().mul(tail.oneMinus()) as unknown as { mul(n: unknown): Node<'float'> }
+  const time = h.time as unknown as { mul(n: number): Node<'float'> }
+  const ux = u.x as unknown as { mul(n: number): { add(n: unknown): Node<'float'>; sub(n: unknown): Node<'float'> } }
+  const uy = u.y as unknown as { mul(n: number): { add(n: unknown): Node<'float'>; sub(n: unknown): Node<'float'> } }
+  const wx = (sin(uy.mul(180).add(time.mul(9))) as unknown as { mul(n: unknown): Node<'float'> }).mul(
+    sin(ux.mul(120).sub(time.mul(6.5))),
+  )
+  const wy = (cos(ux.mul(150).add(time.mul(7.3))) as unknown as { mul(n: unknown): Node<'float'> }).mul(
+    sin(uy.mul(90).sub(time.mul(5.1))),
+  )
+  const amount = mask.mul(h.strength) as unknown as { mul(n: number): Node<'float'> }
+  const amp = amount.mul(HAZE_MAX_PIXELS / 1080) as unknown as { div(n: unknown): Node<'float'>; mul(n: unknown): Node<'float'> }
+  return vec2(amp.div(h.aspect).mul(wx) as unknown as Node<'float'>, amp.mul(wy)) as unknown as Node<'vec2'>
 }
 
 /** 風圧の鎖をどこまで組むか */
@@ -349,10 +418,24 @@ export const BLOOM_INPUT_CAP = 4
 export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
   const { atmos, scenePass, cloudNode } = input
 
+  // 陽炎（ADR 0041）。範囲の中だけ、場面の色と深度を読む位置をずらす。範囲の外ではずれが 0 で、
+  // 元と同じ所を読む。プリセットが切っていれば鎖に入れない
+  const hazeEnabled =
+    input.heatHaze !== undefined && (input.showHeatHaze ?? true) && input.quality.heatHaze
   const composite = Fn(() => {
     // **ここで順が決まる。**場面のパスを雲より先に触る
-    const sceneColor = scenePass.getTextureNode().toVar()
-    const sceneDepth = scenePass.getTextureNode('depth')
+    let sceneColor: Node<'vec4'>
+    let sceneDepth: Node<'vec4'>
+    if (hazeEnabled) {
+      const at = (screenUV as unknown as { add(n: unknown): Node<'vec2'> }).add(heatHazeOffset(input.heatHaze!))
+      sceneColor = (scenePass.getTextureNode() as unknown as { sample(n: unknown): { toVar(): Node<'vec4'> } })
+        .sample(at)
+        .toVar()
+      sceneDepth = (scenePass.getTextureNode('depth') as unknown as { sample(n: unknown): Node<'vec4'> }).sample(at)
+    } else {
+      sceneColor = scenePass.getTextureNode().toVar() as unknown as Node<'vec4'>
+      sceneDepth = scenePass.getTextureNode('depth')
+    }
     const hazed = overlayCompositeNode(cloudNode, () => {
       const aerial = atmos.aerialPerspective(sceneColor as never, sceneDepth as never)
       // **空の画素を上書きさせない。**空は場面のパスの背景に描いてある

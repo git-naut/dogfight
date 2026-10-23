@@ -78,6 +78,12 @@ export interface QualitySettings {
   lensEffects: boolean
 
   /**
+   * 陽炎を掛けるか（ADR 0041）。自機の排気口の後ろの範囲だけ、場面の絵を読む位置を揺らす。
+   * 絵を読む回数は増えず、範囲の計算が全画素に少し増えるだけ。low は切る
+   */
+  heatHaze: boolean
+
+  /**
    * 雲のレイマーチを走らせる解像度の倍率。
    *
    * 当初の案では Low をビルボード、Medium をメッシュクラスタ、High 以上を
@@ -318,6 +324,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     bloomStrength: 0,
     bloomEmissive: false,
     lensEffects: false,
+    heatHaze: false,
     cloudResolutionScale: 0.125,
     cloudMaxSteps: 27,
     cloudLightSteps: 2,
@@ -356,6 +363,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     bloomStrength: 1.3,
     bloomEmissive: true,
     lensEffects: true,
+    heatHaze: true,
     cloudResolutionScale: 0.25,
     cloudMaxSteps: 51,
     cloudLightSteps: 3,
@@ -396,6 +404,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     bloomStrength: 2.0,
     bloomEmissive: true,
     lensEffects: true,
+    heatHaze: true,
     // 実機（Intel Arc 140V）の実測で、1/4 解像度のとき雲パスは 2.7 ms、
     // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
     // 雲 10.8 ms、合計 13 ms 前後に収まる
@@ -440,6 +449,7 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     bloomStrength: 3.0,
     bloomEmissive: true,
     lensEffects: true,
+    heatHaze: true,
     // High より上の段。実機で 60fps は狙わない位置づけ。
     // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
     cloudResolutionScale: 1,

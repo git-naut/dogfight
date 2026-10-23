@@ -605,6 +605,7 @@ export async function createWebGLPipeline(
      * 毎フレーム落ちる
      */
     setLoadFactor() {},
+    setHeatHaze() {},
 
     dispose() {
       gpuTimer.dispose()

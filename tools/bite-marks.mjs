@@ -1944,4 +1944,22 @@ export const BITE_MARKS = [
     expect: 'tests/audio/events.test.ts',
     why: '144 Hz の画面で撃ち続けても撃ち止めが何度も起き、余韻が鳴り続ける',
   },
+  {
+    id: 'haze-forward',
+    kind: '符号の反転',
+    file: 'src/render/heatHaze.ts',
+    find: '  end.copy(mid).add(back.set(0, 0, PLUME_LENGTH))\n',
+    replace: '  end.copy(mid).add(back.set(0, 0, -PLUME_LENGTH))\n',
+    expect: 'tests/render/heatHaze.test.ts',
+    why: '陽炎の範囲が排気口の後ろではなく機首の側へ伸びる（ADR 0041）',
+  },
+  {
+    id: 'haze-never',
+    kind: '文の削除',
+    file: 'src/render/heatHaze.ts',
+    find: '  out.strength = hazeStrength(throttle)\n',
+    replace: '',
+    expect: 'tests/render/heatHaze.test.ts',
+    why: '陽炎がいつも 0 で揺らがない',
+  },
 ]

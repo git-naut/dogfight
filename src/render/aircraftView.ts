@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { AircraftModel } from './aircraft/model'
+import type { Nozzle } from './aircraft/afterburner'
 import { augmentation } from '../sim/flightModel'
 import {
   createVaporCone,
@@ -40,6 +41,8 @@ export interface AircraftView {
   readonly triangles: number
   /** 動かせた舵面の枚数。6 枚あるはず */
   readonly surfaceCount: number
+  /** 排気口（機体の座標の位置と半径）。陽炎の範囲に使う（ADR 0041） */
+  readonly nozzles: readonly Nozzle[]
   /**
    * アフターバーナーの強さ 0..1。
    *
@@ -106,6 +109,7 @@ export function createAircraftView(
     object: model.object,
     triangles: model.triangles,
     surfaceCount: surfaces.count,
+    nozzles: model.nozzles,
 
     setControls(elevator, aileron, rudder) {
       surfaces.update(elevator, aileron, rudder)

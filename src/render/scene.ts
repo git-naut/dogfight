@@ -16,6 +16,7 @@ import type { TerrainStats } from '../sim/terrain'
 import { cloudTime } from './clouds/geometry'
 import type { ShadowInputs } from './clouds/shadowInputs'
 import { FIXED_DT } from '../sim/loop'
+import { computeHeatHaze, createHeatHazeState } from './heatHaze'
 import { speedOfSound } from '../sim/isa'
 import { createWebGLPipeline } from './pipeline/webgl'
 import {
@@ -372,6 +373,8 @@ export async function createScene(
   }
   /** 影の箱を合わせるのに使う。毎フレーム作らない */
   const aircraftPosition = new THREE.Vector3()
+  /** 陽炎の範囲。毎フレーム書き換える */
+  const heatHaze = createHeatHazeState()
   /** 軌跡の履歴を読む先。main が World を作ったあとに渡す */
   let trailSource: AircraftTrailSource | null = null
   /** 弾を読む先。main が World を作ったあとに渡す */
@@ -629,6 +632,13 @@ export async function createScene(
 
       if (snap) chase.snap(sample, look)
       else chase.update(sample, dt, look)
+
+      // 陽炎（ADR 0041）。カメラが決まってから、排気口の後ろの範囲を画面へ投影して渡す
+      aircraft.object.updateMatrixWorld()
+      camera.updateMatrixWorld()
+      computeHeatHaze(aircraft.nozzles, aircraft.object, camera, sample.throttle, heatHaze)
+      heatHaze.time = frame * FIXED_DT
+      pipeline.setHeatHaze(heatHaze)
 
       // 雲の流れは実時間ではなく sim のフレーム番号から導く。
       // これでキャプチャモードの絵が固定される

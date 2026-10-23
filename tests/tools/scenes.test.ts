@@ -71,9 +71,10 @@ describe('基準画像の構図', () => {
     // 恒等になるので、水平飛行の 32 枚は切っても絵が動かない。10 枚とも
     // `MUTATE=1` で発火した。
     // 段 B9 で 64 件へ。`missile-flame` の `missiles` と `explosions` は、`MUTATE=1` で 2 件とも発火した。
-    // 続けてフレアを霞の後ろのパスへ移すと、`enemy-flare-flash` の `bloom` が発火しなくなり、外して 63 件
+    // 続けてフレアを霞の後ろのパスへ移すと、`enemy-flare-flash` の `bloom` が発火しなくなり、外して 63 件。
+    // 陽炎（ADR 0041）の `heatHaze` を `aircraft-close` に足して 64 件。`MUTATE=1` で発火した
     const total = SCENES.reduce((sum, s) => sum + (s.watches?.length ?? 0), 0)
-    expect(total).toBe(63)
+    expect(total).toBe(64)
     const empty = SCENES.filter((s) => (s.watches ?? []).length === 0).map((s) => s.name)
     // **段 23 で 3 枚に減った。**`aircraft-vortex-fade` は 1.9 G で風圧が
     // 効くので `lens` が載った（渦そのものは薄すぎて載せられていない）

@@ -1,3 +1,4 @@
+import type { HeatHazeState } from '../heatHaze'
 import type * as THREE from 'three'
 import type { RenderBackend } from '../backend'
 import type { ChaseCamera } from '../camera'
@@ -279,6 +280,8 @@ export interface SceneOptions {
    * この値に関わらず動かない。差分の帰属を測るための口
    */
   lens?: boolean
+  /** 陽炎を掛けるか。`?haze=0` で外す（ADR 0041） */
+  heatHaze?: boolean
   /**
    * 風圧の鎖をどこまで組むか。`?lens=tone|blur`。既定は全部。
    *
@@ -504,6 +507,11 @@ export interface ScenePipeline {
    * GLSL 経路は受け取って捨てる。鎖が無いので効かせようがない
    */
   setLoadFactor(value: number): void
+  /**
+   * 陽炎の範囲と強さを渡す（ADR 0041）。**毎フレーム呼ぶ。**風圧の荷重倍数と同じく `sync` の中から渡す。
+   * GLSL 経路は受け取って捨てる
+   */
+  setHeatHaze(state: HeatHazeState): void
   compile(): Promise<void>
   compileAllPresets(
     current: PresetName,

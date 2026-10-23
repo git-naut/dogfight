@@ -121,6 +121,8 @@ export interface CaptureConfig {
    * 切っても絵が動かない。高 G のカット（`bank-left-dusk` など）でだけ差が出る
    */
   lens: boolean
+  /** 陽炎を掛けるか。`?haze=0` で外す（ADR 0041） */
+  heatHaze: boolean
   /**
    * 風圧の鎖をどこまで組むか。`?lens=tone|blur`。
    *
@@ -433,6 +435,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? clampNumber(params.get('emissivegain'), 0, 100, 0)
       : null,
     lens: params.get('lens') !== '0',
+    heatHaze: params.get('haze') !== '0',
     lensStage: (() => {
       const v = params.get('lens')
       return v === 'blur' || v === 'tone' ? v : 'full'

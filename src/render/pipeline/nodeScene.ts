@@ -383,6 +383,13 @@ export async function createNodePipeline(
    * カットだけ）。
    */
   const loadFactor = uniform(1)
+  // 陽炎の範囲と強さ（ADR 0041）。風圧と同じく毎フレーム書き換える
+  const hazeStart = uniform(new THREE.Vector2())
+  const hazeEnd = uniform(new THREE.Vector2())
+  const hazeRadius = uniform(new THREE.Vector2())
+  const hazeStrength = uniform(0)
+  const hazeTime = uniform(0)
+  const hazeAspect = uniform(1)
   const bloomAfterExposure = options.bloomThreshold ?? BLOOM_THRESHOLD_AFTER_EXPOSURE
   const bloomThreshold = uniform(
     bloomThresholdFor(renderer.toneMappingExposure, bloomAfterExposure),
@@ -426,6 +433,15 @@ export async function createNodePipeline(
       loadFactor: loadFactor as unknown as webgpu.Node<'float'>,
       showLens: options.lens ?? true,
       lensStage: options.lensStage ?? 'full',
+      heatHaze: {
+        start: hazeStart as unknown as webgpu.Node<'vec2'>,
+        end: hazeEnd as unknown as webgpu.Node<'vec2'>,
+        radius: hazeRadius as unknown as webgpu.Node<'vec2'>,
+        strength: hazeStrength as unknown as webgpu.Node<'float'>,
+        time: hazeTime as unknown as webgpu.Node<'float'>,
+        aspect: hazeAspect as unknown as webgpu.Node<'float'>,
+      },
+      showHeatHaze: options.heatHaze ?? true,
     })
     // **`?smaa=0` で外せる。**42 枚は全画素が動くので、原因ごとの寄与は
     // 1 つずつ振って測るしかない（段 20a-4 の差分の台帳）
@@ -777,6 +793,15 @@ export async function createNodePipeline(
       // **閾値も動かす。**鎖の中は露出前なので、露出を変えると「露出後で
       // どの明るさから光るか」がずれる（`quality.ts` の注記）
       bloomThreshold.value = bloomThresholdFor(value, bloomAfterExposure)
+    },
+
+    setHeatHaze(state) {
+      hazeStart.value.set(state.startX, state.startY)
+      hazeEnd.value.set(state.endX, state.endY)
+      hazeRadius.value.set(state.startRadius, state.endRadius)
+      hazeStrength.value = state.strength
+      hazeTime.value = state.time
+      hazeAspect.value = camera.aspect
     },
 
     setLoadFactor(value) {

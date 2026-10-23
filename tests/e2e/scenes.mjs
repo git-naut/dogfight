@@ -68,6 +68,8 @@ export const TOGGLES = [
   // なるので、水平飛行の構図では切っても絵が動かない。`watches` に載せるのは
   // 実測で動いた 10 枚だけ
   ['lens', 'lens'],
+  // 陽炎（ADR 0041）。自機の排気口の後ろの範囲だけ動く
+  ['heatHaze', 'haze'],
 ]
 
 /**
@@ -115,7 +117,8 @@ export const SCENES = [
   { name: 'terrain-peak', script: 'island-run', frame: 3240, hour: 17, coverage: 0.29, watches: ['terrain'] },
   // 機体を主題にした構図。斜め後方からの接写、自分の影が地面を走るカット、
   // 高 G で翼端渦が出るカット、その渦が画面の縁で切れているカット
-  { name: 'aircraft-close', script: 'bank-left', frame: 30, hour: 12, coverage: 0.29, watches: ['aircraft'] },
+  // 陽炎（ADR 0041）の見張りもここ。排気口の後ろの範囲が画面に大きく写る
+  { name: 'aircraft-close', script: 'bank-left', frame: 30, hour: 12, coverage: 0.29, watches: ['aircraft', 'heatHaze'] },
   { name: 'aircraft-shadow', script: 'low-pass', frame: 2500, hour: 16, coverage: 0.29, watches: ['aircraftShadow', 'aircraft', 'terrain'] },
   { name: 'aircraft-vortex', script: 'pull-up', frame: 430, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
   // 引き起こしを続けて 7.5 秒。左右の渦が画面の下隅を突き抜ける。

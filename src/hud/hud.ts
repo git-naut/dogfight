@@ -20,7 +20,7 @@ import {
   upperStatusText,
   type HudReadout,
 } from './readout'
-import type { MissileThreat } from '../sim/weapons/warning'
+import type { LockWarning, MissileThreat } from '../sim/weapons/warning'
 import type { LandingResult } from '../sim/arrestor'
 import { BALL_CELLS, DATUM_CELL, YELLOW_CELLS, type ApproachGuide } from '../sim/approachGuide'
 import { landingNoticeText, lineupMarkOffset } from './approach'
@@ -282,6 +282,8 @@ export interface HudArmament {
    * `src/sim/weapons/warning.ts` が測った値をそのまま渡す。
    */
   threat: MissileThreat
+  /** 敵機にロックされているか（Phase 10 の宿題 2）。上の欄の WARNING。HUD は赤くしない */
+  lockedOn: LockWarning
   /**
    * ミッション。走っていなければ null。
    *
@@ -1462,11 +1464,11 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
    *
    * @param frame 点滅の位相を決めるシムのフレーム。実時間は使わない
    */
-  function drawStatus(threat: MissileThreat, frame: number): void {
-    statusUpperText = upperStatusText(readout, threat.active)
+  function drawStatus(threat: MissileThreat, lockedOn: LockWarning, frame: number): void {
+    statusUpperText = upperStatusText(readout, threat.active, lockedOn.active)
     // 点滅は出始めのフレームから数える。出た瞬間が点いているように。CAUTION は出始めを
     // 持たないので、通し番号の位相で点滅させる
-    const since = threat.active ? threat.since : 0
+    const since = threat.active ? threat.since : lockedOn.active ? lockedOn.since : 0
     const phase = (((frame - since) % BLINK_PERIOD_FRAMES) + BLINK_PERIOD_FRAMES) % BLINK_PERIOD_FRAMES
     statusBlinkOn = phase < BLINK_ON_FRAMES
     if (statusUpperText !== '' && statusBlinkOn) {
@@ -1644,7 +1646,7 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       drawArmament(armament)
       drawMission(armament.mission)
       drawRadar(sample, armament)
-      drawStatus(armament.threat, frame)
+      drawStatus(armament.threat, armament.lockedOn, frame)
       drawApproach(armament.approach)
       drawBanner(armament.hits, frame, armament.landingNotice)
     },

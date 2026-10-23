@@ -1425,6 +1425,34 @@ test.describe('ミサイル警告とフレア', () => {
     expect(again.hudStatusBlinkOn).toBe(true)
   })
 
+  /**
+   * 敵機のロック（Phase 10 の宿題 2）。録画（lesson 5 のコマ 21432〜21482）は、ミサイルが過ぎたあと
+   * MISSILE ALERT と同じ位置に WARNING を同じ点滅（6 コマ点いて 6 コマ消える）で出し、HUD は緑のまま。
+   * 台本 `lock-warning` は 1 発目をフレアで外し、f588 から 2 発目の f721 まで WARNING だけになる
+   */
+  test('ロックされたまま外すと照準の上で WARNING が点滅し、次のミサイルで MISSILE ALERT に替わる', async ({ page }) => {
+    const locked = await capture(page, { script: 'lock-warning', frame: 600, hud: true })
+    expect(locked.lockWarning).toBe(true)
+    expect(locked.missileWarning).toBe(false)
+    expect(locked.hudStatusUpper).toBe('WARNING')
+    expect(locked.hudAlertRed).toBe(false)
+    expect(locked.hudStatusBlinkOn).toBe(true)
+    // 点滅は WARNING が出た瞬間から数える。MISSILE ALERT の始まりや通し番号ではない
+    const since = locked.lockWarningSince
+    expect(since).toBe(588)
+
+    const off = await capture(page, { script: 'lock-warning', frame: since + 24, hud: true })
+    expect(off.hudStatusUpper).toBe('WARNING')
+    expect(off.hudStatusBlinkOn).toBe(false)
+    const again = await capture(page, { script: 'lock-warning', frame: since + 48, hud: true })
+    expect(again.hudStatusBlinkOn).toBe(true)
+
+    const alert = await capture(page, { script: 'lock-warning', frame: 730, hud: true })
+    expect(alert.lockWarning).toBe(true)
+    expect(alert.hudStatusUpper).toBe('MISSILE ALERT')
+    expect(alert.hudAlertRed).toBe(true)
+  })
+
   test('撃たれていなければ HUD は緑で、照準の上の欄に MISSILE ALERT は出ない', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 240, hud: true })
     expect(hook.hudAlertRed).toBe(false)

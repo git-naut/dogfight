@@ -663,6 +663,10 @@ export interface TestHook {
   missileWarning: boolean
   /** 警告が出始めたフレーム（段 B2、HUD の点滅の位相） */
   missileWarningSince: number
+  /** 敵機にロックされているか（Phase 10 の宿題 2、上の欄の WARNING） */
+  lockWarning: boolean
+  /** ロックが始まったフレーム（WARNING の点滅の位相） */
+  lockWarningSince: number
   /** 自機の弾かミサイルが最後に当たったフレームと、最後に撃墜したフレーム（段 B3、無ければ −1） */
   lastHitFrame: number
   lastKillFrame: number

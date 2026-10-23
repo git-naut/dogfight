@@ -288,5 +288,14 @@ describe('照準の上の欄（段 B2・B7）', () => {
 
   it('墜落したら出さない', () => {
     expect(upperStatusText(at({ aglFt: 0, crashed: true }), false)).toBe('')
+    expect(upperStatusText(at({ aglFt: 0, crashed: true }), false, true)).toBe('')
+  })
+
+  /** 敵機のロック（Phase 10 の宿題 2）。録画では MISSILE ALERT が消えたあとに WARNING が出た */
+  it('ロックされていれば WARNING。ミサイル警告より後、CAUTION より先', () => {
+    expect(upperStatusText(at({}), false, true)).toBe('WARNING')
+    expect(upperStatusText(at({}), true, true)).toBe('MISSILE ALERT')
+    expect(upperStatusText(at({ aglFt: 400 }), false, true)).toBe('WARNING')
+    expect(upperStatusText(at({}), false, false)).toBe('')
   })
 })

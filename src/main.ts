@@ -52,7 +52,7 @@ import {
   type Settings,
   type SettingsStorage,
 } from './hud/settings'
-import { createMissileThreat } from './sim/weapons/warning'
+import { createLockWarning, createMissileThreat } from './sim/weapons/warning'
 import { showBenchPanel } from './hud/benchPanel'
 import { runBenchSweep } from './render/bench'
 
@@ -150,6 +150,8 @@ const hook = installTestHook({
   incomingMissiles: 0,
   missileWarning: false,
   missileWarningSince: 0,
+  lockWarning: false,
+  lockWarningSince: 0,
   lastHitFrame: -1,
   lastKillFrame: -1,
   missileBearing: 0,
@@ -559,6 +561,7 @@ async function main(): Promise<void> {
     lock: createHudLock(),
     flares: 0,
     threat: createMissileThreat(),
+    lockedOn: createLockWarning(),
     hits: { lastHit: -1, lastKill: -1 },
     incoming: { count: 0, points: [] },
     launchers: [],
@@ -653,6 +656,9 @@ async function main(): Promise<void> {
     armament.threat.timeToImpact = threat.timeToImpact
     armament.threat.count = threat.count
     armament.threat.since = threat.since
+    armament.lockedOn.active = currentWorld.lockWarning.active
+    armament.lockedOn.count = currentWorld.lockWarning.count
+    armament.lockedOn.since = currentWorld.lockWarning.since
     armament.hits.lastHit = currentWorld.combat.lastHitFrame
     armament.hits.lastKill = currentWorld.combat.lastKillFrame
 
@@ -767,6 +773,8 @@ async function main(): Promise<void> {
     hook.incomingMissiles = currentWorld.combat.incomingMissilesInFlight
     hook.missileWarning = currentWorld.combat.threat.active
     hook.missileWarningSince = currentWorld.combat.threat.since
+    hook.lockWarning = currentWorld.lockWarning.active
+    hook.lockWarningSince = currentWorld.lockWarning.since
     hook.lastHitFrame = currentWorld.combat.lastHitFrame
     hook.lastKillFrame = currentWorld.combat.lastKillFrame
     hook.missileBearing = currentWorld.combat.threat.bearing

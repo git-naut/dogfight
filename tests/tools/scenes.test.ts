@@ -28,11 +28,12 @@ import { getScript, isScriptName } from '@sim/scripts'
 describe('基準画像の構図', () => {
   const snapshotDir = fileURLToPath(new URL('../e2e/smoke.spec.ts-snapshots', import.meta.url))
 
-  it('46 枚ある', () => {
+  it('47 枚ある', () => {
     // 段 32 で `hud-mission-kill`（撃墜の加点の行）を足して 43 枚。Phase 9 の段 6 で
     // `gear-transit`（脚が畳まれる途中）を足して 44 枚。Phase 10 の段 B7 で `hud-approach` を足して 45 枚。
-    // 段 B9 で `missile-flame`（撃った直後の発射炎と炎の尾）を足して 46 枚
-    expect(SCENES.length).toBe(46)
+    // 段 B9 で `missile-flame`（撃った直後の発射炎と炎の尾）を足して 46 枚。宿題 2 で `hud-lock-warning`
+    // （敵機のロックの WARNING）を足して 47 枚
+    expect(SCENES.length).toBe(47)
   })
 
   it('名前が重複しない', () => {
@@ -81,21 +82,23 @@ describe('基準画像の構図', () => {
     // 段 32 の `hud-mission-kill` も空。加点の行は画素の見張りを持たず、絵の一致だけで見る
     // Phase 9 の段 6 の `gear-transit` は、画素の逆テストで測るまで空にしておく
     // Phase 10 の段 B7 の `hud-approach` も空。計器は画素の見張りを持たず、絵の一致と E2E の値で見る
+    // 宿題 2 の `hud-lock-warning` も空。WARNING は絵の一致と E2E の値で見る
     expect(empty).toEqual([
       'hud-dlz',
       'hud-mission-failed',
       'hud-mission-kill',
       'missile-warning',
+      'hud-lock-warning',
       'hud-approach',
       'gear-transit',
     ])
   })
 
-  it('HUD を含むのは 15 枚', () => {
-    expect(SCENES.filter((s) => s.hud === true).length).toBe(15)
+  it('HUD を含むのは 16 枚', () => {
+    expect(SCENES.filter((s) => s.hud === true).length).toBe(16)
   })
 
-  it('空母が写らないのは 41 枚', () => {
+  it('空母が写らないのは 42 枚', () => {
     const withCarrier = SCENES.filter((s) => getScript(s.script).carrier !== undefined)
     expect(withCarrier.map((s) => s.name)).toEqual([
       'hud-mission',
@@ -104,14 +107,14 @@ describe('基準画像の構図', () => {
       'catapult',
       'carrier',
     ])
-    expect(SCENES.length - withCarrier.length).toBe(41)
+    expect(SCENES.length - withCarrier.length).toBe(42)
   })
 
-  it('ミッションが走らないのは 43 枚', () => {
+  it('ミッションが走らないのは 44 枚', () => {
     const withMission = SCENES.filter((s) => getScript(s.script).missionSeconds !== undefined)
     // `mission-kill` は空母を持たないミッション（段 32）
     expect(withMission.map((s) => s.name)).toEqual(['hud-mission', 'hud-mission-failed', 'hud-mission-kill'])
-    expect(SCENES.length - withMission.length).toBe(43)
+    expect(SCENES.length - withMission.length).toBe(44)
   })
 })
 

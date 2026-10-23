@@ -150,16 +150,19 @@ export function gearLabel(position: number): string | null {
 export const LOW_ALTITUDE_FT = 500
 
 /**
- * 照準の上の欄の文字（段 B2）。ミサイル警告が先、次に CAUTION。CAUTION は低高度・脚の速度超過・
- * 失速で出し、墜落したら出さない。
+ * 照準の上の欄の文字（段 B2）。ミサイル警告が先、次に敵機のロック（WARNING、Phase 10 の宿題 2）、
+ * 次に CAUTION。WARNING と CAUTION は墜落したら出さない。CAUTION は低高度・脚の速度超過・失速で出す。
+ * 録画（lesson 5 のコマ 21432〜21482）の WARNING は MISSILE ALERT と同じ位置・同じ色・同じ点滅で、
+ * ミサイルが過ぎたあとに出ていた
  *
  * **脚を出しているあいだは低高度では出さない**（段 B7、ユーザーの決定）。着艦の進入は最後の
  * 約 1,000 m を 500 ft 未満で飛び、罠で止まったあとも甲板の上に残るので、出すと降りるあいだ
  * ずっと点滅する。脚の速度超過と失速は脚を出していても出す
  */
-export function upperStatusText(readout: HudReadout, missileAlert: boolean): string {
+export function upperStatusText(readout: HudReadout, missileAlert: boolean, lockedOn = false): string {
   if (missileAlert) return 'MISSILE ALERT'
   if (readout.crashed) return ''
+  if (lockedOn) return 'WARNING'
   const lowAltitude = readout.aglFt < LOW_ALTITUDE_FT && readout.gearPosition <= 0
   return lowAltitude || readout.gearOverspeed || readout.stalled ? 'CAUTION' : ''
 }

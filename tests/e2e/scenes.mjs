@@ -239,6 +239,9 @@ export const SCENES = [
   // ミサイル警告。方位の矢印と着弾までの秒。**この 1 枚が警告の見張り。**
   // 真後ろから来るので矢印は真下を指す
   { name: 'missile-warning', script: 'enemy-missile', frame: 600, hour: 16, coverage: 0, hud: true, watches: [] },
+  // 敵機のロック（Phase 10 の宿題 2）。**この 1 枚が WARNING の見張り。**1 発目をフレアで外したあと、
+  // f588 から 2 発目の f721 まで WARNING だけになる。600 は点いている位相
+  { name: 'hud-lock-warning', script: 'lock-warning', frame: 600, hour: 16, coverage: 0, hud: true, watches: [] },
   // 着艦の進入の計器（Phase 10 の段 B7）。**この 1 枚が進入の計器の見張り。**狙う点の 875 m 手前で、
   // ボールは黄の 5 セル目（4）、迎角はオン・スピード、中心線から右へ 0.78 度
   { name: 'hud-approach', script: 'carrier-trap', frame: 600, hour: 16, coverage: 0, hud: true, watches: [] },

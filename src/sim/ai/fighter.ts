@@ -525,6 +525,20 @@ export function missileShotReady(self: Aircraft, target: Tracked): boolean {
 }
 
 /**
+ * 相手をロックしているか（Phase 10 の宿題 2、HUD の WARNING）。
+ *
+ * **撃てる形で、弾が残っていること**（ユーザーの決定、2026-10-23）。この作品の敵はロックの状態を
+ * 持たず、撃てる形になればその場で撃つ。撃ったあと次に撃てるまでの 6 秒も撃てる形が続けば立つ。
+ * 録画（lesson 5 のコマ 21432〜21482）で、ミサイルが過ぎたあと WARNING が出ていた場面がこれに当たる。
+ * 立て直しと回避のあいだは撃たないので、ロックもしていないとみる
+ */
+export function lockingOn(state: AiState, missilesLeft: number, self: Aircraft, target: Tracked): boolean {
+  if (missilesLeft <= 0) return false
+  if (state !== 'pursue' && state !== 'attack') return false
+  return missileShotReady(self, target)
+}
+
+/**
  * 相手が自分の後方にいるか。回避の判定に使う。
  *
  * 自分の速度の向きから見て、相手が真後ろから `EVADE_CONE` の内側にいるか。

@@ -25,6 +25,8 @@ import type { LandingResult } from './arrestor'
 import { defaultTerrain, type Terrain } from './terrain'
 import { Mission, type MissionSpec } from './mission'
 import { FlybyTracker } from './flyby'
+import { lockingOn } from './ai/fighter'
+import { createLockWarning, type LockWarning } from './weapons/warning'
 
 export type { InputState } from './input'
 export { neutralInput, makeInput } from './input'
@@ -188,6 +190,10 @@ export class World {
   private readonly flyby = new FlybyTracker()
   /** すれ違った回数。増えていくだけ */
   flybyCount = 0
+  /** 敵機にロックされているか（Phase 10 の宿題 2、HUD の WARNING） */
+  readonly lockWarning: LockWarning = createLockWarning()
+  /** 前のステップでミサイル警告が出ていたか。WARNING が出始めた瞬間を見分ける */
+  private lockWarningUnderAlert = false
   /** 最後にすれ違った敵機の番号（`enemies` の添字）。まだなら −1 */
   lastFlybyEnemy = -1
 
@@ -379,6 +385,7 @@ export class World {
     for (const target of this.targets) target.step(FIXED_DT)
     for (const enemy of this.enemies) enemy.step(FIXED_DT, this.player, this.rng)
     this.combat.step(input, this.player, FIXED_DT, this._frame)
+    this.updateLockWarning()
     this.updateLanding()
     this._frame++
     this.updateFlyby()
@@ -444,6 +451,25 @@ export class World {
    */
   get damageSmokeSources(): readonly DamageSmokeSource[] {
     return this.enemies.map((enemy) => enemy.smoke)
+  }
+
+  /**
+   * 敵機にロックされているかを見る（Phase 10 の宿題 2）。`Combat` がミサイル警告を測ったあとに呼ぶ。
+   * WARNING が出始めたフレームは、`Combat` の MISSILE ALERT と同じく、フレームを進めたあとの番号で持つ
+   */
+  private updateLockWarning(): void {
+    const wasShown = this.lockWarning.active && !this.lockWarningUnderAlert
+    let count = 0
+    // 自機が落ちていれば `lockingOn` が立てない（相手の `alive` を見る）
+    for (const enemy of this.enemies) {
+      if (!enemy.alive) continue
+      if (lockingOn(enemy.aiState, enemy.missilesLeft, enemy.aircraft, this.player)) count++
+    }
+    this.lockWarning.count = count
+    this.lockWarning.active = count > 0
+    this.lockWarningUnderAlert = this.combat.threat.active
+    const shown = this.lockWarning.active && !this.lockWarningUnderAlert
+    if (shown && !wasShown) this.lockWarning.since = this._frame + 1
   }
 
   /** 生きている敵機と自機の距離を見て、すれ違いを数える（段 B11d） */

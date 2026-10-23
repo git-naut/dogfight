@@ -94,6 +94,8 @@ describe('スクリプトの登録', () => {
       'enemy-attack',
       'enemy-missile',
       'flare-break',
+      // Phase 10 の宿題 2。ロックされたまま 1 発目を外す
+      'lock-warning',
       'enemy-flare',
       'flare-head-on',
       'enemy-evade',
@@ -136,6 +138,7 @@ describe('スクリプトの登録', () => {
       'enemy-attack',
       'enemy-missile',
       'flare-break',
+      'lock-warning',
       'enemy-flare',
       'flare-head-on',
       'enemy-evade',

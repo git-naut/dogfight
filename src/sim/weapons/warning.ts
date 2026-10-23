@@ -47,6 +47,30 @@ export interface MissileThreat {
   since: number
 }
 
+/**
+ * 敵機にロックされているか（Phase 10 の宿題 2）。HUD の WARNING が読む。
+ *
+ * MAWS（`MissileThreat`）とは別に持つ。ミサイルが飛んでくる前と、外れたあとにも敵の照準が
+ * 残っていることを知らせる。この作品はレーダーを持たないので実機の RWR とは違い、
+ * 敵機の撃てる形（`lockingOn`）をそのまま使う
+ */
+export interface LockWarning {
+  /** どれかの敵機にロックされているか */
+  active: boolean
+  /** ロックしている敵機の数 */
+  count: number
+  /**
+   * WARNING が出始めたフレーム。ロックが始まった瞬間か、ロックしたままミサイル警告が消えた瞬間。
+   * HUD の点滅の位相を、出た瞬間が「点いている」に合わせる。ロックの始まりで数えると、ミサイルを
+   * 外したあとに出る WARNING（録画の場面）の位相が、前のミサイルの長さで変わってしまう
+   */
+  since: number
+}
+
+export function createLockWarning(): LockWarning {
+  return { active: false, count: 0, since: 0 }
+}
+
 export function createMissileThreat(): MissileThreat {
   return { active: false, bearing: 0, range: 0, timeToImpact: 0, count: 0, since: 0 }
 }

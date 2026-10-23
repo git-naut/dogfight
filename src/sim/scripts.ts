@@ -473,6 +473,24 @@ export const SCRIPTS = {
   },
 
   /**
+   * 敵機にロックされたまま、1 発目をフレアで外す（Phase 10 の宿題 2）。**WARNING の見張り。**
+   *
+   * 録画（lesson 5 のコマ 21432〜21482）は、ミサイルが過ぎたあと敵機が後ろに残るあいだ WARNING を
+   * 点滅させていた。後方 1,600 m の敵機は 3 発を積み、フレーム 1 で撃つ。f300 で撒いたフレアで 1 発目が
+   * 外れると、実測で f588 から、2 発目を撃つ f721（間隔 6 秒）まで WARNING だけになる（1.1 秒）
+   */
+  'lock-warning': {
+    name: 'lock-warning',
+    seed: 20260823,
+    spawn: { altitude: 3000, speed: 250 },
+    enemies: [{ offset: new Vec3(0, 0, 1600), speed: 250, missiles: 3 }],
+    keyframes: [
+      { frame: 300, input: { deployFlare: true } },
+      { frame: 302, input: { deployFlare: false } },
+    ],
+  },
+
+  /**
    * 前方の敵が回避に入ってフレアを撒く。**フレアの絵の見張り。**
    *
    * **自機のフレアは追従カメラでは映らない。**実測で、撒いた 0.7 秒後には

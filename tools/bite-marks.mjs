@@ -2052,4 +2052,13 @@ export const BITE_MARKS = [
     expect: 'tests/hud/readout.test.ts',
     why: '墜落したあとも WARNING や CAUTION が点滅する',
   },
+  {
+    id: 'lineup-back-on-wing',
+    kind: '定数の摂動',
+    file: 'src/hud/layout.ts',
+    find: '  const approachLineup = { x: width * 0.5, y: height * (900 / 1080) }\n',
+    replace: '  const approachLineup = { x: width * 0.5, y: height * (735 / 1080) }\n',
+    expect: 'tests/hud/layout.test.ts',
+    why: 'ラインナップの目盛りが主翼の後ろの縁と胴体に重なって読めなくなる',
+  },
 ]

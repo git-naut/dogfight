@@ -141,3 +141,16 @@ describe('字の上下の中央（段 D3）', () => {
     expect((y - 20 + (y + 4)) / 2).toBe(100)
   })
 })
+
+/**
+ * 着艦の進入のラインナップ（Phase 10 の宿題 3、ユーザーの決定）。段 B7 の 735/1080 は主翼の後ろの縁と
+ * 胴体に重なって読みにくかった。自機の絵は画面の高さの 0.69 を中心に描き、実機の絵（1920x1080 の
+ * carrier-trap）で排気口の下端は 0.78 前後だったので、それより下へ置く
+ */
+describe('ラインナップの目盛りは自機の下', () => {
+  it.each(SIZES)('%i x %i で、枠の上端が画面の高さの 0.8 より下', (w, h) => {
+    const { bounds, approachLineup } = computeLayout(w, h)
+    expect(approachLineup.y / h).toBeCloseTo(900 / 1080, 6)
+    expect(bounds.approachLineup.y / h).toBeGreaterThan(0.8)
+  })
+})

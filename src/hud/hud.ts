@@ -993,21 +993,33 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
       ctx!.stroke()
     }
 
-    // ラインナップ
+    // ラインナップ。海の上でも読めるよう、文字と同じ暗い縁取りを先に引く（Phase 10 の宿題 3）
     const line = layout.approachLineup
     const reach = LINEUP_HALF_WIDTH_REF * s
     const mark = LINEUP_MARK_REF * s
+    const mx = line.x + lineupMarkOffset(g.lineupDeg) * reach
+    const scale = (): void => {
+      ctx!.moveTo(line.x - reach, line.y)
+      ctx!.lineTo(line.x + reach, line.y)
+      for (const k of [-1, -0.5, 0, 0.5, 1]) {
+        const tick = k === 0 ? mark * 0.6 : mark * 0.35
+        ctx!.moveTo(line.x + k * reach, line.y - tick)
+        ctx!.lineTo(line.x + k * reach, line.y + tick)
+      }
+    }
+    const width = ctx!.lineWidth
+    ctx!.lineWidth = width + TEXT_SHADE_WIDTH_REF * s
+    ctx!.strokeStyle = TEXT_SHADE
+    ctx!.beginPath()
+    scale()
+    ctx!.moveTo(mx, line.y - mark)
+    ctx!.lineTo(mx, line.y + mark)
+    ctx!.stroke()
+    ctx!.lineWidth = width
     ctx!.strokeStyle = primary
     ctx!.beginPath()
-    ctx!.moveTo(line.x - reach, line.y)
-    ctx!.lineTo(line.x + reach, line.y)
-    for (const k of [-1, -0.5, 0, 0.5, 1]) {
-      const tick = k === 0 ? mark * 0.6 : mark * 0.35
-      ctx!.moveTo(line.x + k * reach, line.y - tick)
-      ctx!.lineTo(line.x + k * reach, line.y + tick)
-    }
+    scale()
     ctx!.stroke()
-    const mx = line.x + lineupMarkOffset(g.lineupDeg) * reach
     ctx!.strokeStyle = BALL_YELLOW
     ctx!.beginPath()
     ctx!.moveTo(mx, line.y - mark)

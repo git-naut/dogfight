@@ -230,10 +230,11 @@ export function computeLayout(width: number, height: number): HudLayout {
   const radarSize = 300 * s
   const radar = { x: width * (100 / 1920), y: height * (1025 / 1080) - radarSize, size: radarSize }
   // 着艦の進入の計器（段 B7）。照準は画面の中央。ボールは結果の帯の右端と ALT の箱の尖りの間に
-  // 収まる x、ラインナップは照準の下の欄（脚とフックで 2 段）と SHOOT の下
+  // 収まる x。ラインナップは機体の排気口より下（Phase 10 の宿題 3、ユーザーの決定）。段 B7 では
+  // 照準の下の欄と SHOOT の下（735/1080）に置いたが、主翼の後ろの縁と胴体に重なって読みにくかった
   const approachAoa = { x: width * (780 / 1920), y: height * 0.5 }
   const approachBall = { x: width * (1190 / 1920), y: height * 0.5 }
-  const approachLineup = { x: width * 0.5, y: height * (735 / 1080) }
+  const approachLineup = { x: width * 0.5, y: height * (900 / 1080) }
   const ballHalfW = (BALL_CELL_WIDTH_REF / 2 + DATUM_GAP_REF + DATUM_ARM_REF) * s
   const ballHalfH = (BALL_CELL_HEIGHT_REF * 6) * s
   const aoaHalfH = (AOA_CHEVRON_OFFSET_REF + AOA_CHEVRON_REF / 2) * s

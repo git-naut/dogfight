@@ -53,6 +53,11 @@ export interface CaptureConfig {
   /** 自動降格を止める。実機で品質を固定して計測するため */
   noDegrade: boolean
   /**
+   * 遊び始めの 8 秒をわざと重くする。`?govtest=1`。画質を自動で落とし、軽くなったら
+   * 戻す働き（`PerformanceGovernor`）を実機で確かめるため（ADR 0042）
+   */
+  govTest: boolean
+  /**
    * 地形と海面を描くか。`?terrain=0` `?water=0` で切る。
    *
    * どちらが GPU 時間を食っているかは、切ってみないと分からない。
@@ -415,6 +420,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     probe: clampInt(params.get('probe'), 0, 2, 0),
     noTemporal: params.get('ta') === '0',
     noDegrade: params.get('nodegrade') === '1',
+    govTest: params.get('govtest') === '1',
     showTerrain: params.get('terrain') !== '0',
     showWater: params.get('water') !== '0',
     showEnvironment: params.get('env') !== '0',

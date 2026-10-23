@@ -3,11 +3,13 @@ import {
   DEFAULT_PRESET,
   PRESET_ORDER,
   PerformanceGovernor,
+  higherPreset,
   QUALITY_PRESETS,
   getQuality,
   isPresetName,
   lowerPreset,
   resolvePreset,
+  type PresetName,
 } from '@render/quality'
 import { NEAR_STEP, stepGrowthScale } from '@render/clouds/geometry'
 
@@ -394,6 +396,140 @@ describe('自動降格', () => {
     governor.reset()
     // リセット直後は 3 秒ぶん貯まるまで降格しない
     expect(governor.update(frame(30), 'high')).toBeNull()
+  })
+})
+
+/**
+ * 軽くなったら戻す（Phase 10、ADR 0042）。それまでは一度落ちると戻らなかった。
+ * 値は既定（58 fps が 10 秒・切り替え後 5 秒・15 秒以内に落ちたら待ちを 2 倍・最長 60 秒）
+ */
+describe('自動の昇格', () => {
+  const frame = (fps: number) => 1 / fps
+
+  /** fps で seconds 秒ぶん流し、最初に返った切り替えと、その秒を返す */
+  function run(
+    governor: PerformanceGovernor,
+    fps: number,
+    seconds: number,
+    current: PresetName,
+    ceiling: PresetName,
+  ): { next: PresetName | null; at: number } {
+    const n = Math.round(seconds * fps)
+    for (let i = 0; i < n; i++) {
+      const next = governor.update(frame(fps), current, ceiling)
+      if (next !== null) return { next, at: (i + 1) / fps }
+    }
+    return { next: null, at: seconds }
+  }
+
+  it('1 段上と最上段', () => {
+    expect(higherPreset('low')).toBe('medium')
+    expect(higherPreset('high')).toBe('ultra')
+    expect(higherPreset('ultra')).toBeNull()
+  })
+
+  it('58 fps 以上が 10 秒続いたら 1 段戻す', () => {
+    const governor = new PerformanceGovernor()
+    const result = run(governor, 60, 20, 'medium', 'high')
+    expect(result.next).toBe('high')
+    expect(result.at).toBeGreaterThan(9.9)
+    expect(result.at).toBeLessThan(10.1)
+  })
+
+  it('上限（人が選んだ画質）より上へは戻さない', () => {
+    const governor = new PerformanceGovernor()
+    expect(run(governor, 60, 60, 'high', 'high').next).toBeNull()
+    // 上限を省けば戻さない（今までの呼び方）
+    expect(run(governor, 60, 60, 'medium', 'medium').next).toBeNull()
+  })
+
+  it('55〜58 fps のあいだでは戻さない', () => {
+    const governor = new PerformanceGovernor()
+    expect(run(governor, 56, 60, 'medium', 'high').next).toBeNull()
+  })
+
+  it('ときどきの 33 ms のコマは平均で見て、戻すのを遅らせない', () => {
+    // 実機で画質を固定しても 10 秒に 0〜4 枚出る（描画の更新を 1 回逃したコマ）
+    const governor = new PerformanceGovernor()
+    let result: PresetName | null = null
+    let seconds = 0
+    for (let i = 0; i < 1200 && result === null; i++) {
+      const dt = i % 150 === 149 ? 2 / 60 : 1 / 60
+      seconds += dt
+      result = governor.update(dt, 'medium', 'high')
+    }
+    expect(result).toBe('high')
+    expect(seconds).toBeLessThan(10.1)
+  })
+
+  it('重い 2 秒が窓に入れば、その窓では戻さない', () => {
+    const governor = new PerformanceGovernor()
+    expect(run(governor, 60, 7, 'medium', 'high').next).toBeNull()
+    expect(run(governor, 30, 2, 'medium', 'high').next).toBeNull()
+    // 7 + 2 + 1 = 10 秒で窓を閉じる。平均は (420 + 60 + 60) / 10 = 54 fps
+    expect(run(governor, 60, 1, 'medium', 'high').next).toBeNull()
+    // 次の窓は軽いまま 10 秒で戻す
+    expect(run(governor, 60, 11, 'medium', 'high').next).toBe('high')
+  })
+
+  it('落とした直後の 5 秒は数えない', () => {
+    const governor = new PerformanceGovernor()
+    expect(run(governor, 30, 10, 'high', 'high').next).toBe('medium')
+    // 落とした直後から軽くなっても、5 秒 + 10 秒で戻る
+    const result = run(governor, 60, 30, 'medium', 'high')
+    expect(result.next).toBe('high')
+    expect(result.at).toBeGreaterThan(14.9)
+    expect(result.at).toBeLessThan(15.1)
+  })
+
+  it('重い → 戻る の流れで落ちて戻る', () => {
+    const governor = new PerformanceGovernor()
+    let current: PresetName = 'high'
+    const changes: string[] = []
+    const steps: [number, number][] = [[20, 8], [60, 30]]
+    for (const [fps, seconds] of steps) {
+      for (let i = 0; i < seconds * fps; i++) {
+        const next = governor.update(frame(fps), current, 'high')
+        if (next !== null) {
+          changes.push(next)
+          current = next
+        }
+      }
+    }
+    // 8 秒の重さで 1 段だけ落ち（3 秒 + 5 秒待ち）、軽くなって戻る
+    expect(changes).toEqual(['medium', 'high'])
+  })
+
+  it('戻してすぐ落ちたら、次に戻すまでの待ちを 2 倍にする（最長 60 秒）', () => {
+    const governor = new PerformanceGovernor()
+    expect(governor.upgradeSeconds).toBe(10)
+    let current: PresetName = 'medium'
+    for (let round = 0; round < 4; round++) {
+      const up = run(governor, 60, 120, current, 'high')
+      expect(up.next).toBe('high')
+      current = 'high'
+      // 戻した直後の 5 秒が過ぎてから 3 秒で落ちる → 戻して 15 秒以内
+      const down = run(governor, 30, 20, current, 'high')
+      expect(down.next).toBe('medium')
+      current = 'medium'
+    }
+    // 10 → 20 → 40 → 60（上限）
+    expect(governor.upgradeSeconds).toBe(60)
+  })
+
+  it('戻して 15 秒より後に落ちたなら、待ちは延ばさない', () => {
+    const governor = new PerformanceGovernor()
+    expect(run(governor, 60, 20, 'medium', 'high').next).toBe('high')
+    expect(run(governor, 60, 20, 'high', 'high').next).toBeNull()
+    expect(run(governor, 30, 10, 'high', 'high').next).toBe('medium')
+    expect(governor.upgradeSeconds).toBe(10)
+  })
+
+  it('reset で数えかけの窓が消える', () => {
+    const governor = new PerformanceGovernor()
+    expect(run(governor, 60, 9, 'medium', 'high').next).toBeNull()
+    governor.reset()
+    expect(run(governor, 60, 9, 'medium', 'high').next).toBeNull()
   })
 })
 

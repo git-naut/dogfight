@@ -552,11 +552,24 @@ export function lowerPreset(name: PresetName): PresetName | null {
   return index > 0 ? PRESET_ORDER[index - 1]! : null
 }
 
+/** 1段上のプリセット。最上段なら null。 */
+export function higherPreset(name: PresetName): PresetName | null {
+  const index = PRESET_ORDER.indexOf(name)
+  return index >= 0 && index < PRESET_ORDER.length - 1 ? PRESET_ORDER[index + 1]! : null
+}
+
 /**
- * フレームレートを見て品質を落とす判断をする。
+ * フレームレートを見て品質を落とし、軽くなったら戻す判断をする。
  *
  * 一瞬の落ち込みで降格すると、プリセットが上下して絵がちらつく。一定時間
  * 連続で下回ったときだけ動かし、降格後はしばらく様子を見る。
+ *
+ * **戻す働きは Phase 10 で足した**（ADR 0042）。それまでは落とす働きしか無く、遊び始めの一時的な重さや
+ * ほかの作業の負荷で一度下がると、軽くなっても戻らなかった。`upgradeSeconds` 秒の平均が `upgradeFps`
+ * 以上なら 1 段戻す。上限は人が選んだ画質（`ceiling`）。
+ * 戻した直後は材質を組み直して重くなるので、落とした直後と同じく `cooldown` 秒は判断しない。戻してから
+ * `thrashWindow` 秒以内にまた落ちたら、次に戻すまでに要る秒を 2 倍にする（最長 `maxUpgradeSeconds`）。
+ * 値はどれも推測（ユーザーの決定）
  *
  * 実時間に依存するのでキャプチャモードでは使わない。動くと絵が変わって
  * スクリーンショット回帰が壊れる。
@@ -564,23 +577,51 @@ export function lowerPreset(name: PresetName): PresetName | null {
 export class PerformanceGovernor {
   private belowSeconds = 0
   private cooldownSeconds = 0
+  /**
+   * 戻す判断の窓。**平均で見る。**1 枚ずつ見て数え直すと、画質を固定しても実機で 10 秒に 0〜4 枚
+   * 出る 33 ms のコマ（描画の更新を 1 回逃したもの）で窓が切れ、なかなか戻らない
+   */
+  private windowSeconds = 0
+  private windowFrames = 0
+  /** 戻すまでに要る秒。行ったり来たりすると延びる */
+  private upgradeHold: number
+  /** 通算の秒と、最後に戻した時刻 */
+  private elapsed = 0
+  private lastUpgradeAt = -Infinity
 
   constructor(
     /** この fps を下回り続けたら降格する */
     private readonly targetFps = 55,
     /** 何秒連続で下回ったら動かすか */
     private readonly sustainSeconds = 3,
-    /** 降格後、次の判断までの待ち時間 */
+    /** 降格・昇格の後、次の判断までの待ち時間 */
     private readonly cooldown = 5,
-  ) {}
+    /** この fps 以上が続いたら 1 段戻す */
+    private readonly upgradeFps = 58,
+    /** 戻すまでに要る秒（最初） */
+    upgradeSeconds = 10,
+    /** 戻してからこの秒以内に落ちたら、行ったり来たりとみる */
+    private readonly thrashWindow = 15,
+    /** 戻すまでに要る秒の上限 */
+    private readonly maxUpgradeSeconds = 60,
+  ) {
+    this.upgradeHold = upgradeSeconds
+  }
+
+  /** 今、戻すまでに要る秒（検査用） */
+  get upgradeSeconds(): number {
+    return this.upgradeHold
+  }
 
   /**
-   * param dt 前フレームからの経過秒
-   * param current 現在のプリセット
-   * returns 降格すべきなら次のプリセット名、そのままなら null
+   * @param dt 前フレームからの経過秒
+   * @param current 現在のプリセット
+   * @param ceiling 戻してよい上限（人が選んだ画質）。省けば戻さない
+   * @returns 変えるべきなら次のプリセット名、そのままなら null
    */
-  update(dt: number, current: PresetName): PresetName | null {
+  update(dt: number, current: PresetName, ceiling: PresetName = current): PresetName | null {
     if (!Number.isFinite(dt) || dt <= 0) return null
+    this.elapsed += dt
 
     if (this.cooldownSeconds > 0) {
       this.cooldownSeconds -= dt
@@ -590,22 +631,49 @@ export class PerformanceGovernor {
     const fps = 1 / dt
     if (fps >= this.targetFps) {
       this.belowSeconds = 0
+    } else {
+      this.belowSeconds += dt
+      if (this.belowSeconds >= this.sustainSeconds) {
+        this.belowSeconds = 0
+        const next = lowerPreset(current)
+        if (next !== null) {
+          this.cooldownSeconds = this.cooldown
+          this.windowSeconds = 0
+          this.windowFrames = 0
+          if (this.elapsed - this.lastUpgradeAt < this.thrashWindow) {
+            this.upgradeHold = Math.min(this.maxUpgradeSeconds, this.upgradeHold * 2)
+          }
+          return next
+        }
+      }
+    }
+    return this.considerUpgrade(dt, current, ceiling)
+  }
+
+  private considerUpgrade(dt: number, current: PresetName, ceiling: PresetName): PresetName | null {
+    if (PRESET_ORDER.indexOf(current) >= PRESET_ORDER.indexOf(ceiling)) {
+      this.windowSeconds = 0
+      this.windowFrames = 0
       return null
     }
-
-    this.belowSeconds += dt
-    if (this.belowSeconds < this.sustainSeconds) return null
-
-    const next = lowerPreset(current)
-    this.belowSeconds = 0
+    this.windowSeconds += dt
+    this.windowFrames++
+    if (this.windowSeconds < this.upgradeHold) return null
+    const average = this.windowFrames / this.windowSeconds
+    this.windowSeconds = 0
+    this.windowFrames = 0
+    if (average < this.upgradeFps) return null
+    const next = higherPreset(current)
     if (next === null) return null
-
     this.cooldownSeconds = this.cooldown
+    this.lastUpgradeAt = this.elapsed
     return next
   }
 
   reset(): void {
     this.belowSeconds = 0
     this.cooldownSeconds = 0
+    this.windowSeconds = 0
+    this.windowFrames = 0
   }
 }

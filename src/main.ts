@@ -1032,10 +1032,17 @@ async function main(): Promise<void> {
    * 自動降格を続けるか。
    *
    * **設定画面で画質を選んだら止める。**`PerformanceGovernor` は 3 秒
-   * 連続で 55 fps を割ると 1 段落とす。選んだ直後に落とされると、選んだ
+   * 連続で 55 fps を割ると 1 段落とし、軽くなれば戻す。選んだ直後に落とされると、選んだ
    * ことが無かったことになる。人の指定が機械の判断に勝つ
    */
   let autoDegrade = true
+  /**
+   * 人が選んだ画質。自動で戻すときの上限（ADR 0042）。
+   *
+   * **自動で変えた画質は保存しない。**設定画面は今の画質を映すので、落としたあとに音量などを
+   * 変えると落とした画質が保存され、次に起動したとき上限まで下がっていた
+   */
+  let chosenPreset: PresetName = initialSettings.preset
 
   /**
    * 設定を開いたときタイトルが出ていたか。閉じるとき戻すのに使う。
@@ -1152,6 +1159,7 @@ async function main(): Promise<void> {
             hook.preset = preset
             // 人が選んだので機械の判断を止める
             autoDegrade = false
+            chosenPreset = next.preset
             governor.reset()
           }
           if (next.hour !== settings.hour) {
@@ -1168,7 +1176,7 @@ async function main(): Promise<void> {
           if (next.volume !== settings.volume) audio?.setVolume(next.volume)
           settings = next
           hook.volume = next.volume
-          saveSettings(settingsStorage(), next)
+          saveSettings(settingsStorage(), { ...next, preset: chosenPreset })
         },
         onClose: () => closeSettings(),
       })
@@ -1285,16 +1293,25 @@ async function main(): Promise<void> {
       smoothedFps += (1 / delta - smoothedFps) * 0.08
     }
 
-    // 重いときは品質を1段落とす。実時間に依存するので capture では動かさない。
+    // ?govtest=1 は遊び始めの 8 秒を重くして、落として戻す働きを実機で見る
+    if (capture.govTest && !paused && world.frame * FIXED_DT < 8) {
+      const until = performance.now() + 30
+      while (performance.now() < until) {
+        // 待つだけ
+      }
+    }
+
+    // 重いときは品質を1段落とし、軽くなったら人が選んだ画質まで戻す（ADR 0042）。
+    // 実時間に依存するので capture では動かさない。
     // ?nodegrade=1 のときも止める。品質を固定しないと GPU 時間を比較できない
     const degraded =
-      capture.noDegrade || !autoDegrade ? null : governor.update(delta, preset)
+      capture.noDegrade || !autoDegrade ? null : governor.update(delta, preset, chosenPreset)
     if (degraded !== null) {
       preset = degraded
       view.setQuality(preset)
       applySize()
       hook.preset = preset
-      // **設定画面の表示も合わせる。**開いたまま降格すると、選択肢が
+      // **設定画面の表示も合わせる。**開いたまま降格・昇格すると、選択肢が
       // 実際の画質と食い違ったままになる。保存はしない（人の指定ではない）
       settings = { ...settings, preset }
       settingsPanel?.sync(settings)

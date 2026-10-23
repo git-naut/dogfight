@@ -44,3 +44,5 @@ lesson 5 の回避機動の区間（コマ 21160〜21500）を 2 コマおきに
 - E2E で、f600 に WARNING が点いて HUD が緑、f612 で消え、f636 でまた点き、f730 で MISSILE ALERT と赤に替わる。HUD の点滅の起点を外して壊すと落ちることを手で確かめた。
 - 基準画像 `hud-lock-warning`（`lock-warning` の f600）を足して 47 枚。既存の 46 枚は 1 画素も動いていない。
 - 歯型を 5 件足した。
+- 実機の絵を録画と並べた。撮ったのは `lock-warning` の f600・f612・f730（Arc 140V・Chrome・1920×1080・high）。録画はコマ 21236・21456。図は `C:\Windows\Temp\dg-pw\lw\compare_lock_warning.png`。WARNING の枠は y 424〜452 で、録画の y 424〜447 と合う。大きさは MISSILE ALERT と共通の枠のままで、幅 94・高さ 29 画素。録画は目で読んで幅約 108・高さ約 25。
+- 軽さは `enemy-eight` で前（d82fa5b）と後を交互に 6 回ずつ測った（`measure/perf_lock.txt`、WSL の負荷 0.03〜0.19）。前後とも 6 回すべて降格なし。中央値は前が 58.5 fps・GPU 11.5 ms・シム 0.25 ms、後が 58.0 fps・GPU 11.5 ms・シム 0.2 ms で、差はない。

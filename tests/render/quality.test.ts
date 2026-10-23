@@ -482,6 +482,13 @@ describe('自動の昇格', () => {
     expect(result.at).toBeLessThan(15.1)
   })
 
+  it('戻した直後の 5 秒は判断しない（組み直しの重さで落とさない）', () => {
+    const governor = new PerformanceGovernor()
+    expect(run(governor, 60, 20, 'medium', 'high').next).toBe('high')
+    // 戻した直後に 4 秒重くても落とさない。判断しない 5 秒が無ければ 3 秒で落ちる
+    expect(run(governor, 30, 4, 'high', 'high').next).toBeNull()
+  })
+
   it('重い → 戻る の流れで落ちて戻る', () => {
     const governor = new PerformanceGovernor()
     let current: PresetName = 'high'

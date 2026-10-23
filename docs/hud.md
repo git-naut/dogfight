@@ -172,7 +172,7 @@ DPR はレンダラと同じ規則で決める。キャプチャモードでは 
 
 速度と高度は段 36。照準の左に `SPEED 486`（kt）、右に `ALT 9843`（ft）の箱を置き、中心から画面の幅の 12% 離す。箱の外側に増減の三角を出す。SPEED は速さの変化率が ±1 m/s² を、ALT は上下の速さが ±2 m/s を越えたときだけ出す。閾値の内で出さないのは、水平の巡航でちらつかせないため。
 
-速さの変化率は sim の `AircraftSample.speedRate` が持つ。キャプチャは 1 フレームしか描かないので、描画側で前の値を覚える形では三角が出ない。全開の `low-pass` で +4.84 m/s²、機首を上げる `pull-up` で −2.96 m/s²（`tests/sim/speedRate.test.ts`）。DLZ バーは ALT の箱とぶつかるので、幅の 66% から 74% へ移した。
+増減の三角は段 B2 でやめ、速さの変化率（`speedRate`）と向きの関数（`trendOf`）も Phase 10 の宿題 4 で消した。この段落の DLZ バーの前までは、やめる前の記録。速さの変化率は sim の `AircraftSample.speedRate` が持っていた。キャプチャは 1 フレームしか描かないので、描画側で前の値を覚える形では三角が出ない。全開の `low-pass` で +4.84 m/s²、機首を上げる `pull-up` で −2.96 m/s²（宿題 4 で消した `tests/sim/speedRate.test.ts` で測った）。DLZ バーは ALT の箱とぶつかるので、幅の 66% から 74% へ移した。
 
 出たかどうかと箱の数は、テストフックの `hudShootShown`・`hudTargetBoxCount`・`hudArrowShown` で読める。`smoke.spec.ts` の「目標の表示」が、基準画像の構図で測った値（`hud-mission` で箱 4 個など）を見る。
 

@@ -251,12 +251,6 @@ export interface AircraftSample {
    */
   velocity: Vec3
   speed: number
-  /**
-   * 速さの変化率 m/s²。直前の 1 ステップで速さがどれだけ変わったか（段 36）。
-   * HUD の SPEED の箱の増減の矢印に使う。キャプチャは 1 フレームしか描かないので、
-   * 描画側で前の値を覚える形では矢印が出ない。sim が持つ
-   */
-  speedRate: number
   altitude: number
   angleOfAttack: number
   sideslip: number
@@ -417,8 +411,10 @@ export class Aircraft {
 
   // 派生値。ステップの末尾で更新し、次のステップの制御と表示に使う
   speed = 0
-  /** 直前のステップの頭の速さと刻み。`speedRate` を出す（段 36） */
-  private speedBefore = 0
+  /**
+   * 直前のステップの刻み。拘束索に掛かった瞬間の減速に使う。段 36 では SPEED の箱の増減の三角の
+   * ために速さの変化率（`speedRate`）も出していたが、三角は段 B2 でやめ、Phase 10 の宿題 4 で消した
+   */
   private lastDt = 0
   altitude = 0
   /** 真下の地形の高さ m。海上なら 0 */
@@ -724,7 +720,6 @@ export class Aircraft {
   step(input: InputState, dt: number, options: StepOptions = {}): void {
     this.prevPosition.copy(this.position)
     this.prevOrientation.copy(this.orientation)
-    this.speedBefore = this.speed
     this.lastDt = dt
 
     if (this.crashed) return
@@ -918,7 +913,6 @@ export class Aircraft {
     out.orientation.copy(this.prevOrientation).slerp(this.orientation, alpha)
     out.velocity.copy(this.velocity)
     out.speed = this.speed
-    out.speedRate = this.lastDt > 0 ? (this.speed - this.speedBefore) / this.lastDt : 0
     out.altitude = this.altitude
     out.angleOfAttack = this.angleOfAttack
     out.sideslip = this.sideslip
@@ -980,7 +974,6 @@ export function createAircraftSample(): AircraftSample {
     orientation: new Quat(),
     velocity: new Vec3(),
     speed: 0,
-    speedRate: 0,
     altitude: 0,
     angleOfAttack: 0,
     sideslip: 0,

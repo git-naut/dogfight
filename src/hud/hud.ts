@@ -1251,9 +1251,8 @@ export function createHud(host: HTMLElement, instruments: HudInstruments = 'chas
   /**
    * SPEED と ALT の箱（段 36、参考画像に合わせた）。照準の左右に置く。
    *
-   * 値は縦の目盛りと同じ kt と ft。箱の外側に増減の三角を出す。SPEED は速さの変化率
-   * （`AircraftSample.speedRate`）が ±1 m/s² を越えたら、ALT は上下の速さが ±2 m/s を
-   * 越えたら。越えなければ出さない（水平の巡航でちらつかせない）
+   * 値は縦の目盛りと同じ kt と ft。段 36 では箱の外側に増減の三角を出していたが、録画に無いので
+   * 段 B2 でやめた（ADR 0023）
    */
   function drawValueBoxes(): void {
     // **録画の形（段 B1）。**上に見出し（SPEED・ALT）、下に数字の箱。箱は照準の側へ尖らせる

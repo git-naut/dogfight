@@ -93,6 +93,8 @@ export interface SceneHandle {
   readonly gpuPassMismatches: number
   /** 直近のフレームごとの内訳。古い順 */
   readonly gpuPassHistory: readonly FramePassTimes[]
+  /** 最後に描いたフレームの番号。GPU の内訳のフレーム番号と同じ（段 S0e） */
+  readonly renderFrameId: number
   /** そのうち雲のパスが占める ms */
   /** 雲のパスの直近の最大 ms */
   /** GPU 時間の計測が使えるか */
@@ -466,6 +468,10 @@ export async function createScene(
 
     get gpuPassHistory() {
       return pipeline.gpuPassHistory
+    },
+
+    get renderFrameId() {
+      return pipeline.renderFrameId
     },
 
     get gpuTimerSupported() {

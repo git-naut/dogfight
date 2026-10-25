@@ -542,6 +542,8 @@ export async function createNodePipeline(
 
   /** 雲のパスを描いているか。計測で切ったときは影の焼き込みも止める */
   let cloudsEnabled = true
+  /** 最後の `render()` のフレーム番号（`info.frame`）。段 S0e */
+  let renderFrameId = 0
   const cameraWorld = new THREE.Vector3()
 
   function renderPlainImpl(): void {
@@ -756,6 +758,9 @@ export async function createNodePipeline(
     get gpuPassHistory() {
       return gpuTimer.passHistory
     },
+    get renderFrameId() {
+      return renderFrameId
+    },
     get gpuTimerSupported() {
       return gpuTimer.supported
     },
@@ -780,6 +785,8 @@ export async function createNodePipeline(
     render() {
       backend.resetInfo()
       advanceNodeFrame(renderer)
+      // GPU の timestamp の鍵に入る番号。CPU の内訳を同じ番号で残すために控える（段 S0e）
+      renderFrameId = renderer.info.frame
       gpuTimer.begin()
       if (cloudsEnabled) clouds.renderShadow(renderer)
       pipeline.render()

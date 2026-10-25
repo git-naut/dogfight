@@ -2117,4 +2117,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/nodeFrame.test.ts',
     why: 'キャプチャで続けて描く枚が同じフレーム番号の鍵になり、パスごとの内訳が枚をまたいで混ざる',
   },
+  {
+    id: 'cpu-frames-never-trimmed',
+    kind: '文の削除',
+    file: 'src/render/cpuFrames.ts',
+    find: '  if (ring.length > cap) ring.splice(0, ring.length - cap)\n',
+    replace: '',
+    expect: 'tests/render/cpuFrames.test.ts',
+    why: 'フレームごとの CPU の内訳が際限なく伸び、ライブで記憶を食い続ける',
+  },
 ]

@@ -26,6 +26,7 @@ import {
   DEFAULT_SEED,
 } from './render/capture'
 import { getQuality, PerformanceGovernor, type PresetName } from './render/quality'
+import { pushFrame, type CpuFrame } from './render/cpuFrames'
 import { KeyboardInput } from './input/keyboard'
 import { applyAssist, type ControlMode } from './sim/assist'
 import { climbAngleOf } from './sim/ai/steering'
@@ -121,6 +122,7 @@ const hook = installTestHook({
   gpuPasses: null,
   gpuPassMismatches: 0,
   gpuPassHistory: [],
+  cpuFrameHistory: [],
   cloudHdrTarget: false,
   benchMs: 0,
   benchSweep: [],
@@ -1237,6 +1239,9 @@ async function main(): Promise<void> {
   let cpuSyncMs = 0
   let cpuRenderMs = 0
   let cpuHudMs = 0
+  // フレームごとの CPU の内訳（段 S0e）。フックへは同じ配列を 1 度だけ渡す
+  const cpuFrames: CpuFrame[] = []
+  hook.cpuFrameHistory = cpuFrames
 
   function spawnWorld(): World {
     // ライブでも台本の初期条件を使う。?script= で標的つきの台本を選べる。
@@ -1314,6 +1319,14 @@ async function main(): Promise<void> {
     cpuSyncMs += (t2 - t1 - cpuSyncMs) * 0.1
     cpuRenderMs += (t3 - t2 - cpuRenderMs) * 0.1
     cpuHudMs += (t4 - t3 - cpuHudMs) * 0.1
+    pushFrame(cpuFrames, {
+      frame: view.renderFrameId,
+      at: now,
+      simMs: t1 - t0,
+      syncMs: t2 - t1,
+      renderMs: t3 - t2,
+      hudMs: t4 - t3,
+    })
 
     if (delta > 0) {
       smoothedFps += (1 / delta - smoothedFps) * 0.08

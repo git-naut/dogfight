@@ -1,5 +1,6 @@
 import { DEFAULT_COVERAGE, type NodeProbeResult } from './pipeline/types'
 import type { FramePassTimes, PassSource } from './pipeline/passTimes'
+import type { CpuFrame } from './cpuFrames'
 import {
   decodeShadowInputs,
   type ShadowInputs,
@@ -600,6 +601,11 @@ export interface TestHook {
    * フレーム番号で重なりを除いて読む
    */
   gpuPassHistory: readonly FramePassTimes[]
+  /**
+   * 直近のフレームごとの CPU の内訳。古い順（段 S0e）。フレーム番号は
+   * `gpuPassHistory` と同じなので、実機の計測が突き合わせる。ライブのときだけ入る
+   */
+  cpuFrameHistory: readonly CpuFrame[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと等高線状の横線が出る */
   cloudHdrTarget: boolean
   /** ?bench=N のときの 1 描画あたりの ms。測っていなければ 0 */

@@ -452,6 +452,8 @@ export async function createWebGLPipeline(
     gpuPasses: null,
     gpuPassMismatches: 0,
     gpuPassHistory: [],
+    // 鍵の番号は node 経路にしか無い
+    renderFrameId: 0,
 
     get gpuTimerSupported() {
       return gpuTimer.supported

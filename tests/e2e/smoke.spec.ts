@@ -1403,6 +1403,28 @@ test.describe('GPU のパス', () => {
     const sum = passes.passes.reduce((total, p) => total + p.ms, 0)
     expect(Math.abs(sum - passes.totalMs)).toBeLessThan(1e-6)
 
+    // **CPU の内訳は GPU の内訳と同じ番号で残る**（段 S0e）。番号がずれると、
+    // 実機の計測が遅れたフレームの投入と GPU を突き合わせられない。
+    // **最初に届く GPU の内訳は起動のときの描画**で、ライブのループの CPU の記録は
+    // まだ無い。番号の合うフレームが現れるまで待つ
+    await page.waitForFunction(
+      () => {
+        const h = (
+          window as unknown as {
+            __dogfight?: {
+              cpuFrameHistory: { frame: number }[]
+              gpuPassHistory: { frame: number }[]
+            }
+          }
+        ).__dogfight
+        if (h === undefined) return false
+        const cpu = new Set(h.cpuFrameHistory.map((f) => f.frame))
+        return h.gpuPassHistory.some((f) => cpu.has(f.frame))
+      },
+      undefined,
+      { timeout: waitBudgetMs(60_000) },
+    )
+
     const panel = page.locator('.debug-panel')
     await expect(panel).toContainText('GPU 内訳')
     await expect(panel).toContainText('場面')

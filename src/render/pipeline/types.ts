@@ -476,6 +476,11 @@ export interface ScenePipeline {
   readonly gpuPassMismatches: number
   /** 直近のフレームごとの内訳。古い順（`GpuTimer.passHistory`） */
   readonly gpuPassHistory: readonly FramePassTimes[]
+  /**
+   * 最後に描いたフレームの番号。GPU の timestamp の鍵と同じ（段 S0e）。
+   * CPU の内訳をこの番号で残し、GPU の内訳と突き合わせる
+   */
+  readonly renderFrameId: number
   readonly drawCalls: number
   readonly drawnTriangles: number
   /** 高さ場の生成にかかったミリ秒 */

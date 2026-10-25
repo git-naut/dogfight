@@ -6,7 +6,7 @@ import {
   dateForHour,
   REFERENCE_LATITUDE,
   REFERENCE_LONGITUDE,
-} from './atmosphere'
+} from './geoFrame'
 import { context as tslContext, vec4 } from 'three/tsl'
 import type { Node, Renderer } from 'three/webgpu'
 import type { QualitySettings } from './quality'

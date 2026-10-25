@@ -414,3 +414,46 @@ export function histogramL1(a: readonly number[], b: readonly number[]): number 
   for (let i = 0; i < a.length; i++) sum += Math.abs(a[i]! - b[i]!)
   return sum
 }
+
+// ---- 時間方向の足し込みと雲影の範囲（段 S1 で cloudsPass.ts から移した）----
+
+/**
+ * 履歴に現フレームを混ぜる割合。
+ *
+ * 小さいほど時間方向に長く均されて誤差が消えるが、動きに対する追従が遅れる。
+ * 1/8 なら 8 フレーム、60fps で 0.13 秒で入れ替わる。
+ */
+export const BLEND_WEIGHT = 0.125
+
+/** ずらしの周期。この本数ぶんで一巡する */
+export const JITTER_PERIOD = 16
+
+/**
+ * キャプチャモードで収束させる本数。
+ *
+ * 通常のループは指数平均なので収束に十数フレームかかるが、キャプチャは
+ * カメラが止まっているので 1/(n+1) の重みで真の平均を取れる。8 枚で
+ * 8 標本の平均になり、それ以上増やしても絵はほとんど動かない。
+ * 1 枚あたりの描画がソフトウェアレンダラでは重いので、本数は最小に抑える。
+ */
+export const CAPTURE_CONVERGE_FRAMES = 8
+
+/**
+ * 低食い違い列。Halton の 2 進と 3 進。
+ *
+ * 乱数でずらすと粗密ができて収束が遅い。等間隔だと格子が残る。
+ */
+export function halton(index: number, base: number): number {
+  let result = 0
+  let f = 1 / base
+  let i = index
+  while (i > 0) {
+    result += f * (i % base)
+    i = Math.floor(i / base)
+    f /= base
+  }
+  return result
+}
+
+/** 雲影マップが覆う世界の一辺 m */
+export const SHADOW_EXTENT = 30_000

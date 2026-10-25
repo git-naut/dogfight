@@ -11,7 +11,8 @@ import * as THREE from 'three'
 import { createChaseCamera } from '../camera'
 import { createSceneViews } from './views'
 import { createWebGLBackend } from '../backend'
-import { createAtmosphere, DEFAULT_HOUR, type AtmosphereHandle } from '../atmosphere'
+import { createAtmosphere, type AtmosphereHandle } from '../atmosphere'
+import { DEFAULT_HOUR } from '../geoFrame'
 import { createComposer, type ComposerHandle } from '../composer'
 import {
   applyQualityOverride,
@@ -27,7 +28,8 @@ import {
   type ShadowLight,
 } from '../aircraftShadow'
 import { generateCloudNoise, type CloudNoise } from '../clouds/noise'
-import { CloudsPass, SHADOW_EXTENT } from '../clouds/cloudsPass'
+import { CloudsPass } from '../clouds/cloudsPass'
+import { SHADOW_EXTENT } from '../clouds/geometry'
 import {
   createTerrainMesh,
   createTerrainUniforms,

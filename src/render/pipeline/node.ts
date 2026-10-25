@@ -6,7 +6,7 @@ import {
   shadowTileMeans,
   tileMeans,
 } from '../clouds/geometry'
-import { SHADOW_EXTENT } from '../clouds/cloudsPass'
+import { SHADOW_EXTENT } from '../clouds/geometry'
 import type { ShadowInputs } from '../clouds/shadowInputs'
 import {
   MARCH_PROBE_AMBIENT,
@@ -473,6 +473,15 @@ export async function runNodeProbe(
       MARCH_PROBE_HEIGHT,
       isWebGPU,
     )
+    // **足し込みの入力そのものを読む。**履歴を読む枝を通っていなければ、
+    // 足し込みの結果はこれと同じになる
+    const currentBytes = await volume.readPlane(
+      renderer,
+      currentTarget,
+      MARCH_PROBE_WIDTH,
+      MARCH_PROBE_HEIGHT,
+      isWebGPU,
+    )
     currentTarget.dispose()
     historyTarget.dispose()
     resolveTarget.dispose()
@@ -483,6 +492,7 @@ export async function runNodeProbe(
       tiles: tileMeans(await bakeMarch(0), MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
       resolve: resolveBytes,
       resolveUv: resolveUvBytes,
+      resolveChanged: byteDifference(resolveBytes, currentBytes).differing,
     }
   }
 
@@ -717,8 +727,22 @@ export async function runNodeProbe(
     const terrain = defaultTerrain()
     const heightMap = createHeightTexture(terrain)
     const normalMap = createNormalTexture(terrain)
-    const probeGl = await import('../terrain/surfaceProbeGl')
-    const shadowMap = probeGl.createSurfaceProbeShadowTexture()
+    // 雲影マップの代わり。中身は `surfaceProbe.ts` が決める。段 S1 で GLSL 版の
+    // `surfaceProbeGl.ts` から移した（読むのはここだけ）
+    const shadowSize = probe.SURFACE_PROBE_SHADOW_SIZE
+    const shadowMap = new THREE.DataTexture(
+      probe.surfaceProbeShadowData(),
+      shadowSize,
+      shadowSize,
+      THREE.RedFormat,
+      THREE.UnsignedByteType,
+    )
+    shadowMap.minFilter = THREE.LinearFilter
+    shadowMap.magFilter = THREE.LinearFilter
+    shadowMap.wrapS = THREE.ClampToEdgeWrapping
+    shadowMap.wrapT = THREE.ClampToEdgeWrapping
+    shadowMap.generateMipmaps = false
+    shadowMap.needsUpdate = true
     const side = probe.SURFACE_PROBE_SIDE
 
     const inputs: import('../terrain/surfaceNodes').SurfaceInputs = {

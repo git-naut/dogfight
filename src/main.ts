@@ -17,7 +17,7 @@ import {
   marchExhaustedCount,
   marchSampleStats,
 } from './render/clouds/marchProbe'
-import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/cloudsPass'
+import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/geometry'
 import {
   readCaptureConfig,
   isDebugEnabled,

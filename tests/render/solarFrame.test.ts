@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
 import { solarFrameForHour } from '@render/atmosphereNodes'
-import { dateForHour } from '@render/atmosphere'
+import { dateForHour } from '@render/geoFrame'
 
 /**
  * 時刻から太陽の向きを出す部分。

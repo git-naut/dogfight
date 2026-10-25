@@ -3,7 +3,7 @@ import type * as THREE from 'three'
 import type { RenderBackend } from '../backend'
 import type { FramePassTimes } from './passTimes'
 import type { ChaseCamera } from '../camera'
-import type { CloudsUpdate } from '../clouds/cloudsPass'
+import type { CloudsUpdate } from '../clouds/cloudsUpdate'
 import type { AircraftView } from '../aircraftView'
 import type { TargetViews } from '../targetView'
 import type { EnemyViews } from '../enemyView'
@@ -627,6 +627,13 @@ export interface NodeProbeResult {
      * 読めず、上下反転の切り分けで何度も外した（2026-09-14）
      */
     resolveUv: number[]
+    /**
+     * 足し込みで現フレームから動いたバイトの数。
+     *
+     * **0 なら履歴を読む枝を通っていない。**GLSL 経路の `marchProbe` と
+     * 同じ数え方で、GLSL を捨てたあともこの見張りを TSL 側で続ける
+     */
+    resolveChanged: number
   } | null
   /**
    * TSL で引いた高さ場 64 点 m。`?heightprobe=1` のときだけ埋まる。

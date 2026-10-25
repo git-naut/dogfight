@@ -1,6 +1,6 @@
 import { isPresetName, resolvePreset, DEFAULT_PRESET, type PresetName } from '../render/quality'
 import { resolveControlMode } from '../render/capture'
-import { DEFAULT_HOUR } from '../render/atmosphere'
+import { DEFAULT_HOUR } from '../render/geoFrame'
 import { isControlMode, type ControlMode } from '../sim/assist'
 
 /**

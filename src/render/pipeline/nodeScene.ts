@@ -16,7 +16,7 @@ import { createNodeTrailMaterial } from '../weapons/trailNodes'
 import { createNodeVaporMaterial } from '../aircraft/vaporNodes'
 import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
 import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
-import { SHADOW_EXTENT } from '../clouds/cloudsPass'
+import { SHADOW_EXTENT } from '../clouds/geometry'
 import { bakePlane, createBakeQuad, readPlane } from '../clouds/volume'
 import {
   createNodeSurfaceState,
@@ -27,7 +27,7 @@ import { createTerrainMesh, createTerrainUniforms, type TerrainMesh } from '../t
 import { createWater, type Water } from '../terrain/water'
 import { createHeightTexture, createNormalTexture } from '../terrain/heightTexture'
 import { defaultTerrain, type Terrain } from '../../sim/terrain'
-import { DEFAULT_HOUR } from '../atmosphere'
+import { DEFAULT_HOUR } from '../geoFrame'
 import {
   setupAtmosphereNodes,
   solarFrameForHour,

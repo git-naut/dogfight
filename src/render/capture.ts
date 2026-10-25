@@ -6,7 +6,7 @@ import {
   type ShadowInputs,
 } from './clouds/shadowInputs'
 import { resolvePreset, type MaterialDetail, type PresetName } from './quality'
-import { DEFAULT_HOUR } from './atmosphere'
+import { DEFAULT_HOUR } from './geoFrame'
 
 /**
  * 決定論キャプチャモード。

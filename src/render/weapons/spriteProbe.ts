@@ -13,6 +13,7 @@ import {
   type WebGLRenderer,
 } from 'three'
 import {
+  ALPHA_CUT,
   CORE_CUT,
   RADIAL_SPRITE_FRAGMENT,
   RADIAL_SPRITE_VERTEX,
@@ -45,6 +46,39 @@ export const SPRITE_PROBE_FALLOFF = 1.8
 export function spriteProbeCrossesCoreCut(): boolean {
   // 中心（d = 0）の a は opacity そのもの
   return SPRITE_PROBE_OPACITY > CORE_CUT
+}
+
+/**
+ * 焼いた絵の CPU 参照。断片シェーダ（`RADIAL_SPRITE_FRAGMENT`）を写したもの。
+ *
+ * **GLSL 版を捨てたあとの突き合わせの相手。**全画面のクアッドへ焼くので、
+ * 画素 (col, row) の `vUv` は画素の中心 ((col + 0.5) / side, (row + 0.5) / side)。
+ * 円は上下にも左右にも対称なので、読み戻しの行の向きは結果を変えない。
+ * 捨てた画素はクリアの色 (0, 0, 0, 0) のまま残る。
+ *
+ * GPU は 32 ビットで計算するので、比べるときは 1 階調まで許す
+ */
+export function spriteProbeExpected(opaqueCore: boolean): number[] {
+  const side = SPRITE_PROBE_SIDE
+  const out = new Array<number>(side * side * 4).fill(0)
+  const unorm = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255)
+  for (let row = 0; row < side; row++) {
+    for (let col = 0; col < side; col++) {
+      const u = (col + 0.5) / side - 0.5
+      const v = (row + 0.5) / side - 0.5
+      const d = Math.hypot(u, v) * 2
+      if (d > 1) continue
+      const a = Math.pow(Math.max(0, 1 - d), SPRITE_PROBE_FALLOFF) * SPRITE_PROBE_OPACITY
+      if (a < ALPHA_CUT) continue
+      if (opaqueCore && a < CORE_CUT) continue
+      const at = (row * side + col) * 4
+      out[at] = unorm(SPRITE_PROBE_COLOR.r)
+      out[at + 1] = unorm(SPRITE_PROBE_COLOR.g)
+      out[at + 2] = unorm(SPRITE_PROBE_COLOR.b)
+      out[at + 3] = unorm(opaqueCore ? 1 : a)
+    }
+  }
+  return out
 }
 
 /** 焼いた絵のうち、捨てられていない画素の数を数える */

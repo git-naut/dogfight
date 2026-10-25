@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { Ellipsoid, Geodetic } from '@takram/three-geospatial'
-import { createLocalFrame, dateForHour, DEFAULT_HOUR } from '@render/atmosphere'
+import { createLocalFrame, dateForHour, DEFAULT_HOUR } from '@render/geoFrame'
 
 /**
  * 局所座標と ECEF の橋渡しを検証する。

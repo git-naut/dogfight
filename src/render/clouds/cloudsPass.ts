@@ -21,8 +21,12 @@ import {
 } from 'three'
 import { Pass } from 'postprocessing'
 import {
+  BLEND_WEIGHT,
+  JITTER_PERIOD,
+  SHADOW_EXTENT,
   SHADOW_HISTOGRAM_BINS,
   SHADOW_SIZE,
+  halton,
   lightStepGrowth,
   shadowHistogram,
   shadowTileMeans,
@@ -56,6 +60,7 @@ import cloudShadowFrag from './shaders/cloudShadow.frag?raw'
 import cloudResolveFrag from './shaders/cloudResolve.frag?raw'
 import densityChunk from './shaders/density.glsl?raw'
 import type { CloudNoise } from './noise'
+import type { CloudsUpdate } from './cloudsUpdate'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -82,48 +87,6 @@ const VERTEX_SHADER = /* glsl */ `
   }
 `
 
-/**
- * 履歴に現フレームを混ぜる割合。
- *
- * 小さいほど時間方向に長く均されて誤差が消えるが、動きに対する追従が遅れる。
- * 1/8 なら 8 フレーム、60fps で 0.13 秒で入れ替わる。
- */
-export const BLEND_WEIGHT = 0.125
-
-/** ずらしの周期。この本数ぶんで一巡する */
-export const JITTER_PERIOD = 16
-
-/**
- * キャプチャモードで収束させる本数。
- *
- * 通常のループは指数平均なので収束に十数フレームかかるが、キャプチャは
- * カメラが止まっているので 1/(n+1) の重みで真の平均を取れる。8 枚で
- * 8 標本の平均になり、それ以上増やしても絵はほとんど動かない。
- * 1 枚あたりの描画がソフトウェアレンダラでは重いので、本数は最小に抑える。
- */
-export const CAPTURE_CONVERGE_FRAMES = 8
-
-/**
- * 低食い違い列。Halton の 2 進と 3 進。
- *
- * 乱数でずらすと粗密ができて収束が遅い。等間隔だと格子が残る。
- */
-export function halton(index: number, base: number): number {
-  let result = 0
-  let f = 1 / base
-  let i = index
-  while (i > 0) {
-    result += f * (i % base)
-    i = Math.floor(i / base)
-    f /= base
-  }
-  return result
-}
-
-
-/** 雲影マップが覆う世界の一辺 m */
-export const SHADOW_EXTENT = 30_000
-
 export interface CloudsPassOptions {
   camera: PerspectiveCamera
   noise: CloudNoise
@@ -138,19 +101,6 @@ export interface CloudsPassOptions {
   clampScale?: number
   /** キャプチャモードか。収束の重み付けが変わる */
   captureMode?: boolean
-}
-
-export interface CloudsUpdate {
-  /** sim のフレーム番号から導いた秒。実時間を渡さないこと */
-  cloudTime: number
-  sunDirection: Vector3
-  sunColor: Vector3
-  ambientColor: Vector3
-  coverage: number
-  /** 雲影マップの中心。自機の真下あたりに置く */
-  shadowCenter: Vector2
-  /** 雲影を焼くか。プリセットで切る */
-  groundShadow: boolean
 }
 
 export class CloudsPass extends Pass {

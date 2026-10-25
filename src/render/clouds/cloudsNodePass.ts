@@ -26,14 +26,16 @@ import { float, int, texture, uniform, uv, vec2 } from 'three/tsl'
 import { cloudMarchFragmentNode } from './marchNodes'
 import { cloudResolveFragmentNode } from './resolveNodes'
 import { cloudShadowFragmentNode } from './densityNodes'
-import { SHADOW_SIZE, lightStepGrowth, stepGrowthScale } from './geometry'
 import {
   BLEND_WEIGHT,
   JITTER_PERIOD,
   SHADOW_EXTENT,
+  SHADOW_SIZE,
   halton,
-  type CloudsUpdate,
-} from './cloudsPass'
+  lightStepGrowth,
+  stepGrowthScale,
+} from './geometry'
+import type { CloudsUpdate } from './cloudsUpdate'
 import type { TextureNode } from 'three/webgpu'
 import type { QualitySettings } from '../quality'
 

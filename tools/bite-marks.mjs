@@ -2126,4 +2126,42 @@ export const BITE_MARKS = [
     expect: 'tests/render/cpuFrames.test.ts',
     why: 'フレームごとの CPU の内訳が際限なく伸び、ライブで記憶を食い続ける',
   },
+
+  // ── 段 S1a: GLSL を捨てたあとの突き合わせの相手 ──────────────────────
+  {
+    id: 'sprite-cpu-falloff-drift',
+    kind: '定数の摂動',
+    file: 'src/render/weapons/spriteProbe.ts',
+    find: '      const a = Math.pow(Math.max(0, 1 - d), SPRITE_PROBE_FALLOFF) * SPRITE_PROBE_OPACITY\n',
+    replace: '      const a = Math.pow(Math.max(0, 1 - d), SPRITE_PROBE_FALLOFF * 1.05) * SPRITE_PROBE_OPACITY\n',
+    expect: 'tests/render/nodeReference.test.ts',
+    why: 'GLSL を捨てると円形スプライトの相手は CPU 参照だけになる。写し間違いが記録とのバイト比較で止まらないと、TSL の誤りも素通りする',
+  },
+  {
+    id: 'sprite-cpu-core-cut-ignored',
+    kind: '条件の固定',
+    file: 'src/render/weapons/spriteProbe.ts',
+    find: '      if (opaqueCore && a < CORE_CUT) continue\n',
+    replace: '      if (false && opaqueCore && a < CORE_CUT) continue\n',
+    expect: 'tests/render/nodeReference.test.ts',
+    why: '芯の枝（OPAQUE_CORE）を CPU 参照が写していないと、芯と暈の区別が検査から消える',
+  },
+  {
+    id: 'agx-cpu-contrast-sign',
+    kind: '符号の反転',
+    file: 'src/render/toneProbe.ts',
+    find: '      31.96 * x4 -\n',
+    replace: '      31.96 * x4 +\n',
+    expect: 'tests/render/nodeReference.test.ts',
+    why: 'AgX の S 字の多項式を写し間違えると、TSL の AgX を誤った曲線と比べることになる',
+  },
+  {
+    id: 'agx-cpu-max-ev-drift',
+    kind: '定数の摂動',
+    file: 'src/render/toneProbe.ts',
+    find: '  const maxEv = 4.026069\n',
+    replace: '  const maxEv = 4.1\n',
+    expect: 'tests/render/nodeReference.test.ts',
+    why: '露出の対数の上限がずれると白飛びの肩が動く。露出 6 の持ち越しを CPU 参照で見張れなくなる',
+  },
 ]

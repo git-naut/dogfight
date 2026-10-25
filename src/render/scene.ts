@@ -4,6 +4,7 @@ import type { TargetSample } from '../sim/target'
 import type { LookOffset } from '../input/mouseLook'
 import type { ChaseCamera } from './camera'
 import type { RenderBackend } from './backend'
+import type { FramePassTimes } from './pipeline/passTimes'
 import type { DamageSmokeSource } from '../sim/damage'
 import type { Flare } from '../sim/weapons/flare'
 import type { ExplosionSource } from '../sim/effects'
@@ -86,6 +87,12 @@ export interface SceneHandle {
   readonly gpuFrameMs: number
   /** 直近しばらくの GPU フレーム時間の最大 ms。予算の判断はこちらで行う */
   readonly gpuFrameMaxMs: number
+  /** 直近の GPU のパスごとの内訳（段 S0a）。node 経路で読めたときだけ */
+  readonly gpuPasses: FramePassTimes | null
+  /** パスの和が合計と食い違った回数 */
+  readonly gpuPassMismatches: number
+  /** 直近のフレームごとの内訳。古い順 */
+  readonly gpuPassHistory: readonly FramePassTimes[]
   /** そのうち雲のパスが占める ms */
   /** 雲のパスの直近の最大 ms */
   /** GPU 時間の計測が使えるか */
@@ -447,6 +454,18 @@ export async function createScene(
 
     get gpuFrameMaxMs() {
       return pipeline.gpuFrameMaxMs
+    },
+
+    get gpuPasses() {
+      return pipeline.gpuPasses
+    },
+
+    get gpuPassMismatches() {
+      return pipeline.gpuPassMismatches
+    },
+
+    get gpuPassHistory() {
+      return pipeline.gpuPassHistory
     },
 
     get gpuTimerSupported() {

@@ -448,6 +448,10 @@ export async function createWebGLPipeline(
     get gpuFrameMaxMs() {
       return gpuTimer.maxMs
     },
+    // WebGL2 のクエリは入れ子にできず、フレーム全体しか測れない
+    gpuPasses: null,
+    gpuPassMismatches: 0,
+    gpuPassHistory: [],
 
     get gpuTimerSupported() {
       return gpuTimer.supported

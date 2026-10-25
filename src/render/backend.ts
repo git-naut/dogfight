@@ -1,4 +1,5 @@
 import type { WebGLRenderer } from 'three'
+import type { FramePassTimes, PassSource } from './pipeline/passTimes'
 
 /**
  * 描画バックエンドの継ぎ目。
@@ -108,6 +109,14 @@ export interface RenderBackend {
    * 借りていて、**WebGPU 経路では null が返るという逃げ口**になっていた
    */
   createTimer(): GpuFrameTimer
+
+  /**
+   * 最後に描き終えたフレームのパスの出どころ（段 S0a）。呼び出しの順。
+   *
+   * **timestamp が取れなくても読める。**名札の漏れ（群の表に無いパス）を
+   * SwiftShader の E2E で見るために要る。WebGL2 経路は空
+   */
+  readonly passSources: readonly PassSource[]
 }
 
 /**
@@ -132,8 +141,24 @@ export interface GpuFrameTimer {
   begin(id: number): void
   end(): void
   /** 揃った結果を回収する。**揃った分だけ返す** */
-  collect(): readonly { readonly id: number; readonly ms: number }[]
+  collect(): readonly GpuFrameSample[]
   dispose(): void
+}
+
+/** 回収した 1 回ぶん */
+export interface GpuFrameSample {
+  readonly id: number
+  readonly ms: number
+  /**
+   * パスごとの内訳（段 S0a）。node 経路で、内訳が読めた回だけ入る。
+   * WebGL2 のクエリは入れ子にできず、フレーム全体しか測れない
+   */
+  readonly passes?: FramePassTimes
+  /**
+   * 同じ解決に入っていた全フレームの内訳（`passes` は最後の 1 つ）。
+   * 解決を待つ間に描いたフレームもここに入るので、間欠の重さを取りこぼさない
+   */
+  readonly frames?: readonly FramePassTimes[]
 }
 
 interface TimerExtension {
@@ -274,5 +299,7 @@ export function createWebGLBackend(renderer: WebGLRenderer): RenderBackend {
     createTimer() {
       return createWebGLTimer(gl)
     },
+
+    passSources: [],
   }
 }

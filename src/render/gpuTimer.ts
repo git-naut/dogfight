@@ -1,4 +1,19 @@
 import type { RenderBackend } from './backend'
+import type { FramePassTimes } from './pipeline/passTimes'
+
+/**
+ * パスの和と three の合計の食い違いの許容 ms（段 S0a）。
+ *
+ * 両方とも同じ解決の同じ Map から出るので、定義の上では一致する。食い違うのは
+ * フレームの選び方が three とずれたときで、それを数えて計器に出す
+ */
+export const PASS_SUM_TOLERANCE_MS = 0.01
+
+/**
+ * 内訳を残すフレーム数。実機の計測（`tools/win-pass-perf.mjs`）が 0.5 秒おきに
+ * 読んでも取りこぼさない長さ（60 fps で 4 秒）
+ */
+export const PASS_HISTORY = 240
 
 /**
  * GPU のフレーム時間を計器へ出す。
@@ -25,6 +40,18 @@ export interface GpuTimer {
    * 横で FPS が 46 に落ちていた。budget を決めるのは最大値のほう。
    */
   readonly maxMs: number
+  /** 直近の回のパスごとの内訳。読めていなければ null（段 S0a） */
+  readonly lastPasses: FramePassTimes | null
+  /**
+   * パスの和が合計と `PASS_SUM_TOLERANCE_MS` を超えて食い違った回数。
+   * 0 でなければ内訳を信じない
+   */
+  readonly passMismatches: number
+  /**
+   * 直近 `PASS_HISTORY` フレームぶんの内訳。古い順。解決を待つ間に描いた
+   * フレームも入る（`GpuFrameSample.frames`）
+   */
+  readonly passHistory: readonly FramePassTimes[]
   /** フレームの計測を開始する */
   begin(): void
   /** フレームの計測を終える。結果は数フレーム後に読める */
@@ -36,6 +63,9 @@ const NOT_SUPPORTED: GpuTimer = {
   supported: false,
   lastMs: 0,
   maxMs: 0,
+  lastPasses: null,
+  passMismatches: 0,
+  passHistory: [],
   begin() {},
   end() {},
   dispose() {},
@@ -47,6 +77,9 @@ export function createGpuTimer(backend: RenderBackend): GpuTimer {
 
   let lastMs = 0
   let maxMs = 0
+  let lastPasses: FramePassTimes | null = null
+  let passMismatches = 0
+  const passHistory: FramePassTimes[] = []
 
   return {
     supported: true,
@@ -59,11 +92,33 @@ export function createGpuTimer(backend: RenderBackend): GpuTimer {
       return maxMs
     },
 
+    get lastPasses() {
+      return lastPasses
+    },
+
+    get passMismatches() {
+      return passMismatches
+    },
+
+    get passHistory() {
+      return passHistory
+    },
+
     begin() {
       for (const result of timer.collect()) {
         lastMs = result.ms
         // ゆっくり減衰させる。1 回の外れ値に張り付かず、直近の重さは残る
         maxMs = Math.max(lastMs, maxMs * 0.995)
+        if (result.passes !== undefined) {
+          if (Math.abs(result.passes.totalMs - result.ms) > PASS_SUM_TOLERANCE_MS) {
+            passMismatches++
+          }
+          lastPasses = result.passes
+        }
+        for (const frame of result.frames ?? []) passHistory.push(frame)
+        if (passHistory.length > PASS_HISTORY) {
+          passHistory.splice(0, passHistory.length - PASS_HISTORY)
+        }
       }
       // 前の計測がまだ回収できていないなら重ねない
       if (timer.inflight > 0) return

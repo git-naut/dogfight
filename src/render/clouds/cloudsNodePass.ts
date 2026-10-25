@@ -171,13 +171,22 @@ export interface CloudsNodePass {
   dispose(): void
 }
 
-/** 全画面クアッド。材質ごとに 1 つ持つ */
-function createQuad(material: NodeMaterial): {
+/**
+ * 全画面クアッド。材質ごとに 1 つ持つ。
+ *
+ * **場面に名前を付ける。**GPU のパスごとの所要を出すとき、何を描いたかを
+ * 場面の名前で見分ける（`pipeline/passTimes.ts` の群の表、段 S0a）
+ */
+function createQuad(
+  material: NodeMaterial,
+  name: string,
+): {
   scene: Scene
   camera: OrthographicCamera
   mesh: Mesh
 } {
   const scene = new Scene()
+  scene.name = name
   const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
   const mesh = new Mesh(new PlaneGeometry(2, 2), material)
   mesh.frustumCulled = false
@@ -310,7 +319,7 @@ export function createCloudsNodePass(
       useDetail: q.cloudDetail,
     })
     marchMaterial = fragmentMaterial(node)
-    if (marchQuad === null) marchQuad = createQuad(marchMaterial)
+    if (marchQuad === null) marchQuad = createQuad(marchMaterial, 'Clouds [ March ]')
     else marchQuad.mesh.material = marchMaterial
   }
 
@@ -330,13 +339,13 @@ export function createCloudsNodePass(
       clampScale: options.clampScale,
     }),
   )
-  const resolveQuad = createQuad(resolveMaterial)
+  const resolveQuad = createQuad(resolveMaterial, 'Clouds [ Resolve ]')
 
   // 履歴へ写す。**焼き先を入れ替えないので写しが要る**
   const copyMaterial = fragmentMaterial(
     texture(output.texture) as unknown as Node<'vec4'>,
   )
-  const copyQuad = createQuad(copyMaterial)
+  const copyQuad = createQuad(copyMaterial, 'Clouds [ Copy ]')
 
   // **焼く側で v を打ち消す。**node 経路はレンダーターゲットを引くとき v を
   // 裏返すので、ここで裏返しておけば地形と海面は GLSL と同じ uv で読める
@@ -350,7 +359,7 @@ export function createCloudsNodePass(
       sunDirection as unknown as Node<'vec3'>,
     ),
   )
-  const shadowQuad = createQuad(shadowMaterial)
+  const shadowQuad = createQuad(shadowMaterial, 'Clouds [ Shadow ]')
 
   /**
    * 雲を焼いてから雲のテクスチャを返すノード。

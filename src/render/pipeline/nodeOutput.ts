@@ -17,6 +17,7 @@ import {
   normalView,
   output,
   pass,
+  rtt,
   smoothstep,
   uv,
   vec2,
@@ -497,7 +498,12 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
       ? (composite as unknown as { add(n: Node): Node }).add(bloomNode)
       : composite
 
-  const antialiased = input.smaa(bloomed)
+  // **合成は自分で中間のテクスチャへ焼き、名前を付けて SMAA へ渡す**（段 S0a）。
+  // `smaa()` は入力を `convertToTexture` で焼く（`SMAANode.js` の `smaa`）。
+  // テクスチャを渡せばそのまま使うので、GPU の仕事は変わらない。名前が無いと
+  // 霞・雲・重ね描きを合わせる重い合成のパスが、風圧の焼き直しと同じ `RTT` に
+  // なって予算の内訳で見分けられない
+  const antialiased = input.smaa(namedRtt(bloomed, 'compositeRtt'))
 
   // **風圧はトーンマップの後ろ。**放射ブラーと色収差は表示域の色に掛ける。
   // HDR の線形値に掛けると、暗部の滲みが出ないまま明部だけが暴れる。
@@ -543,7 +549,11 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
   // の `mixElement` は `(t, e1, e2) => mix(e1, e2, t)` なので、
   // `a.mix(b, c)` は `mix(b, c, a)` になる。**a が混ぜ率**になり、実測で
   // 全画面が 226 階調動いた。関数形式で書く
-  const blurredRaw = radialBlur(toned, { exposure: LENS_BLUR_MAX, count: LENS_BLUR_SAMPLES })
+  // 放射ブラーも入力を焼き直す。名前を付ける理由は上の `compositeRtt` と同じ
+  const blurredRaw = radialBlur(namedRtt(toned, 'lensRtt'), {
+    exposure: LENS_BLUR_MAX,
+    count: LENS_BLUR_SAMPLES,
+  })
   const blurred = blend(toned, blurredRaw, amount)
 
   if (stage === 'blur') return { composite, outputNode: blurred, ownsOutputTransform: true }
@@ -628,3 +638,15 @@ const VIGNETTE_MAX = 0.72
  * 広く滲む。**強さと閾値とは独立に効く**ので、掃引では固定して 2 つだけ振る。
  */
 const BLOOM_RADIUS = 0.35
+
+/**
+ * 名前の付いた中間のテクスチャ（段 S0a）。
+ *
+ * `RTTNode` は描くときの網に `<名前> [ RTT ]` を付ける（`RTTNode.js`）。名前は
+ * シェーダの束縛の名前にもなるだけで、計算は変わらない
+ */
+function namedRtt(node: Node, name: string): Node {
+  const texture = (rtt as unknown as (n: Node) => Node)(node)
+  ;(texture as unknown as { name: string }).name = name
+  return texture
+}

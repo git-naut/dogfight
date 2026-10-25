@@ -1,4 +1,5 @@
 import { DEFAULT_COVERAGE, type NodeProbeResult } from './pipeline/types'
+import type { FramePassTimes, PassSource } from './pipeline/passTimes'
 import {
   decodeShadowInputs,
   type ShadowInputs,
@@ -585,6 +586,20 @@ export interface TestHook {
   /** GPU のフレーム時間 ms。計測できていなければ 0 */
   gpuFrameMs: number
   gpuTimerSupported: boolean
+  /**
+   * 最後に描き終えたフレームのパスの出どころ（段 S0a）。呼び出しの順。
+   * timestamp が取れない SwiftShader でも入る。群は `passTimes.ts` の `passGroup` で引く
+   */
+  gpuPassSources: readonly PassSource[]
+  /** 直近の GPU のパスごとの内訳。timestamp が取れたときだけ */
+  gpuPasses: FramePassTimes | null
+  /** パスの和が three の合計と食い違った回数。0 でなければ内訳を信じない */
+  gpuPassMismatches: number
+  /**
+   * 直近のフレームごとの内訳。古い順。実機の計測（`tools/win-pass-perf.mjs`）が
+   * フレーム番号で重なりを除いて読む
+   */
+  gpuPassHistory: readonly FramePassTimes[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと等高線状の横線が出る */
   cloudHdrTarget: boolean
   /** ?bench=N のときの 1 描画あたりの ms。測っていなければ 0 */

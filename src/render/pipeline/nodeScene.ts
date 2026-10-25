@@ -135,6 +135,8 @@ export async function createNodePipeline(
   renderer.toneMappingExposure = options.exposure ?? DEFAULT_EXPOSURE
 
   const scene = new THREE.Scene()
+  // GPU のパスごとの所要で見分ける名前（`passTimes.ts` の群の表、段 S0a）
+  scene.name = 'Scene'
   // near / far の根拠は GLSL 経路と同じ（比を 4 万に抑えて z ファイティングを
   // 避ける）。対数深度バッファは雲が標準の射影式を前提にするので使えない
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 5, 200_000)
@@ -271,6 +273,7 @@ export async function createNodePipeline(
   // 水平線でまっすぐ切れた。爆発だけを別の場面へ移し、別のパスで描いて合成の最後に
   // 重ねる。GLSL 経路は場面のパスで描いたまま
   const overlayScene = new webgpu.Scene()
+  overlayScene.name = 'Overlay'
   overlayScene.add(views.explosions.object)
   const { node: overlay, drawOnce: drawOverlayOnce } = createOverlayPass(overlayScene, camera)
 
@@ -743,6 +746,15 @@ export async function createNodePipeline(
     },
     get gpuFrameMaxMs() {
       return gpuTimer.maxMs
+    },
+    get gpuPasses() {
+      return gpuTimer.lastPasses
+    },
+    get gpuPassMismatches() {
+      return gpuTimer.passMismatches
+    },
+    get gpuPassHistory() {
+      return gpuTimer.passHistory
     },
     get gpuTimerSupported() {
       return gpuTimer.supported

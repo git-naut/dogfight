@@ -1,5 +1,6 @@
 import type { Renderer } from 'three/webgpu'
-import { NO_GPU_TIMER, type GpuFrameTimer } from '../backend'
+import { NO_GPU_TIMER, type GpuFrameSample, type GpuFrameTimer } from '../backend'
+import { lastFrameOf, summarizeFrames, type FramePassTimes, type PassSource } from './passTimes'
 
 /**
  * node 経路の GPU タイマー。
@@ -23,18 +24,38 @@ import { NO_GPU_TIMER, type GpuFrameTimer } from '../backend'
  * `WebGPUTimestampQueryPool.js` は走っている promise そのもの）。
  * `lastValue` の初期値は 0 なので、重ねた回は 0 か「前の回の値」になる。
  * どちらもこの回の値ではない。**重なったら測らない。**
+ *
+ * **パスごとの内訳も同じ解決から読む**（段 S0a）。three は合計を返す直前に、
+ * パスごとの ms を `timestampQueryPool.render.timestamps` に残している
+ * （`WebGPUTimestampQueryPool.js` の `_resolveQueries`）。次の解決で消されるので、
+ * 解決が決着したその場で読む。何のパスかは `sourceOf`（`PassInspector`）が引く。
  */
 
 interface TimestampRenderer {
   resolveTimestampsAsync(type?: string): Promise<number | undefined>
   info: { render: { timestamp: number } }
+  backend?: {
+    timestampQueryPool?: {
+      render?: { timestamps?: ReadonlyMap<string, number> } | null
+    }
+  }
 }
 
-export function createNodeTimer(renderer: Renderer): GpuFrameTimer {
+/** パスの出どころを引く口。渡さなければ内訳を作らない */
+export type PassSourceLookup = (uid: string) => PassSource | undefined
+
+/** 1 回の解決に入っていた全フレームの内訳。読めなければ空 */
+function readFrames(target: TimestampRenderer, sourceOf: PassSourceLookup): FramePassTimes[] {
+  const timestamps = target.backend?.timestampQueryPool?.render?.timestamps
+  if (timestamps === undefined || timestamps.size === 0) return []
+  return summarizeFrames(timestamps, sourceOf)
+}
+
+export function createNodeTimer(renderer: Renderer, sourceOf?: PassSourceLookup): GpuFrameTimer {
   const target = renderer as unknown as TimestampRenderer
   if (typeof target.resolveTimestampsAsync !== 'function') return NO_GPU_TIMER
 
-  const resolved: { id: number; ms: number }[] = []
+  const resolved: GpuFrameSample[] = []
   let waiting = 0
   let dropped = 0
   let pendingId: number | null = null
@@ -73,7 +94,9 @@ export function createNodeTimer(renderer: Renderer): GpuFrameTimer {
           // 無ければ `undefined`、解決する物が無いか GPU の状態が乱れて
           // いれば初期値の 0 が返る。0 を数に混ぜると最小値が 0 になる
           if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
-            resolved.push({ id, ms })
+            const frames = sourceOf === undefined ? [] : readFrames(target, sourceOf)
+            const passes = lastFrameOf(frames)
+            resolved.push(passes === null ? { id, ms } : { id, ms, passes, frames })
           } else {
             dropped++
           }

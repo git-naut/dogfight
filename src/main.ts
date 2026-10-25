@@ -117,6 +117,10 @@ const hook = installTestHook({
   noiseStats: { min: 0, max: 0, mean: 0 },
   gpuFrameMs: 0,
   gpuTimerSupported: false,
+  gpuPassSources: [],
+  gpuPasses: null,
+  gpuPassMismatches: 0,
+  gpuPassHistory: [],
   cloudHdrTarget: false,
   benchMs: 0,
   benchSweep: [],
@@ -837,6 +841,19 @@ async function main(): Promise<void> {
   hook.gpuTimerSupported = view.gpuTimerSupported
   }
 
+  /**
+   * GPU のパスの出どころと内訳をフックへ出す（段 S0a）。
+   *
+   * 出どころは直前に描き終えたフレームのもので、timestamp が取れなくても入る。
+   * 内訳は解決が届いた回の値で、数フレーム遅れる
+   */
+  function publishGpuPasses(): void {
+    hook.gpuPassSources = view.backend.passSources
+    hook.gpuPasses = view.gpuPasses
+    hook.gpuPassMismatches = view.gpuPassMismatches
+    hook.gpuPassHistory = view.gpuPassHistory
+  }
+
   if (capture.enabled) {
     // 実時間を一切使わず、スクリプトを指定フレームまで再生して 1 枚描く
     const script = getScript(capture.script)
@@ -975,6 +992,7 @@ async function main(): Promise<void> {
 
     publish(world, world.frame)
     finishBoot()
+    publishGpuPasses()
     hook.captureReady = true
     document.body.dataset['captureReady'] = '1'
     // **GPU が描き終えたら 2 つ目の合図を出す。**WebGPU では `view.render()` は命令を
@@ -1368,6 +1386,7 @@ async function main(): Promise<void> {
     hook.droppedSteps = driver.droppedSteps
     // **毎フレーム出す。**シムのフレームと並べて、雲が焼けているかを見る
     hook.cloudRenderCount = view.cloudRenderCount
+    publishGpuPasses()
     debug?.update(sample, world.frame, smoothedFps, {
       sunElevation: view.sunElevation,
       preset,
@@ -1375,6 +1394,8 @@ async function main(): Promise<void> {
       gpuFrameMs: view.gpuFrameMs,
       gpuFrameMaxMs: view.gpuFrameMaxMs,
       gpuTimerSupported: view.gpuTimerSupported,
+      gpuPasses: view.gpuPasses,
+      gpuPassMismatches: view.gpuPassMismatches,
       cpuSimMs,
       cpuSyncMs,
       cpuRenderMs,

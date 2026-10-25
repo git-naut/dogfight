@@ -140,12 +140,22 @@ export async function buildNodePipeline(
  * **`nodeFrame.update()` は呼ばない。**あれは `performance.now()` から
  * `deltaTime` と `time` を進めるので、実時間が描画へ入る。この repo は
  * それを禁じている（`CLAUDE.md` の決定論の規則）。番号だけ進める。
+ *
+ * **`info.frame` にも同じ番号を入れる**（段 S0a）。`Animation.js` は
+ * `this.info.frame = this.nodes.nodeFrame.frameId` を毎フレーム行う。
+ * three の中でこれを読むのは GPU の timestamp の鍵（`Backend.js` の
+ * `updateTimeStampUID` の `:f<フレーム>`）だけ。入れないと鍵がいつも `f0` に
+ * なり、解決の合計が「前の解決から後の、各パスの最新の 1 回の和」になる。
+ * 毎フレーム同じパスが並ぶ間は 1 フレームと同じだが、間引いて走るパスが
+ * あると別のフレームの値が混ざる。絵には関わらない
  */
 interface NodeFrameHolder {
   _nodes: { nodeFrame: { frameId: number } }
+  info: { frame: number }
 }
 
 export function advanceNodeFrame(renderer: Renderer): void {
   const holder = renderer as unknown as NodeFrameHolder
   holder._nodes.nodeFrame.frameId++
+  holder.info.frame = holder._nodes.nodeFrame.frameId
 }

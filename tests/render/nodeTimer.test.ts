@@ -155,6 +155,48 @@ describe('node 経路の GPU タイマー', () => {
     expect(timer.dropped).toBe(0)
   })
 
+  it('内訳を同じ解決の Map から読み、名札を付ける（段 S0a）', async () => {
+    // **次の解決で Map は消される。**決着したその場で読まないと、別の回の
+    // 内訳が合計に付く
+    const d = deferred()
+    const fake = scripted([d])
+    const timestamps = new Map<string, number>()
+    ;(fake.renderer as unknown as { backend: unknown }).backend = {
+      timestampQueryPool: { render: { timestamps } },
+    }
+    const timer = createNodeTimer(fake.renderer, (uid) =>
+      uid === 'r:1:3:f7' ? { scene: 'Scene', target: 'output' } : undefined,
+    )
+    timer.begin(1)
+    timer.end()
+    timestamps.set('r:1:3:f7', 2)
+    timestamps.set('r:2:4:f7', 0.5)
+    d.settle(2.5)
+    await flush()
+
+    const [sample] = timer.collect()
+    expect(sample!.ms).toBe(2.5)
+    expect(sample!.passes!.totalMs).toBe(2.5)
+    expect(sample!.passes!.passes.map((p) => p.group)).toEqual(['場面', '不明'])
+    expect(sample!.passes!.unlabeled).toBe(1)
+    // 解決に 1 フレームしか入っていなければ、全フレームの列も 1 つ
+    expect(sample!.frames!.map((f) => f.frame)).toEqual([7])
+  })
+
+  it('名札の口を渡さなければ内訳を作らない', async () => {
+    const d = deferred()
+    const fake = scripted([d])
+    ;(fake.renderer as unknown as { backend: unknown }).backend = {
+      timestampQueryPool: { render: { timestamps: new Map([['r:1:3:f7', 2]]) } },
+    }
+    const timer = createNodeTimer(fake.renderer)
+    timer.begin(1)
+    timer.end()
+    d.settle(2)
+    await flush()
+    expect(timer.collect()).toEqual([{ id: 1, ms: 2 }])
+  })
+
   it('解決の口が無いレンダラでは測らない', () => {
     const timer = createNodeTimer({} as unknown as Renderer)
     expect(timer.supported).toBe(false)

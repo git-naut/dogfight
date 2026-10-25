@@ -1,6 +1,7 @@
 import type { HeatHazeState } from '../heatHaze'
 import type * as THREE from 'three'
 import type { RenderBackend } from '../backend'
+import type { FramePassTimes } from './passTimes'
 import type { ChaseCamera } from '../camera'
 import type { CloudsUpdate } from '../clouds/cloudsPass'
 import type { AircraftView } from '../aircraftView'
@@ -469,6 +470,12 @@ export interface ScenePipeline {
   readonly gpuFrameMs: number
   readonly gpuFrameMaxMs: number
   readonly gpuTimerSupported: boolean
+  /** 直近の GPU のパスごとの内訳（段 S0a）。node 経路で読めたときだけ */
+  readonly gpuPasses: FramePassTimes | null
+  /** パスの和が合計と食い違った回数。0 でなければ内訳を信じない */
+  readonly gpuPassMismatches: number
+  /** 直近のフレームごとの内訳。古い順（`GpuTimer.passHistory`） */
+  readonly gpuPassHistory: readonly FramePassTimes[]
   readonly drawCalls: number
   readonly drawnTriangles: number
   /** 高さ場の生成にかかったミリ秒 */

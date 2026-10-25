@@ -24,8 +24,9 @@ interface FakeNodeFrame {
   time: number
 }
 
-function scripted(): { renderer: Renderer; frame: FakeNodeFrame } {
+function scripted(): { renderer: Renderer; frame: FakeNodeFrame; info: { frame: number } } {
   const frame: FakeNodeFrame = { frameId: 0, updates: 0, deltaTime: 0, time: 0 }
+  const info = { frame: 0 }
   const nodeFrame = {
     get frameId() {
       return frame.frameId
@@ -39,8 +40,8 @@ function scripted(): { renderer: Renderer; frame: FakeNodeFrame } {
       frame.time += 0.016
     },
   }
-  const renderer = { _nodes: { nodeFrame } }
-  return { renderer: renderer as unknown as Renderer, frame }
+  const renderer = { _nodes: { nodeFrame }, info }
+  return { renderer: renderer as unknown as Renderer, frame, info }
 }
 
 describe('ノードのフレーム番号', () => {
@@ -57,6 +58,15 @@ describe('ノードのフレーム番号', () => {
     for (let i = 0; i < 8; i++) advanceNodeFrame(renderer)
     // 8 枚描いたら 8 つ進む。飛ばすと `FRAME` の更新が重複と見なされる
     expect(frame.frameId).toBe(8)
+  })
+
+  it('timestamp の鍵のフレーム番号も同じだけ進む', () => {
+    // **進めないと鍵がいつも `f0` になる。**three の解決はフレームごとに
+    // 和を取るので、別のフレームのパスが 1 つの合計に混ざる（段 S0a）
+    const { renderer, frame, info } = scripted()
+    for (let i = 0; i < 3; i++) advanceNodeFrame(renderer)
+    expect(info.frame).toBe(3)
+    expect(info.frame).toBe(frame.frameId)
   })
 
   it('実時間の口を触らない', () => {

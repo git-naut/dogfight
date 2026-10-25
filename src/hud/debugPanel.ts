@@ -1,6 +1,7 @@
 import type { AircraftSample } from '../sim/aircraft'
 import { controlHelpLine } from '../input/keyboard'
 import { AIRCRAFT } from '../sim/flightModel'
+import { formatPassTotals, type FramePassTimes } from '../render/pipeline/passTimes'
 
 /**
  * 飛行モデル調整用の計器。
@@ -35,6 +36,10 @@ export interface RenderInfo {
   gpuFrameMaxMs: number
   /** そのうち雲のパスが占める ms */
   gpuTimerSupported: boolean
+  /** パスごとの内訳（段 S0a）。読めていなければ null */
+  gpuPasses: FramePassTimes | null
+  /** パスの和が合計と食い違った回数 */
+  gpuPassMismatches: number
   /**
    * フレームの CPU 内訳 ms。
    *
@@ -108,6 +113,8 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     ['frame', 'フレーム'],
     ['fps', 'FPS'],
     ['gpu', 'GPU 時間'],
+    // パスの群ごとの ms（段 S0a）。予算の割り振りを画面で読む
+    ['gpuPasses', 'GPU 内訳'],
     ['cpu', 'CPU 時間'],
     ['terrain', '地形'],
     ['aircraft', '機体'],
@@ -181,6 +188,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
           ? `${render.gpuFrameMs.toFixed(1)} / 最大 ${render.gpuFrameMaxMs.toFixed(1)} ms (16.7)`
           : '計測不可',
       )
+      set('gpuPasses', formatPassTotals(render.gpuPasses, render.gpuPassMismatches))
 
       // シム、描画の準備、描画コマンドの投入。合計がフレーム時間に近ければ
       // CPU 律速、GPU 時間に近ければ GPU 律速

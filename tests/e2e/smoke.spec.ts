@@ -14,6 +14,7 @@ import {
   type TestHook,
 } from './harness'
 import { DEFAULT_COVERAGE } from '../../src/render/pipeline/types'
+import { UNGROUPED, passGroup } from '../../src/render/pipeline/passTimes'
 import { PILOT_HOLD_F1800 } from '../fixtures/pilotHold'
 
 
@@ -1348,6 +1349,63 @@ test.describe('デバッグ表示', () => {
   test('既定では計器を出さない', async ({ page }) => {
     await openLive(page)
     await expect(page.locator('.debug-panel')).toHaveCount(0)
+  })
+})
+
+/**
+ * GPU のパスごとの所要（段 S0a）。
+ *
+ * three はパスごとに timestamp を取るが、鍵に何のパスかは入らない。名札は
+ * `PassInspector` が控え、群は `passTimes.ts` の表で決める。**表から漏れた
+ * パスは予算の内訳で「不明」に溜まり、どこが重いのか読めなくなる。**
+ * プリセットでパスの数が変わる（high 26 本・low 11 本、2026-10-24 実測）ので
+ * 両端を見る。timestamp は SwiftShader でも取れる
+ */
+test.describe('GPU のパス', () => {
+  const always = ['雲', '場面', '爆発', '合成', 'SMAA', '出力']
+  const highOnly = ['機体の影', '雲影', 'ブルーム', '風圧']
+
+  for (const preset of ['low', 'high'] as const) {
+    test(`${preset} の 1 フレームのパスがどれも群の表に載る`, async ({ page }) => {
+      const hook = await capture(page, { preset, coverage: DEFAULT_COVERAGE })
+      test.skip(hook.backend !== 'node-webgpu', 'パスの控えは node 経路（WebGPU）だけ')
+      const sources = hook.gpuPassSources
+      expect(sources.length, 'パスの控えが空').toBeGreaterThan(0)
+      const missing = sources.filter((source) => passGroup(source) === UNGROUPED)
+      expect(missing, '群の表に無いパス').toEqual([])
+
+      const groups = new Set(sources.map((source) => passGroup(source)))
+      for (const group of always) expect(groups.has(group), `${group} が無い`).toBe(true)
+      for (const group of highOnly) {
+        expect(groups.has(group), `${group} の有無`).toBe(preset === 'high')
+      }
+    })
+  }
+
+  test('ライブで内訳が届き、パスの和が three の合計と合う', async ({ page }) => {
+    await openLive(page, '?debug=1')
+    const backend = (await readHook(page))?.backend
+    test.skip(backend !== 'node-webgpu', 'パスの内訳は node 経路（WebGPU）だけ')
+    // 解決は数フレーム遅れて届く
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { __dogfight?: { gpuPasses: unknown } }).__dogfight?.gpuPasses !=
+        null,
+      undefined,
+      { timeout: waitBudgetMs(60_000) },
+    )
+    const hook = (await readHook(page))!
+    const passes = hook.gpuPasses!
+    expect(hook.gpuPassMismatches, '和と合計が食い違った回がある').toBe(0)
+    expect(passes.unlabeled, '控えの無いパスがある').toBe(0)
+    expect(passes.passes.filter((p) => p.group === UNGROUPED)).toEqual([])
+    expect(passes.totalMs).toBeGreaterThan(0)
+    const sum = passes.passes.reduce((total, p) => total + p.ms, 0)
+    expect(Math.abs(sum - passes.totalMs)).toBeLessThan(1e-6)
+
+    const panel = page.locator('.debug-panel')
+    await expect(panel).toContainText('GPU 内訳')
+    await expect(panel).toContainText('場面')
   })
 })
 

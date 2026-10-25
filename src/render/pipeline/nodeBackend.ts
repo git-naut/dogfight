@@ -2,6 +2,7 @@ import { Vector2 } from 'three'
 import type { Renderer } from 'three/webgpu'
 import type { DrawingBufferSize, RenderBackend } from '../backend'
 import { createNodeTimer } from './nodeTimer'
+import { PassInspector } from './passInspector'
 
 /**
  * node 経路のバックエンド。
@@ -36,6 +37,11 @@ export function createNodeBackend(renderer: Renderer): RenderBackend {
   // `Animation.js` が `info.reset()` を呼ぶ**ので、自分で `render()` を回すと
   // `autoReset` が true のままでも積算され続ける（段 9 の実測で 9 倍になった）
   renderer.info.autoReset = false
+
+  // パスの出どころを控える（段 S0a）。three の既定の inspector は何もしない
+  // 空の実体なので、差し替えても描画は変わらない
+  const inspector = new PassInspector()
+  renderer.inspector = inspector
 
   // 版は起動時に 1 度だけ読む。WebGPU では生のコンテキストが無いので 0
   const webglVersion =
@@ -93,7 +99,11 @@ export function createNodeBackend(renderer: Renderer): RenderBackend {
     },
 
     createTimer() {
-      return createNodeTimer(renderer)
+      return createNodeTimer(renderer, (uid) => inspector.sourceOf(uid))
+    },
+
+    get passSources() {
+      return inspector.lastFrameSources
     },
   }
 }

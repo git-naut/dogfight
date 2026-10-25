@@ -71,8 +71,10 @@ while :; do
     progressed=1
     printf '%s\n' "${urls[i]}" > "$WIN/cases.txt"
     before=$(cut -d' ' -f1-3 /proc/loadavg)
-    # **cmd.exe の set は引用符ごと値に入れない形で書く**（`set "K=V"`）
-    timeout 300 cmd.exe /c "cd /d C:\\Windows\\Temp\\dg-pw && set \"LABEL=${labels[i]}\" && set \"OUT=$OUT_NAME\" && set \"SECONDS=${MEASURE_SECONDS:-20}\" && set \"VIEW_W=${VIEW_W:-1600}\" && set \"VIEW_H=${VIEW_H:-789}\" && set \"DPR=${DPR:-1.5}\" && set \"WARMUP=${WARMUP:-3}\" && node $TOOL" 2>&1 | grep -v '^\s*$' | tee -a "$LOG"
+    # **値は `set K=V&&` の形で渡す（`&&` の前に空白を置かない）。**WSL から渡すと
+    # `set "K=V"` は引用符ごと崩れ、`WSLENV` も届かず、node には何も渡らなかった
+    # （2026-10-25 に node で 3 通りを試して確かめた）。空白を置くと値の末尾に入る
+    timeout 300 cmd.exe /c "cd /d C:\\Windows\\Temp\\dg-pw && set LABEL=${labels[i]}&& set OUT=$OUT_NAME&& set SECONDS=${MEASURE_SECONDS:-20}&& set VIEW_W=${VIEW_W:-1600}&& set VIEW_H=${VIEW_H:-789}&& set DPR=${DPR:-1.5}&& set WARMUP=${WARMUP:-3}&& node $TOOL" 2>&1 | grep -v '^\s*$' | tee -a "$LOG"
     after=$(cut -d' ' -f1-3 /proc/loadavg)
     a1=${after%% *}
     accepted=false

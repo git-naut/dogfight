@@ -126,11 +126,18 @@ export async function buildNodePipeline(
 /**
  * ノードのフレーム番号を 1 つ進める。
  *
- * **手で `render()` を回すと `FRAME` 型の更新が 1 度しか走らない。**
+ * **手で `render()` を続けて回すと `FRAME` 型の更新が 1 度しか走らない。**
  * `NodeUpdateType.FRAME` の更新は `NodeFrame` が `frameId` で重複を潰す。
- * その `frameId` を進めるのは `Animation.js` の `nodeFrame.update()` だけで、
- * それは `setAnimationLoop` を使ったときにしか呼ばれない
- * （`info.reset()` が同じ場所にあるのと同じ理由）。
+ * その `frameId` を進めるのは `Animation.js` の `nodeFrame.update()` で、rAF の
+ * たびに 1 度だけ呼ばれる。**内部のループは `setAnimationLoop` を使わなくても
+ * 初期化で必ず始まる**（`Renderer.js` の `init` の `this._animation.start()`）。
+ * キャプチャは 1 つのタスクの中で rAF を挟まずに続けて描くので、その間は
+ * 番号が進まない。
+ *
+ * **ライブでは番号が描画 1 回で 2 進む。**内部のループの 1 と、ここの 1。
+ * どちらも害は無い（重複を潰すのに要るのは「前と違う」ことだけ）。段 S0a で
+ * 実機の鍵を読んで確かめた（2026-10-25）。最初は「ライブでも進まない」と
+ * 読み違えていた。
  *
  * 進めないと、場面の `PassNode` も雲のパスも 1 枚目しか描かれない。
  * **絵は出る。**レンダーターゲットに前の中身が残るので、2 枚目以降も同じ
@@ -142,12 +149,12 @@ export async function buildNodePipeline(
  * それを禁じている（`CLAUDE.md` の決定論の規則）。番号だけ進める。
  *
  * **`info.frame` にも同じ番号を入れる**（段 S0a）。`Animation.js` は
- * `this.info.frame = this.nodes.nodeFrame.frameId` を毎フレーム行う。
+ * `this.info.frame = this.nodes.nodeFrame.frameId` を rAF のたびに行う。
  * three の中でこれを読むのは GPU の timestamp の鍵（`Backend.js` の
- * `updateTimeStampUID` の `:f<フレーム>`）だけ。入れないと鍵がいつも `f0` に
- * なり、解決の合計が「前の解決から後の、各パスの最新の 1 回の和」になる。
- * 毎フレーム同じパスが並ぶ間は 1 フレームと同じだが、間引いて走るパスが
- * あると別のフレームの値が混ざる。絵には関わらない
+ * `updateTimeStampUID` の `:f<フレーム>`）だけ。**キャプチャ**で入れないと、
+ * 続けて描く N 枚が同じフレーム番号の鍵になり、パスごとの内訳が枚をまたいで
+ * 混ざる。ライブは内部のループが入れているので、この 1 行が無くても混ざらない。
+ * 絵には関わらない
  */
 interface NodeFrameHolder {
   _nodes: { nodeFrame: { frameId: number } }

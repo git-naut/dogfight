@@ -330,10 +330,24 @@ describe('出どころの控え', () => {
       inspector.beginRender(`r:1:3:f${f}`, { name: 'A' }, null, null)
       inspector.beginRender(`r:2:4:f${f}`, { name: 'B' }, null, null)
     }
-    // 直近 KEEP_FRAMES + 1 フレームぶん（最新を含む）× 2 本
-    expect(inspector.size).toBe((KEEP_FRAMES + 1) * 2)
+    // 直近 KEEP_FRAMES フレームぶん × 2 本
+    expect(inspector.size).toBe(KEEP_FRAMES * 2)
     expect(inspector.sourceOf('r:1:3:f1')).toBeUndefined()
-    expect(inspector.sourceOf(`r:1:3:f${KEEP_FRAMES * 4}`)).toBeDefined()
+    expect(inspector.sourceOf(`r:1:3:f${KEEP_FRAMES * 3 + 1}`)).toBeDefined()
+    expect(inspector.sourceOf(`r:1:3:f${KEEP_FRAMES * 3}`)).toBeUndefined()
+  })
+
+  it('番号が 2 ずつ進んでも、控えたフレームの数で KEEP_FRAMES ぶん残す', () => {
+    // **ライブでは描画 1 回で番号が 2 進む**（three の内部のループも進める）。
+    // 番号の差で捨てた最初の版は、実際には半分しか残らず名札が消えた
+    const inspector = new PassInspector()
+    for (let i = 1; i <= KEEP_FRAMES * 2; i++) {
+      inspector.beginRender(`r:1:3:f${i * 2}`, { name: 'A' }, null, null)
+    }
+    expect(inspector.size).toBe(KEEP_FRAMES)
+    // 最も古く残るのは、後ろから数えて KEEP_FRAMES 番目の描画
+    expect(inspector.sourceOf(`r:1:3:f${(KEEP_FRAMES + 1) * 2}`)).toBeDefined()
+    expect(inspector.sourceOf(`r:1:3:f${KEEP_FRAMES * 2}`)).toBeUndefined()
   })
 
   it('compute も控える', () => {

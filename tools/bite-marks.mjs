@@ -2094,8 +2094,8 @@ export const BITE_MARKS = [
     id: 'pass-keep-frames-off',
     kind: '定数の摂動',
     file: 'src/render/pipeline/passInspector.ts',
-    find: '    const oldest = this.newestFrame - KEEP_FRAMES\n',
-    replace: '    const oldest = this.newestFrame - KEEP_FRAMES - 1\n',
+    find: '    while (this.framesUids.size > KEEP_FRAMES) {\n',
+    replace: '    while (this.framesUids.size > KEEP_FRAMES - 1) {\n',
     expect: 'tests/render/passTimes.test.ts',
     why: '控えを捨てる境目。ずれて誰も気づかないなら、Map が伸び続けても見張れていない',
   },
@@ -2115,6 +2115,6 @@ export const BITE_MARKS = [
     find: '  holder.info.frame = holder._nodes.nodeFrame.frameId\n',
     replace: '',
     expect: 'tests/render/nodeFrame.test.ts',
-    why: '自前のループでは three の鍵のフレーム番号が f0 のまま進まず、解決の合計に別のフレームのパスが混ざる',
+    why: 'キャプチャで続けて描く枚が同じフレーム番号の鍵になり、パスごとの内訳が枚をまたいで混ざる',
   },
 ]

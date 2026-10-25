@@ -61,8 +61,9 @@ describe('ノードのフレーム番号', () => {
   })
 
   it('timestamp の鍵のフレーム番号も同じだけ進む', () => {
-    // **進めないと鍵がいつも `f0` になる。**three の解決はフレームごとに
-    // 和を取るので、別のフレームのパスが 1 つの合計に混ざる（段 S0a）
+    // **キャプチャで進めないと、続けて描く枚が同じ番号の鍵になる。**three の
+    // 解決はフレームごとに和を取るので、枚をまたいで混ざる（段 S0a）。ライブは
+    // three の内部のループが rAF ごとに入れている
     const { renderer, frame, info } = scripted()
     for (let i = 0; i < 3; i++) advanceNodeFrame(renderer)
     expect(info.frame).toBe(3)

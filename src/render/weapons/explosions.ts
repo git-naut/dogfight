@@ -13,7 +13,6 @@ import {
 } from '../../sim/effects'
 import { RIBBON_NEAR_CLIP_DEPTH } from '../ribbon'
 import {
-  createGlRadialSprite,
   makeRadialSprite,
   radialSpriteHandle,
   type RadialSpriteFactory,
@@ -280,13 +279,12 @@ export function clampRadiusToNear(depth: number, radius: number): number {
 export function createExplosions(
   capacity: number,
   quality: QualitySettings,
-  // **材質の作り手を外から差す。**node 経路では `ShaderMaterial` が黙って
-  // 描かれない（例外は出ない）ので、TSL 版を差し替えられる口が要る。
-  // 段 17b で地形と海面に入れたのと同じ形
-  sprite: RadialSpriteFactory = createGlRadialSprite,
+  // **材質の作り手を外から差す。**作り手は `spriteNodes.ts`（TSL）。段 S1 で
+  // GLSL 版の既定を捨てたので必ず渡す。段 17b で地形と海面に入れたのと同じ形
+  sprite: RadialSpriteFactory,
   // **火の玉の板の作り手（段 29b）。**渡されたら赤い芯と外側の炎の代わりに
-  // ノイズで輪郭の揺らぐ火の玉を置く。node 経路だけが渡す（`fireballNodes.ts`）。
-  // GLSL 経路は従来の円形スプライトのまま
+  // ノイズで輪郭の揺らぐ火の玉を置く。場面の組み手が渡す（`fireballNodes.ts`）。
+  // null なら従来の円形スプライト（段 S1 で捨てた GLSL 経路はこちらだった）
   fireballSprite: FireballSpriteFactory | null = null,
 ): Explosions {
   let sprites = quality.explosionSprites

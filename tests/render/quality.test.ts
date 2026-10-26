@@ -11,7 +11,12 @@ import {
   resolvePreset,
   type PresetName,
 } from '@render/quality'
-import { NEAR_STEP, stepGrowthScale } from '@render/clouds/geometry'
+import {
+  LIGHT_MARCH_LIMIT,
+  MARCH_LOOP_LIMIT,
+  NEAR_STEP,
+  stepGrowthScale,
+} from '@render/clouds/geometry'
 
 describe('品質プリセットの表', () => {
   it('4 段そろっている', () => {
@@ -39,7 +44,7 @@ describe('品質プリセットの表', () => {
     // 影マップ、環境反射、軌跡の分割数。Low は 0 で機能そのものを切る
     for (const key of [
       'aircraftShadowMapSize',
-      'environmentMapSize',
+      'skyEnvironmentSize',
       'trailSegments',
     ] as const) {
       const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n][key])
@@ -53,7 +58,7 @@ describe('品質プリセットの表', () => {
   it('影マップと環境反射の一辺が 2 のべき乗', () => {
     // キューブマップとミップマップの都合。2 のべき乗でないと three が
     // リサイズしたり品質が落ちたりする
-    for (const key of ['aircraftShadowMapSize', 'environmentMapSize'] as const) {
+    for (const key of ['aircraftShadowMapSize', 'skyEnvironmentSize'] as const) {
       for (const name of PRESET_ORDER) {
         const size = QUALITY_PRESETS[name][key]
         if (size === 0) continue
@@ -95,17 +100,20 @@ describe('品質プリセットの表', () => {
   })
 
   it('光マーチのステップ数がシェーダの上限を超えない', () => {
-    // clouds.frag のループは 8 回で打ち切っている
+    // TSL のループ（`marchNodes.ts`）は `LIGHT_MARCH_LIMIT` 回で打ち切っている
+    // （段 S1 まではこの値を GLSL の `clouds.frag` が写しで持っていた）
+    expect(LIGHT_MARCH_LIMIT).toBe(8)
     for (const name of PRESET_ORDER) {
-      expect(QUALITY_PRESETS[name].cloudLightSteps).toBeLessThanOrEqual(8)
+      expect(QUALITY_PRESETS[name].cloudLightSteps).toBeLessThanOrEqual(LIGHT_MARCH_LIMIT)
     }
   })
 
   it('主マーチのステップ数がシェーダの上限を超えない', () => {
-    // clouds.frag のループは 512 回で打ち切っている。プリセットの歩数は
-    // それより小さくないと、打ち切りの検出（?probe=2）が働かない
+    // TSL のループは `MARCH_LOOP_LIMIT` 回で打ち切っている。プリセットの歩数は
+    // それより小さくないと、打ち切りの検出（`?marchprobe=1` の `exhausted`）が働かない
+    expect(MARCH_LOOP_LIMIT).toBe(512)
     for (const name of PRESET_ORDER) {
-      expect(QUALITY_PRESETS[name].cloudMaxSteps).toBeLessThanOrEqual(512)
+      expect(QUALITY_PRESETS[name].cloudMaxSteps).toBeLessThanOrEqual(MARCH_LOOP_LIMIT)
     }
   })
 
@@ -274,7 +282,6 @@ describe('品質プリセットの表', () => {
     // 0 は「その機能を使わない」の意味。Low で影と環境反射と軌跡を切る
     const zeroAllowed = new Set([
       'aircraftShadowMapSize',
-      'environmentMapSize',
       'trailSegments',
       'missileTrailSegments',
       'explosionSprites',

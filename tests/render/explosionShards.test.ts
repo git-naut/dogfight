@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { createExplosions } from '../../src/render/weapons/explosions'
+import { createNodeRadialSprite } from '../../src/render/weapons/spriteNodes'
 import { getQuality } from '../../src/render/quality'
 import { FIXED_DT } from '../../src/sim/loop'
 import { Vec3 } from '../../src/sim/vec3'
@@ -19,7 +20,7 @@ describe('破片の位置', () => {
       shards: [{ direction: new Vec3(1, 0, 0), speed: 50 }],
     }
     const source: ExplosionSource = { length: 1, explosionAt: () => e }
-    const ex = createExplosions(1, getQuality('high'), undefined, null)
+    const ex = createExplosions(1, getQuality('high'), createNodeRadialSprite, null)
     const camera = new THREE.Vector3(0, 1000, 0)
     const frame = 112
     ex.update(source, frame, camera, new THREE.Vector3(0, 0, -1))

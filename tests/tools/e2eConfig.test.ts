@@ -3,10 +3,9 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import config from '../../playwright.config'
 import { DEFAULT_PROJECT, WEBGPU_ARGS, SWIFTSHADER_ARGS, launchArgsFor } from '../e2e/launch.mjs'
-import { DEFAULT_BACKEND } from '@render/pipeline/types'
 
 /**
- * 既定の描画経路と E2E の設定が噛み合っていることの検査。
+ * 描画経路（WebGPU）と E2E の設定が噛み合っていることの検査。
  *
  * **同じ設定を 2 度失くしたので機械で見張る。**段 20b で `expect.timeout` を
  * 60 秒へ上げ、段 20c で既定を旧経路へ戻したときに一緒に消えた。既定を node
@@ -14,9 +13,9 @@ import { DEFAULT_BACKEND } from '@render/pipeline/types'
  * 落ちて気づいた。`--update-snapshots=all` でも落ちるので、**撮り直しが静かに
  * 6 枚しか進まない。**失敗の出方が「設定が無い」に見えないのが厄介だった。
  *
- * 切り替えは 4 か所にまたがる。`DEFAULT_BACKEND`、`DEFAULT_PROJECT`、
- * `projects[0]` の起動引数、`expect.timeout`。1 か所にまとめられないので、
- * 代わりに噛み合わせをここで宣言する。
+ * 噛み合わせは 3 か所にまたがる。`DEFAULT_PROJECT`、`projects[0]` の起動引数、
+ * `expect.timeout`。段 S1 で GLSL 経路と、既定を選ぶ定数 `DEFAULT_BACKEND` を
+ * 捨てた。1 か所にまとめられないので、代わりに噛み合わせをここで宣言する。
  *
  * vitest で回るので `npm test` に乗る。Playwright を起動しないため速い。
  */
@@ -38,7 +37,8 @@ const byName = (name: string) => projects.find((p) => p.name === name)
  * project に実際に効く `testIgnore`。
  *
  * **project の値は上位の値を上書きする。足し合わせではない。**主の project が
- * `node-fallback` を外すために自前の `testIgnore` を持った 2026-09-16 から、
+ * 退避路の検査（いまの `webgpu-required`）を外すために自前の `testIgnore` を
+ * 持った 2026-09-16 から、
  * 上位の「`MUTATE` が無ければ逆テストを外す」が効かなくなり、毎回の E2E で
  * 逆テスト 62 本（通しの CPU 時間の 17%）が走っていた
  */
@@ -66,22 +66,20 @@ describe('画素の逆テストは MUTATE のときだけ走る', () => {
     }
   })
 
-  it('主の project は退避路の検査も外したまま', () => {
+  it('主の project は WebGPU が無いときの検査も外したまま', () => {
     // 逆テストを外す形に直したときに、元の除外を落とさないこと
-    expect(ignores(byName(DEFAULT_PROJECT)!, 'tests/e2e/node-fallback.spec.ts')).toBe(true)
+    expect(ignores(byName(DEFAULT_PROJECT)!, 'tests/e2e/webgpu-required.spec.ts')).toBe(true)
   })
 
   it('node 経路の検査は 1 つの project でだけ回る', () => {
-    // **既定が node なら主の project と `chromium-node` が同じ引数・同じ宣言。**
+    // **主の project と `chromium-node` は同じ引数・同じ宣言。**
     // 両方で回すと 25 本を 2 回流す（2026-09-25 まで CPU の 7.1%）
     const runners = projects.filter((p) => {
       const match = p.testMatch
       const matched = match === undefined || (match instanceof RegExp && match.test('tests/e2e/node-path.spec.ts'))
       return matched && !ignores(p, 'tests/e2e/node-path.spec.ts')
     })
-    expect(runners.map((p) => p.name)).toEqual(
-      DEFAULT_BACKEND === 'node' ? ['chromium-node'] : [DEFAULT_PROJECT, 'chromium-node'],
-    )
+    expect(runners.map((p) => p.name)).toEqual(['chromium-node'])
   })
 
   it('基準画像の検査は外していない', () => {
@@ -98,24 +96,26 @@ describe('E2E の設定と既定の描画経路', () => {
     expect(projects[0]?.name).toBe(DEFAULT_PROJECT)
   })
 
-  it('既定が node 経路なら主 project に WebGPU の起動引数が要る', () => {
-    if (DEFAULT_BACKEND !== 'node') return
-
+  it('主 project に WebGPU の起動引数がある', () => {
     const args = byName(DEFAULT_PROJECT)?.use?.launchOptions?.args ?? []
-    // 引数が欠けると `requestAdapter()` が null を返し、node 経路は
-    // `WebGPUUnavailable` を投げて GLSL へ落ちる。**落ちても絵は出るので
-    // 検査は緑のまま**、基準画像だけが旧経路のものに入れ替わる
+    // 引数が欠けると `requestAdapter()` が null を返し、場面は立たずに止まる
+    // （段 S1 までは GLSL へ落ちて絵が出たので、検査は緑のまま基準画像だけが
+    // 旧経路のものに入れ替わる危険があった）
     for (const arg of WEBGPU_ARGS) {
       expect(args, `${arg} が無い`).toContain(arg)
     }
   })
 
-  it('退避路の検査は WebGPU の引数を渡さない project で回る', () => {
-    const fallback = byName('chromium-node-gl')
-    expect(fallback, 'chromium-node-gl が無い').toBeDefined()
+  it('WebGPU が無いときの検査は WebGPU の引数を渡さない project で回る', () => {
+    const missing = byName('chromium-no-webgpu')
+    expect(missing, 'chromium-no-webgpu が無い').toBeDefined()
+    expect(
+      missing?.testMatch instanceof RegExp && missing.testMatch.test('tests/e2e/webgpu-required.spec.ts'),
+      'chromium-no-webgpu が webgpu-required.spec.ts を拾わない',
+    ).toBe(true)
 
-    const args = fallback?.use?.launchOptions?.args ?? []
-    // WebGPU が立つと「無いときの退避」を作れず、検査が空振りする
+    const args = missing?.use?.launchOptions?.args ?? []
+    // WebGPU が立つと「無いとき」を作れず、検査が空振りする
     expect(args).not.toContain('--enable-unsafe-webgpu')
     expect(args).toEqual([...SWIFTSHADER_ARGS])
   })
@@ -132,34 +132,35 @@ describe('E2E の設定と既定の描画経路', () => {
       expect(p.use?.launchOptions?.args?.includes('--enable-unsafe-webgpu') ?? false).toBe(
         p.metadata?.webgpu,
       )
-      // WebGPU が無ければ node 経路は立たない（退避して GLSL になる）
+      // WebGPU が無ければ node 経路は立たない（止まる）
       if (p.metadata?.webgpu === false) expect(p.metadata?.nodePath).toBe(false)
     }
   })
 
-  it('DEFAULT_BACKEND を読むコードが src にある', () => {
-    // **定数を書き換えただけで読む側が無かった。**`DEFAULT_BACKEND` を
-    // `'node'` にしても `createScene` が見ていないので既定は GLSL のまま。
-    // その状態で基準画像を撮り直し、退避路の検査も緑で通った。
-    // **宣言だけが切り替わっている状態を、機械で見張るものが無かった。**
+  it('createScene が WebGPU を確かめてから node の組み手を立てる', () => {
+    // **宣言だけが切り替わっている状態を、機械で見張る。**2026-09-14 に
+    // 既定の定数を `'node'` にしても `createScene` が読んでおらず、既定は GLSL の
+    // まま緑が続いた。段 S1 で選び分けそのものを捨てたので、`createScene` が
+    // WebGPU を確かめる式と、node の組み手を呼ぶ式を持つことを見る
     const src = readFileSync(`${ROOT}src/render/scene.ts`, 'utf8')
-    expect(src, 'createScene が DEFAULT_BACKEND を import していない').toContain(
-      'DEFAULT_BACKEND',
-    )
-    // コメントで名前が出るだけでは足りない。式の中で読むこと
-    expect(src).toMatch(/DEFAULT_BACKEND\s*===\s*'node'/)
+    expect(src).toMatch(/await findWebGPUMissing\(\)/)
+    expect(src).toMatch(/throw new WebGPUUnavailable\(missing\)/)
+    expect(src).toMatch(/createNodePipeline\(canvas, options\)/)
+    expect(src, 'GLSL の組み手が残っている').not.toContain('createWebGLPipeline')
   })
 
   it('起動引数を project から選ぶ関数が、知らない名前を黙って通さない', () => {
     // **`tools/exact.mjs` は `--project` を受け取りながら起動を
     // `SWIFTSHADER_ARGS` に固定していた。**`--project chromium-webgpu` で
     // 回すと、WebGPU で撮った基準画像を WebGPU の立たないブラウザの絵と
-    // 比べる。退避路で GLSL に落ちるので**絵は出てしまい**、HUD の 13 枚が
+    // 比べる。当時は退避路で GLSL に落ちたので**絵は出てしまい**、HUD の 13 枚が
     // 「2 回撮ると画素が動く」という嘘の結論になった
     expect(launchArgsFor('chromium-webgpu')).toContain('--enable-unsafe-webgpu')
     expect(launchArgsFor('chromium-node')).toContain('--enable-unsafe-webgpu')
-    expect(launchArgsFor('chromium-swiftshader')).not.toContain('--enable-unsafe-webgpu')
-    expect(launchArgsFor('chromium-node-gl')).not.toContain('--enable-unsafe-webgpu')
+    expect(launchArgsFor('chromium-no-webgpu')).not.toContain('--enable-unsafe-webgpu')
+    // 段 S1 で捨てた名前は知らない名前として落ちる
+    expect(() => launchArgsFor('chromium-swiftshader')).toThrow()
+    expect(() => launchArgsFor('chromium-node-gl')).toThrow()
 
     // 既定へ倒すと、綴りを間違えた瞬間に別の設定で走る
     expect(() => launchArgsFor('chromium-webgpu2')).toThrow()

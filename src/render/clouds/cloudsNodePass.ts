@@ -97,8 +97,8 @@ export interface CloudsNodePassOptions {
    * 太陽光と天空光を差し替えるノード。
    *
    * **渡すと `update` の色を読まなくなる。**段 17c で大気の LUT が決める
-   * 値を入れる。GLSL 経路は `SunDirectionalLight` と `SkyLightProbe` が
-   * CPU で出していたが、node 経路の `AtmosphereLight` は GPU で決めるので
+   * 値を入れる。段 S1 で捨てた GLSL 経路は `SunDirectionalLight` と
+   * `SkyLightProbe` が CPU で出していたが、node 経路の `AtmosphereLight` は GPU で決めるので
    * CPU 側に値が無い
    */
   sunColorNode?: Node<'vec3'>

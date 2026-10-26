@@ -4,6 +4,7 @@ import { createExplosions } from '../../src/render/weapons/explosions'
 import { createExplosionTrails } from '../../src/render/weapons/explosionTrails'
 import type { FireballSprite } from '../../src/render/weapons/fireballNodes'
 import { getQuality } from '../../src/render/quality'
+import { createNodeRadialSprite } from '../../src/render/weapons/spriteNodes'
 
 const none = {
   length: 0,
@@ -28,7 +29,7 @@ describe('爆発の材質を先に組む', () => {
 
   it('全部の板を見える状態にし、空の源で更新すると全部隠す', () => {
     const quality = getQuality('high')
-    const ex = createExplosions(8, quality, undefined, fakeFireball)
+    const ex = createExplosions(8, quality, createNodeRadialSprite, fakeFireball)
     ex.prewarm(camera, forward)
     const meshes = ex.object.children.filter((c) => c instanceof THREE.Mesh)
     // 白い芯・赤い芯・外側の炎・煙・破片 12・主の火の玉 2 層・子 4 個 × 2 層

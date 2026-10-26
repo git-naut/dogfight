@@ -1,6 +1,4 @@
-import { GLSL3, type Material, Mesh, PlaneGeometry, ShaderMaterial } from 'three'
-import waterVert from './shaders/water.vert?raw'
-import waterFrag from './shaders/water.frag?raw'
+import { type Material, Mesh, PlaneGeometry } from 'three'
 import type { QualitySettings } from '../quality'
 import type { TerrainSharedUniforms } from './terrainMesh'
 
@@ -22,7 +20,8 @@ const WATER_EXTENT = 300_000
 /**
  * 海面の材質。
  *
- * **バックエンドで差し替わるのは材質だけ。**板もカメラ追従も同じものを使う
+ * 作るのは `nodeMaterials.ts`（`NodeMaterial`）。段 S1 で GLSL 版の材質を
+ * 捨てたので、呼ぶ側が必ず作り手を渡す。板もカメラ追従も材質に依らない
  */
 export interface WaterMaterial {
   readonly material: Material
@@ -37,35 +36,6 @@ export type WaterMaterialFactory = (
   quality: QualitySettings,
 ) => WaterMaterial
 
-/** 既定の GLSL 材質 */
-export function createWaterShaderMaterial(
-  uniforms: TerrainSharedUniforms,
-  quality: QualitySettings,
-): WaterMaterial {
-  const material = new ShaderMaterial({
-    glslVersion: GLSL3,
-    vertexShader: waterVert,
-    fragmentShader: waterFrag,
-    uniforms: {
-      ...uniforms,
-      waveTime: { value: 0 },
-      waterSpecular: { value: quality.waterSpecular },
-    },
-  })
-  return {
-    material,
-    setWaveTime(seconds) {
-      material.uniforms['waveTime']!.value = seconds
-    },
-    setQuality(next) {
-      material.uniforms['waterSpecular']!.value = next.waterSpecular
-    },
-    dispose() {
-      material.dispose()
-    },
-  }
-}
-
 export interface Water {
   readonly mesh: Mesh
   /** カメラに追従させる。板は平らなので XZ だけ動かす */
@@ -79,7 +49,7 @@ export interface Water {
 export function createWater(
   quality: QualitySettings,
   uniforms: TerrainSharedUniforms,
-  createMaterial: WaterMaterialFactory = createWaterShaderMaterial,
+  createMaterial: WaterMaterialFactory,
 ): Water {
   const geometry = new PlaneGeometry(WATER_EXTENT, WATER_EXTENT)
   const material = createMaterial(uniforms, quality)

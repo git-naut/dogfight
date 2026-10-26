@@ -163,9 +163,11 @@ AC3D のマテリアルは Gouraud 時代の項目しか持たない。`spec` �
 
 箱は 28 m 角。光源は機体から 400 m 手前に置く。`SunDirectionalLight` は `distance` と `target.position` から位置を決めるので、毎フレーム target を機体へ動かす。
 
-機体は `MeshStandardMaterial` なので three の影がそのまま効く。地形と海面は自前シェーダなので、同じ深度テクスチャと `light.shadow.matrix` をユニフォームで渡し、`heightfield.glsl` に参照を足す。
+機体は `MeshStandardMaterial` なので three の影がそのまま効く。地形と海面は自前の材質なので、同じ深度テクスチャを引く。いまの実装は `src/render/pipeline/nodeShadow.ts`（TSL の `shadow(light)` ノード）。影マップの種類はプリセットの `shadowFilter` が決める（`basic` か `pcf`）。
 
-### 影マップの種類は BasicShadowMap にする
+段 S1（Phase 11）で GLSL 経路（`aircraftShadow.ts`・`WebGLShadowMap`・`heightfield.glsl` の参照）を捨てた。下の節はその GLSL 経路で踏んだことの記録で、node 経路では `ShadowNode` が比較の有無を見て切り替えるので同じ制約は無い。
+
+### 影マップの種類は BasicShadowMap にする（GLSL 経路の記録）
 
 `PCFShadowMap` は深度テクスチャに `compareFunction` を付ける（`WebGLShadowMap.js` の 263 行目）。すると `sampler2DShadow` でしか引けなくなる。`sampler2D` で引くと `GL_INVALID_OPERATION` が出る。メッセージは `Mismatch between texture format and sampler type`。そのドローコールごと捨てられ、地形と海面が丸ごと消えた。
 

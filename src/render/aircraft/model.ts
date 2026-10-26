@@ -117,8 +117,8 @@ export const HOOK_NODE = 'Hook'
  * 出るが、`normalNode` と `roughnessNode` を差す口が無い。表面ディテールの
  * 前提として、写す口だけを先に開ける。
  *
- * 既定は恒等（`keepAircraftMaterial`）。GLSL 経路は引数を渡さないので、
- * **型として動かないことが保証される**（`views.ts` の `sprite` と同じ形）。
+ * 既定は恒等（`keepAircraftMaterial`）。段 S1 で捨てた GLSL 経路は引数を
+ * 渡さなかったので、**型として動かないことが保証されていた**。
  */
 export type AircraftMaterialFactory = (material: THREE.Material) => THREE.Material
 

@@ -137,7 +137,7 @@ export interface QualitySettings {
   /**
    * 機体の外板の細部（`MaterialDetail`）。
    *
-   * **node 経路だけが読む。**GLSL 経路は機体の材質を写さないので口が無い。
+   * node 経路が読む（段 S1 で捨てた GLSL 経路は機体の材質を写さず、口が無かった）。
    * medium 以下は `none`。低いプリセットは機体が小さく写るので、細部は
    * 1 画素を割って縞になるだけになる
    */
@@ -179,8 +179,9 @@ export interface QualitySettings {
   /**
    * 影マップのフィルタ。
    *
-   * **既定の経路は読まない。**`BasicShadowMap` を選んだのは、比較モードが
-   * 付くと自前 GLSL の `sampler2D` から `r` 成分を読めなくなるためで
+   * **段 S1 で捨てた GLSL 経路は読まなかった。**そちらで `BasicShadowMap` を
+   * 選んだのは、比較モードが付くと自前 GLSL の `sampler2D` から `r` 成分を
+   * 読めなくなるためで
    * （`GL_INVALID_OPERATION: Mismatch between texture format and sampler
    * type` で描画そのものが捨てられた）、node 経路ではその制約が消える。
    * `shadow(light)` ノードが係数を返し、`ShadowNode` が `hasTextureCompare`
@@ -193,14 +194,6 @@ export interface QualitySettings {
    * 経路を切り替えたとき、影が映る 12 枚がここで動く
    */
   shadowFilter: ShadowFilter
-  /**
-   * 環境反射のキューブマップの一辺。0 で反射なし。
-   *
-   * 空のクアッドを 6 面に描き、PMREMGenerator で放射照度マップにする。
-   * 時刻が変わったときだけ焼き直すので毎フレームの費用はない。
-   */
-  environmentMapSize: number
-
   /**
    * 大気の LUT の解像度の倍率。1.0 が原本の大きさ。
    *
@@ -221,8 +214,8 @@ export interface QualitySettings {
   /**
    * 空から焼く環境反射の一辺。0 で焼かない。
    *
-   * `skyEnvironment(size)` に渡す。段 16 で `environmentMapSize` の
-   * `CubeCamera` + `PMREMGenerator` を置き換える。それまでは並ぶ
+   * `skyEnvironment(size)` に渡す。段 16 で GLSL 経路の `environmentMapSize`
+   * （`CubeCamera` + `PMREMGenerator`）を置き換え、段 S1 でそちらの列を捨てた
    */
   skyEnvironmentSize: number
   /**
@@ -263,8 +256,8 @@ export interface QualitySettings {
   /**
    * 爆発 1 個あたりの子の火の玉の数（段 29d、複数の球の連なり）。0 で主の 1 個だけ。
    *
-   * **node 経路だけが読む。**GLSL 経路は WebGPU が無いときの退避路なので、円形
-   * スプライトの火球のまま。向きは破片の向き（`SHARD_COUNT` = 12 個）を先頭から
+   * node 経路が読む（段 S1 で捨てた GLSL 経路は円形スプライトの火球のままだった）。
+   * 向きは破片の向き（`SHARD_COUNT` = 12 個）を先頭から
    * 流用するので、12 を越えると同じ向きに重なる。板は 1 個 2 三角形で、high の
    * 4 個 x 同時 8 個で 32 枚が上限
    */
@@ -341,7 +334,6 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 0.5,
     aircraftShadowMapSize: 0,
     shadowFilter: 'basic',
-    environmentMapSize: 0,
     atmosphereLutScale: 0.5,
     aerialRaymarchScattering: false,
     skyEnvironmentSize: 0,
@@ -380,7 +372,6 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
     shadowFilter: 'basic',
-    environmentMapSize: 64,
     atmosphereLutScale: 0.75,
     aerialRaymarchScattering: false,
     skyEnvironmentSize: 64,
@@ -427,7 +418,6 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
     shadowFilter: 'pcf',
-    environmentMapSize: 128,
     atmosphereLutScale: 1,
     aerialRaymarchScattering: true,
     skyEnvironmentSize: 128,
@@ -474,7 +464,6 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // high と同じ。three 0.186 で `pcfSoft` が無くなった（型のコメント）。
     // ultra の影の差は影マップの大きさ 2048 で付ける
     shadowFilter: 'pcf',
-    environmentMapSize: 256,
     atmosphereLutScale: 1,
     aerialRaymarchScattering: true,
     skyEnvironmentSize: 256,

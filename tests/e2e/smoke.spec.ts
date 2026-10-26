@@ -27,7 +27,7 @@ test.beforeEach(() => {
 })
 
 test.describe('起動', () => {
-  test('WebGL2 が取れて大気を読み終え、コンソールエラーが出ない', async ({ page }) => {
+  test('WebGPU で立って大気を組み終え、コンソールエラーが出ない', async ({ page }) => {
     const errors: string[] = []
     page.on('console', (msg) => {
       // SwiftShader は ReadPixels の性能警告を出すが実害はない
@@ -39,18 +39,11 @@ test.describe('起動', () => {
 
     expect(hook.captureReady).toBe(true)
     expect(hook.atmosphereReady).toBe(true)
-    if (onNodePath()) {
-      // **node 経路には生の WebGL コンテキストが無い。**`getContext()` が
-      // 空実装なので 0。`kind` から導いていないことの裏返しでもある
-      expect(hook.webglVersion).toBe(0)
-      expect(hook.backend).toBe('node-webgpu')
-    } else {
-      // SwiftShader でも WebGL2 は取れる。1 に落ちていたら描画品質の前提が崩れる
-      expect(hook.webglVersion).toBe(2)
-      // 既定はこれまでどおり WebGLRenderer 直結の経路。node 経路へ勝手に
-      // 切り替わっていないことを見る
-      expect(hook.backend).toBe('webgl')
-    }
+    // **WebGPU には生の WebGL コンテキストが無い。**`getContext()` が
+    // 空実装なので 0。`kind` から導いていないことの裏返しでもある。
+    // 段 S1 で GLSL 経路（`webgl`・WebGL2）を捨て、WebGPU を必須にした
+    expect(hook.webglVersion).toBe(0)
+    expect(hook.backend).toBe('node-webgpu')
     expect(errors).toEqual([])
   })
 
@@ -1338,12 +1331,11 @@ test.describe('デバッグ表示', () => {
     // いないまま「長く飛んでも落ちない」を確かめても、何も確かめていない。
     // `openSettings` が `?gpu=3` を落としていた罠を段 20a-3 で踏んでいる。
     //
-    // `openLive` は node 経路の project でだけ `&gpu=3` を足すので、
-    // 期待する名前は経路で分かれる
+    // 段 S1 で GLSL 経路を捨てたので、名前は 1 つしかない
     await openLive(page, '?debug=1')
     const panel = page.locator('.debug-panel')
     await expect(panel).toContainText('経路')
-    await expect(panel).toContainText(onNodePath() ? 'node-webgpu' : 'webgl')
+    await expect(panel).toContainText('node-webgpu')
   })
 
   test('既定では計器を出さない', async ({ page }) => {
@@ -1621,9 +1613,8 @@ test.describe('スクリーンショット回帰', () => {
   for (const scene of scenes) {
     test(`${scene.name} の絵が基準と一致する`, async ({ page }) => {
       // **2026-09-14 に node 経路で撮り直した。**基準画像は
-      // `*-chromium-webgpu-linux.png` の 42 枚。旧経路の 42 枚
-      // （`*-chromium-swiftshader-linux.png`）はファイルとして残してあり、
-      // `WEBGL=1` で回すと突き合わせられる。
+      // `*-chromium-webgpu-linux.png`。旧経路の 42 枚
+      // （`*-chromium-swiftshader-linux.png`）は段 S1 で GLSL 経路と一緒に捨てた。
       //
       // 以前はここに `test.skip(onNodePath(), ...)` があった。**外したのは
       // 撮り直したからだが、外す前から効いていなかった。**`onNodePath()`
@@ -2282,7 +2273,8 @@ test.describe('シェーダの事前コンパイル', () => {
     )
     const hook = await readHook(page)
 
-    // **`programs` の数で効きを見られるのは GLSL 経路だけ。**
+    // **`programs` の数では効きを見られない。**見られたのは段 S1 で捨てた
+    // GLSL 経路だけだった。
     //
     // 実測（2026-09-14、SwiftShader、`?script=mission-01`）。
     //
@@ -2296,9 +2288,6 @@ test.describe('シェーダの事前コンパイル', () => {
     // **意味の分からない数を検査の根拠にしない。**node 側は
     // `compileAllPresets` を通ったこと自体を `compileMs` で見る
     // （`?precompile=0` なら 0 になることを実測で確かめた）
-    if (!onNodePath()) {
-      expect(hook!.programs, '事前コンパイルが効いていない').toBeGreaterThan(90)
-    }
     expect(hook!.compileMs, '4 段ぶんのコンパイルを通っていない').toBeGreaterThan(0)
   })
 
@@ -2864,79 +2853,6 @@ test.describe('長く飛ぶ', () => {
     expect(after.frame - before.frame, 'シムが進んでいない').toBeGreaterThanOrEqual(1_200)
     expect(after.altitude, '墜ちている（検査が空振りする）').toBeGreaterThan(300)
     expect(errors, `描画で例外が出た（${errors[0] ?? ''}）`).toEqual([])
-  })
-})
-
-/**
- * 雲影マップの分布を読み戻せることを確かめる。
- *
- * 段 12 で TSL 版と突き合わせるための口。**先に WebGL 側が正しい形の値を
- * 返すことを固めておく。**突き合わせる相手が壊れていると、比較そのものが
- * 意味を失う。
- */
-test.describe('雲影の分布', () => {
-  test('?shadowprobe=1 で 16 ビンの分布が返る', async ({ page }) => {
-    // **GLSL 側が TSL との突き合わせの参照値を作るための口。**node 経路では
-    // 相手がいないので `readShadowHistogram` は投げる（空を返すと「一致した」と
-    // 読める結果が出てしまう）。node 側の分布は `node-path.spec.ts` が
-    // `?nodeshadow=1` で見る（段 20a-3）。
-    //
-    // **以前は `test.skip(onNodePath())` で飛ばしていた。**既定が node に
-    // なると、既定の回し方で一度も回らない（`WEBGL=1` を付けたときだけ）。
-    // `webgl: true` で経路を名指しして、どちらの既定でも回す
-    const hook = await capture(page, {
-      webgl: true,
-      script: 'level',
-      frame: 240,
-      hour: 16,
-      coverage: DEFAULT_COVERAGE,
-      shadowProbe: true,
-    })
-
-    const bins = hook.shadowHistogram
-    expect(bins, '分布が返っていない').not.toBeNull()
-    expect(bins!.length).toBe(16)
-    const total = bins!.reduce((a, b) => a + b, 0)
-    expect(total, '合計が 1 にならない').toBeCloseTo(1, 6)
-    // **全部が 1 つのビンに寄っていたら、影が焼けていないか真っ白**
-    const nonEmpty = bins!.filter((v) => v > 0).length
-    expect(nonEmpty, `ビンが ${nonEmpty} 個しか埋まっていない`).toBeGreaterThan(1)
-
-    // **配置も返す。**分布だけでは影が同じ場所にあることを言えない。
-    // ノイズや気象マップを上下反転しても分布は動かないことを実測した
-    const tiles = hook.shadowTiles
-    expect(tiles, '配置が返っていない').not.toBeNull()
-    expect(tiles!.length).toBe(16)
-    for (const v of tiles!) {
-      expect(v).toBeGreaterThanOrEqual(0)
-      expect(v).toBeLessThanOrEqual(1)
-    }
-    const spread = Math.max(...tiles!) - Math.min(...tiles!)
-    expect(spread, `区画の差が ${spread} しかない`).toBeGreaterThan(0.01)
-  })
-
-  test('雲量 0 なら影は日向の側へ寄る', async ({ page }) => {
-    // **GLSL 側が TSL との突き合わせの参照値を作るための口。**node 経路では
-    // 相手がいないので `readShadowHistogram` は投げる（空を返すと「一致した」と
-    // 読める結果が出てしまう）。node 側の分布は `node-path.spec.ts` が
-    // `?nodeshadow=1` で見る（段 20a-3）。`webgl: true` で経路を名指しする
-    // （以前は `test.skip(onNodePath())` で、既定が node だと回らなかった）
-    // 検査が働くことの確認。雲が無ければ透過率 1 の側だけが埋まる
-    const hook = await capture(page, {
-      webgl: true,
-      script: 'level',
-      frame: 240,
-      hour: 16,
-      coverage: 0,
-      shadowProbe: true,
-    })
-    const bins = hook.shadowHistogram!
-    expect(bins[15], '最後のビン（透過率 1 に近い側）が埋まっていない').toBeGreaterThan(
-      0.99,
-    )
-    // 区画平均も日向へ寄る。差が出ないので配置の検査は空回りする
-    const tiles = hook.shadowTiles!
-    expect(Math.min(...tiles), '区画の平均が日向へ寄っていない').toBeGreaterThan(0.99)
   })
 })
 

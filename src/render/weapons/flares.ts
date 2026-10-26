@@ -3,7 +3,6 @@ import type { Flare } from '../../sim/weapons/flare'
 import { FLARE_BURN_SECONDS, flashIntensity } from '../../sim/weapons/flare'
 import { clampRadiusToNear } from './explosions'
 import {
-  createGlRadialSprite,
   makeRadialSprite,
   radialSpriteHandle,
   type RadialSpriteFactory,
@@ -196,7 +195,7 @@ export function createFlares(
   capacity: number,
   quality: QualitySettings,
   // **材質の作り手を外から差す。**理由は `explosions.ts` の同じ引数
-  sprite: RadialSpriteFactory = createGlRadialSprite,
+  sprite: RadialSpriteFactory,
 ): Flares {
   let enabled = quality.flareSprites > 0
   if (quality.flareSprites === 0) return NOT_ENABLED

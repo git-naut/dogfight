@@ -19,9 +19,8 @@ import type { ShadowInputs } from './clouds/shadowInputs'
 import { FIXED_DT } from '../sim/loop'
 import { computeHeatHaze, createHeatHazeState } from './heatHaze'
 import { speedOfSound } from '../sim/isa'
-import { createWebGLPipeline } from './pipeline/webgl'
+import { WebGPUUnavailable, findWebGPUMissing } from './pipeline/webgpuRequired'
 import {
-  DEFAULT_BACKEND,
   DEFAULT_COVERAGE,
   type MeasureConfig,
   type SceneOptions,
@@ -99,15 +98,6 @@ export interface SceneHandle {
   /** 雲のパスの直近の最大 ms */
   /** GPU 時間の計測が使えるか */
   readonly gpuTimerSupported: boolean
-  /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
-  readCloudProbe(): { mean: number; max: number; p99: number }
-  /**
-   * 雲影マップ 256² の分布と配置。`?shadowprobe=1` で使う。
-   *
-   * `bins` は 16 ビンで合計 1、`tiles` は 4x4 の区画ごとの平均透過率。
-   * **分布だけでは足りない。**影を上下反転しても分布は動かない
-   */
-  readShadowHistogram(): { bins: number[]; tiles: number[] }
   /**
    * 雲影マップを決めた入力。`?shadowprobe=1` で使う。
    *
@@ -115,23 +105,6 @@ export interface SceneHandle {
    * 一致しなかったときに移植の欠陥なのか入力の違いなのかが分からない
    */
   readShadowInputs(): ShadowInputs
-  /** 固定の入力で雲のマーチを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
-  readMarchProbe(mode: 0 | 1 | 2): number[]
-  /** 円形スプライトを 1 枚焼いて読み戻す。`?spriteprobe=1` で使う */
-  readSpriteProbe(opaqueCore: boolean): number[]
-  /** トーンマッピングを 1 枚焼いて読み戻す。`?toneprobe=1` で使う */
-  readToneProbe(): number[]
-  /** 雲の合成を 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
-  readOverlayProbe(marker: boolean): number[]
-  /** 地表と海面を固定の矩形で焼いて読み戻す。TSL 版との突き合わせ専用 */
-  readSurfaceProbe(): {
-    terrain: number[]
-    terrainBranches: number[]
-    water: number[][]
-    waterBranches: number[][]
-  }
-  /** 時間方向の足し込みを 1 枚焼いて読み戻す。`?marchprobe=1` で使う */
-  readResolveProbe(uvProbe?: number): number[]
   /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
   readonly cloudHdrTarget: boolean
   /** 雲を焼いた回数。ライブで毎フレーム焼けているかを見る */
@@ -286,64 +259,29 @@ export interface SceneHandle {
 }
 
 /**
- * WebGPU のアダプタが取れるか。**キャンバスを掴む前に訊く。**
- *
- * `WebGPURenderer` は `init()` でキャンバスのコンテキストを取る。取った後で
- * `dispose()` しても戻せない。**1 つのキャンバスは 1 種類のコンテキストしか
- * 持てない**ので、同じキャンバスへ `WebGLRenderer` を作り直すと
- * `Cannot read properties of null (reading 'precision')` で落ちる。
- *
- * 実際に踏んだ。`createNodePipeline` が投げる `WebGPUUnavailable` を
- * `createScene` で受けて GLSL へ作り直す形を書いたら、退避路の検査が
- * 180 秒で固まった（2026-09-14）。**例外を受けてからでは遅い。**
- *
- * `navigator.gpu` が無いのは保安コンテキストでない場合。`requestAdapter()`
- * が null を返すのは起動引数が足りない場合（`--enable-unsafe-webgpu` など）。
- */
-async function webgpuAvailable(): Promise<boolean> {
-  const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu
-  if (gpu === undefined) return false
-  try {
-    return (await gpu.requestAdapter()) !== null
-  } catch {
-    return false
-  }
-}
-
-/**
  * シーンの帳簿。
  *
  * sim の値をビューへ写す仕事だけを持つ。**レンダラもコンポーザも雲のパスも
- * ここには出てこない。**組み立ては `pipeline/webgl.ts` が持ち、この関数は
- * `ScenePipeline` の面しか見ない。段 15 で `pipeline/node.ts` が同じ面を
- * WebGPU で組んだとき、ここは 1 行も動かない。
+ * ここには出てこない。**組み立ては `pipeline/nodeScene.ts` が持ち、この関数は
+ * `ScenePipeline` の面しか見ない。
  *
- * 大気の LUT 読み込みが非同期なので Promise を返す。呼び出し側は await して
- * から描画ループを回すこと。待たずに描くとテクスチャのない絵になる。
+ * 組み立て（レンダラの初期化・雲ノイズ・大気の LUT）が非同期なので Promise を
+ * 返す。呼び出し側は await してから描画ループを回すこと。
+ *
+ * **WebGPU が要る。**段 S1 で GLSL 退避路を捨てた。WebGPU が無ければ、
+ * キャンバスを掴む前に `WebGPUUnavailable` を投げて止める（`main.ts` が
+ * 利用者向けの文言を出す）。
  */
 export async function createScene(
   canvas: HTMLCanvasElement,
   options: SceneOptions,
 ): Promise<SceneHandle> {
-  // **帳簿はどちらが立っているかを知らない。**選ぶのはここ 1 か所だけで、
-  // `ScenePipeline` の口から先は同じ（段 20a-2-3）
-  //
-  // `options.pipeline` が無いときは `DEFAULT_BACKEND` に従う。**この配線が
-  // 抜けていた。**2026-09-14 に `DEFAULT_BACKEND` を `'node'` へ書き換えた
-  // が、読む側が 1 か所も無く、既定は GLSL のままだった。定数だけが
-  // 切り替わっていたので、基準画像 42 枚を「node 経路」の名前で撮り直して
-  // も中身は GLSL、退避路の検査（`node-fallback.spec.ts`）も node が立って
-  // いないので当然のように緑。**どの検査も嘘をつかないまま、全体として
-  // 嘘になっていた。**
-  // **名指し（`?gpu=3`）は退避しない。**立たなければ投げて分かるほうがいい。
-  // 既定のときだけ、WebGPU が取れるかを訊いてから決める
-  const wantNode =
-    options.pipeline === 'node' ||
-    (options.pipeline === undefined && DEFAULT_BACKEND === 'node' && (await webgpuAvailable()))
+  // **キャンバスを掴む前に訊く。**`WebGPURenderer` は WebGPU が無いと黙って
+  // WebGL2 へ落ちてコンテキストを取る
+  const missing = await findWebGPUMissing()
+  if (missing !== null) throw new WebGPUUnavailable(missing)
 
-  const pipeline = wantNode
-    ? await (await import('./pipeline/nodeScene')).createNodePipeline(canvas, options)
-    : await createWebGLPipeline(canvas, options)
+  const pipeline = await (await import('./pipeline/nodeScene')).createNodePipeline(canvas, options)
   const {
     camera,
     chase,
@@ -570,40 +508,8 @@ export async function createScene(
       return terrainMesh.triangleCount
     },
 
-    readCloudProbe() {
-      return pipeline.readCloudProbe()
-    },
-
-    readShadowHistogram() {
-      return pipeline.readShadowHistogram()
-    },
-
     readShadowInputs() {
       return { ...lastShadowInputs }
-    },
-
-    readMarchProbe(mode: 0 | 1 | 2) {
-      return pipeline.readMarchProbe(mode)
-    },
-
-    readSpriteProbe(opaqueCore: boolean) {
-      return pipeline.readSpriteProbe(opaqueCore)
-    },
-
-    readToneProbe() {
-      return pipeline.readToneProbe()
-    },
-
-    readOverlayProbe(marker: boolean) {
-      return pipeline.readOverlayProbe(marker)
-    },
-
-    readSurfaceProbe() {
-      return pipeline.readSurfaceProbe()
-    },
-
-    readResolveProbe(uvProbe?: number) {
-      return pipeline.readResolveProbe(uvProbe)
     },
 
     get quality() {
@@ -691,9 +597,9 @@ export async function createScene(
       // chase の更新後に読むこと
       const cameraWorld = pipeline.updateCameraWorld()
 
-      // **書き先はパイプラインが知る。**GLSL 経路は共有ユニフォームへ書き、
-      // node 経路は `NodeSurfaceState` へ入れる。帳簿がどちらかを知って
-      // いると、片方で黙って効かない（段 20a-2-3）
+      // **書き先はパイプラインが知る。**node 経路は `NodeSurfaceState` へ入れる。
+      // 帳簿が書き先を知っていると、組み手を替えたときに黙って効かなくなる
+      // （段 20a-2-3。当時は GLSL 経路が共有ユニフォームへ書いていた）
       pipeline.setSurfaceFrame({
         cloudShadowCenter: shadowCenter,
         cloudShadowEnabled: pipeline.quality.cloudGroundShadow,

@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { createMissileFlames, LAUNCH_FLASH_SECONDS, type MissileFlameSource } from '../../src/render/weapons/missileFlames'
 import { getQuality } from '../../src/render/quality'
+import { createNodeRadialSprite } from '../../src/render/weapons/spriteNodes'
 
 /**
  * ミサイルの発射炎と炎の尾（段 B9、ADR 0034）。録画（lesson 5 のコマ 20022）は撃った瞬間に 1 コマだけ
@@ -19,7 +20,7 @@ function missile(age: number, burning: boolean): MissileFlameSource {
 describe('ミサイルの発射炎と炎の尾', () => {
   it('発射炎は 2 コマ（2/30 秒）以内だけ出る', () => {
     expect(LAUNCH_FLASH_SECONDS).toBeLessThanOrEqual(2 / 30)
-    const flames = createMissileFlames(4, getQuality('high'))
+    const flames = createMissileFlames(4, getQuality('high'), createNodeRadialSprite)
     flames.update([missile(0, true)], camera, forward)
     expect(flames.flashesDrawn).toBe(1)
     flames.update([missile(LAUNCH_FLASH_SECONDS / 2, true)], camera, forward)
@@ -29,7 +30,7 @@ describe('ミサイルの発射炎と炎の尾', () => {
   })
 
   it('炎の尾はモーターが燃えているあいだだけ出る', () => {
-    const flames = createMissileFlames(4, getQuality('high'))
+    const flames = createMissileFlames(4, getQuality('high'), createNodeRadialSprite)
     flames.update([missile(0.2, true)], camera, forward)
     expect(flames.flamesDrawn).toBe(1)
     flames.update([missile(3, false)], camera, forward)
@@ -37,7 +38,7 @@ describe('ミサイルの発射炎と炎の尾', () => {
   })
 
   it('飛んでいるミサイルが無くなれば全部の板を隠す', () => {
-    const flames = createMissileFlames(4, getQuality('high'))
+    const flames = createMissileFlames(4, getQuality('high'), createNodeRadialSprite)
     flames.update([missile(0, true)], camera, forward)
     flames.update([], camera, forward)
     const meshes = flames.object.children.filter((c) => c instanceof THREE.Mesh)
@@ -46,7 +47,7 @@ describe('ミサイルの発射炎と炎の尾', () => {
 
   it('先に組むときは 1 発ぶんの全部の板を見せ、空の列で更新すると隠す', () => {
     const quality = getQuality('high')
-    const flames = createMissileFlames(4, quality)
+    const flames = createMissileFlames(4, quality, createNodeRadialSprite)
     flames.prewarm(camera, forward)
     const visible = flames.object.children.filter((c) => c instanceof THREE.Mesh && c.visible)
     expect(visible.length).toBe(quality.missileFlameSprites)
@@ -55,7 +56,7 @@ describe('ミサイルの発射炎と炎の尾', () => {
   })
 
   it('low では描かない（プリセットの列が 0）', () => {
-    const flames = createMissileFlames(4, getQuality('low'))
+    const flames = createMissileFlames(4, getQuality('low'), createNodeRadialSprite)
     flames.update([missile(0, true)], camera, forward)
     expect(flames.flashesDrawn).toBe(0)
     expect(flames.flamesDrawn).toBe(0)

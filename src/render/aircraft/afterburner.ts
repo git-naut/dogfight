@@ -215,8 +215,8 @@ function buildLayerGeometry(radius: number, layer: Layer, additive: boolean): TH
  * 炎の材質の作り手。
  *
  * **node 経路では発光体として MRT へ書かせる**（`nodeFlameMaterial.ts`）。
- * 既定は恒等なので GLSL 経路は引数を渡さず、型として動かない（機体の材質の
- * `AircraftMaterialFactory` と同じ形）。**返した材質の不透明度を毎フレーム
+ * 既定は恒等（機体の材質の `AircraftMaterialFactory` と同じ形）。段 S1 で
+ * 捨てた GLSL 経路は引数を渡さず、型として動かなかった。**返した材質の不透明度を毎フレーム
  * 書き換える**ので、写しを返すなら写しのほうが炎の強さに追従する
  */
 export type FlameMaterialFactory = (material: THREE.MeshBasicMaterial) => THREE.Material

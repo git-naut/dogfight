@@ -48,12 +48,13 @@ import {
   type ScenePipeline,
   type SceneOptions,
 } from './types'
+import { WebGPUUnavailable } from './webgpuRequired'
 
 /**
  * 場面を node 経路（`WebGPURenderer`）で組む。
  *
- * `createWebGLPipeline` と同じ `ScenePipeline` を返すので、帳簿
- * （`scene.ts`）はどちらが立っているかを知らない。
+ * 帳簿（`scene.ts`）は `ScenePipeline` の面しか見ない。段 S1 で GLSL 経路
+ * （`createWebGLPipeline`）を捨て、組み手はここだけになった。
  *
  * **経路に依らない部分は共有側にある。**場面に置く物は `views.ts`、
  * 組み立ての順序は `nodeBuild.ts`、出力ノードは `nodeOutput.ts`、大気は
@@ -62,7 +63,7 @@ import {
  *
  * **WebGPU が要る。**node 経路の WebGL2 フォールバックでは大気の構造体が
  * GLSL のコンパイルで落ちる（`'AtmosphereParameters' : syntax error`。
- * 実測）。計画は `forceWebGL: true` を退避路に当てていたが効かない。
+ * 実測）。WebGPU が無いときは `WebGPUUnavailable`（`webgpuRequired.ts`）で止める。
  */
 const RADIANCE_SIDE = 2
 
@@ -84,23 +85,6 @@ function bloomThresholdFor(exposure: number, afterExposure: number): number {
   return afterExposure / Math.max(exposure, 1e-6)
 }
 
-/**
- * WebGPU が無いので node 経路の場面を立てられない。
- *
- * **node 経路の WebGL2 フォールバックでは大気の構造体が GLSL の
- * コンパイルで落ちる**（`'AtmosphereParameters' : syntax error`。ADR 0010 の
- * 段 10）。計画は `forceWebGL: true` を退避路に当てていたが効かない。
- *
- * 既定が node になった段 20b 以降、**WebGPU の無いブラウザではこれが投げ
- * られる。**`createScene` が受けて GLSL 経路へ落とす
- */
-export class WebGPUUnavailable extends Error {
-  override readonly name = 'WebGPUUnavailable'
-  constructor() {
-    super('WebGPU が無いので node 経路の場面を立てられない（ADR 0010 の段 10）')
-  }
-}
-
 export async function createNodePipeline(
   canvas: HTMLCanvasElement,
   options: SceneOptions,
@@ -120,10 +104,11 @@ export async function createNodePipeline(
   await renderer.init()
 
   if (!('isWebGPUBackend' in renderer.backend)) {
-    // **呼ぶ側が退避できるように、専用の型で投げる。**メッセージの文字列で
-    // 判定させると、文言を直した瞬間に退避路が黙って死ぬ（段 20b）
+    // **専用の型で投げる。**`createScene` が先にアダプタを訊いているので
+    // 普通はここへ来ない。来るのは、アダプタは取れたのに three が WebGL2 へ
+    // 落ちた場合（段 S1 で GLSL 退避路を捨てたので、立てずに止める）
     renderer.dispose()
-    throw new WebGPUUnavailable()
+    throw new WebGPUUnavailable('not-webgpu-backend')
   }
 
   const backend = createNodeBackend(renderer)
@@ -271,7 +256,7 @@ export async function createNodePipeline(
   // **爆発は霞の後ろに重ねる**（段 29c）。場面のパスで描くと、深度を書かない
   // 爆発の画素に下の物の深度で霞が掛かり、水平線より下の煙が海面の霞に埋もれて
   // 水平線でまっすぐ切れた。爆発だけを別の場面へ移し、別のパスで描いて合成の最後に
-  // 重ねる。GLSL 経路は場面のパスで描いたまま
+  // 重ねる（段 S1 で捨てた GLSL 経路は場面のパスで描いていた）
   const overlayScene = new webgpu.Scene()
   overlayScene.name = 'Overlay'
   overlayScene.add(views.explosions.object)
@@ -596,15 +581,6 @@ export async function createNodePipeline(
     applySize()
   }
 
-  /** node 経路に無い口。**黙って空を返さない** */
-  function unsupported(name: string): never {
-    throw new Error(
-      `${name} は node 経路にない。GLSL 側が TSL との突き合わせの参照値を` +
-        '作るための口で、node 経路では相手がいない。空を返すと「一致した」と' +
-        '読める結果が出てしまう',
-    )
-  }
-
   return {
     backend,
     scene,
@@ -706,30 +682,6 @@ export async function createNodePipeline(
       return clouds.renderCount
     },
 
-    readCloudProbe() {
-      return unsupported('readCloudProbe')
-    },
-    readShadowHistogram() {
-      return unsupported('readShadowHistogram')
-    },
-    readMarchProbe() {
-      return unsupported('readMarchProbe')
-    },
-    readResolveProbe() {
-      return unsupported('readResolveProbe')
-    },
-    readSpriteProbe() {
-      return unsupported('readSpriteProbe')
-    },
-    readToneProbe() {
-      return unsupported('readToneProbe')
-    },
-    readOverlayProbe() {
-      return unsupported('readOverlayProbe')
-    },
-    readSurfaceProbe() {
-      return unsupported('readSurfaceProbe')
-    },
 
     updateAircraftShadow(position) {
       if (!shadowInfo.enabled) return

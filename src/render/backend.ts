@@ -1,4 +1,3 @@
-import type { WebGLRenderer } from 'three'
 import type { FramePassTimes, PassSource } from './pipeline/passTimes'
 
 /**
@@ -8,9 +7,10 @@ import type { FramePassTimes, PassSource } from './pipeline/passTimes'
  * 描画そのもの（`render` や `setRenderTarget`）はまだ `renderer` が持つ。
  * パイプラインの分離は段 8 で行う。
  *
- * ここに集めた面は次のとおり。どれも `WebGPURenderer` では別の形になる。
+ * ここに集めた面は次のとおり。左の列は段 S1 で捨てた GLSL 経路
+ * （`WebGLRenderer`）での形で、経緯の記録として残す。
  *
- * | いま | node 経路 |
+ * | GLSL 経路 | node 経路 |
  * |---|---|
  * | `renderer.info.render.calls` | `renderer.info.render.drawCalls` |
  * | `renderer.info.programs.length` | `renderer.info.memory.programs` |
@@ -21,8 +21,7 @@ import type { FramePassTimes, PassSource } from './pipeline/passTimes'
  *
  * `renderer` そのものを渡す逃げ口は段 20a-2 で消した。`WebGLRenderer` 型で
  * 固定されていて node 経路の `WebGPURenderer` を入れられず、継ぎ目の意味を
- * 失っていた。唯一の読み手だった雲のノイズは GLSL 経路専用なので、
- * そちらがレンダラを直に受ける。
+ * 失っていた。
  *
  * 計測の口は `createTimer()` に寄せた（段 18）。生のコンテキストを借りる
  * `webglContext()` は消えている。
@@ -31,7 +30,12 @@ import type { FramePassTimes, PassSource } from './pipeline/passTimes'
  * three の WebGPU 側では空実装で、計測の排出も GPU タイマーもそこに
  * ぶら下がっている。
  */
-export type BackendKind = 'webgl' | 'node-webgl' | 'node-webgpu'
+/**
+ * 段 S1 で GLSL 経路（`'webgl'`、`WebGLRenderer`）を捨てた。残るのは
+ * `WebGPURenderer` の 2 つのバックエンドだけで、`node-webgl` は自己診断の
+ * `?gpu=1` が使う
+ */
+export type BackendKind = 'node-webgl' | 'node-webgpu'
 
 export interface DrawingBufferSize {
   width: number
@@ -114,7 +118,7 @@ export interface RenderBackend {
    * 最後に描き終えたフレームのパスの出どころ（段 S0a）。呼び出しの順。
    *
    * **timestamp が取れなくても読める。**名札の漏れ（群の表に無いパス）を
-   * SwiftShader の E2E で見るために要る。WebGL2 経路は空
+   * SwiftShader の E2E で見るために要る
    */
   readonly passSources: readonly PassSource[]
 }
@@ -161,11 +165,6 @@ export interface GpuFrameSample {
   readonly frames?: readonly FramePassTimes[]
 }
 
-interface TimerExtension {
-  TIME_ELAPSED_EXT: number
-  GPU_DISJOINT_EXT: number
-}
-
 /** 測れないときの実体。呼ぶ側で分岐を書かずに済む */
 export const NO_GPU_TIMER: GpuFrameTimer = {
   supported: false,
@@ -177,129 +176,4 @@ export const NO_GPU_TIMER: GpuFrameTimer = {
     return []
   },
   dispose() {},
-}
-
-function createWebGLTimer(gl: WebGL2RenderingContext): GpuFrameTimer {
-  const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as TimerExtension | null
-  if (ext === null) return NO_GPU_TIMER
-
-  const pending: { query: WebGLQuery; id: number }[] = []
-  let measuring = false
-  let dropped = 0
-
-  return {
-    supported: true,
-
-    get inflight() {
-      return pending.length
-    },
-
-    get dropped() {
-      return dropped
-    },
-
-    begin(id) {
-      // クエリは入れ子にできない。走っている最中は重ねない
-      if (measuring) return
-      const query = gl.createQuery()
-      if (query === null) return
-      pending.push({ query, id })
-      measuring = true
-      gl.beginQuery(ext.TIME_ELAPSED_EXT, query)
-    },
-
-    end() {
-      if (!measuring) return
-      gl.endQuery(ext.TIME_ELAPSED_EXT)
-      measuring = false
-    },
-
-    collect() {
-      const out: { id: number; ms: number }[] = []
-      // GPU の状態が乱れた区間の値は信用できない。まとめて捨てる
-      const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT) as boolean
-      for (let i = pending.length - 1; i >= 0; i--) {
-        const item = pending[i]!
-        if (disjoint) {
-          gl.deleteQuery(item.query)
-          pending.splice(i, 1)
-          dropped++
-          continue
-        }
-        const ready = gl.getQueryParameter(
-          item.query,
-          gl.QUERY_RESULT_AVAILABLE,
-        ) as boolean
-        if (!ready) continue
-        const nanoseconds = gl.getQueryParameter(item.query, gl.QUERY_RESULT) as number
-        out.push({ id: item.id, ms: nanoseconds / 1e6 })
-        gl.deleteQuery(item.query)
-        pending.splice(i, 1)
-      }
-      return out
-    },
-
-    dispose() {
-      for (const item of pending) gl.deleteQuery(item.query)
-      pending.length = 0
-    },
-  }
-}
-
-export function createWebGLBackend(renderer: WebGLRenderer): RenderBackend {
-  const gl = renderer.getContext() as WebGL2RenderingContext
-  const pixel = new Uint8Array(4)
-  const size: DrawingBufferSize = { width: 0, height: 0 }
-
-  // 集計は自分で 0 に戻す。理由は `resetInfo` の注記
-  renderer.info.autoReset = false
-
-  // 版は起動時に 1 度だけ読む。文字列は
-  // `WebGL 2.0 (OpenGL ES 3.0 Chromium)` のような形で返る
-  const webglVersion = /WebGL 2/.test(gl.getParameter(gl.VERSION) as string) ? 2 : 1
-
-  return {
-    kind: 'webgl',
-    domElement: renderer.domElement,
-    webglVersion,
-
-    get drawCalls() {
-      return renderer.info.render.calls
-    },
-    get triangles() {
-      return renderer.info.render.triangles
-    },
-    get programs() {
-      return renderer.info.programs?.length ?? 0
-    },
-
-    resetInfo() {
-      renderer.info.reset()
-    },
-
-    drawingBufferSize(out = size) {
-      out.width = gl.drawingBufferWidth
-      out.height = gl.drawingBufferHeight
-      return out
-    },
-
-    drain() {
-      gl.finish()
-      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
-    },
-
-    settle() {
-      this.drain()
-      return Promise.resolve()
-    },
-
-    // WebGL2 は排出できる。node/WebGPU では false になる
-    cpuSynchronous: true,
-
-    createTimer() {
-      return createWebGLTimer(gl)
-    },
-
-    passSources: [],
-  }
 }

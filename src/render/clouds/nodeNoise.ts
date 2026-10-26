@@ -18,11 +18,11 @@ import {
 import type { CloudsNodeTextures } from './cloudsNodePass'
 
 /**
- * node 経路の雲ノイズを焼く。GLSL 経路の `generateCloudNoise` と対になる。
+ * 雲ノイズを焼く。段 S1 で GLSL 版（`noise.ts` の `generateCloudNoise`）を
+ * 捨て、焼き手はここだけになった。
  *
- * **周波数の上限は GLSL 版の式を写す。**1 セルに 4 テクセル確保できる
- * ところまでで、超えると白色ノイズになる（`noise.ts` の `bakeVolume`）。
- * 式を 2 か所に持つと、片方だけ直したときに気づけない。
+ * **周波数の上限は 1 セルに 4 テクセル確保できるところまで。**超えると
+ * 白色ノイズになる（`maxFrequency`）。
  *
  * **気象マップだけ折り返す。**世界座標で引き回すので `RepeatWrapping` が
  * 要る。体積の側に無条件で付けると、近傍を舐める足し込みで縁の 432
@@ -48,7 +48,7 @@ export interface NodeCloudNoise extends CloudsNodeTextures {
   dispose(): void
 }
 
-/** R チャンネル（Perlin-Worley）だけ見れば足りる。GLSL 版と同じ */
+/** R チャンネル（Perlin-Worley）だけ見れば足りる */
 function sliceStats(bytes: ArrayLike<number>): NoiseStats {
   if (bytes.length === 0) return { min: 0, max: 0, mean: 0 }
   let min = 255

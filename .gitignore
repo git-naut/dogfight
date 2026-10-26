@@ -18,9 +18,6 @@ dist/
 !.vscode/extensions.json
 .idea/
 
-# 大気の事前計算テクスチャ（tools/copy-atmosphere-assets.mjs が node_modules から複製）
-/public/atmosphere/
-
 # 機体の変換結果（tools/ac3d-to-glb.mjs と tools/sgi-to-webp.py が
 # assets/upstream/f18/ から生成する。原本のほうはコミットする）
 /public/aircraft/

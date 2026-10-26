@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { createFlares } from '../../src/render/weapons/flares'
 import { getQuality } from '../../src/render/quality'
+import { createNodeRadialSprite } from '../../src/render/weapons/spriteNodes'
 import { Flare } from '../../src/sim/weapons/flare'
 import { Vec3 } from '../../src/sim/vec3'
 
@@ -24,7 +25,7 @@ function burning(): Flare {
 
 describe('フレアの火', () => {
   it('帯は進む向きの後ろへ伸びる', () => {
-    const flares = createFlares(4, getQuality('high'))
+    const flares = createFlares(4, getQuality('high'), createNodeRadialSprite)
     const flare = burning()
     flares.update([flare], camera, forward)
     expect(flares.drawn).toBe(1)
@@ -42,7 +43,7 @@ describe('フレアの火', () => {
   })
 
   it('先に組むときは 1 発ぶんの全部の板を見せ、空の列で更新すると隠す', () => {
-    const flares = createFlares(4, getQuality('high'))
+    const flares = createFlares(4, getQuality('high'), createNodeRadialSprite)
     flares.prewarm(camera, forward)
     const visible = flares.object.children.filter((c) => c instanceof THREE.Mesh && c.visible)
     // 煙・暈・芯・白い芯・帯 3 層

@@ -3210,3 +3210,22 @@ TOOL=win-perf.mjs tools/perfgate.sh before 'URL1' after 'URL2'
 マーチの「足し込みが履歴を読む枝を通ったか」は、GLSL 側にしか数が無かった。TSL のプローブにも同じ数え方の `resolveChanged` を足した。
 
 手元の node-path の 1 回目は 1 本だけ落ちた。配信のサーバが `ENOMEM` で 500 を返し、空母のテクスチャが読めなかったため。memcap の上限 6G にブラウザと配信の両方が入っていた。その 1 本だけ流し直して通った。node-path を手元で通すときの上限は 8G にする。
+
+## 段 S1b: GLSL 退避路を捨てた前後（2026-10-26 実測、Phase 11）
+
+GLSL 経路を消しても既定の絵と GPU の所要は動かない、という見込みを確かめた。
+
+| 確かめたこと | 前（7723c7c） | 後（段 S1b） |
+|---|---|---|
+| 先読みの JS | 9 本・2.115 MB | 5 本・1.668 MB |
+| 配信物の EXR | `dist/atmosphere/` に 3 つ・4.0 MB | 無し |
+| 既定の絵（exact） | − | 47 枚とも動いた画素 0 |
+| 合計の中央値（実機、4 回の中央値） | 9.39 ms | 9.41 ms |
+| 合計の 95%（4 回の範囲） | 9.96〜10.06 ms | 9.95〜10.69 ms |
+| fps・降格 | 4 回とも 60・なし | 4 回とも 60・なし |
+
+実機は Arc 140V、Windows の Chrome、high、窓 1600×789・倍率 1.5、`level`。`tools/perfgate.sh` で前後を交互に 4 回ずつ測り、8 回とも負荷 1 未満の回を採った。記録は `~/.claude/plans/dogfight-ocean-ref/measure/pass-perf-20261026-085423.jsonl`。中央値の差 0.015 ms は、前の版どうしの揺れ（9.18〜9.44 ms）の内にある。
+
+先読みの `postprocessing`（146 KB）は段 S1a の時点で既定の束から外れていた。`main.ts` が `CAPTURE_CONVERGE_FRAMES` を `cloudsPass.ts` から読まなくなったため。段 S1b のビルドに現れる `build-*.js`（363 KB）の中身は、three 本体と `@takram/three-geospatial`。前のビルドで `three.module` と `shared2` に分かれていたものが 1 本にまとまっただけ。
+
+E2E の分割の重みは取り直した。元にしたのは前回の CI（run 40207985295、a1f0613）のレポート。a1f0613 の並びで検算し（297 本一致）、消した smoke の 2 本を除いて計算した。最長の台は 1,522 秒から 754 秒（段 6.6 分）の見込み。`tools/shard-weights.mjs` の `--drop` はテスト名と行番号のキーに当たる。群の名前（「雲影の分布」）で指定すると、node-path の「入力が違えば雲影の分布は一致しない」を誤って除いた。7723c7c の run は「長く飛ぶ」が時間切れとやり直しで 980 秒に膨らんでいたので、計算の元にしていない。

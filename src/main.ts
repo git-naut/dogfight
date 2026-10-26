@@ -9,14 +9,6 @@ import { getScript } from './sim/scripts'
 import { spawnFromSpec } from './sim/replay'
 import { createScene, createMissilePose, type MissilePose } from './render/scene'
 import { runNodeProbe } from './render/pipeline/node'
-import { tileMeans } from './render/clouds/geometry'
-import {
-  MARCH_PROBE_HEIGHT,
-  MARCH_PROBE_WIDTH,
-  byteDifference,
-  marchExhaustedCount,
-  marchSampleStats,
-} from './render/clouds/marchProbe'
 import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/geometry'
 import {
   readCaptureConfig,
@@ -64,7 +56,7 @@ if (!canvas || !hudRoot) throw new Error('#viewport か #hud が見つからな�
 /**
  * 起動中の表示。
  *
- * 大気の LUT が 4.1 MB あり、そのあと 3D ノイズを焼くので初回は数秒かかる。
+ * 大気の LUT を実行時に計算し、そのあと 3D ノイズを焼くので初回は数秒かかる。
  * 何も出さないと真っ黒の画面が続き、読み込み中なのか初期化に失敗したのか
  * 区別がつかない。実際に「ブラックアウトした」という報告が出た。
  */
@@ -85,9 +77,7 @@ const finishBoot = () => {
 
 const capture = readCaptureConfig(window.location.search)
 
-// 大気の LUT は tools/copy-atmosphere-assets.mjs が public/atmosphere/ へ置く。
-// GitHub Pages ではサイトが /dogfight/ 配下に出るので BASE_URL を挟む
-const TEXTURES_URL = `${import.meta.env.BASE_URL}atmosphere/`
+// GitHub Pages ではサイトが /dogfight/ 配下に出るので BASE_URL を挟む。
 // 機体は tools/ac3d-to-glb.mjs と tools/f18e-to-glb.mjs が public/aircraft/ へ置く
 /**
  * 自機のモデル。既定は F/A-18E で、`?craft=f18` で C 型に戻せる。
@@ -126,7 +116,6 @@ const hook = installTestHook({
   cloudHdrTarget: false,
   benchMs: 0,
   benchSweep: [],
-  cloudSamples: { mean: 0, max: 0, p99: 0 },
   terrainMs: 0,
   terrainStats: { min: 0, max: 0, mean: 0 },
   terrainPatches: 0,
@@ -234,14 +223,7 @@ const hook = installTestHook({
   gpuProbe: null,
   noiseSlice: null,
   weatherSlice: null,
-  shadowHistogram: null,
-  shadowTiles: null,
   shadowInputs: null,
-  marchProbe: null,
-  spriteProbe: null,
-  toneProbe: null,
-  overlayProbe: null,
-  surfaceProbe: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -417,8 +399,8 @@ async function main(): Promise<void> {
       height: window.innerHeight,
       hour: initialSettings.hour,
       quality,
-      // **GLSL 側が実際に焼いた入力を渡す。**`?shadowprobe=1` で読み出した
-      // ものをそのまま `?shadowinputs=` へ載せ替える。ここで導き直すと、
+      // **記録の入力をそのまま渡す。**`?shadowinputs=` は GLSL の最後の出力の
+      // 記録（`tests/e2e/node-reference.json`）の入力を載せる。ここで導き直すと、
       // ヒストグラムの不一致が移植の欠陥なのか入力の違いなのか分からない
       shadowInputs: capture.shadowInputs,
       marchProbe: capture.marchProbe,
@@ -443,18 +425,10 @@ async function main(): Promise<void> {
     return
   }
 
-  setBoot('大気の散乱テーブルを読み込み中')
+  setBoot('描画の準備を始めています')
   const view = await createScene(canvas!, {
     preset: initialSettings.preset,
     hour: initialSettings.hour,
-    // **経路の名指し。**`?webgl=1` が GLSL、`?gpu=3` が node。どちらも
-    // 無ければ `DEFAULT_BACKEND` に従う（`createScene`）
-    ...(capture.webgl
-      ? { pipeline: 'webgl' as const }
-      : capture.gpu === 3
-        ? { pipeline: 'node' as const }
-        : {}),
-    texturesUrl: TEXTURES_URL,
     aircraftUrl: AIRCRAFT_URL,
     enemyUrl: ENEMY_URL,
     // **台本が空母を要求したときだけ読む。**基準画像 39 枚は空母の無い
@@ -475,7 +449,6 @@ async function main(): Promise<void> {
       ...(capture.cloudFar !== null ? { cloudMaxDistance: capture.cloudFar } : {}),
     },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
-    cloudProbe: capture.probe,
     cloudTemporal: !capture.noTemporal,
     cloudCaptureMode: capture.enabled,
     showTerrain: capture.showTerrain,
@@ -907,52 +880,9 @@ async function main(): Promise<void> {
           : CAPTURE_CONVERGE_FRAMES
     for (let i = 0; i < converge; i++) view.render()
 
-    if (capture.probe > 0) hook.cloudSamples = view.readCloudProbe()
-    // **影を焼いたあとに読む。**`renderShadow` は `view.render()` の中なので、
-    // 収束のぶんを描き終えたここで読み戻す
-    if (capture.toneProbe) hook.toneProbe = view.readToneProbe()
-
-    if (capture.surfaceProbe) hook.surfaceProbe = view.readSurfaceProbe()
-
-    if (capture.overlayProbe) {
-      hook.overlayProbe = {
-        composite: view.readOverlayProbe(false),
-        marker: view.readOverlayProbe(true),
-      }
-    }
-
-    if (capture.spriteProbe) {
-      hook.spriteProbe = {
-        soft: view.readSpriteProbe(false),
-        core: view.readSpriteProbe(true),
-      }
-    }
-
-    if (capture.marchProbe) {
-      // **固定の入力で 3 枚焼く。**サンプル数と打ち切りは整数なので、
-      // TSL 版と完全に一致するはず。絵は区画平均で見る
-      const currentBytes = view.readMarchProbe(0)
-      const resolveBytes = view.readResolveProbe()
-      hook.marchProbe = {
-        samples: marchSampleStats(view.readMarchProbe(1)),
-        exhausted: marchExhaustedCount(view.readMarchProbe(2)),
-        tiles: tileMeans(currentBytes, MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
-        resolve: resolveBytes,
-        // **`prevUv` を色で焼いたもの。**node 経路と数値で突き合わせる
-        resolveUv: view.readResolveProbe(capture.uvProbeMode === 'world' ? 2 : 1),
-        // **履歴を読む枝を通ったか。**現フレームと同じなら通っていない
-        resolveChanged: byteDifference(resolveBytes, currentBytes).differing,
-      }
-    }
-
-    if (capture.shadowProbe) {
-      const shadow = view.readShadowHistogram()
-      hook.shadowHistogram = shadow.bins
-      hook.shadowTiles = shadow.tiles
-      // **同じ入力を TSL 側へ渡すために出す。**分布だけ出しても、
-      // 突き合わせる相手が別の入力で焼いたものなら比較にならない
-      hook.shadowInputs = view.readShadowInputs()
-    }
+    // **雲影マップを決めた入力を出す。**`?gpu=1|2` の自己診断へ同じ値を
+    // `?shadowinputs=` で渡すための口。GLSL の分布を読む口は段 S1 で捨てた
+    if (capture.shadowProbe) hook.shadowInputs = view.readShadowInputs()
 
     if (capture.sweep) {
       const samplesPerCase = capture.bench > 0 ? capture.bench : 40

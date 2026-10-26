@@ -9,7 +9,8 @@
 
 /**
  * GPU を使わず Chromium 内蔵のソフトウェアレンダラ SwiftShader に固定する。
- * 遅い代わりに、どのマシンでも同じピクセルが出る。
+ * WebGPU の引数を足さないので WebGPU は立たない。段 S1 で GLSL 経路を捨てた
+ * あとは、WebGPU が無いときに止まることを見る project だけが使う。
  */
 export const SWIFTSHADER_ARGS = [
   '--use-gl=swiftshader',
@@ -54,7 +55,7 @@ export function snapshotSuffix(project) {
  * 以前は `exact.mjs` が `--project` を受け取りながら、起動は常に
  * `SWIFTSHADER_ARGS` に固定していた。`--project chromium-webgpu` を渡すと
  * **WebGPU で撮った基準画像を、WebGPU が立たないブラウザの絵と比べる。**
- * 退避路で GLSL に落ちるので絵は出てしまい、HUD の 13 枚が「2 回撮ると
+ * 当時は退避路で GLSL に落ちたので絵は出てしまい、HUD の 13 枚が「2 回撮ると
  * 画素が動く」という嘘の結論になった（2026-09-14）。
  *
  * 未知の名前は落とす。既定へ倒すと、綴りを間違えた瞬間に別の設定で走る。
@@ -65,9 +66,8 @@ export function launchArgsFor(project) {
     case 'chromium-webgpu':
     case 'chromium-node':
       return [...WEBGPU_ARGS]
-    // 旧経路と、WebGPU が無いときの退避路。WebGPU を立てない
-    case 'chromium-swiftshader':
-    case 'chromium-node-gl':
+    // WebGPU が無いときに止まることを見る。WebGPU を立てない
+    case 'chromium-no-webgpu':
       return [...SWIFTSHADER_ARGS]
     default:
       throw new Error(`起動引数を知らない project: ${project}`)
@@ -78,7 +78,7 @@ export function launchArgsFor(project) {
  * 既定の project 名。`playwright.config.ts` の projects[0].name と揃える。
  *
  * **2026-09-14 に `chromium-webgpu` へ切り替えた。**既定の描画経路が node に
- * なったので、基準画像 42 枚もこの名前で撮る。旧経路は `WEBGL=1` で回すと
- * `chromium-swiftshader` の 42 枚と突き合わせられる
+ * なったので、基準画像もこの名前で撮る。旧経路の `chromium-swiftshader` と
+ * その基準画像 42 枚は段 S1 で GLSL 経路と一緒に捨てた
  */
 export const DEFAULT_PROJECT = 'chromium-webgpu'

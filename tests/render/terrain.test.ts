@@ -190,55 +190,64 @@ function touches(a: TerrainPatch, b: TerrainPatch): boolean {
 }
 
 /**
- * 頂点シェーダがモーフの基準に何を使っているか。
+ * 頂点の変位がモーフの基準に何を使っているか。
  *
  * **組み込みの `cameraPosition` を使ってはいけない。**影を焼くパスでは
  * three が光源のカメラを入れてくるので、基準が描くパスごとに変わる。
- * いまは地形が影を投げないので絵に出ないが、Phase 9 でカスケード影を
- * 入れた瞬間に裂け目として出る。**出てから気づく形にしない。**
+ * いまは地形が影を投げないので絵に出ないが、カスケード影を入れた瞬間に
+ * 裂け目として出る。**出てから気づく形にしない。**
+ *
+ * 段 S1 で GLSL の頂点シェーダ（`terrain.vert`・`terrainVertex.glsl`）を捨て、
+ * 見る相手を TSL の正本へ移した。変位の式は `surfaceNodes.ts` の
+ * `terrainPatchWorldNode`、基準を渡すのは `nodeMaterials.ts` の
+ * `createTerrainNodeMaterial`。
  */
 describe('モーフの基準位置', () => {
   const read = (name: string): string =>
     readFileSync(
-      fileURLToPath(
-        new URL(`../../src/render/terrain/shaders/${name}`, import.meta.url),
-      ),
+      fileURLToPath(new URL(`../../src/render/terrain/${name}`, import.meta.url)),
       'utf8',
     )
-  /** 変位の式は `terrain_vertex` のチャンクが正本。頂点シェーダは呼ぶだけ */
-  const source = read('terrain.vert')
-  const chunk = read('terrainVertex.glsl')
-
+  /** 関数 1 つぶんの本文を切り出す。次の `export function` か末尾まで */
+  const fn = (text: string, name: string): string => {
+    const start = text.indexOf(`export function ${name}(`)
+    if (start < 0) throw new Error(`${name} が見つからない`)
+    const next = text.indexOf('\nexport function ', start + 1)
+    return text.slice(start, next < 0 ? undefined : next)
+  }
   /** コメントを外した本文。**注記に名前が出るだけで落ちる形にしない** */
   const strip = (text: string): string =>
     text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-  const body = strip(source)
-  const chunkBody = strip(chunk)
 
-  it('頂点シェーダは組み込みの cameraPosition を使わない', () => {
-    expect(body.includes('cameraPosition')).toBe(false)
-    expect(chunkBody.includes('cameraPosition')).toBe(false)
+  const material = fn(read('nodeMaterials.ts'), 'createTerrainNodeMaterial')
+  const patch = fn(read('surfaceNodes.ts'), 'terrainPatchWorldNode')
+  const materialBody = strip(material)
+  const patchBody = strip(patch)
+  const stateBody = strip(fn(read('nodeMaterials.ts'), 'createNodeSurfaceState'))
+
+  it('頂点の変位は組み込みの cameraPosition を使わない', () => {
+    expect(materialBody.includes('cameraPosition')).toBe(false)
+    expect(patchBody.includes('cameraPosition')).toBe(false)
   })
 
-  it('明示した uniform を宣言して基準として渡している', () => {
-    expect(body).toContain('uniform vec3 morphOrigin;')
-    expect(body).toContain('morphOrigin,')
-    expect(body).toContain('terrainPatchWorldXZ(')
+  it('明示した uniform を基準として渡している', () => {
+    // 基準は帳簿が毎フレーム主カメラの位置を書く uniform
+    expect(stateBody).toMatch(/const morphOrigin = uniform\(vec3\(0, 0, 0\)\)/)
+    expect(materialBody).toContain('terrainPatchWorldNode(')
+    expect(materialBody).toContain('state.morphOrigin,')
   })
 
-  it('チャンクが基準からの距離で寄せ量を決めている', () => {
-    expect(chunkBody).toContain('distance(basis.xz, unmorphed)')
+  it('基準からの距離で寄せ量を決めている', () => {
+    expect(patchBody).toContain('basis.xz.distance(unmorphed)')
     // 親の格子へ寄せる本体。消すと T 字の裂け目が出る
-    expect(chunkBody).toContain('mix(grid, parent, morph)')
+    expect(patchBody).toContain('mix(grid, parent, morph)')
   })
 
   it('コメントを外す処理が本文を消していない', () => {
     // 検査そのものが働くことの確認。全部消してしまえば上の 3 件は
     // 「無いこと」を空振りで通す
-    expect(body).toContain('void main()')
-    expect(chunkBody).toContain('vec2 terrainPatchWorldXZ(')
-    expect(body.includes('uniform vec3 notAUniform;')).toBe(false)
-    // 注記のほうには名前が残っている（本文だけを見ていることの裏取り）
-    expect(source.includes('cameraPosition')).toBe(true)
+    expect(patchBody).toContain('return Fn(() => {')
+    expect(materialBody).toContain('positionNode = world')
+    expect(materialBody.includes('notAUniform')).toBe(false)
   })
 })

@@ -15,10 +15,11 @@
 | `render/terrain/heightTexture.ts` | 高さと法線を `DataTexture` へ |
 | `render/terrain/terrainMesh.ts` | インスタンス配置と 1 ドローコール |
 | `render/terrain/water.ts` | 海面の板 |
-| `render/terrain/shaders/heightfield.glsl` | 双三次サンプルと雲影。地形と海面で共有 |
-| `render/terrain/shaders/terrain.vert` | パッチのモーフと頂点変位 |
-| `render/terrain/shaders/terrain.frag` | 標高と傾斜からの色、ライティング |
-| `render/terrain/shaders/water.frag` | フレネル反射、波、浅瀬、白波 |
+| `render/terrain/nodeMaterials.ts` | 地形と海面の材質（TSL）。毎フレームの値の持ち場 |
+| `render/terrain/heightNodes.ts` | 双三次サンプル。地形と海面で共有 |
+| `render/terrain/surfaceNodes.ts` | パッチのモーフと頂点変位、標高と傾斜からの色、ライティング、海面のフレネル反射・波・浅瀬・白波、雲影 |
+
+段 S1（Phase 11）で GLSL 版を捨て、TSL 版だけになった。捨てたのは `shaders/heightfield.glsl`・`terrain.vert`・`terrain.frag`・`water.frag` ほか。下の節にある GLSL のファイル名は当時の実装を指す経緯の記録。TSL 版と GLSL の最後の出力は、色が階調 1 以内、枝の数が 1 画素も違わずに一致する（`tests/e2e/node-reference.json` との突き合わせ）。
 
 定義域は 49,152 m 四方。1024 で割ると 48 m ちょうどになる値を選んだ。配列は 4 MB。
 

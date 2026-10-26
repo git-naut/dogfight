@@ -10,14 +10,17 @@
 
 | ファイル | 役割 |
 |---|---|
-| `noise.ts` | 3D ノイズと気象マップを GPU で生成 |
-| `shaders/noise3d.frag` | Perlin-Worley と Worley |
-| `shaders/weather.frag` | 雲の配置を決める 2D の値 |
-| `shaders/density.glsl` | 密度の定義。本体と影で共有する |
-| `shaders/clouds.frag` | レイマーチ本体 |
-| `shaders/cloudShadow.frag` | 真上から焼く影マップ |
-| `cloudsPass.ts` | 描画パスと品質の反映 |
-| `geometry.ts` | スラブ交差など、node で試験できる数学 |
+| `noise.ts` | ノイズと気象マップの大きさ、統計の型 |
+| `nodeNoise.ts` | 3D ノイズと気象マップを GPU で焼く |
+| `noiseNodes.ts` | Perlin-Worley と Worley、雲の配置を決める 2D の値 |
+| `densityNodes.ts` | 密度の定義。本体と影で共有する |
+| `marchNodes.ts` | レイマーチ本体 |
+| `resolveNodes.ts` | 時間方向の足し込み |
+| `cloudsNodePass.ts` | 描画パスと品質の反映、真上から焼く影マップ |
+| `cloudsUpdate.ts` | 毎フレーム渡す入力の型 |
+| `geometry.ts` | スラブ交差・足し込みの定数・雲影の範囲など、node で試験できる数学 |
+
+段 S1（Phase 11）で GLSL 版（`shaders/*.frag`・`density.glsl`・`cloudsPass.ts`）を捨て、TSL 版だけになった。下の節にある GLSL のファイル名は、当時の実装を指す経緯の記録として残す。TSL 版は同じ式を写している。GLSL の最後の出力とは、ノイズ・気象マップ・マーチの歩数がビットで一致する（`tests/e2e/node-reference.json` との突き合わせ）。
 
 ## ノイズ
 
@@ -55,7 +58,7 @@ PCG の整数ハッシュへ替えたところ、両方で min 0.573、max 0.765
 
 ## 密度の組み立て
 
-`density.glsl` に定義がある。順に4段階。
+`densityNodes.ts` に定義がある（もとは `density.glsl`）。順に4段階。
 
 まず気象マップでどこに雲が湧くかを決める。生の FBM に対して `1 - coverage` をしきい値にして `smoothstep` をかける。しきい値を超えない場所は雲がなく、青空が残る。
 
@@ -71,7 +74,7 @@ PCG の整数ハッシュへ替えたところ、両方で min 0.573、max 0.765
 
 気象マップを焼く時点と実行時の両方で雲量を掛けていた時期がある。応答が急峻になり、雲量 0.4 で快晴、0.55 で全面雲という、途中のない挙動になった。
 
-しきい値は `density.glsl` の一箇所だけに置く。あわせて気象マップの FBM は値域を 0 から 1 へ引き伸ばしてから渡す。FBM の実際の値域は 0.25 から 0.75 に寄るので、そのままではしきい値の効きが中央に圧縮される。
+しきい値は `densityNodes.ts` の一箇所だけに置く。あわせて気象マップの FBM は値域を 0 から 1 へ引き伸ばしてから渡す。FBM の実際の値域は 0.25 から 0.75 に寄るので、そのままではしきい値の効きが中央に圧縮される。
 
 ## レイマーチ
 
@@ -322,7 +325,7 @@ outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;
 
 ### 地面より先に焼く
 
-影マップは `composer.render()` より前に焼く。地面を描くのは `RenderPass` なので、後から焼いても反映は次のフレームになる。通常のループなら 1 フレームの遅れで済むが、キャプチャモードは 1 フレームしか描かないので永久に反映されない。実測でそうなった。
+影マップは場面を描く前に焼く。いまは `nodeScene.ts` の `render()` が `clouds.renderShadow()` を `pipeline.render()` より先に呼ぶ。GLSL 経路では `composer.render()` より前だった。後から焼くと反映は次のフレームになる。通常のループなら 1 フレームの遅れで済むが、キャプチャモードは 1 フレームしか描かないので永久に反映されない。実測でそうなった。
 
 ### onBeforeCompile を後から差し替えない
 

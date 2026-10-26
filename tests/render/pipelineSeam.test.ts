@@ -7,11 +7,12 @@ import { fileURLToPath, URL } from 'node:url'
  *
  * 段 8 で `scene.ts` を帳簿だけにし、組み立てを `pipeline/webgl.ts` へ移した。
  * **継ぎ目は、越える者が現れた瞬間に意味を失う。**レンダラを 1 行借りるのは
- * その場では通るし、絵も 1 画素も動かないので基準画像 42 枚も気づかない。
- * 段 15 で `pipeline/node.ts` を差したときに初めて落ちる。
+ * その場では通るし、絵も 1 画素も動かないので基準画像も気づかない。
+ * 段 15 で `pipeline/node.ts` を差したときに初めて落ちる形だった。
  *
- * 型では守れない。`ScenePipeline.renderer` を過渡的な口として残してあるので、
- * 帳簿からでも型検査を通したまま触れてしまう。
+ * 段 S1 で GLSL 経路を捨て、組み手は `pipeline/nodeScene.ts` だけになった。
+ * 継ぎ目は残す。S2・S4 で大気と海の組み手を差し替えるとき、帳簿が中身を
+ * 知っていると同じ形で落ちる。
  */
 const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -47,7 +48,7 @@ describe('描画パイプラインの継ぎ目', () => {
 
   it('帳簿がバックエンド固有の実装を import していない', () => {
     const imports = [...ledger.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]!)
-    // `pipeline/webgl` だけが例外。段 15 でここが分岐点になる
+    // 組み手は動的 import（`./pipeline/nodeScene`）で読むので、ここには出ない。
     // `clouds/geometry` は import を 1 本も持たない純関数なので除く。
     // `cloudTime` は frame * fixedDt で、バックエンドとは関係がない
     const backend = imports.filter((name) =>
@@ -55,13 +56,13 @@ describe('描画パイプラインの継ぎ目', () => {
         name,
       ),
     )
-    expect(backend, '帳簿が触ってよいのは pipeline/webgl だけ').toEqual([])
+    expect(backend, '帳簿がバックエンド固有の実装を import している').toEqual([])
   })
 
   it('契約が実装に依存していない', () => {
     const types = code('src/render/pipeline/types.ts')
     const imports = [...types.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]!)
-    expect(imports.filter((name) => name.endsWith('/webgl'))).toEqual([])
+    expect(imports.filter((name) => /\/(webgl|nodeScene|node)$/.test(name))).toEqual([])
   })
 
   it('検査そのものが働くことを、既知の違反で確かめる', () => {

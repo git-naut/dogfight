@@ -428,3 +428,40 @@ high は最初から 60 fps で GPU 8.9〜13.4 ms。**基準「Intel Arc 140V �
 ### 別に見つかった件（直していない）
 
 太陽の方を向くと、ブルームが太陽を拾って画面全体を白く覆う。修正前の基準画像（`aircraft-vortex-long`）に既に写っていて、段 22 から残っている。上の E2E はこの影響を外すためにブルームを切って比べる。
+
+## GLSL 退避路を捨てた（2026-10-26、Phase 11 段 S1）
+
+WebGPU を必須にした。決めたのはユーザー（2026-10-24、Phase 11 の計画の選択肢）。Phase 11 で空と海を web-ocean の技法（Hillaire の大気・FFT の海）へ作り直すとき、GLSL 経路にも同じものを書くと手間が倍になる。退避路を持ち続ける理由が、WebGPU の無いブラウザで絵を出すことしか残っていなかった。
+
+### 捨てたもの
+
+描画の側で捨てたのは次のとおり。
+
+- GLSL 経路の組み手（`pipeline/webgl.ts`）と `postprocessing` のコンポーザ
+- 雲のパス（`cloudsPass.ts`）、GLSL 版の大気（`atmosphere.ts`）と環境反射、機体の影
+- 手書きのシェーダ 14 本、EXR（4 MB）と写す道具
+- 既定を選ぶ定数 `DEFAULT_BACKEND` と `?webgl=1`、品質表の `environmentMapSize` の列
+
+検査の側では、旧基準画像 42 枚と、project の `chromium-node-gl`・`chromium-swiftshader` を捨てた。
+
+### 突き合わせの相手は 2 段で付け替えた
+
+node-path.spec の半分は「TSL が GLSL と同じ値を出す」を見ていて、GLSL を消すと相手を失う。段 S1a で先に相手を付け替え、GLSL が残っているうちに新旧の両方で CI を通した（7723c7c、run 40222253979）。
+
+CPU に参照があるもの（円形スプライト・AgX・雲の合成）は CPU と比べる。スプライトと AgX の CPU 参照は新しく書き、GLSL の最後の出力と 1 バイトも違わなかった。参照の無いもの（雲のノイズ・気象マップ・雲影・マーチ、地表と海面、放射輝度、半透明の画素数）は、GLSL の最後の出力を `tests/e2e/node-reference.json` に固めて比べる。記録は 2 回撮って同一で、手元と CI で同じ値だった。記録が空の絵になっていないこと（枝を通る、階調を使い切る）は `tests/render/nodeReference.test.ts` が見る。
+
+CPU へ移植する道（約 600 行）は採らなかった。地表と海面の色は段 S2b・S4b で作り直すので、移植しても捨てることになる。
+
+### WebGPU が無いときは止める
+
+`createScene` がキャンバスを掴む前にアダプタを訊き、取れなければ `WebGPUUnavailable` を投げる。`main.ts` が利用者向けの文言（WebGPU に対応したブラウザで開くこと）を出して止まる。`tests/e2e/webgpu-required.spec.ts` を WebGPU の引数を渡さない project（`chromium-no-webgpu`）で回して見張る。
+
+### 残したもの
+
+`?gpu=1`（`WebGPURenderer` の WebGL2 バックエンド）は自己診断として残した。GLSL 退避路とは別物で、TSL が WebGL2 と WebGPU の両方で同じ値を出すことの突き合わせに使う。段 S3 で FFT のコンピュートが WebGL2 で動かなければ、その時に扱いを決める（推測で先に捨てない）。
+
+takram の GLSL 版のエントリ（`atmosphereNodes.ts` の太陽と月の方向）は段 S2 で自前の太陽位置と一緒に切る。`postprocessing` は takram の必須の peer なので、takram を外す段 S2b まで `node_modules` に残る。
+
+### 数字
+
+先読みの JS は 9 本・2.115 MB から 5 本・1.668 MB になった（7723c7c と段 S1b のビルドの比較）。`postprocessing` の 146 KB は段 S1a で既定の束から外れていた（`main.ts` が `cloudsPass.ts` を読まなくなったため）。配信物から EXR の 4 MB が消えた。既定の絵は exact で 47 枚とも 1 画素も動いていない。

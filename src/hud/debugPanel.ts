@@ -24,7 +24,7 @@ export interface RenderInfo {
   sunElevation: number
   preset: string
   /**
-   * 描画バックエンドの名前。`webgl` / `node-webgl` / `node-webgpu`。
+   * 描画バックエンドの名前。`node-webgl`（`?gpu=1`）/ `node-webgpu`。
    *
    * **`?gpu=3` が効いたかを画面で読むために要る。**効いていないまま
    * 実機で確かめても、何も確かめていないことになる

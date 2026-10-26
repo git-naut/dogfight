@@ -49,15 +49,16 @@ export function radialSpriteFragmentNode(
 }
 
 /**
- * node 経路の円形スプライト。`createGlRadialSprite` と同じ口を返す。
+ * 円形スプライトの材質。段 S1 で GLSL 版（`createGlRadialSprite`）を捨て、
+ * 作り手はこれだけになった。式は `radialSprite.ts` の注記。
  *
  * **`fragmentNode` は使わない。**断片を丸ごと置き換えると、材質の出力を
  * レンダラが整える段（出力の色空間と un/premultiply）を跨いでしまう。
  * `colorNode` と `opacityNode` に分けて渡せば、GLSL 版の
  * `gl_FragColor = vec4(uColor, a)` と同じ位置に収まる。
  *
- * 色と不透明度は `uniform()` の器で持つ。GLSL 版の `uniforms` と違い、
- * ノードそのものが値を抱えるので、setter は器の中身を書き換える。
+ * 色と不透明度は `uniform()` の器で持つ。ノードそのものが値を抱えるので、
+ * setter は器の中身を書き換える。
  *
  * `Discard` は断片のノードの中にある。**両方から参照しても本体は 1 度しか
  * 生成されない**ので、捨てる判定が二重に走ることはない。

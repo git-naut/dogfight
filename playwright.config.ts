@@ -5,7 +5,6 @@ import {
   VIEWPORT,
   DEFAULT_PROJECT,
 } from './tests/e2e/launch.mjs'
-import { DEFAULT_BACKEND } from './src/render/pipeline/types'
 
 // スクリーンショット回帰を環境差から守るため、GPU を使わず
 // Chromium 内蔵のソフトウェアレンダラ SwiftShader に固定する。
@@ -19,8 +18,6 @@ import { DEFAULT_BACKEND } from './src/render/pipeline/types'
  */
 const MUTATE_ONLY: RegExp[] = process.env.MUTATE === '1' ? [] : [/pixel-mutate\.spec\.ts/]
 
-/** 既定が node のとき、主の project で `chromium-node` と重複する spec */
-const NODE_PATH_DUPLICATE: RegExp[] = DEFAULT_BACKEND === 'node' ? [/node-path\.spec\.ts/] : []
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -155,25 +152,24 @@ export default defineConfig({
 
   projects: [
     {
-      // **主の project。既定が node 経路なので WebGPU の引数が要る。**
-      // 基準画像 42 枚はこの名前で撮る（`*-chromium-webgpu-linux.png`）
+      // **主の project。描画は WebGPU なので WebGPU の引数が要る。**
+      // 基準画像はこの名前で撮る（`*-chromium-webgpu-linux.png`）
       name: DEFAULT_PROJECT,
-      // **退避路の検査は拾わない。**WebGPU の起動引数を渡す project なので
-      // 「WebGPU が無い」状況を作れず、`backend` が `node-webgpu` になって
-      // 落ちる。あの検査は `chromium-node-gl` の担当。
+      // **WebGPU が無いときの検査は拾わない。**WebGPU の起動引数を渡す project
+      // なので「WebGPU が無い」状況を作れない。あの検査は `chromium-no-webgpu`
+      // の担当。
       //
-      // **既定が node のあいだは `node-path.spec.ts` を外す。**`chromium-node`
-      // と起動引数も宣言（`nodePath`・`webgpu`）も同じで、25 本を 2 回流して
-      // いた（CI の実測で 907 テスト秒、通しの 7.1%。2026-09-25 に外した）。
-      // `DEFAULT_BACKEND` を戻すとこの条件が外れ、「既定を見る検査」の置き場が
-      // ここへ戻る。`tests/tools/e2eConfig.test.ts` が 1 回だけ回ることを見る
+      // **`node-path.spec.ts` も外す。**`chromium-node` と起動引数も宣言
+      // （`nodePath`・`webgpu`）も同じで、25 本を 2 回流していた（CI の実測で
+      // 907 テスト秒、通しの 7.1%。2026-09-25 に外した）。
+      // `tests/tools/e2eConfig.test.ts` が 1 回だけ回ることを見る
       //
       // **上位の `testIgnore` を上書きする**ので逆テストの除外も持つ。持たずに
       // いた 2026-09-16 から毎回の E2E で逆テスト 62 本が走っていた
-      testIgnore: [/node-fallback\.spec\.ts/, ...MUTATE_ONLY, ...NODE_PATH_DUPLICATE],
+      testIgnore: [/webgpu-required\.spec\.ts/, /node-path\.spec\.ts/, ...MUTATE_ONLY],
       // **経路はここが正本。**`onNodePath()` はこの値を読む。project 名で
       // 判定すると、既定を切り替えたときに追随しない（実際に外した）
-      metadata: { nodePath: DEFAULT_BACKEND === 'node', webgpu: true },
+      metadata: { nodePath: true, webgpu: true },
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: { args: launchArgsFor(DEFAULT_PROJECT) },
@@ -183,7 +179,7 @@ export default defineConfig({
       // node 経路の突き合わせ。`?gpu=1|2` のプローブを回す
       name: 'chromium-node',
       testMatch: /node-path\.spec\.ts/,
-      // 既定が何であれ `?gpu=1|2|3` で node 経路を名指しする
+      // `?gpu=1|2|3` で node 経路を名指しする
       metadata: { nodePath: true, webgpu: true },
       use: {
         ...devices['Desktop Chrome'],
@@ -191,37 +187,20 @@ export default defineConfig({
       },
     },
     {
-      // **退避路が生きているかを数で見る（段 20b）。**
+      // **WebGPU が無いときに止まることを見る（段 S1）。**
       //
-      // `createNodePipeline` は WebGPU が無ければ `WebGPUUnavailable` を
-      // 投げ、`createScene` が受けて GLSL 経路へ落とす。**WebGPU の起動
+      // 段 S1 で GLSL 退避路を捨て、WebGPU を必須にした。`createScene` は
+      // WebGPU が無ければ `WebGPUUnavailable` を投げて止まる。**WebGPU の起動
       // 引数を渡さない project をわざわざ作る。**渡すと「WebGPU が無い」
-      // 状況を作れず、退避路の検査が空振りする
-      name: 'chromium-node-gl',
-      testMatch: /node-fallback\.spec\.ts/,
-      // **退避した先は GLSL。**node 経路として扱うと検査が逆を見る
+      // 状況を作れず、検査が空振りする
+      name: 'chromium-no-webgpu',
+      testMatch: /webgpu-required\.spec\.ts/,
       metadata: { nodePath: false, webgpu: false },
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: { args: launchArgsFor('chromium-node-gl') },
+        launchOptions: { args: launchArgsFor('chromium-no-webgpu') },
       },
     },
-    // **旧経路は `WEBGL=1` のときだけ回す。**
-    //
-    // 旧 42 枚（`*-chromium-swiftshader-linux.png`）はファイルとして残って
-    // いるので、戻り道は絵の側にもある。既定では回さない（所要が倍になる）
-    ...(process.env.WEBGL === '1'
-      ? [
-          {
-            name: 'chromium-swiftshader',
-            metadata: { nodePath: false, webgpu: false },
-            use: {
-              ...devices['Desktop Chrome'],
-              launchOptions: { args: launchArgsFor('chromium-swiftshader') },
-            },
-          },
-        ]
-      : []),
   ],
 
   webServer: {

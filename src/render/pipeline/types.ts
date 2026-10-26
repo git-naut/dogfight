@@ -25,8 +25,9 @@ import type { PresetName, QualityOverride, QualitySettings } from '../quality'
  * 描画パイプラインの継ぎ目。
  *
  * **バックエンドを差し替えると作り方が変わるものを、ここに集める。**
- * 組み立ての実体は `pipeline/webgl.ts`。段 15 で `pipeline/node.ts` が
- * 同じ形を WebGPU と TSL で組み、`scene.ts` の帳簿は 1 行も動かさない。
+ * 組み立ての実体は `pipeline/nodeScene.ts`（WebGPU と TSL）。段 15 で GLSL の
+ * `pipeline/webgl.ts` と同じ形を node 経路で組み、`scene.ts` の帳簿は 1 行も
+ * 動かさなかった。段 S1 で GLSL 経路を捨て、組み手は 1 つになった。
  *
  * 帳簿（sim の値をビューへ写す仕事）はこの型だけを見る。レンダラも
  * コンポーザも雲のパスも名前が出てこないのは、そこが差し替わる面だからで、
@@ -166,39 +167,6 @@ export interface MeasureConfig {
   terrainPatchCells?: number
 }
 
-/**
- * 既定の描画経路。**2026-09-14 に `node` へ切り替えた（段 20b の再実施）。**
- *
- * 段 20b で一度 node にしたが、ライブ飛行中に描画ループごと止まるので
- * 段 20c で戻した。**根本は three 側の欠落だった。**0.184 の `Textures.js`
- * は破棄したテクスチャを指す bind group のキャッシュを捨てず、鍵も
- * `cacheIndex * 10 + texture.id` で衝突する。three 0.186 で両方直り、
- * 回避策（`historyNeedsFill`）を外しても段 20c の検査 2 本が緑になる。
- *
- * 切り替えの関門（段 20b と同じ）。
- *
- * | 関門 | 結果 |
- * |---|---|
- * | 画素に依存しない検査が両経路で緑 | node 経路 183 件 + `node-path` 25 件 |
- * | 理由の付かない差分が 1 枚も無い | 主因は大気の経路で 96%（段 20a-4 の台帳） |
- * | ライブループを降格まで通す検査 | 段 20c で 2 本入れた |
- * | 基準画像 42 枚が 2 回撮って画素一致 | 2026-09-14（`npm run exact`） |
- * | 戻り先のタグ | `phase-8-before-flip-2` |
- *
- * 旧 42 枚（`*-chromium-swiftshader-linux.png`）はファイルとして残る。
- * `WEBGL=1` で回すと一致する。**戻り道は絵の側にも残っている。**
- *
- * **この定数を読むのは `createScene` 1 か所。**`options.pipeline` が
- * 指定されていないときの既定を決める。`?gpu=3` は名指しなのでここを見ない。
- *
- * 戻すときは 3 か所。この定数、`DEFAULT_PROJECT`（基準画像の名前が
- * 経路と食い違うのを避ける）、`playwright.config.ts` の
- * `chromium-swiftshader` を `WEBGL=1` の枠から出して先頭へ移す。
- * `tests/tools/e2eConfig.test.ts` が噛み合わせを検査するので、
- * 1 か所だけ直すと `npm test` が落ちる。
- */
-export const DEFAULT_BACKEND: 'webgl' | 'node' = 'node'
-
 export interface SceneOptions {
   preset: PresetName
   hour?: number
@@ -206,8 +174,6 @@ export interface SceneOptions {
   coverage?: number
   /** トーンマッピングの露出。調整用に上書きできる */
   exposure?: number
-  /** 大気の LUT を置いた URL */
-  texturesUrl: string
   /** 機体モデルの glb の URL */
   aircraftUrl: string
   /** 敵機モデルの glb の URL */
@@ -223,17 +189,7 @@ export interface SceneOptions {
   /** 空母を置く位置と艦首の向き。`carrierUrl` があるときだけ意味を持つ */
   carrier?: { x: number; z: number; heading: number }
   /** プリセットの上書き。実機でつまみを振るときに使う */
-  /**
-   * 描画経路。**既定は GLSL。**
-   *
-   * `node` を選ぶと `createNodePipeline` が立つ。段 20b で既定を切り替える
-   * までは `?gpu=3` からしか入らない
-   */
-  pipeline?: 'webgl' | 'node'
   qualityOverride?: QualityOverride
-  /** 雲バッファの持ち方の比較用。決着したら消す */
-  /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */
-  cloudProbe?: number
   /** 時間方向の足し込みを使うか。比較用 */
   cloudTemporal?: boolean
   /** キャプチャモードか。雲の収束の重み付けが変わる */
@@ -332,9 +288,9 @@ export interface SceneOptions {
 /**
  * 地表と海面が読む毎フレームの値。
  *
- * **帳簿が uniform を直に触らない。**GLSL 経路は `TerrainSharedUniforms`
- * へ書くが、**node 経路の材質はそこを読まない**（`NodeSurfaceState` が
- * 別に値を持つ）。帳簿が書き先を知っていると、node 経路で黙って効かず、
+ * **帳簿が uniform を直に触らない。**段 S1 で捨てた GLSL 経路は
+ * `TerrainSharedUniforms` へ書いたが、**node 経路の材質はそこを読まない**
+ * （`NodeSurfaceState` が別に値を持つ）。帳簿が書き先を知っていると、node 経路で黙って効かず、
  * 太陽の向きも雲影の追従もモーフの基準も初期値のまま固まる。絵は出るので
  * 気づけない（段 20a-2-3 で見つけた）。
  */
@@ -420,48 +376,6 @@ export interface ScenePipeline {
    * シムのフレーム数と並べて見る。増えていなければ焼けていない
    */
   readonly cloudRenderCount: number
-  /** 雲の密度サンプル数の統計。?probe=1 のときだけ意味を持つ */
-  readCloudProbe(): { mean: number; max: number; p99: number }
-  /**
-   * 雲影マップ 256² の分布。16 ビンで合計 1。
-   *
-   * TSL 版との突き合わせに使う。**生の 26 万バイトは持ち回らない**
-   */
-  readShadowHistogram(): { bins: number[]; tiles: number[] }
-  /**
-   * 固定の入力で雲のマーチを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用。
-   *
-   * 入力は `clouds/marchProbe.ts` が唯一の定義で、TSL 側も同じものを読む
-   */
-  readMarchProbe(mode: 0 | 1 | 2): number[]
-  /** 時間方向の足し込みを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
-  /**
-   * 足し込みのプローブ。`uvProbe` を立てると `prevUv` を色で返す
-   * （RG に uv、B に画面内か）。**両経路で座標を数値で比べるため**
-   */
-  readResolveProbe(uvProbe?: number): number[]
-  /** 円形スプライトを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
-  readSpriteProbe(opaqueCore: boolean): number[]
-  /** トーンマッピングを 1 枚焼いて読み戻す。TSL 版との突き合わせ専用 */
-  readToneProbe(): number[]
-  /**
-   * 雲の合成を 1 枚焼いて読み戻す。TSL 版との突き合わせ専用。
-   *
-   * @param marker 枝のマーカーを出すか。false なら合成の結果
-   */
-  readOverlayProbe(marker: boolean): number[]
-  /**
-   * 地表と海面を固定の矩形で焼いて読み戻す。TSL 版との突き合わせ専用。
-   *
-   * 矩形もカメラも放射輝度も `terrain/surfaceProbe.ts` が唯一の定義
-   */
-  readSurfaceProbe(): {
-    terrain: number[]
-    terrainBranches: number[]
-    water: number[][]
-    waterBranches: number[][]
-  }
-
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
   readonly aircraftShadowReady: boolean
@@ -516,12 +430,10 @@ export interface ScenePipeline {
    * **毎フレーム呼ぶ。**`sync` の中から渡すので、キャプチャでも 1 回だけ
    * 走って絵が決まる（実時間に依存しない）。
    *
-   * GLSL 経路は受け取って捨てる。鎖が無いので効かせようがない
    */
   setLoadFactor(value: number): void
   /**
    * 陽炎の範囲と強さを渡す（ADR 0041）。**毎フレーム呼ぶ。**風圧の荷重倍数と同じく `sync` の中から渡す。
-   * GLSL 経路は受け取って捨てる
    */
   setHeatHaze(state: HeatHazeState): void
   compile(): Promise<void>
@@ -574,14 +486,14 @@ export interface NodeProbeResult {
   /**
    * TSL で焼いた形状ノイズの中央スライスの左下 16x16。RGBA8 の 1,024 個。
    *
-   * **GLSL 版（`?gpu=0` の `hook.noiseSlice`）とビット一致しなければ、
-   * 以降の雲の絵はすべて別物になる。**
+   * **GLSL の最後の出力の記録（`tests/e2e/node-reference.json`）とビット一致
+   * しなければ、以降の雲の絵はすべて別物になる。**
    */
   noiseSlice: number[]
   /**
    * TSL で焼いた気象マップの左下 16x16。RGBA8 の 1,024 個。
    *
-   * **雲の配置を決めるのはこちら。**GLSL 版とずれると雲の湧く場所が
+   * **雲の配置を決めるのはこちら。**記録とずれると雲の湧く場所が
    * 変わるが、雲影の分布では捕まらない
    */
   weatherSlice: number[]
@@ -596,8 +508,8 @@ export interface NodeProbeResult {
    * TSL で焼いた雲影マップ 256² の分布。16 ビンで合計 1。
    *
    * `?shadowinputs=` を渡したときだけ埋まる。**段 12 の合格条件**は、
-   * GLSL 版（`?shadowprobe=1` の `hook.shadowHistogram`）との L1 距離が
-   * 0.01 未満であること
+   * GLSL 版との L1 距離が 0.01 未満であること。段 S1 から相手は GLSL の
+   * 最後の出力の記録
    */
   shadowHistogram: number[] | null
   /**
@@ -610,7 +522,7 @@ export interface NodeProbeResult {
   /**
    * TSL で焼いたマーチの突き合わせ。`?marchprobe=1` のときだけ埋まる。
    *
-   * **`samples` と `exhausted` は整数。**歩き方が同じなら GLSL 版と完全に
+   * **`samples` と `exhausted` は整数。**歩き方が同じなら GLSL の記録と完全に
    * 一致するはずで、ここが移植で一番壊れやすいループと分岐を直に見張る。
    * `tiles` は絵を 4x4 に区切った平均で、浮動小数の演算順序の差には鈍い
    */
@@ -618,7 +530,7 @@ export interface NodeProbeResult {
     samples: { total: number; max: number; hit: number }
     exhausted: number
     tiles: number[]
-    /** 時間方向の足し込みの生バイト。GLSL 版とバイトで比べる */
+    /** 時間方向の足し込みの生バイト */
     resolve: number[]
     /**
      * `prevUv` を色にしたもの（RG に uv、B に画面内か）。
@@ -630,8 +542,8 @@ export interface NodeProbeResult {
     /**
      * 足し込みで現フレームから動いたバイトの数。
      *
-     * **0 なら履歴を読む枝を通っていない。**GLSL 経路の `marchProbe` と
-     * 同じ数え方で、GLSL を捨てたあともこの見張りを TSL 側で続ける
+     * **0 なら履歴を読む枝を通っていない。**段 S1 で捨てた GLSL 経路の
+     * `marchProbe` と同じ数え方で、この見張りを TSL 側で続ける
      */
     resolveChanged: number
   } | null
@@ -890,7 +802,7 @@ export interface NodeProbeResult {
   /**
    * 形状 64³・ディテール 32³・気象 512² を焼くのにかかったミリ秒。
    *
-   * GLSL 版の `hook.noiseMs` と並べる。node 経路でも起動時の費用になる
+   * 本番の場面の `hook.noiseMs` と並べる。起動時の費用になる
    */
   volumeMs: number
   /** 大気を node 経路で組んだか */

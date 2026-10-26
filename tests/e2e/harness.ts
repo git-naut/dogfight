@@ -121,9 +121,7 @@ export async function advanceFrames(page: Page, frames: number): Promise<void> {
 
 export async function capture(page: Page, query: CaptureQuery = {}): Promise<TestHook> {
   const params = captureParams(query)
-  // **GLSL を名指しされたら node を要求しない。**両方渡しても GLSL が勝つが、
-  // URL に矛盾した名指しを並べない
-  if (onNodePath() && query.webgl !== true) params.set('gpu', '3')
+  if (onNodePath()) params.set('gpu', '3')
 
   await page.goto(`/dogfight/?${params.toString()}`)
   await page.waitForSelector('body[data-capture-ready="1"]')

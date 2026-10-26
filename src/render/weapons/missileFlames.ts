@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { MISSILE_LENGTH } from '../../sim/weapons/missile'
 import {
-  createGlRadialSprite,
   makeRadialSprite,
   radialSpriteHandle,
   type RadialSpriteFactory,
@@ -106,7 +105,7 @@ export function createMissileFlames(
   capacity: number,
   quality: QualitySettings,
   // 材質の作り手を外から差す。理由は `explosions.ts` の同じ引数
-  sprite: RadialSpriteFactory = createGlRadialSprite,
+  sprite: RadialSpriteFactory,
   /**
    * 発射炎の材質の作り手。**node 経路では場面の物に隠されない作り手を渡す。**噴射口は主翼の下にあり、
    * 上方のカメラからは主翼に隠れて淡い光が覗くだけだった。録画（20022）の発射炎は主翼と胴体に重なって

@@ -48,8 +48,6 @@ export interface CaptureConfig {
   lodScale: number | null
   /** 地形パッチの一辺のセル数の上書き */
   terrainCells: number | null
-  /** 1 = 密度サンプル数、2 = 歩数を使い切ったか */
-  probe: number
   /** 時間方向の足し込みを切るか。比較用 */
   noTemporal: boolean
   /** 自動降格を止める。実機で品質を固定して計測するため */
@@ -224,32 +222,13 @@ export interface CaptureConfig {
   /**
    * 描画バックエンドの経路。`?gpu=0|1|2|3`。
    *
-   * **0 は「指定しない」であって GLSL ではない。**`DEFAULT_BACKEND` に
-   * 従う。2026-09-14 にその既定が `'node'` へ変わったので、`?gpu=0` は
-   * いま node 経路を意味する。1 と 2 は node 経路の自己診断
-   * （`runNodeProbe`）、**3 は本番の場面を node 経路で名指しする**。
+   * 0 と 3 はどちらも本番の場面を node 経路（`createNodePipeline`）で描く。
+   * 1 と 2 は node 経路の自己診断（`runNodeProbe`）で、1 は `forceWebGL: true`
+   * で WebGL2 バックエンドへ落とし、2 は WebGPU を要求する。
    *
-   * 1 は `forceWebGL: true` で WebGL2 バックエンドへ落とし、2 は WebGPU を
-   * 要求する。3 は `createNodePipeline` を通す。
-   *
-   * GLSL 経路を名指しするのは `?webgl=1`（すぐ下）
+   * 段 S1 で GLSL 経路と、それを名指しする `?webgl=1` を捨てた。
    */
   gpu: number
-  /**
-   * GLSL 経路を名指しするか。`?webgl=1`。
-   *
-   * **`?gpu` では GLSL を指定できない。**0 は「指定しない」で
-   * `DEFAULT_BACKEND` に従うため、既定が node になった 2026-09-14 以降は
-   * GLSL を要求する手段が無くなっていた。`readOverlayProbe` や
-   * `readMarchProbe` は GLSL 側が持つ参照値の口で、TSL 版と突き合わせる
-   * 相手がここにいる。**相手を名指しできないと、突き合わせの基準を取る
-   * ページが node で立って固まる**（実測でプローブ系 11 件が 7 分の
-   * タイムアウト）。
-   *
-   * `?gpu=3` と両方渡したときは GLSL が勝つ。名指しどうしがぶつかったら
-   * 退避しない側を採る
-   */
-  webgl: boolean
   /** 足し込みのプローブで代表点を出すか。`?uvmode=world` */
   uvProbeMode: 'world' | undefined
   /**
@@ -260,17 +239,17 @@ export interface CaptureConfig {
    */
   noiseProbe: boolean
   /**
-   * 雲影マップの分布を出すか。`?shadowprobe=1`。
+   * 雲影マップを決めた入力を出すか。`?shadowprobe=1`。
    *
-   * 256² を読み戻して 16 ビンに数え、`hook.shadowHistogram` へ置く。
-   * 読み戻しは同期なので、頼まれたときだけ走らせる
+   * `hook.shadowInputs` へ置く。自己診断（`?gpu=1|2`）へ `?shadowinputs=` で
+   * 渡し直すための口。分布を読み戻す GLSL の口は段 S1 で捨てた
    */
   shadowProbe: boolean
   /**
    * 雲のマーチを固定の入力で焼いて出すか。`?marchprobe=1`。
    *
-   * 密度サンプル数と打ち切りの数と区画平均を `hook.marchProbe` へ置く。
-   * TSL 版との突き合わせ専用で、3 枚焼くので頼まれたときだけ走らせる
+   * 自己診断（`?gpu=1|2`）だけが読み、密度サンプル数と打ち切りの数と
+   * 区画平均を `gpuProbe.march` へ置く。3 枚焼くので頼まれたときだけ走らせる
    */
   marchProbe: boolean
   /**
@@ -295,15 +274,16 @@ export interface CaptureConfig {
   /**
    * トーンマッピングを焼いて出すか。`?toneprobe=1`。
    *
-   * AgX の式が GLSL 版と TSL 版で同じかを見る。同じなら露出 6 を
-   * そのまま持ち越せて、VFX の色定数を測り直さずに済む
+   * 自己診断（`?gpu=1|2`）だけが読む。AgX の式が CPU 参照と同じかを見る。
+   * 同じなら露出 6 をそのまま持ち越せて、VFX の色定数を測り直さずに済む
    */
   toneProbe: boolean
   /**
    * 雲を大気へ差し込む合成を焼いて出すか。`?overlayprobe=1`。
    *
-   * `AerialPerspectiveNode` に `overlay` が無いので自前で書く。式が
-   * GLSL 版と同じかを見る。**早期打ち切りの枝はマーカーで数える**
+   * 自己診断（`?gpu=1|2`）だけが読む。`AerialPerspectiveNode` に `overlay` が
+   * 無いので自前で書く。式が CPU 参照と同じかを見る。**早期打ち切りの枝は
+   * マーカーで数える**
    */
   overlayProbe: boolean
   /**
@@ -315,7 +295,7 @@ export interface CaptureConfig {
   /**
    * 地表と海面を固定の矩形で焼いて出すか。`?surfaceprobe=1`。
    *
-   * 既定の経路と `?gpu=1|2` の両方で意味を持つ
+   * 自己診断（`?gpu=1|2`）だけが読む
    */
   surfaceProbe: boolean
   /**
@@ -329,7 +309,8 @@ export interface CaptureConfig {
   /**
    * TSL 版の雲影を焼くときの入力。`?shadowinputs=t,cov,sx,sy,sz,cx,cz`。
    *
-   * `?gpu=2` の自己診断だけが読む。**GLSL 側が実際に焼いた値を渡す。**
+   * `?gpu=1|2` の自己診断だけが読む。**記録（`tests/e2e/node-reference.json`）の
+   * 入力をそのまま渡す。**
    * 導き直すと、導き方が食い違ったときにヒストグラムの不一致が移植の欠陥に
    * 見える。数が揃わなければ null で、雲影は焼かない
    */
@@ -419,7 +400,6 @@ export function readCaptureConfig(search: string): CaptureConfig {
     terrainCells: params.has('cells')
       ? clampInt(params.get('cells'), 4, 64, 32)
       : null,
-    probe: clampInt(params.get('probe'), 0, 2, 0),
     noTemporal: params.get('ta') === '0',
     noDegrade: params.get('nodegrade') === '1',
     govTest: params.get('govtest') === '1',
@@ -477,7 +457,6 @@ export function readCaptureConfig(search: string): CaptureConfig {
             ? 'spatial'
             : null,
     gpu: clampInt(params.get('gpu'), 0, 3, 0),
-    webgl: params.get('webgl') === '1',
     // **足し込みのプローブで代表点を出す。**`?uvmode=world`。
     // `prevUv` がずれる前の段階を見るため（2026-09-14）
     uvProbeMode: params.get('uvmode') === 'world' ? ('world' as const) : undefined,
@@ -560,7 +539,7 @@ export interface TestHook {
   captureSettled: boolean
   seed: number
   droppedSteps: number
-  /** 描画バックエンドの名前。`webgl` / `node-webgl` / `node-webgpu` */
+  /** 描画バックエンドの名前。`node-webgl`（`?gpu=1`）/ `node-webgpu` */
   backend: string
   webglVersion: number
   /**
@@ -620,8 +599,6 @@ export interface TestHook {
     cpuMaxMs: number
     triangles: number
   }[]
-  /** ?probe=1 のときの密度サンプル数。画素あたり */
-  cloudSamples: { mean: number; max: number; p99: number }
   /** 高さ場の生成にかかったミリ秒 */
   terrainMs: number
   /** 高さ場の中身。min と max が同じなら生成に失敗している */
@@ -777,64 +754,12 @@ export interface TestHook {
    * **雲の配置を決めるのは 3D ノイズではなくこちら**
    */
   weatherSlice: number[] | null
-  /** 雲影マップ 256² の分布。16 ビン。`?shadowprobe=1` のときだけ埋まる */
-  shadowHistogram: number[] | null
   /**
-   * 雲影マップを 4x4 に区切った区画ごとの平均透過率。16 個。
+   * 雲影マップを決めた入力。`?shadowprobe=1` のときだけ埋まる。
    *
-   * **分布だけでは影の配置を見張れない。**ノイズや気象マップを上下反転
-   * しても 16 ビンの分布は動かないことを実測した
-   */
-  shadowTiles: number[] | null
-  /**
-   * その分布を焼いた入力。`?shadowprobe=1` のときだけ埋まる。
-   *
-   * TSL 版へ `?shadowinputs=` で渡し直すために出す
+   * 自己診断へ `?shadowinputs=` で渡し直すために出す
    */
   shadowInputs: ShadowInputs | null
-  /**
-   * 固定の入力で焼いた雲のマーチ。`?marchprobe=1` のときだけ埋まる。
-   *
-   * **`samples` と `exhausted` は整数。**TSL 版と完全に一致するはず
-   */
-  spriteProbe: { soft: number[]; core: number[] } | null
-  /** トーンマッピングの生バイト。`?toneprobe=1` のときだけ埋まる */
-  toneProbe: number[] | null
-  /**
-   * 雲の合成の生バイト。`?overlayprobe=1` のときだけ埋まる。
-   *
-   * `composite` が合成の結果、`marker` が枝の色分け。**結果だけでは枝を
-   * 数えられない**ので 2 枚とも持つ
-   */
-  overlayProbe: { composite: number[]; marker: number[] } | null
-  /** 地表と海面の生バイト。`?surfaceprobe=1` のときだけ埋まる */
-  surfaceProbe: {
-    terrain: number[]
-    terrainBranches: number[]
-    water: number[][]
-    waterBranches: number[][]
-  } | null
-  marchProbe: {
-    samples: { total: number; max: number; hit: number }
-    exhausted: number
-    tiles: number[]
-    /** 時間方向の足し込みの生バイト */
-    resolve: number[]
-    /**
-     * 足し込みで現フレームから動いた画素の数。
-     *
-     * **0 なら履歴を読む枝を通っていない。**再投影が全部外れていても
-     * 「両側で一致」にはなるので、通っていることを別に見張る
-     */
-    /**
-     * `prevUv` を色にしたもの（RG に uv、B に画面内か）。
-     *
-     * **両経路で座標を数値で突き合わせるため。**絵の印象では座標のずれが
-     * 読めず、上下反転の切り分けで何度も外した（2026-09-14）
-     */
-    resolveUv: number[]
-    resolveChanged: number
-  } | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *

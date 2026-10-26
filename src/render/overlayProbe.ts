@@ -1,19 +1,6 @@
-import {
-  GLSL3,
-  LinearFilter,
-  Mesh,
-  OrthographicCamera,
-  PlaneGeometry,
-  RGBAFormat,
-  Scene,
-  ShaderMaterial,
-  UnsignedByteType,
-  WebGLRenderTarget,
-  type WebGLRenderer,
-} from 'three'
-
 /**
- * 雲を大気へ差し込む合成を GLSL 版と TSL 版で突き合わせる。
+ * 雲を大気へ差し込む合成を TSL 版と CPU 参照で突き合わせる（段 S1 で
+ * GLSL 版の焼き手を捨てるまでは GLSL 版とも比べていた）。
  *
  * `AerialPerspectiveNode` に `overlay` が無い（持つのは `colorNode` /
  * `depthNode` / `normalNode` / `skyNode` / `shadowLengthNode` の 5 つ）。
@@ -178,85 +165,4 @@ export function overlayMarkerCounts(bytes: ArrayLike<number>): {
     else other++
   }
   return { early, late, other }
-}
-
-/**
- * GLSL 版を 1 枚焼いて読み戻す。
- *
- * @param marker 枝のマーカーを出すか。false なら合成の結果を出す
- */
-export function renderOverlayProbe(renderer: WebGLRenderer, marker: boolean): number[] {
-  const side = OVERLAY_PROBE_SIDE
-  const material = new ShaderMaterial({
-    glslVersion: GLSL3,
-    uniforms: { marker: { value: marker ? 1 : 0 } },
-    vertexShader: /* glsl */ `
-      out vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }
-    `,
-    // 早期打ち切りは takram では `return` で抜ける。ここは 1 枚の絵に
-    // 両方の枝を出すので if/else へ組み替えてある。**合成の行そのものは
-    // 写したまま置く**（`OVERLAY_COMPOSITE_GLSL` が原本と照合される）
-    fragmentShader: /* glsl */ `
-      uniform float marker;
-      in vec2 vUv;
-      out vec4 fragColor;
-      const float SIDE = ${side}.0;
-      const float FULL = ${OVERLAY_PROBE_FULL_COLUMN}.0;
-      void main() {
-        float col = floor(vUv.x * SIDE);
-        float row = floor(vUv.y * SIDE);
-        // **除算で 1 を作らない。**逆数の乗算へ畳み込まれると 47/47 が
-        // 0.99999994 になり、境目の 1 列が枝を通らない（実測）
-        float a = col >= FULL ? 1.0 : col / FULL;
-        float u = row / (SIDE - 1.0);
-        vec4 overlay = vec4(
-          vec3(${OVERLAY_PROBE_CLOUD_RATIO.r}, ${OVERLAY_PROBE_CLOUD_RATIO.g}, ${OVERLAY_PROBE_CLOUD_RATIO.b}) * a * (1.0 - u),
-          a
-        );
-        vec4 outputColor = vec4(
-          vec3(${OVERLAY_PROBE_BASE_RATIO.r}, ${OVERLAY_PROBE_BASE_RATIO.g}, ${OVERLAY_PROBE_BASE_RATIO.b}) * u,
-          ${OVERLAY_PROBE_BASE_ALPHA}.0
-        );
-        if (overlay.a == 1.0) {
-          fragColor = marker > 0.5 ? vec4(1.0, 0.0, 0.0, 1.0) : overlay;
-        } else {
-          outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;
-          fragColor = marker > 0.5 ? vec4(0.0, 1.0, 0.0, 1.0) : outputColor;
-        }
-      }
-    `,
-    depthTest: false,
-    depthWrite: false,
-  })
-
-  const scene = new Scene()
-  const geometry = new PlaneGeometry(2, 2)
-  scene.add(new Mesh(geometry, material))
-  const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1)
-  const target = new WebGLRenderTarget(side, side, {
-    format: RGBAFormat,
-    type: UnsignedByteType,
-    minFilter: LinearFilter,
-    magFilter: LinearFilter,
-    depthBuffer: false,
-    stencilBuffer: false,
-  })
-
-  const previous = renderer.getRenderTarget()
-  const buffer = new Uint8Array(side * side * 4)
-  try {
-    renderer.setRenderTarget(target)
-    renderer.render(scene, camera)
-    renderer.readRenderTargetPixels(target, 0, 0, side, side, buffer)
-  } finally {
-    renderer.setRenderTarget(previous)
-    geometry.dispose()
-    material.dispose()
-    target.dispose()
-  }
-  return [...buffer]
 }

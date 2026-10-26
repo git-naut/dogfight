@@ -30,7 +30,7 @@ import { MISSILE_COUNT } from '../../sim/combat'
 import { ENEMY_MISSILE_COUNT } from '../../sim/ai/fighter'
 import { EXPLOSION_POOL } from '../../sim/effects'
 import { createAircraftTrails, type AircraftTrails } from '../aircraft/trails'
-import { createGlRadialSprite, type RadialSpriteFactory } from '../weapons/radialSprite'
+import type { RadialSpriteFactory } from '../weapons/radialSprite'
 import type { QualitySettings } from '../quality'
 import { MAX_TARGETS, type SceneOptions } from './types'
 
@@ -77,10 +77,11 @@ export interface SceneViewsInput {
   /**
    * 円形スプライトの作り手。
    *
-   * **node 経路では TSL 版を差す。**`ShaderMaterial` は node 経路で黙って
-   * 描かれない（例外は出ず、コンソールに 1 行出るだけ）
+   * TSL 版（`spriteNodes.ts`）を差す。`ShaderMaterial` は node 経路で黙って
+   * 描かれない（例外は出ず、コンソールに 1 行出るだけ）。段 S1 で GLSL 版の
+   * 既定を捨てたので必ず渡す
    */
-  sprite?: RadialSpriteFactory
+  sprite: RadialSpriteFactory
   /**
    * 爆発の円形スプライトの作り手。渡さなければ `sprite`。
    *
@@ -125,7 +126,7 @@ export interface SceneViewsInput {
 
 export async function createSceneViews(input: SceneViewsInput): Promise<SceneViews> {
   const { scene, quality, options } = input
-  const sprite = input.sprite ?? createGlRadialSprite
+  const sprite = input.sprite
   const material = input.material ?? keepAircraftMaterial
 
   // glb を読むのはここ 1 回だけ。自機と標的機が同じモデルを共有する。

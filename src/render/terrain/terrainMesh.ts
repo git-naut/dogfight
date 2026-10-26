@@ -1,24 +1,15 @@
 import {
   BufferAttribute,
   DynamicDrawUsage,
-  GLSL3,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
   Matrix4,
   type Material,
   Mesh,
-  ShaderChunk,
-  ShaderMaterial,
   Vector2,
   Vector3,
   type Texture,
 } from 'three'
-import terrainVert from './shaders/terrain.vert?raw'
-import terrainFrag from './shaders/terrain.frag?raw'
-import heightfieldGlsl from './shaders/heightfield.glsl?raw'
-import terrainVertexGlsl from './shaders/terrainVertex.glsl?raw'
-import terrainSurfaceGlsl from './shaders/terrainSurface.glsl?raw'
-import waterSurfaceGlsl from './shaders/waterSurface.glsl?raw'
 import { selectPatches, type SelectOptions, type TerrainPatch } from './layout'
 import type { QualitySettings } from '../quality'
 import type { Terrain } from '../../sim/terrain'
@@ -30,15 +21,6 @@ import type { Terrain } from '../../sim/terrain'
  * ジオメトリは 1 つ、ドローコールも 1 回。高さは頂点シェーダが高さ場から
  * 双三次で引くので、CPU 側は原点と大きさを渡すだけ。
  */
-
-// 高さ場のサンプルと雲影、そして色の本体を地形と海面で共有する。
-// three の include 解決に載せる。**登録はここ 1 か所。**node 経路では
-// ShaderChunk のグローバル登録そのものが消えて ES module の import になる
-const chunks = ShaderChunk as unknown as Record<string, string>
-chunks['terrain_heightfield'] = heightfieldGlsl
-chunks['terrain_vertex'] = terrainVertexGlsl
-chunks['terrain_surface'] = terrainSurfaceGlsl
-chunks['water_surface'] = waterSurfaceGlsl
 
 /**
  * インスタンスの上限。
@@ -104,9 +86,9 @@ export function createTerrainUniforms(
 /**
  * 地形の材質。
  *
- * **バックエンドで差し替わるのは材質だけ。**格子もインスタンスの属性も
- * パッチの選び方も同じものを使う。node 経路は `nodeMaterials.ts` が
- * `NodeMaterial` を返す
+ * 作るのは `nodeMaterials.ts`（`NodeMaterial`）。段 S1 で GLSL 版の材質を
+ * 捨てたので、呼ぶ側が必ず作り手を渡す。格子もインスタンスの属性も
+ * パッチの選び方も材質に依らない
  */
 export interface TerrainMaterial {
   readonly material: Material
@@ -119,31 +101,6 @@ export type TerrainMaterialFactory = (
   uniforms: TerrainSharedUniforms,
   quality: QualitySettings,
 ) => TerrainMaterial
-
-/** 既定の GLSL 材質 */
-export function createTerrainShaderMaterial(
-  uniforms: TerrainSharedUniforms,
-  quality: QualitySettings,
-): TerrainMaterial {
-  const material = new ShaderMaterial({
-    glslVersion: GLSL3,
-    vertexShader: terrainVert,
-    fragmentShader: terrainFrag,
-    uniforms: {
-      ...uniforms,
-      detailNormals: { value: quality.terrainDetailNormals },
-    },
-  })
-  return {
-    material,
-    setDetailNormals(enabled) {
-      material.uniforms['detailNormals']!.value = enabled
-    },
-    dispose() {
-      material.dispose()
-    },
-  }
-}
 
 export interface TerrainMesh {
   readonly mesh: Mesh
@@ -203,7 +160,7 @@ export function createTerrainMesh(
   terrain: Terrain,
   quality: QualitySettings,
   uniforms: TerrainSharedUniforms,
-  createMaterial: TerrainMaterialFactory = createTerrainShaderMaterial,
+  createMaterial: TerrainMaterialFactory,
 ): TerrainMesh {
   let cells = quality.terrainPatchCells
   let geometry = buildGeometry(cells)

@@ -7,8 +7,9 @@ import { PassInspector } from './passInspector'
 /**
  * node 経路のバックエンド。
  *
- * `createWebGLBackend` と同じ契約を `WebGPURenderer` の API で満たす。
- * 対応は `backend.ts` の表のとおり。
+ * `RenderBackend` の契約を `WebGPURenderer` の API で満たす。GLSL 経路の
+ * `createWebGLBackend` との対応は `backend.ts` の表に残してある（段 S1 で
+ * GLSL 経路は捨てた）。
  *
  * **`kind` から `webglVersion` を導いてはいけない。**導くと
  * 「`kind` が `node-webgl` なら 2」というただの言い換えになり、

@@ -2188,8 +2188,23 @@ export const BITE_MARKS = [
     id: 'sky-multiscatter-dropped',
     kind: '文の削除',
     file: 'src/render/sky/reference.ts',
-    find: '        ms[c]! * (m.rayleighScattering[c]! + m.mieScattering)\n',
-    replace: '        0 * (m.rayleighScattering[c]! + m.mieScattering)\n',
+    // **空の積分（`sun[` を使う側）に絞る。**霞の積分（段 S2b）に同じ形の行がある
+    find:
+      '    const pmu = (p[0] * sun[0] + p[1] * sun[1] + p[2] * sun[2]) / pr\n' +
+      '    const sunT = sunBelowHorizon(pr, pmu) ? [0, 0, 0] : sampleTransmittance(transmittance, pr, pmu)\n' +
+      '    const ms = sampleMultiscatter(multiscatter, pmu, h)\n' +
+      '    for (let c = 0; c < 3; c++) {\n' +
+      '      const S =\n' +
+      '        sunT[c]! * (m.rayleighScattering[c]! * pR + m.mieScattering * pM) +\n' +
+      '        ms[c]! * (m.rayleighScattering[c]! + m.mieScattering)\n',
+    replace:
+      '    const pmu = (p[0] * sun[0] + p[1] * sun[1] + p[2] * sun[2]) / pr\n' +
+      '    const sunT = sunBelowHorizon(pr, pmu) ? [0, 0, 0] : sampleTransmittance(transmittance, pr, pmu)\n' +
+      '    const ms = sampleMultiscatter(multiscatter, pmu, h)\n' +
+      '    for (let c = 0; c < 3; c++) {\n' +
+      '      const S =\n' +
+      '        sunT[c]! * (m.rayleighScattering[c]! * pR + m.mieScattering * pM) +\n' +
+      '        0 * (m.rayleighScattering[c]! + m.mieScattering)\n',
     expect: 'tests/render/skyTruth.test.ts',
     why: '多重散乱の項が抜けると天空光が 2 割ほど暗くなる。絵では「日陰が少し暗い」としか見えないので、正解との突き合わせで止める',
   },
@@ -2201,5 +2216,50 @@ export const BITE_MARKS = [
     replace: '      rayleighScattering[1] + mieExt + OZONE_ABSORPTION[1] * 0,\n',
     expect: 'tests/render/skyTruth.test.ts',
     why: 'オゾンの吸収が抜けると、夕方の直達光の緑が強く残り、夕焼けの色が変わる',
+  },
+  {
+    id: 'sky-irradiance-altitude-ignored',
+    kind: '定数の摂動',
+    file: 'src/render/sky/reference.ts',
+    find: '    IRRADIANCE_AZIMUTH_STEPS,\n    1,\n    altitude,\n  )\n',
+    replace: '    IRRADIANCE_AZIMUTH_STEPS,\n    1,\n    0,\n  )\n',
+    expect: 'tests/render/skyIrradiance.test.ts',
+    why: '照度の表の行が高さを無視すると、機体と高い所の雲の天空光が地表の値のままになる。地表の行だけ見る検査では通る',
+  },
+  {
+    id: 'sky-irradiance-height-linear',
+    kind: '文の削除',
+    file: 'src/render/sky/reference.ts',
+    find: '  const v = Math.sqrt(Math.min(Math.max(altitude / (TOP_RADIUS - GROUND_RADIUS), 0), 1))\n',
+    replace: '  const v = Math.min(Math.max(altitude / (TOP_RADIUS - GROUND_RADIUS), 0), 1)\n',
+    expect: 'tests/render/skyIrradiance.test.ts',
+    why: '表の高さの行は 2 乗で配ってある。引く側だけ線形に読むと、3 km の値を 0.2 km 付近の行から取る',
+  },
+  {
+    id: 'sky-aerial-sun-overhead',
+    kind: '定数の摂動',
+    file: 'src/render/sky/reference.ts',
+    find: '    const pmu = (p[0] * sunDir[0] + p[1] * sunDir[1] + p[2] * sunDir[2]) / pr\n',
+    replace: '    const pmu = 1\n',
+    expect: 'tests/render/skyAerial.test.ts',
+    why: '霞の中の点から見た太陽の高さを取り違えると、夕方の霞が昼の色のまま残る。空の見え方とは別の積分なので、空の検査では止まらない',
+  },
+  {
+    id: 'sky-aerial-distance-ignored',
+    kind: '文の削除',
+    file: 'src/render/sky/reference.ts',
+    find: '  const tMax = Math.min(distance, tGr[0] > 0 ? tGr[0] : tTop[1])\n',
+    replace: '  const tMax = tGr[0] > 0 ? tGr[0] : tTop[1]\n',
+    expect: 'tests/render/skyAerial.test.ts',
+    why: '霞が物までの距離を見ないと、近くの機体にも水平線と同じ霞が掛かる。遠くまでの霞は空と一致したままなので、空との比較では止まらない',
+  },
+  {
+    id: 'sky-aerial-slice-linear',
+    kind: '定数の摂動',
+    file: 'src/render/sky/reference.ts',
+    find: '  return AERIAL_MAX_KM * f * f\n',
+    replace: '  return AERIAL_MAX_KM * f\n',
+    expect: 'tests/render/skyAerial.test.ts',
+    why: '焼く側の奥行きの配り方と、引く側の写し方（`aerialSliceOf`）がずれると、霞が別の距離の枚から取られる',
   },
 ]

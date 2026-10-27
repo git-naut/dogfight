@@ -9,9 +9,15 @@ import {
   dot,
   exp,
   float,
+  floor,
+  fract,
+  getViewPosition,
   int,
   length,
   max,
+  min,
+  mix,
+  normalize,
   pow,
   sin,
   sqrt,
@@ -24,8 +30,15 @@ import {
 import type { Texture } from 'three'
 import type { Node } from 'three/webgpu'
 import {
+  AERIAL_MAX_KM,
+  AERIAL_SIZE,
+  AERIAL_SLICES,
+  AERIAL_STEPS,
   GROUND_ALBEDO,
   GROUND_RADIUS,
+  IRRADIANCE_HEIGHT,
+  IRRADIANCE_MU_MIN,
+  IRRADIANCE_WIDTH,
   MIE_EXTINCTION,
   MIE_G,
   MIE_SCALE_HEIGHT,
@@ -82,7 +95,7 @@ function loopNamed(name: string, count: number, body: (index: N<'int'>) => void)
 }
 
 /** 焼くときの uv。v を裏返す（ファイルの頭の注記） */
-function bakeUv(): Node<'vec2'> {
+export function bakeUv(): Node<'vec2'> {
   return vec2(uv().x, float(1).sub(uv().y)) as unknown as Node<'vec2'>
 }
 
@@ -396,6 +409,175 @@ export function skyViewUvNode(dir: N<'vec3'>, sunDir: N<'vec3'>, altitude: N<'fl
 }
 
 
+
+// ---- 天空の照度の表（段 S2b） ----
+
+/** 表を太陽の余弦と高さ km で引く uv（`irradianceUv`） */
+export function irradianceUvNode(sunMu: N<'float'>, altitude: N<'float'>): N<'vec2'> {
+  const u = clamp(sunMu.sub(IRRADIANCE_MU_MIN).div(1 - IRRADIANCE_MU_MIN), 0, 1)
+  const v = sqrt(clamp(altitude.div(TOP_RADIUS - GROUND_RADIUS), 0, 1))
+  return vec2(fromUnitToSubUvs(u, IRRADIANCE_WIDTH), fromUnitToSubUvs(v, IRRADIANCE_HEIGHT)) as unknown as N<'vec2'>
+}
+
+/**
+ * 上向きの面の天空の照度 / π を引く（`sampleIrradiance`）。表は `DataTexture` で、
+ * 行 0 が高さ 0 km（描画先ではないので v の裏返しは無い）
+ */
+export function sampleIrradianceNode(table: Texture, sunMu: N<'float'>, altitude: N<'float'>): N<'vec3'> {
+  return texture(table, irradianceUvNode(sunMu, altitude), 0).rgb as unknown as N<'vec3'>
+}
+
+// ---- 霞（段 S2b） ----
+
+/**
+ * 霞の 1 本の視線を積分する（`aerialPerspective`）。`part` で入る光か透過率の
+ * どちらかを返す。**透過率だけなら散乱を引かない**（LUT を読まずに減衰係数だけを
+ * 積む）ので、焼くパスを 2 つに分けても透過率の側は軽い
+ */
+export function aerialNode(
+  transmittance: Texture,
+  multiscatter: Texture,
+  altitude: N<'float'>,
+  viewDir: N<'vec3'>,
+  sunDir: N<'vec3'>,
+  distance: N<'float'>,
+  part: 'inscatter' | 'transmittance',
+): N<'vec3'> {
+  return Fn(() => {
+    const r = altitude.add(GROUND_RADIUS).toVar()
+    const ro = vec3(0, r, 0).toVar()
+    const tTop = sphereFar(ro, viewDir, TOP_RADIUS)
+    const tGr = sphereNear(ro, viewDir, GROUND_RADIUS)
+    const tMax = min(distance, tGr.greaterThan(0).select(tGr, tTop)).toVar()
+    const cosT = dot(viewDir, sunDir).toVar()
+    const pR = phaseRayleighNode(cosT).toVar()
+    const pM = phaseMieNode(cosT).toVar()
+    const L = vec3(0, 0, 0).toVar()
+    const T = vec3(1, 1, 1).toVar()
+    const tPrev = float(0).toVar()
+    Loop({ start: int(0), end: int(AERIAL_STEPS), type: 'int', condition: '<' }, ({ i }) => {
+      const fa = float(i).add(1).div(AERIAL_STEPS)
+      const tn = tMax.mul(fa).mul(fa).toVar()
+      const dt = tn.sub(tPrev).toVar()
+      // 確定させてから `tPrev` を書き換える（`skyRadianceNode` の注記）
+      const t = tPrev.add(dt.mul(0.3)).toVar()
+      tPrev.assign(tn)
+      const q = ro.add(viewDir.mul(t)).toVar()
+      const pr = length(q).toVar()
+      const h = pr.sub(GROUND_RADIUS).toVar()
+      const m = mediumNode(h)
+      const ts = exp(m.extinction.negate().mul(dt)).toVar()
+      if (part === 'inscatter') {
+        const pmu = dot(q, sunDir).div(pr).toVar()
+        const sunT = sampleTransmittanceNode(transmittance, pr, pmu).toVar()
+        If(sunBelowHorizonNode(pr, pmu), () => {
+          sunT.assign(vec3(0, 0, 0))
+        })
+        const ms = sampleMultiscatterNode(multiscatter, pmu, h)
+        const S = sunT
+          .mul(m.rayleighScattering.mul(pR).add(m.mieScattering.mul(pM)))
+          .add(ms.mul(m.rayleighScattering.add(m.mieScattering)))
+          .toVar()
+        const ext = max(m.extinction, vec3(1e-9, 1e-9, 1e-9))
+        L.addAssign(T.mul(S.sub(S.mul(ts))).div(ext))
+      }
+      T.mulAssign(ts)
+    })
+    return part === 'inscatter' ? L : T
+  })() as unknown as N<'vec3'>
+}
+
+/** 霞の LUT を焼く・引くのに要るカメラの値。毎フレーム書き換える uniform */
+export interface AerialInputs {
+  /** カメラの高さ km */
+  altitude: N<'float'>
+  /** ワールドの太陽の向き */
+  sunDir: N<'vec3'>
+  /** カメラの射影の逆行列（`camera.projectionMatrixInverse`） */
+  projectionInverse: N<'mat4'>
+  /** カメラのワールド行列（`camera.matrixWorld`） */
+  cameraWorld: N<'mat4'>
+}
+
+/**
+ * 画面の uv（左上が原点、`screenUV` と同じ約束）からワールドの視線の向き。
+ * 焼く側と引く側で同じ関数を使い、画面の上下の約束を 1 か所に閉じる
+ */
+function screenRayNode(screen: N<'vec2'>, inputs: AerialInputs): N<'vec3'> {
+  // 深度 0.5 は視線の上の 1 点を取るためだけの値。向きにしか使わない
+  const view = getViewPosition(screen as never, float(0.5) as never, inputs.projectionInverse as never)
+  return normalize(inputs.cameraWorld.mul(vec4(normalize(view), 0)).xyz) as unknown as N<'vec3'>
+}
+
+/**
+ * 霞の LUT を焼く断片。横 32 × 32 枚、縦 32 の 2D のアトラス。横の 32 画素ごとに
+ * 奥行きの 1 枚で、s 枚目は距離 `aerialSliceDistance(s)` までを積分する
+ */
+export function aerialFragmentNode(
+  transmittance: Texture,
+  multiscatter: Texture,
+  inputs: AerialInputs,
+  part: 'inscatter' | 'transmittance',
+): N<'vec4'> {
+  return Fn(() => {
+    const p = bakeUv()
+    const sx = p.x.mul(AERIAL_SLICES).toVar()
+    const slice = floor(sx).toVar()
+    const screen = vec2(fract(sx), p.y) as unknown as N<'vec2'>
+    const dir = screenRayNode(screen, inputs).toVar()
+    const f = slice.add(1).div(AERIAL_SLICES)
+    const distance = f.mul(f).mul(AERIAL_MAX_KM)
+    return vec4(
+      aerialNode(transmittance, multiscatter, inputs.altitude, dir, inputs.sunDir, distance as unknown as N<'float'>, part),
+      1,
+    )
+  })() as unknown as N<'vec4'>
+}
+
+/** 霞の LUT の焼き先の大きさ（横、縦） */
+export const AERIAL_ATLAS_WIDTH = AERIAL_SIZE * AERIAL_SLICES
+export const AERIAL_ATLAS_HEIGHT = AERIAL_SIZE
+
+/**
+ * 場面の色に霞を掛ける。`screen` は画素の画面の uv、`depth` は深度バッファの値。
+ * **空の画素（深度 1）には触らない。**空は背景に描いてある。
+ *
+ * 奥行きの 2 枚の間を線形に補間する。0 枚目より手前は「距離 0（入る光 0・透過率 1）」と
+ * 0 枚目の間で補間する。横は 1 枚の中で画素の中心の内側に留め、隣の枚へ滲ませない
+ */
+export function applyAerialNode(
+  color: N<'vec4'>,
+  depth: N<'float'>,
+  screen: N<'vec2'>,
+  inscatterAtlas: Texture,
+  transmittanceAtlas: Texture,
+  inputs: AerialInputs,
+  skyScale: N<'vec3'>,
+): N<'vec4'> {
+  return Fn(() => {
+    const out = vec4(color).toVar()
+    If(depth.lessThan(1), () => {
+      const view = getViewPosition(screen as never, depth as never, inputs.projectionInverse as never)
+      const distance = length(view).div(1000)
+      const s = sqrt(max(distance, 0).div(AERIAL_MAX_KM)).mul(AERIAL_SLICES).sub(1).toVar()
+      const s0 = clamp(floor(s), -1, AERIAL_SLICES - 1).toVar()
+      const w = clamp(s.sub(s0), 0, 1).toVar()
+      const half = 0.5 / AERIAL_SIZE
+      const x = clamp(screen.x, half, 1 - half)
+      const at = (slice: N<'float'>) =>
+        vec2(clamp(slice, 0, AERIAL_SLICES - 1).add(x).div(AERIAL_SLICES), screen.y)
+      const s1 = min(s0.add(1), AERIAL_SLICES - 1)
+      const in0 = s0.lessThan(0).select(vec3(0, 0, 0), texture(inscatterAtlas, at(s0), 0).rgb)
+      const in1 = texture(inscatterAtlas, at(s1 as unknown as N<'float'>), 0).rgb
+      const t0 = s0.lessThan(0).select(vec3(1, 1, 1), texture(transmittanceAtlas, at(s0), 0).rgb)
+      const t1 = texture(transmittanceAtlas, at(s1 as unknown as N<'float'>), 0).rgb
+      const inscatter = mix(in0, in1, w)
+      const trans = mix(t0, t1, w)
+      out.assign(vec4(color.rgb.mul(trans).add(inscatter.mul(skyScale)), color.a))
+    })
+    return out
+  })() as unknown as N<'vec4'>
+}
 
 /**
  * 地表の上向きの面が受ける天空の照度 / π（太陽の照度 1 あたり）。CPU 参照の

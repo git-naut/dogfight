@@ -115,6 +115,8 @@ export const PASS_GROUPS: readonly PassGroupRule[] = [
   { group: '環境反射', test: (s) => s.target === CUBE_TARGET || s.target === 'PMREM.cubeUv' },
   // 自前の空の見え方の LUT を毎フレーム焼くパス（段 S2a、`?sky=hillaire`）
   { group: '空', test: (s) => s.scene === 'Sky [ View ]' },
+  // 自前の霞の LUT（入る光と透過率の 2 枚）を毎フレーム焼くパス（段 S2b-1）
+  { group: '霞', test: (s) => s.scene === 'Sky [ Aerial ]' || s.scene === 'Sky [ Aerial T ]' },
   // takram の星空を焼くパス（`StarsNode`）。描き先にだけ名前がある
   { group: '星', test: (s) => s.target === 'Stars' },
   { group: '場面', test: (s) => s.scene === 'Scene' },

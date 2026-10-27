@@ -140,6 +140,9 @@ describe('名札と群', () => {
     expect(passGroup({ scene: 'lensRtt [ RTT ]', target: '' })).toBe('風圧')
     // 自前の空の見え方の LUT（段 S2a）
     expect(passGroup({ scene: 'Sky [ View ]', target: 'SkyView' })).toBe('空')
+    // 自前の霞の LUT（段 S2b-1）
+    expect(passGroup({ scene: 'Sky [ Aerial ]', target: 'SkyAerial' })).toBe('霞')
+    expect(passGroup({ scene: 'Sky [ Aerial T ]', target: 'SkyAerialT' })).toBe('霞')
     // 名前の無い焼き直しは、どちらにも入れない
     expect(passGroup({ scene: 'RTT', target: '' })).toBe(UNGROUPED)
   })

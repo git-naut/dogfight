@@ -570,6 +570,13 @@ export interface NodeProbeResult {
     skyView: number[]
     /** 地表の上向きの面の天空の照度 / π（太陽の照度 1 あたり、RGB） */
     irradianceOverPi: number[]
+    /** 同梱の照度の表を GPU で引いた格子（段 S2b、`irradianceProbePoint`） */
+    irradianceGrid: number[]
+    /** 固定のカメラで焼いた霞のアトラス（段 S2b、`AERIAL_PROBE_CAMERA`） */
+    aerialInscatter: number[]
+    aerialTransmittance: number[]
+    /** 霞を焼いたカメラの行列（列優先）。CPU 側が同じ視線を作る */
+    aerialCamera: { projectionInverse: number[]; cameraWorld: number[] }
   } | null
   /**
    * TSL で焼いた円形スプライトの生バイト。`?spriteprobe=1` のときだけ埋まる。

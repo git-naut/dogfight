@@ -182,7 +182,16 @@ interface ClearColorOwner {
 }
 
 export interface NodeOutputInput {
-  atmos: AtmosphereWebgpu
+  /**
+   * takram の大気。霞（`aerialPerspective`）に使う。`aerial` を渡したときは読まない
+   * （`?sky=hillaire`、段 S2b-1）
+   */
+  atmos?: AtmosphereWebgpu | null
+  /**
+   * 自前の霞（`hillaireSky.ts` の `aerial`）。場面の色・深度・その画素の画面の uv を受けて、
+   * 霞を掛けた色を返す。渡せば takram の霞の代わりに使う
+   */
+  aerial?: ((color: Node<'vec4'>, depth: Node<'float'>, screen: Node<'vec2'>) => Node<'vec4'>) | null
   /** `three/examples/jsm/tsl/display/SMAANode.js` の `smaa` */
   smaa: (node: Node) => Node
   scenePass: ScenePassLike
@@ -427,8 +436,11 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
     // **ここで順が決まる。**場面のパスを雲より先に触る
     let sceneColor: Node<'vec4'>
     let sceneDepth: Node<'vec4'>
+    // 場面を読む画面の uv。陽炎ではずらした位置。自前の霞は視線をこの uv から作る
+    let sceneAt: Node<'vec2'> = screenUV as unknown as Node<'vec2'>
     if (hazeEnabled) {
       const at = (screenUV as unknown as { add(n: unknown): Node<'vec2'> }).add(heatHazeOffset(input.heatHaze!))
+      sceneAt = at
       sceneColor = (scenePass.getTextureNode() as unknown as { sample(n: unknown): { toVar(): Node<'vec4'> } })
         .sample(at)
         .toVar()
@@ -438,6 +450,10 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
       sceneDepth = scenePass.getTextureNode('depth')
     }
     const hazed = overlayCompositeNode(cloudNode, () => {
+      if (input.aerial) {
+        return input.aerial(sceneColor, (sceneDepth as unknown as { x: Node<'float'> }).x, sceneAt)
+      }
+      if (!atmos) throw new Error('霞の描き手が無い。takram の大気か自前の霞のどちらかを渡す')
       const aerial = atmos.aerialPerspective(sceneColor as never, sceneDepth as never)
       // **空の画素を上書きさせない。**空は場面のパスの背景に描いてある
       // （`nodeScene.ts` の `skyBackground`）。`skyNode` が null なら

@@ -435,6 +435,7 @@ export function skyIrradianceOverPi(
   zenithSteps = 32,
   azimuthSteps = 64,
   haze = 1,
+  altitude = 0,
 ): [number, number, number] {
   const E = [0, 0, 0]
   for (let i = 0; i < zenithSteps; i++) {
@@ -446,12 +447,163 @@ export function skyIrradianceOverPi(
     for (let j = 0; j < azimuthSteps; j++) {
       const ph = (2 * Math.PI * (j + 0.5)) / azimuthSteps
       const dir: [number, number, number] = [sinTh * Math.cos(ph), cosTh, sinTh * Math.sin(ph)]
-      const L = skyRadiance(transmittance, multiscatter, 0, dir, sunMu, haze)
+      const L = skyRadiance(transmittance, multiscatter, altitude, dir, sunMu, haze)
       const dOmega = (c1 - c0) * ((2 * Math.PI) / azimuthSteps)
       for (let c = 0; c < 3; c++) E[c]! += L[c]! * cosTh * dOmega
     }
   }
   return [E[0]! / Math.PI, E[1]! / Math.PI, E[2]! / Math.PI]
+}
+
+// ---- 天空の照度の表（段 S2b） ----
+
+/**
+ * 天空の照度の表の大きさ。横が太陽の天頂角の余弦、縦が高さ。
+ *
+ * **太陽の向きにもカメラにも依らない**ので、起動時に焼かずに数表として同梱する
+ * （`irradianceTable.ts`）。GPU で焼くと 1 画素あたり 2,048 方向 × 48 歩で、CI の
+ * SwiftShader では起動のたびに秒の単位で掛かる見込み（推測）
+ */
+export const IRRADIANCE_WIDTH = 64
+export const IRRADIANCE_HEIGHT = 16
+/** 表の横の下端の余弦。太陽が 23.6 度より下では天空光はほぼ 0 なので、端で止める */
+export const IRRADIANCE_MU_MIN = -0.4
+/**
+ * 1 画素の積分の刻み（天頂角 × 方位）。正解と照らした S2a の刻みと同じ。
+ * 16 × 32 では 32 × 64 と 0.3% 違い、表の補間を足すと正午の赤が帯（3%）を
+ * 0.04% 越えた（段 S2b の実測）
+ */
+export const IRRADIANCE_ZENITH_STEPS = 32
+export const IRRADIANCE_AZIMUTH_STEPS = 64
+
+/** 表の画素 (x, y) の太陽の余弦と高さ km。端の画素の中心が範囲の端に来る */
+export function irradianceTexelCoords(x: number, y: number): { sunMu: number; altitude: number } {
+  const u = x / (IRRADIANCE_WIDTH - 1)
+  const v = y / (IRRADIANCE_HEIGHT - 1)
+  return {
+    sunMu: IRRADIANCE_MU_MIN + (1 - IRRADIANCE_MU_MIN) * u,
+    // 高さは 2 乗で配る。低い所（機体が飛ぶ 0〜15 km）に画素を寄せる
+    altitude: (TOP_RADIUS - GROUND_RADIUS) * v * v,
+  }
+}
+
+/** 表の画素の値（上向きの面の天空の照度 / π、太陽の照度 1 あたり） */
+export function irradianceTexel(
+  transmittance: RgbTable,
+  multiscatter: RgbTable,
+  x: number,
+  y: number,
+): [number, number, number] {
+  const { sunMu, altitude } = irradianceTexelCoords(x, y)
+  return skyIrradianceOverPi(
+    transmittance,
+    multiscatter,
+    sunMu,
+    IRRADIANCE_ZENITH_STEPS,
+    IRRADIANCE_AZIMUTH_STEPS,
+    1,
+    altitude,
+  )
+}
+
+/** 表を太陽の余弦と高さ km で引くときの uv */
+export function irradianceUv(sunMu: number, altitude: number): [number, number] {
+  const u = Math.min(Math.max((sunMu - IRRADIANCE_MU_MIN) / (1 - IRRADIANCE_MU_MIN), 0), 1)
+  const v = Math.sqrt(Math.min(Math.max(altitude / (TOP_RADIUS - GROUND_RADIUS), 0), 1))
+  return [fromUnitToSubUvs(u, IRRADIANCE_WIDTH), fromUnitToSubUvs(v, IRRADIANCE_HEIGHT)]
+}
+
+/** 表を引く */
+export function sampleIrradiance(table: RgbTable, sunMu: number, altitude: number): [number, number, number] {
+  const [u, v] = irradianceUv(sunMu, altitude)
+  return sampleTable(table, u, v)
+}
+
+// ---- 霞（段 S2b） ----
+
+/**
+ * 霞の LUT（Hillaire の aerial perspective）。画面を 32 × 32 に分け、奥行きを 32 枚に
+ * 切る。毎フレーム、カメラの視線ごとに焼く。奥行きは 2 乗で配り（近くを細かく）、
+ * 最後の 1 枚がカメラの遠方 200 km に当たる
+ */
+export const AERIAL_SIZE = 32
+export const AERIAL_SLICES = 32
+export const AERIAL_MAX_KM = 200
+/**
+ * 1 画素の積分の刻み。刻みの配り方は空の見え方（`skyRadiance`、48 歩）と同じ。
+ * 遠くまで積分した霞と空の差は、16 歩で最大 6.6%（夕方の下向き）、32 歩で 1.8%
+ * （段 S2b の実測、3 時刻 × 3 高度 × 36 方向）。差が大きいと水平線で地形と空が
+ * 継ぎ目になるので 32 歩を採った
+ */
+export const AERIAL_STEPS = 32
+
+/** 奥行きの s 枚目（0 始まり）の距離 km */
+export function aerialSliceDistance(slice: number): number {
+  const f = (slice + 1) / AERIAL_SLICES
+  return AERIAL_MAX_KM * f * f
+}
+
+/** 距離 km から奥行きの位置（小数）。0 枚目より手前は負になる */
+export function aerialSliceOf(distance: number): number {
+  return Math.sqrt(Math.max(distance, 0) / AERIAL_MAX_KM) * AERIAL_SLICES - 1
+}
+
+export interface Aerial {
+  /** 視線に沿って入る光（太陽の照度 1 あたり） */
+  inscatter: [number, number, number]
+  transmittance: [number, number, number]
+}
+
+/**
+ * 高さ altitude km の点から向き viewDir に distance km 進むまでの霞。
+ *
+ * 空の見え方（`skyRadiance`）と同じ被積分関数を、地面か上端か distance の近い方まで
+ * 積分する。太陽はワールドの向き sunDir（Y が上）で渡す
+ */
+export function aerialPerspective(
+  transmittance: RgbTable,
+  multiscatter: RgbTable,
+  altitude: number,
+  viewDir: readonly [number, number, number],
+  sunDir: readonly [number, number, number],
+  distance: number,
+  steps = AERIAL_STEPS,
+): Aerial {
+  const r = GROUND_RADIUS + altitude
+  const ro: [number, number, number] = [0, r, 0]
+  const tTop = raySphere(ro, viewDir, TOP_RADIUS)
+  const tGr = raySphere(ro, viewDir, GROUND_RADIUS)
+  const tMax = Math.min(distance, tGr[0] > 0 ? tGr[0] : tTop[1])
+  const cosT = viewDir[0] * sunDir[0] + viewDir[1] * sunDir[1] + viewDir[2] * sunDir[2]
+  const pR = phaseRayleigh(cosT)
+  const pM = phaseMie(cosT, MIE_G)
+  const L = [0, 0, 0]
+  const T = [1, 1, 1]
+  let tPrev = 0
+  for (let i = 0; i < steps; i++) {
+    const fa = (i + 1) / steps
+    const tn = tMax * fa * fa
+    const dt = tn - tPrev
+    const t = tPrev + dt * 0.3
+    tPrev = tn
+    const p = [ro[0] + viewDir[0] * t, ro[1] + viewDir[1] * t, ro[2] + viewDir[2] * t] as const
+    const pr = Math.hypot(p[0], p[1], p[2])
+    const h = pr - GROUND_RADIUS
+    const m = medium(h)
+    const pmu = (p[0] * sunDir[0] + p[1] * sunDir[1] + p[2] * sunDir[2]) / pr
+    const sunT = sunBelowHorizon(pr, pmu) ? [0, 0, 0] : sampleTransmittance(transmittance, pr, pmu)
+    const ms = sampleMultiscatter(multiscatter, pmu, h)
+    for (let c = 0; c < 3; c++) {
+      const S =
+        sunT[c]! * (m.rayleighScattering[c]! * pR + m.mieScattering * pM) +
+        ms[c]! * (m.rayleighScattering[c]! + m.mieScattering)
+      const ts = Math.exp(-m.extinction[c]! * dt)
+      const ext = Math.max(m.extinction[c]!, 1e-9)
+      L[c]! += (T[c]! * (S - S * ts)) / ext
+      T[c]! *= ts
+    }
+  }
+  return { inscatter: [L[0]!, L[1]!, L[2]!], transmittance: [T[0]!, T[1]!, T[2]!] }
 }
 
 // ---- 空の見え方の LUT ----

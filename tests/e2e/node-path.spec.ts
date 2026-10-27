@@ -21,11 +21,18 @@ import { toneProbeExpected, toneProbeLevels } from '../../src/render/toneProbe'
 import { NODE_REFERENCE as ref } from './nodeReference'
 import * as skyReference from '../../src/render/sky/reference'
 import {
+  AERIAL_PROBE_CAMERA,
+  AERIAL_PROBE_SUN,
+  IRRADIANCE_PROBE_HEIGHT,
+  IRRADIANCE_PROBE_WIDTH,
   SKY_PROBE_IRRADIANCE_TOLERANCE,
   SKY_PROBE_LUT_TOLERANCE,
   SKY_PROBE_SUN_MU,
+  irradianceProbePoint,
   lutNormalizedError,
+  screenRay,
 } from '../../src/render/sky/skyProbe'
+import { IRRADIANCE_TABLE } from '../../src/render/sky/irradianceTable'
 import {
   SURFACE_PROBE_SIDE,
   WATER_PROBE_REGIONS,
@@ -484,6 +491,61 @@ test.describe('node 経路', () => {
       expect(Math.abs(ratio - 1), `天空光の色 ${c} の GPU/CPU ${ratio.toFixed(5)}`).toBeLessThanOrEqual(
         SKY_PROBE_IRRADIANCE_TOLERANCE,
       )
+    }
+
+    // ---- 段 S2b ----
+    // 同梱の照度の表を GPU で引いた格子。場面の地形・海・雲の天空光はこの引き方で決まる。
+    // **表の行の向き（`DataTexture` は v を裏返さない）の誤りはここで出る**
+    const shipped = {
+      width: skyReference.IRRADIANCE_WIDTH,
+      height: skyReference.IRRADIANCE_HEIGHT,
+      data: Float64Array.from(IRRADIANCE_TABLE),
+    }
+    const grid = skyReference.buildTable(IRRADIANCE_PROBE_WIDTH, IRRADIANCE_PROBE_HEIGHT, (x, y) => {
+      const p = irradianceProbePoint(x, y)
+      return skyReference.sampleIrradiance(shipped, p.sunMu, p.altitude)
+    })
+
+    // 霞のアトラス。焼いたカメラの行列から CPU が同じ視線を作る。**画面の上下の約束を
+    // 取り違えると、地面へ向く視線と空へ向く視線が入れ替わって桁で外れる**
+    const cam = sky!.aerialCamera
+    const altitude = AERIAL_PROBE_CAMERA.position[1] / 1000
+    const width = skyReference.AERIAL_SIZE * skyReference.AERIAL_SLICES
+    const aerialOf = (x: number, y: number) => {
+      const slice = Math.floor(x / skyReference.AERIAL_SIZE)
+      const cx = x % skyReference.AERIAL_SIZE
+      const dir = screenRay(
+        (cx + 0.5) / skyReference.AERIAL_SIZE,
+        (y + 0.5) / skyReference.AERIAL_SIZE,
+        cam.projectionInverse,
+        cam.cameraWorld,
+      )
+      return skyReference.aerialPerspective(
+        transmittance,
+        multiscatter,
+        altitude,
+        dir,
+        AERIAL_PROBE_SUN,
+        skyReference.aerialSliceDistance(slice),
+      )
+    }
+    // CPU の表の行 y は LUT の uv の行 y で、画面の上から y 番目（焼く側と引く側が同じ
+    // `screenUV` の約束を使う）。読み戻しの行との裏返しは `lutNormalizedError` が持つ
+    const rows = skyReference.AERIAL_SIZE
+    const inscatter = skyReference.buildTable(width, rows, (x, y) => aerialOf(x, y).inscatter)
+    const trans = skyReference.buildTable(width, rows, (x, y) => aerialOf(x, y).transmittance)
+
+    for (const [label, gpuTable, cpuTable] of [
+      ['照度の表の格子', sky!.irradianceGrid, grid],
+      ['霞の入る光', sky!.aerialInscatter, inscatter],
+      ['霞の透過率', sky!.aerialTransmittance, trans],
+    ] as const) {
+      expect(gpuTable.length).toBe(cpuTable.width * cpuTable.height * 4)
+      const error = lutNormalizedError(gpuTable, cpuTable)
+      // eslint-disable-next-line no-console
+      console.log(`[空 gpu=${gpu}] ${label} 最大値に対する差 ${error.toExponential(2)}`)
+      expect(error, `${label}の差 ${error.toExponential(2)}`).toBeLessThanOrEqual(SKY_PROBE_LUT_TOLERANCE)
+      expect(lutNormalizedError(gpuTable, cpuTable, false), `${label}の向きの検査に歯がない`).toBeGreaterThan(0.1)
     }
   }
 

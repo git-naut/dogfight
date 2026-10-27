@@ -58,3 +58,54 @@ export function lutNormalizedError(
   }
   return worst
 }
+
+// ---- 段 S2b の自己診断 ----
+
+/**
+ * 照度の表を GPU で引く点の格子（横 16 × 縦 6）。表の画素の中心から外した所を引き、
+ * 補間と表の行の向き（`DataTexture` は v を裏返さない）を見る
+ */
+export const IRRADIANCE_PROBE_WIDTH = 16
+export const IRRADIANCE_PROBE_HEIGHT = 6
+export function irradianceProbePoint(x: number, y: number): { sunMu: number; altitude: number } {
+  const f = y / (IRRADIANCE_PROBE_HEIGHT - 1)
+  return { sunMu: -0.35 + (1.33 * x) / (IRRADIANCE_PROBE_WIDTH - 1), altitude: 50 * f * f }
+}
+
+/**
+ * 霞の LUT を焼くカメラ（高さ 2 km、水平から 10 度下を、太陽から方位 40 度ずらして見る）と
+ * 太陽の向き（16 時、`tests/render/solar.test.ts` の takram の記録）。カメラの値は
+ * 焼き手（`pipeline/node.ts`）が three の `PerspectiveCamera` で行列にして結果に載せる
+ */
+export const AERIAL_PROBE_CAMERA = {
+  position: [0, 2000, 0] as const,
+  /** 見る向き（ワールド） */
+  forward: [Math.cos((-10 * Math.PI) / 180) * Math.cos(Math.PI / 4), Math.sin((-10 * Math.PI) / 180), Math.cos((-10 * Math.PI) / 180) * Math.sin(Math.PI / 4)] as const,
+  fov: 60,
+  aspect: 16 / 9,
+  near: 5,
+  far: 200_000,
+}
+export const AERIAL_PROBE_SUN = [0.091377761578, 0.534583678711, 0.840160934074] as const
+
+/**
+ * 画面の uv（左上が原点）からワールドの視線の向き。`skyNodes.ts` の `screenRayNode`
+ * （three の `getViewPosition` の WebGPU の分岐）の写し。行列は列優先の 16 個
+ */
+export function screenRay(
+  u: number,
+  v: number,
+  projectionInverse: ArrayLike<number>,
+  cameraWorld: ArrayLike<number>,
+): [number, number, number] {
+  const m = projectionInverse
+  const clip = [u * 2 - 1, (1 - v) * 2 - 1, 0.5, 1]
+  const view = [0, 1, 2, 3].map((r) => m[r]! * clip[0]! + m[4 + r]! * clip[1]! + m[8 + r]! * clip[2]! + m[12 + r]! * clip[3]!)
+  const p = [view[0]! / view[3]!, view[1]! / view[3]!, view[2]! / view[3]!]
+  const l = Math.hypot(p[0]!, p[1]!, p[2]!)
+  const d = [p[0]! / l, p[1]! / l, p[2]! / l]
+  const w = cameraWorld
+  const out = [0, 1, 2].map((r) => w[r]! * d[0]! + w[4 + r]! * d[1]! + w[8 + r]! * d[2]!)
+  const lo = Math.hypot(out[0]!, out[1]!, out[2]!)
+  return [out[0]! / lo, out[1]! / lo, out[2]! / lo]
+}

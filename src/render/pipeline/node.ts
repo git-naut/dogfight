@@ -795,11 +795,98 @@ export async function runNodeProbe(
         isWebGPU,
       ),
       irradianceOverPi: (await volume.readPlane(renderer, irradianceTarget, 1, 1, isWebGPU)).slice(0, 3),
+      ...(await probeSkyS2b(transmittanceTarget.texture, multiscatterTarget.texture)),
     }
     transmittanceTarget.dispose()
     multiscatterTarget.dispose()
     skyViewTarget.dispose()
     irradianceTarget.dispose()
+  }
+
+  /**
+   * 段 S2b の自己診断。同梱の照度の表を GPU で引いた格子と、固定のカメラで焼いた霞の
+   * アトラス（入る光と透過率）を読み戻す。固定の入力は `sky/skyProbe.ts`
+   */
+  async function probeSkyS2b(transmittance: THREE.Texture, multiscatter: THREE.Texture) {
+    const skyNodes = await import('../sky/skyNodes')
+    const skyProbe = await import('../sky/skyProbe')
+    const { createIrradianceTexture } = await import('../sky/hillaireSky')
+
+    const table = createIrradianceTexture()
+    const grid = tsl.Fn(() => {
+      const p = skyNodes.bakeUv()
+      const x = tsl.floor(p.x.mul(skyProbe.IRRADIANCE_PROBE_WIDTH))
+      const y = tsl.floor(p.y.mul(skyProbe.IRRADIANCE_PROBE_HEIGHT))
+      // `irradianceProbePoint` と同じ式
+      const f = y.div(skyProbe.IRRADIANCE_PROBE_HEIGHT - 1)
+      const sunMu = x.mul(1.33 / (skyProbe.IRRADIANCE_PROBE_WIDTH - 1)).add(-0.35)
+      const altitude = f.mul(f).mul(50)
+      return tsl.vec4(skyNodes.sampleIrradianceNode(table, sunMu as never, altitude as never), 1)
+    })()
+    const gridTarget = volume.bakePlane(
+      renderer,
+      quad,
+      skyProbe.IRRADIANCE_PROBE_WIDTH,
+      skyProbe.IRRADIANCE_PROBE_HEIGHT,
+      grid as never,
+      { float: true },
+    )
+    const irradianceGrid = await volume.readPlane(
+      renderer,
+      gridTarget,
+      skyProbe.IRRADIANCE_PROBE_WIDTH,
+      skyProbe.IRRADIANCE_PROBE_HEIGHT,
+      isWebGPU,
+    )
+    gridTarget.dispose()
+    table.dispose()
+
+    const c = skyProbe.AERIAL_PROBE_CAMERA
+    const camera = new THREE.PerspectiveCamera(c.fov, c.aspect, c.near, c.far)
+    // 場面と同じく WebGPU の座標系の射影にする（three が描くときに切り替える値）
+    camera.coordinateSystem = renderer.coordinateSystem
+    camera.position.set(c.position[0], c.position[1], c.position[2])
+    camera.lookAt(
+      c.position[0] + c.forward[0],
+      c.position[1] + c.forward[1],
+      c.position[2] + c.forward[2],
+    )
+    camera.updateProjectionMatrix()
+    camera.updateMatrixWorld()
+    const inputs = {
+      altitude: tsl.float(c.position[1] / 1000) as never,
+      sunDir: tsl.vec3(...skyProbe.AERIAL_PROBE_SUN) as never,
+      projectionInverse: tsl.uniform(camera.projectionMatrixInverse.clone()) as never,
+      cameraWorld: tsl.uniform(camera.matrixWorld.clone()) as never,
+    }
+    const atlas = async (part: 'inscatter' | 'transmittance') => {
+      const target = volume.bakePlane(
+        renderer,
+        quad,
+        skyNodes.AERIAL_ATLAS_WIDTH,
+        skyNodes.AERIAL_ATLAS_HEIGHT,
+        skyNodes.aerialFragmentNode(transmittance, multiscatter, inputs, part),
+        { float: true },
+      )
+      const values = await volume.readPlane(
+        renderer,
+        target,
+        skyNodes.AERIAL_ATLAS_WIDTH,
+        skyNodes.AERIAL_ATLAS_HEIGHT,
+        isWebGPU,
+      )
+      target.dispose()
+      return values
+    }
+    return {
+      irradianceGrid,
+      aerialInscatter: await atlas('inscatter'),
+      aerialTransmittance: await atlas('transmittance'),
+      aerialCamera: {
+        projectionInverse: camera.projectionMatrixInverse.toArray(),
+        cameraWorld: camera.matrixWorld.toArray(),
+      },
+    }
   }
 
   // ---- 地表と海面 ----

@@ -27,11 +27,12 @@ import { createTerrainMesh, createTerrainUniforms, type TerrainMesh } from '../t
 import { createWater, type Water } from '../terrain/water'
 import { createHeightTexture, createNormalTexture } from '../terrain/heightTexture'
 import { defaultTerrain, type Terrain } from '../../sim/terrain'
-import { DEFAULT_HOUR } from '../geoFrame'
+import { DEFAULT_HOUR, REFERENCE_LATITUDE, REFERENCE_LONGITUDE, dateForHour } from '../geoFrame'
 import {
   setupAtmosphereNodes,
   solarFrameForHour,
-  type AtmosphereNodes,
+  type AtmosphereSunLight,
+  type SolarFrame,
 } from '../atmosphereNodes'
 import { createGpuTimer, type GpuTimer } from '../gpuTimer'
 import {
@@ -49,7 +50,8 @@ import {
   type SceneOptions,
 } from './types'
 import { WebGPUUnavailable } from './webgpuRequired'
-import { createHillaireSky } from '../sky/hillaireSky'
+import { createHillaireSky, type SkyLighting } from '../sky/hillaireSky'
+import { sunDirectionLocal } from '../sky/solar'
 
 /**
  * 場面を node 経路（`WebGPURenderer`）で組む。
@@ -129,9 +131,12 @@ export async function createNodePipeline(
   const chase = createChaseCamera(camera)
 
   let hour = options.hour ?? DEFAULT_HOUR
-  let solar = solarFrameForHour(hour)
+  // **`?sky=hillaire` では takram を読み込まない**（段 S2b-1）。太陽の向きも自前の式
+  // （`sky/solar.ts`）が出す。takram との継ぎ目がどこかに残っていれば、ここで落ちて見える
+  const hillaireMode = options.sky === 'hillaire'
+  let solar: SunFrame = sunFrameFor(hour, hillaireMode)
 
-  const atmos = await import('@takram/three-atmosphere/webgpu')
+  const atmos = hillaireMode ? null : await import('@takram/three-atmosphere/webgpu')
   const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
   // **ブルームも別チャンクにする。**SMAA と同じ方針（`nodeOutput.ts` の注記）
   const { bloom } = await import('three/examples/jsm/tsl/display/BloomNode.js')
@@ -143,30 +148,41 @@ export async function createNodePipeline(
     import('three/tsl'),
   ])
 
-  const atmosphere = setupAtmosphereNodes(atmos, {
-    renderer,
-    camera,
-    scene,
-    quality,
-    worldToECEF: solar.worldToECEF,
-    sunDirectionECEF: solar.sunDirectionECEF,
-    moonDirectionECEF: solar.moonDirectionECEF,
-    // **空は場面のパスの背景として描く**（段 29 の前提の修正、2026-09-28）。
-    // 以前は背景を置かず、`AerialPerspectiveNode` が `depth >= 1` の画素の rgb を
-    // `skyNode` で上書きしていた。深度を書かない半透明の物（爆発、飛行機雲、
-    // 煙）は空の手前にあっても上書きされて消えた。背景に描けば GLSL 経路と
-    // 同じく、半透明の物は場面のパスの中で空の上に重なる。上書きは
-    // `nodeOutput.ts` で切る（`skyNode = null`）
-    // `?sky=hillaire` では自前の空を背景に置く（段 S2a の隠しの口）。霞と照度は takram のまま
-    skyBackground: options.sky !== 'hillaire',
-  })
-  const atmosphereNodes: AtmosphereNodes = atmosphere.nodes
-  const hillaire = options.sky === 'hillaire' ? createHillaireSky(renderer) : null
+  const atmosphere =
+    atmos === null
+      ? null
+      : setupAtmosphereNodes(atmos, {
+          renderer,
+          camera,
+          scene,
+          quality,
+          ...takramFrame(solar),
+          // **空は場面のパスの背景として描く**（段 29 の前提の修正、2026-09-28）。
+          // 以前は背景を置かず、`AerialPerspectiveNode` が `depth >= 1` の画素の rgb を
+          // `skyNode` で上書きしていた。深度を書かない半透明の物（爆発、飛行機雲、
+          // 煙）は空の手前にあっても上書きされて消えた。背景に描けば GLSL 経路と
+          // 同じく、半透明の物は場面のパスの中で空の上に重なる。上書きは
+          // `nodeOutput.ts` で切る（`skyNode = null`）
+          skyBackground: true,
+        })
+  const hillaire = hillaireMode ? createHillaireSky(renderer) : null
+  hillaire?.setSun(solar.sunDirectionWorld)
+  /** 照度の口。地形・海・雲・照度の読み戻しが同じものを読む */
+  const atmosphereNodes: SkyLighting = hillaire !== null ? hillaire.lighting : atmosphere!.nodes
+  /** 環境反射を作る。大きさ 0 は切る（`skyEnvironmentSize`） */
+  const environmentFor = (size: number): unknown =>
+    size <= 0 ? null : hillaire !== null ? hillaire.environmentNode : atmos!.skyEnvironment(size)
   if (hillaire !== null) {
-    ;(scene as unknown as { backgroundNode: unknown }).backgroundNode = hillaire.backgroundNode
+    const sceneNodes = scene as unknown as { backgroundNode: unknown; environmentNode: unknown }
+    sceneNodes.backgroundNode = hillaire.backgroundNode
+    // **0 のときも明示的に null を入れる**（`setupAtmosphereNodes` の注記と同じ理由）
+    sceneNodes.environmentNode = environmentFor(quality.skyEnvironmentSize)
+    scene.add(hillaire.sunLight, hillaire.sunLight.target, hillaire.skyLight)
   }
-  /** 自前の空の見え方の LUT を焼き直す。場面を描く前に呼ぶ */
-  const updateHillaire = () => hillaire?.update(renderer, camera.position.y, solar.sunDirectionWorld)
+  /** 光の色を決める点（機体の位置）。`setLightAnchor` が書き換える */
+  const anchor = new THREE.Vector3(0, 0, 0)
+  /** 自前の空と霞の LUT を焼き直し、機体の光を入れ直す。場面を描く前に呼ぶ */
+  const updateHillaire = () => hillaire?.update(renderer, camera, solar.sunDirectionWorld, anchor)
 
   const noise = await bakeNodeCloudNoise(renderer)
 
@@ -300,7 +316,7 @@ export async function createNodePipeline(
   // `buildNodePipeline` が組み立てのあとで立てる。
   // `renderer.shadowMap.enabled` を先に立てる必要があり、忘れると
   // ノードが本体を生成しないまま最初の描画で落ちる（`nodeShadow.ts`）
-  const shadowLight = atmosphere.sunLight
+  const shadowLight: AtmosphereSunLight = hillaire !== null ? hillaire.sunLight : atmosphere!.sunLight
   views.aircraft.object.traverse((o) => {
     if (o instanceof THREE.Mesh) o.castShadow = true
   })
@@ -410,6 +426,7 @@ export async function createNodePipeline(
     bloomStrength.value = options.bloomStrength ?? q.bloomStrength
     const built = createNodeOutputNode({
       atmos,
+      aerial: hillaire !== null ? hillaire.aerial : null,
       smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
       scenePass,
       cloudNode: clouds.node.mul(cloudVisibility) as unknown as webgpu.Node<'vec4'>,
@@ -460,7 +477,7 @@ export async function createNodePipeline(
     // low プリセットで「影が切れている」の検査が通らない
     shadowLight: shadowInfo.enabled ? shadowLight : null,
     clouds,
-    lutNode: atmosphere.context.lutNode,
+    lutNode: atmosphere?.context.lutNode ?? null,
   })
   const pipeline = built.pipeline
   prewarmExplosions()
@@ -480,7 +497,6 @@ export async function createNodePipeline(
   const radianceQuad = createBakeQuad()
   const sunRadiance = new THREE.Vector3()
   const skyRadiance = new THREE.Vector3()
-  const anchor = new THREE.Vector3(0, 0, 0)
 
   const radianceFragment = (sky: boolean) =>
     Fn(() => {
@@ -574,7 +590,7 @@ export async function createNodePipeline(
     if (wantedEnv !== environmentSize) {
       environmentSize = wantedEnv
       const sceneNodes = scene as unknown as { environmentNode: unknown }
-      sceneNodes.environmentNode = wantedEnv > 0 ? atmos.skyEnvironment(wantedEnv) : null
+      sceneNodes.environmentNode = environmentFor(wantedEnv)
       pipeline.needsUpdate = true
     }
     // **ポストの鎖もプリセットで変わる。**組み直さないと、表に載せた設定を
@@ -627,7 +643,7 @@ export async function createNodePipeline(
 
     setLightAnchor(x, y, z) {
       // 高度で透過率が変わるので、照度を引く点を機体に合わせる。
-      // 光の位置は `AtmosphereLight` が向きから決めるので触らない
+      // 光の位置は `AtmosphereLight`（自前の空では `hillaire.update`）が向きから決めるので触らない
       anchor.set(x, y, z)
       shadowLight.target.position.set(x, y, z)
     },
@@ -640,15 +656,19 @@ export async function createNodePipeline(
     setHour(next) {
       if (next === hour) return
       hour = next
-      solar = solarFrameForHour(hour)
-      atmosphere.context.matrixWorldToECEF.value.copy(solar.worldToECEF)
-      atmosphere.context.sunDirectionECEF.value.copy(solar.sunDirectionECEF)
-      atmosphere.context.moonDirectionECEF.value.copy(solar.moonDirectionECEF)
+      solar = sunFrameFor(hour, hillaireMode)
+      if (atmosphere !== null) {
+        const frame = takramFrame(solar)
+        atmosphere.context.matrixWorldToECEF.value.copy(frame.worldToECEF)
+        atmosphere.context.sunDirectionECEF.value.copy(frame.sunDirectionECEF)
+        atmosphere.context.moonDirectionECEF.value.copy(frame.moonDirectionECEF)
+      }
       surfaceState.setSunDirection(
         solar.sunDirectionWorld.x,
         solar.sunDirectionWorld.y,
         solar.sunDirectionWorld.z,
       )
+      hillaire?.setSun(solar.sunDirectionWorld)
       void refreshRadiance()
     },
 
@@ -860,7 +880,7 @@ export async function createNodePipeline(
       if (config.environment !== undefined) {
         const sceneNodes = scene as unknown as { environmentNode: unknown }
         sceneNodes.environmentNode = config.environment
-          ? atmos.skyEnvironment(quality.skyEnvironmentSize)
+          ? environmentFor(quality.skyEnvironmentSize)
           : null
         pipeline.needsUpdate = true
       }
@@ -891,4 +911,30 @@ export async function createNodePipeline(
       renderer.dispose()
     },
   }
+}
+
+/**
+ * 太陽の向き。takram の経路は ECEF の行列と月の向きも持つ（`SolarFrame`）。
+ * 自前の空（`?sky=hillaire`）はワールドの向きだけを持ち、向きは `sky/solar.ts` が出す
+ */
+type SunFrame = Pick<SolarFrame, 'sunDirectionWorld' | 'sunElevationDeg'> & Partial<SolarFrame>
+
+function sunFrameFor(hour: number, hillaire: boolean): SunFrame {
+  if (!hillaire) return solarFrameForHour(hour)
+  const d = sunDirectionLocal(dateForHour(hour), REFERENCE_LATITUDE, REFERENCE_LONGITUDE)
+  return {
+    sunDirectionWorld: new THREE.Vector3(d.x, d.y, d.z),
+    sunElevationDeg: (Math.asin(Math.max(-1, Math.min(1, d.y))) * 180) / Math.PI,
+  }
+}
+
+/** takram の文脈に入れる 3 つ。自前の空の向きでは呼ばない */
+function takramFrame(
+  frame: SunFrame,
+): Pick<SolarFrame, 'worldToECEF' | 'sunDirectionECEF' | 'moonDirectionECEF'> {
+  const { worldToECEF, sunDirectionECEF, moonDirectionECEF } = frame
+  if (!worldToECEF || !sunDirectionECEF || !moonDirectionECEF) {
+    throw new Error('takram の大気に、自前の空の太陽の向きを渡した')
+  }
+  return { worldToECEF, sunDirectionECEF, moonDirectionECEF }
 }

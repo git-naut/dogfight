@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   GROUND_RADIUS,
+  IRRADIANCE_HEIGHT,
+  IRRADIANCE_WIDTH,
   SUN_ILLUMINANCE,
   buildMultiscatterTable,
   buildTransmittanceTable,
+  sampleIrradiance,
   skyIrradianceOverPi,
   transmittanceToTop,
 } from '@render/sky/reference'
+import { IRRADIANCE_TABLE } from '@render/sky/irradianceTable'
 import { monteCarloSky } from './skyMonteCarlo'
 
 /**
@@ -60,6 +64,11 @@ const SKY_TOLERANCE_LOW = 0.05
 
 const transmittance = buildTransmittanceTable()
 const multiscatter = buildMultiscatterTable(transmittance)
+const irradianceTable = {
+  width: IRRADIANCE_WIDTH,
+  height: IRRADIANCE_HEIGHT,
+  data: Float64Array.from(IRRADIANCE_TABLE),
+}
 
 describe('自前の空の光の強さ', () => {
   for (const t of TAKRAM) {
@@ -79,6 +88,19 @@ describe('自前の空の光の強さ', () => {
     const tolerance = elevationDeg >= SKY_BAND_DEG ? SKY_TOLERANCE_HIGH : SKY_TOLERANCE_LOW
     it(`${truth.hour} 時（太陽高度 ${elevationDeg.toFixed(1)} 度）の天空光が正解と ${tolerance * 100}% 以内`, () => {
       const got = skyIrradianceOverPi(transmittance, multiscatter, truth.sunMu)
+      for (let c = 0; c < 3; c++) {
+        const ratio = got[c]! / truth.value[c]!
+        expect(Math.abs(ratio - 1), `${truth.hour} 時の色 ${c} の比 ${ratio.toFixed(4)}`).toBeLessThanOrEqual(tolerance)
+      }
+    })
+  }
+
+  for (const truth of TRUTH) {
+    const elevationDeg = (Math.asin(truth.sunMu) * 180) / Math.PI
+    const tolerance = elevationDeg >= SKY_BAND_DEG ? SKY_TOLERANCE_HIGH : SKY_TOLERANCE_LOW
+    it(`${truth.hour} 時の天空光を同梱の表（段 S2b）から引いても正解と ${tolerance * 100}% 以内`, () => {
+      // 場面が実際に使うのは表の値。表の刻み（16 × 32）と補間の誤差を足しても帯の内に入るか
+      const got = sampleIrradiance(irradianceTable, truth.sunMu, 0)
       for (let c = 0; c < 3; c++) {
         const ratio = got[c]! / truth.value[c]!
         expect(Math.abs(ratio - 1), `${truth.hour} 時の色 ${c} の比 ${ratio.toFixed(4)}`).toBeLessThanOrEqual(tolerance)

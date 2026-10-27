@@ -137,6 +137,12 @@ export interface NodeProbeOptions {
    */
   heightProbe: boolean
   /**
+   * 自前の空（Hillaire）の LUT と天空光を焼いて出すか。`?skyprobe=1`（段 S2a）。
+   *
+   * 固定の入力は `sky/skyProbe.ts` が唯一の定義で、CPU 参照（`sky/reference.ts`）と比べる
+   */
+  skyProbe?: boolean
+  /**
    * 影を node 経路で立てて測るか。`?nodeshadow=1`。
    *
    * `shadow(light)` の経路が立つか、プリセットのフィルタが渡るか、影マップが
@@ -707,6 +713,93 @@ export async function runNodeProbe(
       heightTarget.dispose()
     }
     heightMap.dispose()
+  }
+
+  // ---- 自前の空（段 S2a）----
+  //
+  // 透過率・多重散乱・空の見え方の LUT と、地表の天空光を 1 点焼いて読み戻す。
+  // 相手は CPU 参照（`sky/reference.ts`）。LUT は相対 1e-3、天空光は正解との関門
+  // （`tests/render/skyTruth.test.ts` と同じ）を node-path.spec が見る
+  let sky: NodeProbeResult['sky'] = null
+  if (options.skyProbe === true) {
+    const skyNodes = await import('../sky/skyNodes')
+    const skyProbe = await import('../sky/skyProbe')
+    const reference = await import('../sky/reference')
+    const transmittanceTarget = volume.bakePlane(
+      renderer,
+      quad,
+      reference.TRANSMITTANCE_WIDTH,
+      reference.TRANSMITTANCE_HEIGHT,
+      skyNodes.transmittanceFragmentNode(),
+      { float: true },
+    )
+    const multiscatterTarget = volume.bakePlane(
+      renderer,
+      quad,
+      reference.MULTISCATTER_SIZE,
+      reference.MULTISCATTER_SIZE,
+      skyNodes.multiscatterFragmentNode(transmittanceTarget.texture),
+      { float: true },
+    )
+    const sunMu = tsl.float(skyProbe.SKY_PROBE_SUN_MU) as never
+    const skyViewTarget = volume.bakePlane(
+      renderer,
+      quad,
+      reference.SKY_VIEW_WIDTH,
+      reference.SKY_VIEW_HEIGHT,
+      skyNodes.skyViewFragmentNode(
+        transmittanceTarget.texture,
+        multiscatterTarget.texture,
+        tsl.float(0) as never,
+        sunMu,
+      ),
+      { float: true },
+    )
+    const irradianceTarget = volume.bakePlane(
+      renderer,
+      quad,
+      1,
+      1,
+      tsl.vec4(
+        skyNodes.skyIrradianceOverPiNode(
+          transmittanceTarget.texture,
+          multiscatterTarget.texture,
+          sunMu,
+          skyProbe.SKY_PROBE_ZENITH_STEPS,
+          skyProbe.SKY_PROBE_AZIMUTH_STEPS,
+        ),
+        1,
+      ) as never,
+      { float: true },
+    )
+    sky = {
+      transmittance: await volume.readPlane(
+        renderer,
+        transmittanceTarget,
+        reference.TRANSMITTANCE_WIDTH,
+        reference.TRANSMITTANCE_HEIGHT,
+        isWebGPU,
+      ),
+      multiscatter: await volume.readPlane(
+        renderer,
+        multiscatterTarget,
+        reference.MULTISCATTER_SIZE,
+        reference.MULTISCATTER_SIZE,
+        isWebGPU,
+      ),
+      skyView: await volume.readPlane(
+        renderer,
+        skyViewTarget,
+        reference.SKY_VIEW_WIDTH,
+        reference.SKY_VIEW_HEIGHT,
+        isWebGPU,
+      ),
+      irradianceOverPi: (await volume.readPlane(renderer, irradianceTarget, 1, 1, isWebGPU)).slice(0, 3),
+    }
+    transmittanceTarget.dispose()
+    multiscatterTarget.dispose()
+    skyViewTarget.dispose()
+    irradianceTarget.dispose()
   }
 
   // ---- 地表と海面 ----
@@ -1813,6 +1906,7 @@ export async function runNodeProbe(
     shadowTiles,
     march,
     heightProbe,
+    sky,
     sprite,
     tone,
     overlay,

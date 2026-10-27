@@ -19,6 +19,13 @@ import {
 } from '../../src/sim/terrain'
 import { toneProbeExpected, toneProbeLevels } from '../../src/render/toneProbe'
 import { NODE_REFERENCE as ref } from './nodeReference'
+import * as skyReference from '../../src/render/sky/reference'
+import {
+  SKY_PROBE_IRRADIANCE_TOLERANCE,
+  SKY_PROBE_LUT_TOLERANCE,
+  SKY_PROBE_SUN_MU,
+  lutNormalizedError,
+} from '../../src/render/sky/skyProbe'
 import {
   SURFACE_PROBE_SIDE,
   WATER_PROBE_REGIONS,
@@ -431,6 +438,62 @@ test.describe('node 経路', () => {
     // **移植を間違えれば m の単位で外れる**ので、1 cm を関門にする
     const worst = heightMaxError(expected, result.heightProbe!)
     expect(worst, `最大のずれ ${worst} m`).toBeLessThan(1e-2)
+  })
+
+  /**
+   * **自前の空（段 S2a）。**Hillaire の 3 つの LUT と天空光を GPU で焼き、CPU 参照
+   * （`src/render/sky/reference.ts`）と比べる。光の強さそのもの（正解との関門）は
+   * vitest（`tests/render/skyTruth.test.ts`）が CPU 参照の側で見るので、ここは
+   * 「GPU が CPU 参照と同じ値を出す」だけを見る。
+   *
+   * 許容は各色の LUT の最大値に対する差で 2e-3、天空光は相対 1e-3（ユーザーの決定、
+   * 2026-10-26。理由は `sky/skyProbe.ts`）。実測は透過率 5.5e-4、多重散乱 1.4e-3、
+   * 空の見え方 5.9e-4、天空光 3.5e-4
+   */
+  async function expectSkyMatchesReference(page: Page, gpu: 1 | 2) {
+    const { result, errors } = await probe(page, `gpu=${gpu}&skyprobe=1`)
+    expect(errors).toEqual([])
+    const sky = result.sky
+    expect(sky, '自前の空を焼いていない').toBeTruthy()
+
+    const transmittance = skyReference.buildTransmittanceTable()
+    const multiscatter = skyReference.buildMultiscatterTable(transmittance)
+    const skyView = skyReference.buildSkyViewTable(transmittance, multiscatter, 0, SKY_PROBE_SUN_MU)
+    expect(sky!.transmittance.length).toBe(transmittance.width * transmittance.height * 4)
+    expect(sky!.multiscatter.length).toBe(multiscatter.width * multiscatter.height * 4)
+    expect(sky!.skyView.length).toBe(skyView.width * skyView.height * 4)
+
+    for (const [label, gpuTable, cpuTable] of [
+      ['透過率', sky!.transmittance, transmittance],
+      ['多重散乱', sky!.multiscatter, multiscatter],
+      ['空の見え方', sky!.skyView, skyView],
+    ] as const) {
+      const error = lutNormalizedError(gpuTable, cpuTable)
+      // eslint-disable-next-line no-console
+      console.log(`[空 gpu=${gpu}] ${label} 最大値に対する差 ${error.toExponential(2)}`)
+      expect(error, `${label}の差 ${error.toExponential(2)}`).toBeLessThanOrEqual(SKY_PROBE_LUT_TOLERANCE)
+      // **向きを取り違えたら落ちること。**上下が逆でも一致するなら、比べ方が空回りしている
+      expect(lutNormalizedError(gpuTable, cpuTable, false), `${label}の向きの検査に歯がない`).toBeGreaterThan(0.1)
+    }
+
+    // LUT を引いて半球で足した天空光。**LUT の引き方（v の向き）の誤りはここで出る。**
+    // 焼いた LUT が正しくても、引くときに上下を取り違えると天空光がずれる
+    const cpu = skyReference.skyIrradianceOverPi(transmittance, multiscatter, SKY_PROBE_SUN_MU)
+    for (let c = 0; c < 3; c++) {
+      const ratio = sky!.irradianceOverPi[c]! / cpu[c]!
+      expect(Math.abs(ratio - 1), `天空光の色 ${c} の GPU/CPU ${ratio.toFixed(5)}`).toBeLessThanOrEqual(
+        SKY_PROBE_IRRADIANCE_TOLERANCE,
+      )
+    }
+  }
+
+  test('TSL の自前の空が CPU 参照と一致する', async ({ page }) => {
+    await expectSkyMatchesReference(page, 1)
+  })
+
+  test('WGSL でも自前の空が CPU 参照と一致する', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
+    await expectSkyMatchesReference(page, 2)
   })
 
   test('node 経路で影が立ち、影マップは 1 回しか焼かれない', async ({ page }) => {

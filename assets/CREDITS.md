@@ -77,9 +77,6 @@ Justin Nicholson、Enrico Castaldi、Timi、Barszczisbad、PH-JAKE、Bat Campion
 
 | ファイル | 名称 | 作者 | ライセンス | 取得元 | 取得日 |
 |---|---|---|---|---|---|
-| public/atmosphere/scattering.exr | 大気散乱 LUT | Takram Design Engineering | MIT | [@takram/three-atmosphere](https://github.com/takram-design-engineering/three-geospatial) | 2026-08-16 |
-| public/atmosphere/transmittance.exr | 大気透過率 LUT | Takram Design Engineering | MIT | 同上 | 2026-08-16 |
-| public/atmosphere/irradiance.exr | 天空放射照度 LUT | Takram Design Engineering | MIT | 同上 | 2026-08-16 |
 | assets/upstream/f18/f18top.rgb | F/A-18C の胴体と主翼 | Fabrice Kauffmann | GPLv2+ | [FlightGear FGAddon](https://sourceforge.net/p/flightgear/fgaddon/HEAD/tree/trunk/Aircraft/f18/) `Models/f18top.rgb`（r997） | 2026-08-18 |
 | assets/upstream/f18/f18tail.rgb | F/A-18C の尾部 | Fabrice Kauffmann | GPLv2+ | 同上 `Models/f18tail.rgb`（r997） | 2026-08-18 |
 | assets/upstream/f18/f18cockpit.rgb | F/A-18C の操縦席内装 | Fabrice Kauffmann | GPLv2+ | 同上 `Models/f18cockpit.rgb`（r997） | 2026-08-18 |
@@ -88,7 +85,7 @@ Justin Nicholson、Enrico Castaldi、Timi、Barszczisbad、PH-JAKE、Bat Campion
 | assets/upstream/f16/nozzle-ring.png | F-16 の排気口リング | 同上 | GPLv2+ | 同上 `Models/nozzle-ring.png`（r8373） | 2026-08-23 |
 | assets/upstream/f16/canopy2.png | F-16 のキャノピー内側 | 同上 | GPLv2+ | 同上 `Models/Effects/glass/canopy2.png`（r5407） | 2026-08-23 |
 
-大気の 3 ファイルは Bruneton の Precomputed Atmospheric Scattering をパッケージ側で事前計算したもの。合計 4.12 MB。
+大気の LUT（`public/atmosphere/` の EXR 3 つ、合計 4.12 MB）は、Phase 11 の段 S1（2026-10-26）で GLSL 経路と一緒に配信をやめた。node 経路は LUT を実行時に計算する。元は Takram Design Engineering の [@takram/three-atmosphere](https://github.com/takram-design-engineering/three-geospatial)（MIT、2026-08-16 取得）。
 
 機体のテクスチャは `tools/textures-to-webp.py` が WebP へ変換する。変換結果は `assets/generated/<id>/` にコミットしてある。Pillow は GitHub のランナーに入っていないので、ビルドの経路には入れない。
 
@@ -111,6 +108,38 @@ F/A-18C は SGI 形式の 512×512。F-16 は PNG で、`f16.png` が 2048×2048
 **元のファイルはコミットしない。**合わせて 約 58 MB あり、CC0 は元のファイルを添える義務を持たない。`tools/audio-import.mjs` が区間を切り出し、Opus（64 kbps）で `public/audio/` に書き出す。切り出した区間は同じ台本に書いてある。
 
 **611449 は録った場所や出所の記載が無い。**ページは CC0 だが、ゲームなどから抜いた音の恐れを否定できない。M61 系の実録音として、ユーザーの選択で使う（2026-10-22）。出所の分かる代わりは [Freesound 163119](https://freesound.org/s/163119/)（Navy MK 15 Phalanx CIWS、qubodup、CC0）。
+
+## 移植したコード
+
+| 移した先 | 元 | 作者 | ライセンス | 取得元 | 取得日 |
+|---|---|---|---|---|---|
+| `src/render/sky/skyNodes.ts`・`src/render/sky/reference.ts` | 大気の LUT（`ATMO_CORE_WGSL`・`TRANS_LUT`・`MS_LUT`・`SKYVIEW_LUT`、Hillaire 2020 の方式）。WGSL のコンピュートを TSL のフラグメントと TypeScript へ写した | Maksymilian Dendura | MIT | [Noniv/web-ocean](https://github.com/Noniv/web-ocean)（コミット a07c7fd の `ocean.html`） | 2026-10-24 |
+
+散乱の定数は takram（Bruneton の既定）にそろえて変えてある（`docs/decisions/0044-hillaire-sky.md`）。MIT の許諾の文は次のとおり。
+
+```
+MIT License
+
+Copyright (c) 2026 Maksymilian Dendura
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## 調達先の候補
 

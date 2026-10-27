@@ -190,6 +190,11 @@ export interface SceneOptions {
   carrier?: { x: number; z: number; heading: number }
   /** プリセットの上書き。実機でつまみを振るときに使う */
   qualityOverride?: QualityOverride
+  /**
+   * 背景の空の描き手。`?sky=hillaire` で自前の空（段 S2a の隠しの口）。
+   * 既定は takram。S2a では背景だけを差し替え、霞と照度は takram のまま
+   */
+  sky?: 'takram' | 'hillaire'
   /** 時間方向の足し込みを使うか。比較用 */
   cloudTemporal?: boolean
   /** キャプチャモードか。雲の収束の重み付けが変わる */
@@ -553,6 +558,19 @@ export interface NodeProbeResult {
    * `src/sim/terrain.ts` の `heightAt` と 1e-3 m 以内で一致するはず
    */
   heightProbe: number[] | null
+  /**
+   * 自前の空（Hillaire）の LUT と天空光。`?skyprobe=1` のときだけ埋まる（段 S2a）。
+   *
+   * LUT は RGBA の float を行ごと（読み戻しの並び）に持つ。焼くとき v を裏返すので、
+   * 行 y は CPU 参照の行 height - 1 - y に当たる（`sky/skyProbe.ts` の `lutRelativeError`）
+   */
+  sky: {
+    transmittance: number[]
+    multiscatter: number[]
+    skyView: number[]
+    /** 地表の上向きの面の天空の照度 / π（太陽の照度 1 あたり、RGB） */
+    irradianceOverPi: number[]
+  } | null
   /**
    * TSL で焼いた円形スプライトの生バイト。`?spriteprobe=1` のときだけ埋まる。
    *

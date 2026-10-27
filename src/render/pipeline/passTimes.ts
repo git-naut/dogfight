@@ -113,6 +113,8 @@ export const PASS_GROUPS: readonly PassGroupRule[] = [
   // 機体に映す空のキューブ 6 面と、粗さで畳む PMREM。ライブでは毎フレーム
   // 40 本走る（キャプチャでは出ない。2026-10-24 実測）
   { group: '環境反射', test: (s) => s.target === CUBE_TARGET || s.target === 'PMREM.cubeUv' },
+  // 自前の空の見え方の LUT を毎フレーム焼くパス（段 S2a、`?sky=hillaire`）
+  { group: '空', test: (s) => s.scene === 'Sky [ View ]' },
   // takram の星空を焼くパス（`StarsNode`）。描き先にだけ名前がある
   { group: '星', test: (s) => s.target === 'Stars' },
   { group: '場面', test: (s) => s.scene === 'Scene' },

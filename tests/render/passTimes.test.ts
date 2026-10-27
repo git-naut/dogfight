@@ -138,6 +138,8 @@ describe('名札と群', () => {
   it('合成と風圧の焼き直しを見分ける', () => {
     expect(passGroup({ scene: 'compositeRtt [ RTT ]', target: '' })).toBe('合成')
     expect(passGroup({ scene: 'lensRtt [ RTT ]', target: '' })).toBe('風圧')
+    // 自前の空の見え方の LUT（段 S2a）
+    expect(passGroup({ scene: 'Sky [ View ]', target: 'SkyView' })).toBe('空')
     // 名前の無い焼き直しは、どちらにも入れない
     expect(passGroup({ scene: 'RTT', target: '' })).toBe(UNGROUPED)
   })

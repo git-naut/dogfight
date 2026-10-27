@@ -49,6 +49,7 @@ import {
   type SceneOptions,
 } from './types'
 import { WebGPUUnavailable } from './webgpuRequired'
+import { createHillaireSky } from '../sky/hillaireSky'
 
 /**
  * 場面を node 経路（`WebGPURenderer`）で組む。
@@ -156,9 +157,16 @@ export async function createNodePipeline(
     // 煙）は空の手前にあっても上書きされて消えた。背景に描けば GLSL 経路と
     // 同じく、半透明の物は場面のパスの中で空の上に重なる。上書きは
     // `nodeOutput.ts` で切る（`skyNode = null`）
-    skyBackground: true,
+    // `?sky=hillaire` では自前の空を背景に置く（段 S2a の隠しの口）。霞と照度は takram のまま
+    skyBackground: options.sky !== 'hillaire',
   })
   const atmosphereNodes: AtmosphereNodes = atmosphere.nodes
+  const hillaire = options.sky === 'hillaire' ? createHillaireSky(renderer) : null
+  if (hillaire !== null) {
+    ;(scene as unknown as { backgroundNode: unknown }).backgroundNode = hillaire.backgroundNode
+  }
+  /** 自前の空の見え方の LUT を焼き直す。場面を描く前に呼ぶ */
+  const updateHillaire = () => hillaire?.update(renderer, camera.position.y, solar.sunDirectionWorld)
 
   const noise = await bakeNodeCloudNoise(renderer)
 
@@ -538,6 +546,7 @@ export async function createNodePipeline(
     advanceNodeFrame(renderer)
     // 雲影は地面を描く前に焼く。**鎖の中では手遅れになる**
     if (cloudsEnabled) clouds.renderShadow(renderer)
+    updateHillaire()
     pipeline.render()
   }
 
@@ -741,6 +750,7 @@ export async function createNodePipeline(
       renderFrameId = renderer.info.frame
       gpuTimer.begin()
       if (cloudsEnabled) clouds.renderShadow(renderer)
+      updateHillaire()
       pipeline.render()
       gpuTimer.end()
     },
@@ -873,6 +883,7 @@ export async function createNodePipeline(
       views.dispose()
       noise.dispose()
       radianceQuad.dispose()
+      hillaire?.dispose()
       terrainMesh.dispose()
       water.dispose()
       heightTexture.dispose()

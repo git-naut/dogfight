@@ -5,10 +5,10 @@ import { buildNodePipeline, type ShadowCaster } from '@render/pipeline/nodeBuild
 /**
  * node 経路の組み立ての順序。
  *
- * **順序を破っても例外は出ない。**3 つは実測で踏んでいる。
- * 照度を LUT の前に焼くと 3 成分とも 0 が返って地表が真っ黒になり、
+ * **順序を破っても例外は出ない。**どれも実測で踏んでいる。
  * `castShadow` を立てたまま組むと影のノードが 2 つできて落ち、雲のクアッドを
  * 別に組まないと 1 枚目にシェーダ生成が乗る（3,210.7 ms 対 987.0 ms）。
+ * takram の LUT を最後に作る順序は、段 S2b-2 で takram を外して消えた。
  *
  * どれも E2E では「絵が出ているか」「所要が下がったか」でしか見えない。
  * **順序そのものを数で固定する。**
@@ -26,7 +26,6 @@ function scripted(shadowLight: ShadowCaster | null): {
   camera: Camera
   outputNode: Node
   clouds: { compile(renderer: Renderer): Promise<void> }
-  lutNode: { updateTextures(renderer: Renderer): Promise<unknown> }
 } {
   const log: Log = { calls: [], duringCompile: null }
   const renderer = {
@@ -49,12 +48,6 @@ function scripted(shadowLight: ShadowCaster | null): {
         log.calls.push('clouds.compile')
       },
     },
-    lutNode: {
-      async updateTextures() {
-        log.calls.push('lut.updateTextures')
-        return undefined
-      },
-    },
   }
 }
 
@@ -63,7 +56,7 @@ function caster(): ShadowCaster {
 }
 
 describe('node 経路の組み立ての順序', () => {
-  it('場面 → 雲 → LUT の順で組む', async () => {
+  it('場面 → 雲の順で組む', async () => {
     const light = caster()
     const s = scripted(light)
     const built = await buildNodePipeline({
@@ -73,11 +66,10 @@ describe('node 経路の組み立ての順序', () => {
       outputNode: s.outputNode,
       shadowLight: light,
       clouds: s.clouds,
-      lutNode: s.lutNode,
     })
 
-    // **LUT が最後。**先に呼ぶと照度が 0 になる
-    expect(s.log.calls).toEqual(['compileAsync', 'clouds.compile', 'lut.updateTextures'])
+    // takram の LUT を最後に作る段は S2b-2 で消えた（`nodeBuild.ts` の注記）
+    expect(s.log.calls).toEqual(['compileAsync', 'clouds.compile'])
     expect(built.pipeline.outputNode).toBe(s.outputNode)
   })
 
@@ -91,7 +83,6 @@ describe('node 経路の組み立ての順序', () => {
       outputNode: s.outputNode,
       shadowLight: light,
       clouds: s.clouds,
-      lutNode: s.lutNode,
     })
 
     // 立ったまま組むと three の光の系が影のノードをもう 1 つ作る
@@ -108,7 +99,6 @@ describe('node 経路の組み立ての順序', () => {
       outputNode: s.outputNode,
       shadowLight: light,
       clouds: s.clouds,
-      lutNode: s.lutNode,
     })
 
     // **伏せたままでは影マップが焼かれない。**立てる側も要る
@@ -134,7 +124,7 @@ describe('node 経路の組み立ての順序', () => {
     expect(s.log.calls).toEqual([])
   })
 
-  it('影も雲も LUT も無い場面でも組める', async () => {
+  it('影も雲も無い場面でも組める', async () => {
     const s = scripted(null)
     const built = await buildNodePipeline({
       renderer: s.renderer,
@@ -144,10 +134,9 @@ describe('node 経路の組み立ての順序', () => {
     })
     expect(s.log.calls).toEqual(['compileAsync'])
     expect(built.compileCloudsMs).toBeGreaterThanOrEqual(0)
-    expect(built.lutMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('所要は 3 つの内訳と総和で返る', async () => {
+  it('所要は 2 つの内訳と総和で返る', async () => {
     const light = caster()
     const s = scripted(light)
     const built = await buildNodePipeline({
@@ -157,12 +146,10 @@ describe('node 経路の組み立ての順序', () => {
       outputNode: s.outputNode,
       shadowLight: light,
       clouds: s.clouds,
-      lutNode: s.lutNode,
     })
     for (const [name, value] of Object.entries({
       compileSceneMs: built.compileSceneMs,
       compileCloudsMs: built.compileCloudsMs,
-      lutMs: built.lutMs,
       totalMs: built.totalMs,
     })) {
       expect(Number.isFinite(value), `${name} が ${value}`).toBe(true)

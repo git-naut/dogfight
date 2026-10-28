@@ -2,6 +2,8 @@
 
 2026-08-31 決定。Phase 8。`0001-rendering-stack.md` を置き換える。0001 は当時の判断として残す。
 
+**2026-10-28 の注記。**本文の takram（大気・`AtmosphereLight`・環境反射・LUT の組み立ての順序・three へのパッチ）は、Phase 11 の段 S2b-2 で外した。空・霞・光は自前（ADR 0044・0045）。
+
 ## 決めたこと
 
 レンダラを `WebGPURenderer` へ、シェーダを TSL へ移す。pmndrs `postprocessing` を外し、three の `RenderPipeline` とノードで組み直す。大気は `@takram/three-atmosphere/webgpu` を使う。

@@ -1,6 +1,6 @@
 # 0044 自前の空（Hillaire）の光の尺度
 
-2026-10-26 決定。Phase 11 の段 S2a。空を takram（Bruneton）から、web-ocean の技法（Hillaire 2020 の LUT）へ移す前に、光の強さをどこに合わせるかを決めた。この段では隠しの口 `?sky=hillaire` の裏に置き、既定の絵は変えていない。切り替えは段 S2b で行う。実測の詳細は `docs/measuring.md` の「段 S2a」。
+2026-10-26 決定。Phase 11 の段 S2a。空を takram（Bruneton）から、web-ocean の技法（Hillaire 2020 の LUT）へ移す前に、光の強さをどこに合わせるかを決めた。この段では隠しの口 `?sky=hillaire` の裏に置き、既定の絵は変えていない。2026-10-28 の段 S2b-2 で既定へ切り替え、takram を外した（ADR 0045）。実測の詳細は `docs/measuring.md` の「段 S2a」。
 
 ## 直達光は takram に合わせる
 

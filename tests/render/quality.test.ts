@@ -40,11 +40,11 @@ describe('品質プリセットの表', () => {
     }
   })
 
-  it('機体まわりの 3 項目が段ごとに増える', () => {
-    // 影マップ、環境反射、軌跡の分割数。Low は 0 で機能そのものを切る
+  it('機体まわりの 2 項目が段ごとに増える', () => {
+    // 影マップと軌跡の分割数。Low は 0 で機能そのものを切る。環境反射は段 S2b-2 で
+    // 大きさを持たなくなり、入れるか切るかの列になった（下の検査）
     for (const key of [
       'aircraftShadowMapSize',
-      'skyEnvironmentSize',
       'trailSegments',
     ] as const) {
       const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n][key])
@@ -55,10 +55,9 @@ describe('品質プリセットの表', () => {
     }
   })
 
-  it('影マップと環境反射の一辺が 2 のべき乗', () => {
-    // キューブマップとミップマップの都合。2 のべき乗でないと three が
-    // リサイズしたり品質が落ちたりする
-    for (const key of ['aircraftShadowMapSize', 'skyEnvironmentSize'] as const) {
+  it('影マップの一辺が 2 のべき乗', () => {
+    // ミップマップの都合。2 のべき乗でないと three がリサイズしたり品質が落ちたりする
+    for (const key of ['aircraftShadowMapSize'] as const) {
       for (const name of PRESET_ORDER) {
         const size = QUALITY_PRESETS[name][key]
         if (size === 0) continue
@@ -205,42 +204,12 @@ describe('品質プリセットの表', () => {
     expect(getQuality(DEFAULT_PRESET).renderScale).toBe(1)
   })
 
-  it('大気の LUT の倍率が段ごとに下がらず、1 を超えない', () => {
-    // **1 を超えさせない。**原本より大きくしても情報は増えず、起動時の
-    // GPU 計算だけが面積の 2 乗で伸びる
-    let previous = 0
-    for (const name of PRESET_ORDER) {
-      const scale = QUALITY_PRESETS[name].atmosphereLutScale
-      expect(scale, `${name} の atmosphereLutScale`).toBeGreaterThanOrEqual(previous)
-      expect(scale, `${name} の atmosphereLutScale`).toBeLessThanOrEqual(1)
-      previous = scale
-    }
-  })
-
-  it('遠景の霞の光線行進は上の段だけで入る', () => {
-    // 毎フレームの費用なので、下の段では切る
-    expect(QUALITY_PRESETS.low.aerialRaymarchScattering).toBe(false)
-    expect(QUALITY_PRESETS.ultra.aerialRaymarchScattering).toBe(true)
-    let seenTrue = false
-    for (const name of PRESET_ORDER) {
-      const on = QUALITY_PRESETS[name].aerialRaymarchScattering
-      // 一度 true になったら下がらない
-      if (seenTrue) expect(on, `${name} の aerialRaymarchScattering`).toBe(true)
-      seenTrue ||= on
-    }
-  })
-
-  it('空から焼く環境反射の一辺が 2 のべき乗で、段ごとに減らない', () => {
-    let previous = 0
-    for (const name of PRESET_ORDER) {
-      const size = QUALITY_PRESETS[name].skyEnvironmentSize
-      expect(size, `${name} の skyEnvironmentSize`).toBeGreaterThanOrEqual(previous)
-      if (size > 0) {
-        expect(Number.isInteger(Math.log2(size)), `${name} の skyEnvironmentSize`).toBe(
-          true,
-        )
-      }
-      previous = size
+  it('環境反射は low だけ切る', () => {
+    // 段 S2b-2 で大きさの列（skyEnvironmentSize、low は 0）を置き換えた。low で切る
+    // 決まりは前の列から引き継ぐ
+    expect(QUALITY_PRESETS.low.skyEnvironment).toBe(false)
+    for (const name of PRESET_ORDER.filter((n) => n !== 'low')) {
+      expect(QUALITY_PRESETS[name].skyEnvironment, name).toBe(true)
     }
   })
 
@@ -293,8 +262,6 @@ describe('品質プリセットの表', () => {
       'flareSprites',
       // 発射炎と炎の尾。low では出さない（段 B9）
       'missileFlameSprites',
-      // 空から焼く環境反射。low では焼かない
-      'skyEnvironmentSize',
       // ブルーム。low では掛けない
       'bloomStrength',
     ])

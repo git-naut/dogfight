@@ -43,8 +43,9 @@ export function createMissilePose(): MissilePose {
 /**
  * Phase 2 のシーン。
  *
- * 空は @takram/three-atmosphere による物理ベースの大気散乱。ライティングも
- * 大気の LUT から導かれるので、時刻を変えれば光の色と強さが一貫して変わる。
+ * 空は Hillaire の LUT による物理ベースの大気散乱（`sky/hillaireSky.ts`、
+ * 段 S2b-2 で takram から置き換えた）。ライティングも同じ LUT から導かれるので、
+ * 時刻を変えれば光の色と強さが一貫して変わる。
  *
  * 地面は起伏する地形と海面。高さ場は sim が持っていて、ここはそれを
  * テクスチャへ上げて頂点シェーダで引くだけ。

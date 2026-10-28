@@ -1,6 +1,6 @@
 # 0002 大気散乱の統合
 
-2026-08-16 決定。Phase 2。
+2026-08-16 決定。Phase 2。**2026-10-28、段 S2b-2 で takram を外し、自前の空（Hillaire）へ置き換えた（ADR 0044・0045）。**ECEF への橋渡し（`createLocalFrame`）と `@takram/three-geospatial` も消えた。当時の判断として残す。
 
 ## 決めたこと
 

@@ -187,7 +187,7 @@ test.describe('node 経路', () => {
     expect(errors).toEqual([])
   })
 
-  test('WebGPU なら大気まで組み、LUT を実行時に計算する', async ({ page }) => {
+  test('WebGPU なら空まで組み、LUT を実行時に焼く', async ({ page }) => {
     test.skip(
       !hasWebGPU(),
       'WebGPU の起動引数が要る',
@@ -196,16 +196,18 @@ test.describe('node 経路', () => {
 
     expect(result.backend).toBe('node-webgpu')
     expect(result.atmosphere).toBe(true)
-    // **4.1 MB の EXR を配らずに済むかは、この値で決まる。**実測 76 ms
+    // 自前の空（段 S2b-2）を組む時間。起動時に透過率と多重散乱の LUT を焼く。
+    // takram の LUT の計算（段 10、実測 76 ms）と同じく 3 秒を上限にする
     expect(result.lutMs).toBeGreaterThan(0)
     expect(result.lutMs).toBeLessThan(3_000)
-    expect(result.lutScale).toBeGreaterThan(0)
     expect(errors).toEqual([])
 
     // **絵を見比べても分からない。**同じ時刻から同じ太陽が出ることを数値で
-    // 確かめる。ずれていれば座標系の橋渡しがどこかで違っている。相手は
-    // GLSL 経路（takram の GLSL 版）が最後に出した値の記録
-    expect(result.sunElevationDeg).toBeCloseTo((ref.sunElevation * 180) / Math.PI, 6)
+    // 確かめる。相手は GLSL 経路（takram の GLSL 版）が最後に出した値の記録。
+    // 段 S2b-2 で太陽の式を自前（NOAA、`sky/solar.ts`）に替えたので、小数 6 桁の
+    // 一致から、太陽の式の検査（`tests/render/solar.test.ts`）と同じ 0.02 度に改めた
+    const recorded = (ref.sunElevation * 180) / Math.PI
+    expect(Math.abs(result.sunElevationDeg - recorded)).toBeLessThanOrEqual(0.02)
   })
 
   test('TSL のハッシュが CPU 参照とビット一致する', async ({ page }) => {
@@ -617,13 +619,14 @@ test.describe('node 経路', () => {
       bakes,
       `ultra の影マップのパスが ${bakes} 回（なし ${n.frameCallsWithout} / 投げ手なし ${n.frameCallsEnabledNoCaster} / あり ${n.frameCallsWith}）`,
     ).toBe(1)
-    // **WebGPU では有効にするだけでパスが 1 つ増える。**投げ手は無いので
-    // 影マップではない。何が足しているかは未特定。段 17 で場面を組むときに
-    // 追う。ここでは値を固定して、変わったら気づけるようにしておく
+    // **有効にするだけではパスが増えない。**段 S2b-2 まで、WebGPU では有効に
+    // するだけで投げ手が無くてもパスが 1 つ増えていた（原因は未特定のまま値を
+    // 固定していた）。takram を外したら 0 になったので、足していたのは takram の
+    // 側だったと見ている（推測）。値は固定のまま、変わったら気づけるようにしておく
     expect(
       n.frameCallsEnabledNoCaster - n.frameCallsWithout,
       '有効にするだけで増えるパスの数が変わった',
-    ).toBe(1)
+    ).toBe(0)
     expect(
       result.nodeShadow!.changed,
       `ultra で動いたバイトが ${result.nodeShadow!.changed} 個`,

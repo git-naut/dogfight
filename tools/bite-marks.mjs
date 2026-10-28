@@ -480,17 +480,6 @@ export const BITE_MARKS = [
     lesson: '通っていない枝は検査されない',
   },
   {
-    id: 'overlay-composite-line-drift',
-    kind: '定数の摂動',
-    file: 'src/render/overlayProbe.ts',
-    find: `export const OVERLAY_COMPOSITE_GLSL =
-  'outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;'`,
-    replace: `export const OVERLAY_COMPOSITE_GLSL =
-  'outputColor.rgb = outputColor.rgb * (1.0 - overlay.r) + overlay.rgb;'`,
-    expect: 'tests/render/overlayProbe.test.ts',
-    why: '合成の式は takram の断片シェーダから写したもの。写しが原本から離れても、GLSL 版と TSL 版が同じ写し間違いをしていればバイトは一致する。原本との照合が働かなくなる形を作らない',
-  },
-  {
     id: 'overlay-marker-drop-other',
     kind: '文の削除',
     file: 'src/render/overlayProbe.ts',
@@ -509,13 +498,15 @@ export const BITE_MARKS = [
     lesson: '手で `render()` を回すと `FRAME` 型のノード更新が 1 度しか走らない',
   },
   {
+    // 段 S2b-2 まで、ECEF の行列を通さずに高度を測る形（`atmosphereNodes.ts`）を壊していた。
+    // takram を外して ECEF が消えたので、自前の式の高度の取り違えに置き換えた
     id: 'solar-elevation-skip-frame',
-    kind: '文の削除',
-    file: 'src/render/atmosphereNodes.ts',
-    find: '  const localUpECEF = new Vector3(0, 1, 0).transformDirection(worldToECEF)',
-    replace: '  const localUpECEF = new Vector3(0, 1, 0)',
+    kind: '定数の摂動',
+    file: 'src/render/geoFrame.ts',
+    find: '    sunElevationDeg: Math.asin(Math.max(-1, Math.min(1, d.y))) / DEG,',
+    replace: '    sunElevationDeg: Math.asin(Math.max(-1, Math.min(1, d.x))) / DEG,',
     expect: 'tests/render/solarFrame.test.ts',
-    why: 'ワールドの Y と ECEF の Z は別物。行列を通さずに内積を取ると太陽高度が緯度ぶん（35.6 度）ずれる。絵では夕方の色が少し違うようにしか見えず、雲のライティングも一緒にずれるので切り分けられない',
+    why: '太陽高度を上向き（Y）以外の軸から測ると、計器の高度と照度の読み戻しの関門だけがずれる。空と影は向きそのものを読むので、絵では気づけない',
   },
   {
     id: 'node-backend-version-from-kind',

@@ -50,7 +50,6 @@ import type { QualitySettings } from '../quality'
  * 出すと稼ぎが消える。ここでは `overlayCompositeNode` の第 2 引数が
  * 遅延評価なので、参照は `Else` の中だけで起きる。
  */
-type AtmosphereWebgpu = typeof import('@takram/three-atmosphere/webgpu')
 
 /** `pass()` の戻り値のうち、ここで使う面だけ */
 export interface ScenePassLike {
@@ -183,15 +182,11 @@ interface ClearColorOwner {
 
 export interface NodeOutputInput {
   /**
-   * takram の大気。霞（`aerialPerspective`）に使う。`aerial` を渡したときは読まない
-   * （`?sky=hillaire`、段 S2b-1）
+   * 霞（`sky/hillaireSky.ts` の `aerial`）。場面の色・深度・その画素の画面の uv を受けて、
+   * 霞を掛けた色を返す。**空の画素（深度 1）には触らない**（空は場面のパスの背景）。
+   * 段 S2b-2 で takram の `aerialPerspective` から置き換えた（ADR 0045）
    */
-  atmos?: AtmosphereWebgpu | null
-  /**
-   * 自前の霞（`hillaireSky.ts` の `aerial`）。場面の色・深度・その画素の画面の uv を受けて、
-   * 霞を掛けた色を返す。渡せば takram の霞の代わりに使う
-   */
-  aerial?: ((color: Node<'vec4'>, depth: Node<'float'>, screen: Node<'vec2'>) => Node<'vec4'>) | null
+  aerial: (color: Node<'vec4'>, depth: Node<'float'>, screen: Node<'vec2'>) => Node<'vec4'>
   /** `three/examples/jsm/tsl/display/SMAANode.js` の `smaa` */
   smaa: (node: Node) => Node
   scenePass: ScenePassLike
@@ -426,7 +421,7 @@ export function emissiveHighPass(
 export const BLOOM_INPUT_CAP = 4
 
 export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
-  const { atmos, scenePass, cloudNode } = input
+  const { scenePass, cloudNode } = input
 
   // 陽炎（ADR 0041）。範囲の中だけ、場面の色と深度を読む位置をずらす。範囲の外ではずれが 0 で、
   // 元と同じ所を読む。プリセットが切っていれば鎖に入れない
@@ -449,18 +444,9 @@ export function createNodeOutputNode(input: NodeOutputInput): NodeOutput {
       sceneColor = scenePass.getTextureNode().toVar() as unknown as Node<'vec4'>
       sceneDepth = scenePass.getTextureNode('depth')
     }
-    const hazed = overlayCompositeNode(cloudNode, () => {
-      if (input.aerial) {
-        return input.aerial(sceneColor, (sceneDepth as unknown as { x: Node<'float'> }).x, sceneAt)
-      }
-      if (!atmos) throw new Error('霞の描き手が無い。takram の大気か自前の霞のどちらかを渡す')
-      const aerial = atmos.aerialPerspective(sceneColor as never, sceneDepth as never)
-      // **空の画素を上書きさせない。**空は場面のパスの背景に描いてある
-      // （`nodeScene.ts` の `skyBackground`）。`skyNode` が null なら
-      // `AerialPerspectiveNode` は `depth >= 1` の画素に手を付けない
-      ;(aerial as unknown as { skyNode: unknown }).skyNode = null
-      return aerial as unknown as Node<'vec4'>
-    })
+    const hazed = overlayCompositeNode(cloudNode, () =>
+      input.aerial(sceneColor, (sceneDepth as unknown as { x: Node<'float'> }).x, sceneAt),
+    )
     const overlay = input.overlay ?? null
     if (overlay === null) return hazed
     // **霞と雲の後ろに重ねる**（段 29c）。前乗算なので `絵 × (1 − a) + rgb`。

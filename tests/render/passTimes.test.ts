@@ -24,18 +24,24 @@ import { KEEP_FRAMES, PassInspector } from '@render/pipeline/passInspector'
  */
 
 /**
- * 実物の出どころ。2026-10-25 に SwiftShader（WebGPU）で `level`・high の
- * キャプチャ 1 フレームを読んだ 26 本（`hook.gpuPassSources`）。low は雲影・
- * 機体の影・ブルーム・風圧が無い 11 本。**群の表を直したらここも実物で取り直す。**
+ * 実物の出どころ。2026-10-28 に SwiftShader（WebGPU）で `level`・high の
+ * キャプチャ 1 フレームを読んだ 28 本（`hook.gpuPassSources`）。low は雲影・
+ * 機体の影・ブルーム・風圧が無い 13 本。**群の表を直したらここも実物で取り直す。**
+ *
+ * 段 S2b-2 で takram を外して取り直した。takram の星（`Stars`）が消え、自前の
+ * 空の見え方（`Sky [ View ]`）と霞の 2 枚（`Sky [ Aerial ]`・`Sky [ Aerial T ]`）が
+ * 加わった。影の場面の名前は光の名前（`SkySun`）になった
  */
 const HIGH_SOURCES: readonly PassSource[] = [
   { scene: 'Clouds [ Shadow ]', target: UNNAMED_TARGET },
+  { scene: 'Sky [ View ]', target: 'SkyView' },
+  { scene: 'Sky [ Aerial ]', target: 'SkyAerial' },
+  { scene: 'Sky [ Aerial T ]', target: 'SkyAerialT' },
   { scene: 'Render Pipeline', target: '' },
   { scene: '', target: 'SMAANode.edges' },
   { scene: 'compositeRtt [ RTT ]', target: UNNAMED_TARGET },
   { scene: 'Scene', target: 'output' },
-  { scene: '', target: 'Stars' },
-  { scene: 'Shadow Map [ ID: 24 ]', target: 'ShadowMap' },
+  { scene: 'Shadow Map [ SkySun ]', target: 'ShadowMap' },
   { scene: 'Overlay', target: 'output' },
   { scene: 'Clouds [ March ]', target: UNNAMED_TARGET },
   { scene: 'Clouds [ Resolve ]', target: UNNAMED_TARGET },
@@ -57,16 +63,6 @@ const HIGH_SOURCES: readonly PassSource[] = [
   { scene: 'lensRtt [ RTT ]', target: UNNAMED_TARGET },
 ]
 
-/**
- * ライブでだけ加わる環境反射の 40 本（2026-10-25 実測）。takram の
- * `SkyEnvironmentNode` はカメラが 1,000 m の格子を跨ぐか太陽が 0.1 度動くと
- * キューブ 6 面を描き直し、PMREM で 34 本畳む。250 m/s で約 1 秒に 1 回
- */
-const ENVIRONMENT_SOURCES: readonly PassSource[] = [
-  ...Array.from({ length: 6 }, () => ({ scene: '', target: CUBE_TARGET })),
-  ...Array.from({ length: 34 }, () => ({ scene: '', target: 'PMREM.cubeUv' })),
-]
-
 /** 実物の出どころの群の数え。high の 1 フレーム */
 const HIGH_GROUP_COUNTS: Record<string, number> = {
   雲影: 1,
@@ -74,7 +70,8 @@ const HIGH_GROUP_COUNTS: Record<string, number> = {
   SMAA: 3,
   合成: 1,
   場面: 1,
-  星: 1,
+  空: 1,
+  霞: 2,
   機体の影: 1,
   爆発: 1,
   雲: 3,
@@ -105,12 +102,12 @@ describe('名札と群', () => {
     expect(passLabel({ scene: 'Render Pipeline', target: '' })).toBe('Render Pipeline → 画面')
   })
 
-  it('実物の 26 本がどれも群の表に載る', () => {
+  it('実物の 28 本がどれも群の表に載る', () => {
     const missing = HIGH_SOURCES.filter((s) => passGroup(s) === UNGROUPED)
     expect(missing, '群の表に無いパス').toEqual([])
   })
 
-  it('実物の 26 本の群の数え', () => {
+  it('実物の 28 本の群の数え', () => {
     const counts: Record<string, number> = {}
     for (const s of HIGH_SOURCES) {
       const g = passGroup(s)
@@ -119,9 +116,12 @@ describe('名札と群', () => {
     expect(counts).toEqual(HIGH_GROUP_COUNTS)
   })
 
-  it('ライブの環境反射の 40 本も群の表に載る', () => {
-    const groups = ENVIRONMENT_SOURCES.map((s) => passGroup(s))
-    expect(new Set(groups)).toEqual(new Set(['環境反射']))
+  it('takram の環境反射と星のパスは群の表に無い（段 S2b-2 で消えた）', () => {
+    // 環境反射は空の見え方の LUT を直に引くので、キューブと PMREM のパスが無い（ADR 0045）。
+    // 戻ってきたら「不明」に出て気づける
+    expect(passGroup({ scene: '', target: CUBE_TARGET })).toBe(UNGROUPED)
+    expect(passGroup({ scene: '', target: 'PMREM.cubeUv' })).toBe(UNGROUPED)
+    expect(passGroup({ scene: '', target: 'Stars' })).toBe(UNGROUPED)
   })
 
   it('機体の影は場面の名前ではなく描き先で拾う', () => {

@@ -1107,61 +1107,39 @@ export async function runNodeProbe(
   placeCarrier(carrier, 0, 0, 0)
   scene.add(carrier.object)
 
-  // ---- 大気 ----
+  // ---- 空・霞・光（段 S2b-2 で takram から置き換えた。ADR 0045）----
   //
-  // **WebGPU バックエンドのときだけ組む。**node 経路の WebGL2
-  // フォールバックでは、大気の構造体が GLSL のコンパイルで落ちる
-  // （`ERROR: 0:76: 'AtmosphereParameters' : syntax error`。実測）。
-  // 計画は `forceWebGL: true` を移行中の退避路として当てにしていたが、
-  // **大気には効かない。**
-  let atmosphereContext: InstanceType<
-    typeof import('@takram/three-atmosphere/webgpu').AtmosphereContext
-  > | null = null
+  // **WebGPU バックエンドのときだけ組む。**本番の場面（`nodeScene.ts`）は WebGPU を
+  // 必須にしている。WebGL2 の `?gpu=1` は、ここより前の TSL と CPU 参照の突き合わせ
+  // だけに使う
+  let sceneSky: import('../sky/hillaireSky').HillaireSky | null = null
   let sunElevationDeg = 0
   const sunDirectionWorld = new THREE.Vector3(0, 1, 0)
-  /** 大気の太陽光。鎖の側が影の投げ手として使う */
-  let atmosphereSunLight: THREE.DirectionalLight | null = null
+  /** 空の LUT（透過率と多重散乱）を焼くのにかかったミリ秒 */
+  let lutMs = 0
 
   if (isWebGPU) {
-    // ---- 大気を node 経路で組む ----
-    //
-    // WebGL 経路は 4.1 MB の EXR を読んで `SkyMaterial` へ流し込んでいた。
-    // node 経路は LUT を実行時に GPU で計算する。**その費用を測るのが
-    // この段の主目的。**
-    const atmos = await import('@takram/three-atmosphere/webgpu')
-
-    // 原点も時刻も GLSL 経路と同じものを使う。**別々に持つと、絵を見比べても
-    // 分からないずれ方をする。**基準は `atmosphere.ts` の 1 か所だけで、
-    // 時刻から向きを出すのは `atmosphereNodes.ts`（段 20a-2-3）
-    const { solarFrameForHour } = await import('../atmosphereNodes')
-    const solar = solarFrameForHour(options.hour)
-    const worldToECEF = solar.worldToECEF
-    const sunDirectionECEF = solar.sunDirectionECEF
-    const moonDirectionECEF = solar.moonDirectionECEF
+    // 時刻から向きを出すのは `geoFrame.ts` の 1 か所だけ。本番の場面と同じものを通す
+    const { sunFrameForHour } = await import('../geoFrame')
+    const solar = sunFrameForHour(options.hour)
     sunElevationDeg = solar.sunElevationDeg
-    sunDirectionWorld.copy(solar.sunDirectionWorld)
+    sunDirectionWorld.set(solar.sunDirectionWorld.x, solar.sunDirectionWorld.y, solar.sunDirectionWorld.z)
 
-    // **組み立ての手順を知っているのは `atmosphereNodes.ts` だけ。**
-    // `contextNode.value` を潰さないこと、`addLight` で
-    // `AtmosphereLightNode` を登録すること、LUT の縮小に下限を取ること、
-    // 鎖を組むときに背景へ空クアッドを置かないこと。どれも破っても例外は
-    // 出ない。本番の場面と同じ関数へ通す（段 20a-2-3）
-    const { setupAtmosphereNodes } = await import('../atmosphereNodes')
-    const setup = setupAtmosphereNodes(atmos, {
-      renderer,
-      camera,
-      scene,
-      quality: options.quality,
-      worldToECEF,
-      sunDirectionECEF,
-      moonDirectionECEF,
-      skyBackground: !options.nodePipeline,
-    })
-    atmosphereContext = setup.context
-    atmosphereSunLight = setup.sunLight
-
+    // **組み方を知っているのは `sky/hillaireSky.ts` だけ。**本番の場面と同じ関数へ通す
+    const { createHillaireSky } = await import('../sky/hillaireSky')
+    const lutStarted = performance.now()
+    sceneSky = createHillaireSky(renderer)
+    lutMs = performance.now() - lutStarted
+    sceneSky.setSun(sunDirectionWorld)
+    const sceneNodes = scene as unknown as { backgroundNode: unknown; environmentNode: unknown }
+    sceneNodes.backgroundNode = sceneSky.backgroundNode
+    sceneNodes.environmentNode = options.quality.skyEnvironment ? sceneSky.environmentNode : null
+    scene.add(sceneSky.sunLight, sceneSky.sunLight.target, sceneSky.skyLight)
+    // 空の見え方と霞の LUT と機体の光を、このカメラで 1 度焼く。鎖で描くときは
+    // 1 枚ごとに焼き直す（`drawOnce`）
+    sceneSky.update(renderer, camera, sunDirectionWorld, new THREE.Vector3(0, DECK_HEIGHT, 0))
   } else {
-    // 大気を組まないときの光。glb の材質が描けることだけを見る
+    // 空を組まないときの光。glb の材質が描けることだけを見る
     scene.add(new THREE.AmbientLight(0xffffff, 1.5))
     const sun = new THREE.DirectionalLight(0xffffff, 3)
     sun.position.set(120, 200, 80)
@@ -1306,26 +1284,20 @@ export async function runNodeProbe(
   // ので、**GLSL 経路と同じ「レンダラに 6 を置く」形になる。**
   let pipelineResult: NodeProbeResult['pipeline'] = null
   let clouds: import('../clouds/cloudsNodePass').CloudsNodePass | null = null
-  if (options.nodePipeline && isWebGPU && atmosphereContext !== null) {
-    const atmos = await import('@takram/three-atmosphere/webgpu')
+  if (options.nodePipeline && isWebGPU && sceneSky !== null) {
+    const pipelineSky = sceneSky
     const cloudsNodePass = await import('../clouds/cloudsNodePass')
     // SMAA は `three/tsl` ではなく addons 側にある。面積テクスチャと探索
     // テクスチャを data URI で内包する
     const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
 
-    // **ワールド座標から大気の単位空間への写し替えを知っているのは
-    // `atmosphereNodes.ts` だけ。**`matrixWorldToECEF` を掛けて
-    // `worldToUnit` で縮め、高度の補正を足す 3 段で、忘れても例外は出ずに
-    // 値が桁ごとずれる。本番の場面と同じものを通す（段 20a-2-3）
-    const { createAtmosphereNodes } = await import('../atmosphereNodes')
-    const atmosphereNodes = createAtmosphereNodes(atmos, atmosphereContext)
+    // **照度の式を知っているのは `sky/hillaireSky.ts` だけ。**本番の場面と同じものを通す
+    const atmosphereNodes = pipelineSky.lighting
     const atmosphereIlluminance = atmosphereNodes.illuminance
     const scalarIlluminance = atmosphereNodes.scalarIlluminance
 
-    // **雲の太陽光と天空光も LUT から取る。**GLSL 経路は CPU で出した値を
-    // uniform で渡していたが、node 経路は CPU 側に値が無い。大気は緩やかに
-    // しか変わらないので、原点の海面高度で 1 度だけ引く（GLSL 経路も
-    // フレームに 1 つの値を使っていた）
+    // **雲の太陽光と天空光も LUT から取る。**大気は緩やかにしか変わらないので、
+    // 原点の海面高度で 1 度だけ引く（GLSL 経路もフレームに 1 つの値を使っていた）
     const cloudOrigin = tsl.vec3(0, 0, 0)
     const cloudUp = tsl.vec3(0, 1, 0)
     const cloudSunColor = scalarIlluminance(cloudOrigin).get('direct')
@@ -1424,9 +1396,8 @@ export async function runNodeProbe(
 
     // ---- 機体の影 ----
     //
-    // **`AtmosphereLight` は自分の位置を更新しない。**`directionECEF` を
-    // 持つだけなので、影の箱を向けるにはワールド座標の太陽の向きから
-    // 位置を入れる（`docs/decisions/0010-webgpu-tsl.md` の段 15 の続き）。
+    // 影の箱を向けるには、ワールド座標の太陽の向きから位置を入れる
+    // （`docs/decisions/0010-webgpu-tsl.md` の段 15 の続き）。
     //
     // GLSL 経路の `terrainAircraftShade` にあった 0.35 の下限は入れない。
     // 照度の形では間接がそのまま残るので、直達を 0 にしても真っ暗に
@@ -1441,12 +1412,12 @@ export async function runNodeProbe(
     // **光の側に `castShadow` を立てない。**立てると three の光の系が
     // 影のノードをもう 1 つ作る。その本体は光の寄与が畳まれると生成
     // されないまま `updateBefore` だけが残り、`compileAsync` の中で
-    // `shadowMap` が null のまま触られて落ちる（実測。`AtmosphereLight`
-    // でも明るさ 0 の指向光でも同じ）。
+    // `shadowMap` が null のまま触られて落ちる（実測。takram の
+    // `AtmosphereLight` でも明るさ 0 の指向光でも同じ）。
     //
     // 影は `shadow(light)` を明示的に呼んで自分で持つ。`ShadowNode` は
     // `light.castShadow` を見ないので、これで影マップは焼かれる
-    const shadowLight = atmosphereSunLight
+    const shadowLight: THREE.DirectionalLight | null = pipelineSky.sunLight
     let aircraftShade = tsl.float(1) as unknown as import('three/webgpu').Node<'float'>
     if (shadowLight !== null) {
       shadowLight.castShadow = false
@@ -1574,9 +1545,9 @@ export async function runNodeProbe(
       return bytes
     }
 
-    // **焼くのは LUT ができてから。**`compileAsync` が
-    // `AtmosphereLUTNode.setup()` を走らせ、`updateTextures` が中身を作る。
-    // その前に焼くと照度が 0 になり、地表が真っ黒になる（実測でそうなった）
+    // 空の LUT（透過率と多重散乱）は `createHillaireSky` が組む時点で焼いてある。
+    // takram のときは `compileAsync` のあとでなければ作れず、先に焼くと地表が
+    // 真っ黒になった（段 S2b-2 で消えた順序）
 
     // カメラの位置からパッチを選び、寄せる基準と海面の位置を合わせる
     const cameraWorld = camera.getWorldPosition(new THREE.Vector3())
@@ -1595,7 +1566,7 @@ export async function runNodeProbe(
     // 1 フレーム前の深度で打ち切り、後者を外すと早期打ち切りの稼ぎが消える。
     // どちらも絵には出ない（段 20a-2-3）
     const { composite, outputNode } = nodeOutput.createNodeOutputNode({
-      atmos,
+      aerial: pipelineSky.aerial,
       smaa: smaa as unknown as (node: import('three/webgpu').Node) => import('three/webgpu').Node,
       scenePass,
       cloudNode: clouds.node,
@@ -1615,12 +1586,11 @@ export async function runNodeProbe(
       outputNode,
       shadowLight,
       clouds,
-      lutNode: atmosphereContext.lutNode,
     })
     const pipeline = built.pipeline
     const compileSceneMs = built.compileSceneMs
     const compileCloudsMs = built.compileCloudsMs
-    const pipelineLutMs = built.lutMs
+    const pipelineLutMs = lutMs
     const pipelineBuildMs = built.totalMs
 
     // LUT ができたので、ライティングの差をここで焼く
@@ -1708,6 +1678,8 @@ export async function runNodeProbe(
       // 残るので出続ける（段 20a-2-3 で実測。2 枚目以降が 2 呼び出し）
       nodeBuild.advanceNodeFrame(renderer)
       clouds!.renderShadow(renderer)
+      // 本番の場面と同じく、描く直前に空と霞の LUT を焼き直す（`nodeScene.ts` の `updateSky`）
+      pipelineSky.update(renderer, camera, sunDirectionWorld, casterCenter)
       renderer.setRenderTarget(pipelineTarget)
       pipeline.render()
       const frameCalls = renderer.info.render.frameCalls
@@ -1746,8 +1718,9 @@ export async function runNodeProbe(
 
     // 絵は最後に 1 度だけ読み戻す
     const readPicture = async (): Promise<number[]> => {
-      renderer.setRenderTarget(pipelineTarget)
       clouds!.renderShadow(renderer)
+      pipelineSky.update(renderer, camera, sunDirectionWorld, casterCenter)
+      renderer.setRenderTarget(pipelineTarget)
       renderer.info.reset()
       pipeline.render()
       const frameCalls = renderer.info.render.frameCalls
@@ -1836,8 +1809,7 @@ export async function runNodeProbe(
       compileSceneMs,
       compileCloudsMs,
       warmupMs,
-      // **起動の総和。**節ごとに測った値を足す。合格条件は 15 秒以内で、
-      // 超えるなら `atmosphereLutScale` を下げる（計画の段 17）
+      // **起動の総和。**節ごとに測った値を足す。合格条件は 15 秒以内（計画の段 17）
       startupMs:
         initMs + volumeMs + pipelineBuildMs + compileCloudsMs + warmupMs,
       lutMs: pipelineLutMs,
@@ -1912,23 +1884,9 @@ export async function runNodeProbe(
   // 「`render()` を使い、レンダラを作るときに `await renderer.init()` を
   // すること」と警告が出る。`init()` は済ませてあるので `render()` でよい。
   // `info` の集計は `render()` の中で同期に進むので、直後に読める
-  // **順序を外せない。**`compileAsync` が `AtmosphereLUTNode.setup()` を
-  // 走らせ、そこで `textures` ができる。その前に `updateTextures()` を呼ぶと
-  // `invariant(this.textures != null)` で落ちる（`webgpu.js:1530`）
   const buildStarted = performance.now()
   await renderer.compileAsync(scene, camera)
   const buildMs = performance.now() - buildStarted
-
-  // **暗黙の起動に任せない。**`updateBefore` から呼ばれる経路は
-  // `requestIdleCallback` で 4 分割される（`shared2.js:29`）。何枚目で
-  // 完成するかが機械の負荷で変わるので、キャプチャの決定論が壊れる。
-  // ここで待ち切る
-  let lutMs = 0
-  if (atmosphereContext !== null) {
-    const lutStarted = performance.now()
-    await atmosphereContext.lutNode.updateTextures(renderer)
-    lutMs = performance.now() - lutStarted
-  }
 
   const firstStarted = performance.now()
   renderer.render(scene, camera)
@@ -2014,9 +1972,8 @@ export async function runNodeProbe(
     drawCalls: renderer.info.render.drawCalls,
     triangles: renderer.info.render.triangles,
     programs: renderer.info.memory.programs,
-    atmosphere: atmosphereContext !== null,
+    atmosphere: sceneSky !== null,
     lutMs,
-    lutScale: options.quality.atmosphereLutScale,
     buildMs,
     sunElevationDeg,
     initMs,

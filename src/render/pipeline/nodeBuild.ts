@@ -4,8 +4,8 @@ import { RenderPipeline } from 'three/webgpu'
 /**
  * node 経路のポストの鎖を組む。**順序がこの関数の中身。**
  *
- * 外せない順序が 4 つあり、どれも破っても例外が出ない形で壊れる。
- * 3 つは実測で踏んでいて `docs/lessons.md` に記録がある。
+ * 外せない順序が 3 つあり、どれも破っても例外が出ない形で壊れる。
+ * どれも実測で踏んでいて `docs/lessons.md` に記録がある。
  *
  * 1. `RenderPipeline` を作る前に `setMRT()` と `getTextureNode()` を
  *    済ませる（`PassNode.setup` の注記）。呼ぶ側が組み終えた
@@ -17,16 +17,16 @@ import { RenderPipeline } from 'three/webgpu'
  * 3. **雲のクアッドは場面に入っていない。**`compileAsync(scene, camera)`
  *    は場面の物しか組まないので、別に組む（段 19。1 枚目 3,210.7 ms 対
  *    2 枚目 987.0 ms）。
- * 4. **大気の LUT の中身は組み立てのあとにできる。**`AtmosphereLUTNode`
- *    の `setup()` が走るのは `compileAsync` の中で、`updateTextures` は
- *    その後でなければ効かない。先に照度を焼くと 3 成分とも 0 が返り、
- *    例外は出ないまま地表が真っ黒になる。
+ *
+ * 段 S2b-2 まで 4 つ目があった。takram の大気の LUT は `compileAsync` の
+ * あとでなければ作れず、先に照度を焼くと地表が真っ黒になった。自前の空
+ * （`sky/hillaireSky.ts`）は LUT を作ってから場面を組むので、この順序は消えた。
  *
  * **写しを 2 つ作らない。**プローブと本番の場面で同じ順序を 2 度書くと、
  * 片方だけ直したときに気づけない。順序を知っているのはここだけにする。
  */
 
-/** 影の投げ手。`DirectionalLight` と `AtmosphereLight` の共通部分だけ見る */
+/** 影の投げ手。`DirectionalLight` のうち、ここで触る面だけ見る */
 export interface ShadowCaster {
   castShadow: boolean
   shadow: { autoUpdate: boolean; needsUpdate: boolean }
@@ -52,8 +52,6 @@ export interface NodePipelineBuildInput {
   shadowLight?: ShadowCaster | null
   /** 雲のパス。場面に入っていないので別に組む */
   clouds?: { compile(renderer: Renderer): Promise<void> } | null
-  /** 大気の LUT。中身は組み立てのあとで作る */
-  lutNode?: { updateTextures(renderer: Renderer): Promise<unknown> } | null
 }
 
 export interface NodePipelineBuild {
@@ -62,9 +60,7 @@ export interface NodePipelineBuild {
   compileSceneMs: number
   /** 雲のクアッドの事前コンパイルにかかったミリ秒 */
   compileCloudsMs: number
-  /** 大気の LUT の計算にかかったミリ秒 */
-  lutMs: number
-  /** 上の 3 つを含む総和 */
+  /** 上の 2 つを含む総和 */
   totalMs: number
 }
 
@@ -75,7 +71,6 @@ export async function buildNodePipeline(
   const ownsOutputTransform = input.ownsOutputTransform ?? false
   const shadowLight = input.shadowLight ?? null
   const clouds = input.clouds ?? null
-  const lutNode = input.lutNode ?? null
 
   if (shadowLight !== null && shadowLight.castShadow) {
     throw new Error(
@@ -110,15 +105,10 @@ export async function buildNodePipeline(
   if (clouds !== null) await clouds.compile(renderer)
   const compileCloudsMs = performance.now() - cloudsStarted
 
-  const lutStarted = performance.now()
-  if (lutNode !== null) await lutNode.updateTextures(renderer)
-  const lutMs = performance.now() - lutStarted
-
   return {
     pipeline,
     compileSceneMs,
     compileCloudsMs,
-    lutMs,
     totalMs: performance.now() - started,
   }
 }

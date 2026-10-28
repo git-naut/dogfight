@@ -1,13 +1,12 @@
-import { Matrix4, Vector3 } from 'three'
-import { Ellipsoid } from '@takram/three-geospatial'
+import { sunDirectionLocal, type Direction } from './sky/solar'
 
 /**
- * 基準地点・基準日時・局所フレーム。
+ * 基準地点・基準日時・時刻ごとの太陽。
  *
- * 大気の実装（node 経路の `atmosphereNodes.ts`）と時刻の設定（`capture.ts`・
- * `hud/settings.ts`）が読む。もとは GLSL 経路の `atmosphere.ts` にあったが、
- * 段 S1 で GLSL 経路を捨てるので、どの経路にも属さないここへ移した。
- * 座標系の橋渡しの経緯は docs/decisions/0002-atmosphere-integration.md にある。
+ * 空（`sky/hillaireSky.ts`）と時刻の設定（`capture.ts`・`hud/settings.ts`）が読む。
+ * もとは GLSL 経路の `atmosphere.ts` にあり、段 S1 でここへ移した。段 S2b-2 で
+ * takram を外し、ECEF の局所フレーム（`createLocalFrame`）も消した。座標系の
+ * 橋渡しの経緯は docs/decisions/0002-atmosphere-integration.md にある。
  */
 
 const DEG = Math.PI / 180
@@ -15,10 +14,8 @@ const DEG = Math.PI / 180
 /**
  * 基準となる地理座標。北緯 35.6 度、東経 139.7 度、標高 0。
  *
- * ライブラリの参照フレームは ECEF（地球中心・メートル）に固定されていて
- * 変更できない。こちらのゲームは地表を原点とする Y-up の局所座標なので、
- * この地点を原点に置く行列で橋渡しする。局所座標が原点近傍に留まるため、
- * ECEF の 6,400 km を float32 で扱うときの精度崩れも起きない。
+ * ワールドはこの地点を原点とする右手系で、X が南、Y が上、Z が西。機首方向の
+ * -Z が東を向くので、午後の太陽（西）が背後から当たる。
  */
 export const REFERENCE_LONGITUDE = 139.7 * DEG
 export const REFERENCE_LATITUDE = 35.6 * DEG
@@ -40,20 +37,25 @@ export function dateForHour(hour: number): Date {
   return new Date(SOLAR_NOON_UTC + (hour - 12) * 3_600_000)
 }
 
+/** 時刻ごとの太陽 */
+export interface SunFrame {
+  /** ワールド座標の太陽の向き（X が南、Y が上、Z が西）。単位ベクトル */
+  sunDirectionWorld: Direction
+  /** 太陽高度 deg。地平線より下なら負 */
+  sunElevationDeg: number
+}
+
 /**
- * 基準地点を原点とする右手系の局所フレームを作る。
+ * 局所時刻（0〜24）から太陽の向きと高度を出す。式は `sky/solar.ts`（NOAA）。
  *
- * X が南、Y が上、Z が西。機首方向の -Z が東を向くので、午後の太陽（西）が
- * 背後から当たる。右手系の条件 X × Y = Z も満たす。
+ * 段 S2b-2 まで、この役は takram（astronomy-engine）を ECEF 経由で通していた
+ * （`atmosphereNodes.ts` の `solarFrameForHour`）。自前の式は 9 時刻で takram と
+ * 0.007 度以内（`tests/render/solar.test.ts`）
  */
-export function createLocalFrame(referenceEcef: Vector3): Matrix4 {
-  const east = new Vector3()
-  const north = new Vector3()
-  const up = new Vector3()
-  Ellipsoid.WGS84.getEastNorthUpVectors(referenceEcef, east, north, up)
-
-  const south = north.clone().negate()
-  const west = east.clone().negate()
-
-  return new Matrix4().makeBasis(south, up, west).setPosition(referenceEcef)
+export function sunFrameForHour(hour: number): SunFrame {
+  const d = sunDirectionLocal(dateForHour(hour), REFERENCE_LATITUDE, REFERENCE_LONGITUDE)
+  return {
+    sunDirectionWorld: d,
+    sunElevationDeg: Math.asin(Math.max(-1, Math.min(1, d.y))) / DEG,
+  }
 }

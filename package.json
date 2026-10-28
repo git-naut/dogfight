@@ -6,7 +6,6 @@
   "type": "module",
   "description": "Arcade air combat game built with Three.js",
   "scripts": {
-    "postinstall": "node tools/patch-three.mjs",
     "assets": "node tools/ac3d-to-glb.mjs && node tools/f18e-to-glb.mjs && node tools/ford-to-glb.mjs",
     "dev": "vite",
     "predev": "npm run assets",
@@ -26,9 +25,6 @@
     "test:nodepath": "NODEPATH=1 playwright test --project=chromium-node"
   },
   "dependencies": {
-    "@takram/three-atmosphere": "^0.19.1",
-    "@takram/three-geospatial": "^0.9.1",
-    "postprocessing": "^6.39.5",
     "three": "^0.186.0"
   },
   "devDependencies": {

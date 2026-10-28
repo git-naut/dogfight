@@ -7,7 +7,7 @@ import {
 } from 'three'
 import { float, mix, shadow, uniform } from 'three/tsl'
 import type { Node, Renderer } from 'three/webgpu'
-import type { AtmosphereSunLight } from '../atmosphereNodes'
+import type { SkySunLight } from '../sky/hillaireSky'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -34,7 +34,7 @@ export const AIRCRAFT_SHADOW_DISTANCE = 200
 
 export interface NodeAircraftShadowInput {
   renderer: Renderer
-  light: AtmosphereSunLight
+  light: SkySunLight
   quality: QualitySettings
   /** 影の箱の中心。機体の位置 */
   center: Vector3
@@ -169,11 +169,12 @@ export function configureNodeAircraftShadow(
 /**
  * 影の箱を機体へ追従させる。
  *
- * **`AtmosphereLight` は自分の位置を更新しない。**`directionECEF` を持つ
- * だけなので、ワールド座標の太陽の向きから位置を入れる
+ * ワールド座標の太陽の向きから位置を入れる。**自前の空の `update` も同じ形で
+ * 置く**（`sky/hillaireSky.ts` の `SUN_LIGHT_DISTANCE`）。距離が食い違うと、
+ * 後から走る方が影の箱を動かす
  */
 export function followAircraftShadow(
-  light: AtmosphereSunLight,
+  light: SkySunLight,
   center: Vector3,
   sunDirectionWorld: Vector3,
 ): void {

@@ -265,8 +265,6 @@ export interface CaptureConfig {
    * 自己診断（`?gpu=1|2`）だけが読み、`gpuProbe.sky` へ置く
    */
   skyProbe: boolean
-  /** 背景の空の描き手。`?sky=hillaire` で自前の空（段 S2a の隠しの口） */
-  sky: 'takram' | 'hillaire'
   /**
    * 影を node 経路で立てて測るか。`?nodeshadow=1`。
    *
@@ -473,7 +471,6 @@ export function readCaptureConfig(search: string): CaptureConfig {
     marchProbe: params.get('marchprobe') === '1',
     heightProbe: params.get('heightprobe') === '1',
     skyProbe: params.get('skyprobe') === '1',
-    sky: params.get('sky') === 'hillaire' ? 'hillaire' : 'takram',
     nodeShadow: params.get('nodeshadow') === '1',
     spriteProbe: params.get('spriteprobe') === '1',
     toneProbe: params.get('toneprobe') === '1',

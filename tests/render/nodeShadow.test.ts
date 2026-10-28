@@ -5,7 +5,7 @@ import {
   configureNodeAircraftShadow,
   type NodeAircraftShadow,
 } from '../../src/render/pipeline/nodeShadow'
-import type { AtmosphereSunLight } from '../../src/render/atmosphereNodes'
+import type { SkySunLight } from '../../src/render/sky/hillaireSky'
 import { getQuality } from '../../src/render/quality'
 
 /**
@@ -34,7 +34,7 @@ function build(preset: 'low' | 'medium' | 'high' | 'ultra'): {
   const light = new DirectionalLight()
   const shadow = configureNodeAircraftShadow({
     renderer,
-    light: light as unknown as AtmosphereSunLight,
+    light: light as unknown as SkySunLight,
     quality: getQuality(preset),
     center: new Vector3(0, 0, 0),
     sunDirectionWorld: new Vector3(0, 1, 0),

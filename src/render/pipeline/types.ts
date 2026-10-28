@@ -190,11 +190,6 @@ export interface SceneOptions {
   carrier?: { x: number; z: number; heading: number }
   /** プリセットの上書き。実機でつまみを振るときに使う */
   qualityOverride?: QualityOverride
-  /**
-   * 背景の空の描き手。`?sky=hillaire` で自前の空（段 S2a の隠しの口）。
-   * 既定は takram。S2a では背景だけを差し替え、霞と照度は takram のまま
-   */
-  sky?: 'takram' | 'hillaire'
   /** 時間方向の足し込みを使うか。比較用 */
   cloudTemporal?: boolean
   /** キャプチャモードか。雲の収束の重み付けが変わる */
@@ -830,18 +825,15 @@ export interface NodeProbeResult {
    * 本番の場面の `hook.noiseMs` と並べる。起動時の費用になる
    */
   volumeMs: number
-  /** 大気を node 経路で組んだか */
+  /** 空（`sky/hillaireSky.ts`）を組んだか */
   atmosphere: boolean
   /**
-   * 大気の LUT を GPU で計算するのにかかったミリ秒。
+   * 空を組むのにかかったミリ秒。起動時に焼く LUT（透過率と多重散乱）を含む。
    *
-   * **これが段 10 の主目的。**4.1 MB の EXR を配るのをやめられるかは、
-   * この値で決まる。SwiftShader で 1 ページあたり 3 秒を超えるなら
-   * `atmosphereLutScale` を落とすか、オフラインで焼いたものを差す
+   * 段 10 では takram の LUT の計算時間で、4.1 MB の EXR を配るのをやめられるかを
+   * この値で決めた。段 S2b-2 で自前の空に替え、takram の倍率の列（`lutScale`）は消した
    */
   lutMs: number
-  /** LUT の解像度の倍率。プリセットの `atmosphereLutScale` */
-  lutScale: number
   /** `compileAsync` にかかったミリ秒。ここで `setup()` が走る */
   buildMs: number
   /**

@@ -430,7 +430,6 @@ async function main(): Promise<void> {
   const view = await createScene(canvas!, {
     preset: initialSettings.preset,
     hour: initialSettings.hour,
-    sky: capture.sky,
     aircraftUrl: AIRCRAFT_URL,
     enemyUrl: ENEMY_URL,
     // **台本が空母を要求したときだけ読む。**基準画像 39 枚は空母の無い

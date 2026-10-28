@@ -2,15 +2,12 @@
  * 雲を大気へ差し込む合成を TSL 版と CPU 参照で突き合わせる（段 S1 で
  * GLSL 版の焼き手を捨てるまでは GLSL 版とも比べていた）。
  *
- * `AerialPerspectiveNode` に `overlay` が無い（持つのは `colorNode` /
- * `depthNode` / `normalNode` / `skyNode` / `shadowLengthNode` の 5 つ）。
- * **雲を差し込む口が消えるので、合成を自前で書く。**式は GLSL 版の
- * `aerialPerspectiveEffect.frag:283-289, 387-389` から写す。
- *
- * 写した 2 か所を `OVERLAY_EARLY_OUT_GLSL` と `OVERLAY_COMPOSITE_GLSL` に
- * 文字列で置いてある。**写しが 2 つあると相手が定まらない**（段 16）ので、
- * `tests/render/overlayProbe.test.ts` が `node_modules` の原本と照合する。
- * ライブラリを上げて式が変われば、そこが落ちる。
+ * 式は takram の GLSL 版（`aerialPerspectiveEffect.frag:283-289, 387-389`）から
+ * 写した。takram の `AerialPerspectiveNode` に雲を差し込む口が無かったため。
+ * 段 S2b-2 まで、写した 2 行を文字列で置いて `node_modules` の原本と照合して
+ * いた（写しが 2 つあると相手が定まらない、段 16）。takram を外して原本が無く
+ * なったので、照合と文字列は消した。式はいまは自前のもので、TSL 版と CPU 参照
+ * の突き合わせが縛る。
  *
  * 早期打ち切りは絵に出ない。`overlay.a == 1.0` の画素は、打ち切っても
  * 打ち切らなくても `base * (1 - 1) + overlay.rgb` で同じ値になる。
@@ -60,22 +57,6 @@ export const OVERLAY_PROBE_CLOUD_RATIO = { r: 0.2, g: 0.65, b: 0.95 } as const
 
 /** 下地の不透明度。合成の枝が返すアルファ */
 export const OVERLAY_PROBE_BASE_ALPHA = 1
-
-/**
- * takram の断片シェーダから写した早期打ち切り。
- *
- * `aerialPerspectiveEffect.frag:285`。原本との照合は
- * `tests/render/overlayProbe.test.ts`
- */
-export const OVERLAY_EARLY_OUT_GLSL = 'if (overlay.a == 1.0) {'
-
-/**
- * takram の断片シェーダから写した合成。
- *
- * `aerialPerspectiveEffect.frag:315` と `:388` の 2 か所に同じ行がある
- */
-export const OVERLAY_COMPOSITE_GLSL =
-  'outputColor.rgb = outputColor.rgb * (1.0 - overlay.a) + overlay.rgb;'
 
 export interface OverlayProbeSample {
   /** 大気が返す色の代わり */

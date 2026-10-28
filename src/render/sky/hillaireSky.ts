@@ -34,6 +34,7 @@ import {
 } from 'three/tsl'
 import { Node, NodeMaterial, type NodeBuilder, type Renderer } from 'three/webgpu'
 import type { IlluminanceProvider } from '../terrain/surfaceNodes'
+import { AIRCRAFT_SHADOW_DISTANCE } from '../pipeline/nodeShadow'
 import { IRRADIANCE_TABLE } from './irradianceTable'
 import {
   GROUND_RADIUS,
@@ -84,10 +85,12 @@ import {
 const SUN_ANGULAR_RADIUS = 0.004675
 
 /**
- * 機体の光を置く距離 m。影の箱は `nodeShadow.ts` が向きから置き直すので、ここでは
- * `DirectionalLight` の向きを決めるだけ（takram の `AtmosphereLight` の既定と同じく 1）
+ * 機体の光を置く距離 m。**影の追従（`followAircraftShadow`）と同じ距離にする。**
+ * 光の位置は影の箱の位置でもあり、毎フレーム `update` と影の追従の両方が置く。
+ * 最初は 1 m にしていて、描画の直前に走る `update` が影の追従の 200 m を上書きし、
+ * 影の箱（near 1 m）が機体の太陽側を切るおそれがあった（段 S2b-2 で見つけた）
  */
-const SUN_LIGHT_DISTANCE = 1
+const SUN_LIGHT_DISTANCE = AIRCRAFT_SHADOW_DISTANCE
 
 /** 余弦を含まない照度。名前で引く形は takram の struct に合わせる（`atmosphereNodes.ts`） */
 interface SplitIlluminance {

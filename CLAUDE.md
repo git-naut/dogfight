@@ -56,9 +56,9 @@ push したら **CI の結果を見るまで次の段へ進まない。**落ち�
 SwiftShader にしか乗らないので、実機でだけ出る欠陥（雲の上下反転など）を
 手元で追えない。手順と塞がれた道は `docs/measuring.md` の「実 GPU で測る」。
 
-**three にはパッチを当てている。**`tools/patch-three.mjs` が `postinstall` で
-`nodeProxyConstructor` に `get` と `has` を足す。takram 0.19.1 が読む
-`.layout` が three 0.185 以降で消えたため。**当たらなくなったら落ちる。**
+**three にパッチは当てていない。**段 S2b-2（2026-10-28）まで、takram 0.19.1 の
+ために `tools/patch-three.mjs` を `postinstall` で当てていた。空を自前（Hillaire、
+`src/render/sky/`）に替えて takram ごと外した。
 
 ## 品質プリセット
 

@@ -1591,9 +1591,9 @@ test.describe('ミサイル警告とフレア', () => {
 
 test.describe('バンドルの中身', () => {
   test('React と R3F が成果物に混ざっていない', () => {
-    // @takram/three-atmosphere は peer に React 一式を並べているが、
-    // vanilla のエクスポートだけを使っているので成果物には入らないはず。
-    // import 経路が変わって混入したらここで落ちる。
+    // 段 S2b-2 まで使っていた @takram/three-atmosphere は peer に React 一式を
+    // 並べていた。外したので混入の経路は無いはずだが、依存を足したときに
+    // 混ざったらここで落ちる。
     const assets = join(process.cwd(), 'dist/assets')
     const bundles = readdirSync(assets).filter((f) => f.endsWith('.js'))
     expect(bundles.length).toBeGreaterThan(0)
@@ -2815,6 +2815,12 @@ test.describe('通しの流れ', () => {
  */
 test.describe('長く飛ぶ', () => {
   test('1,200 フレーム飛んでも描画が止まらない', async ({ page }) => {
+    // **この 1 本だけ制限を 900 秒にする。**CI の普段の所要は 278〜300 秒で、既定の
+    // 540 秒（180 秒の 3 倍）の約半分。run 40467095618 で、12 本がそろって 1.83 倍
+    // 遅かった台に当たり、1 回目が 540 秒を越えた（やり直しは 300 秒で通過）。
+    // 900 秒は普段の 3 倍で、遅い台でも 1.6 倍の余裕がある。分割の重みでは台の
+    // 揺れを防げない（`tools/shard-weights.mjs` の注記。ユーザーの決定、2026-10-28）
+    test.setTimeout(900_000)
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message.split('\n')[0] ?? e.message))
     // **`precompile=0` にしない。**事前コンパイルも通す経路に入れる

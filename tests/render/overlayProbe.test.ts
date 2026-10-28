@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath, URL } from 'node:url'
 import {
-  OVERLAY_COMPOSITE_GLSL,
-  OVERLAY_EARLY_OUT_GLSL,
   OVERLAY_PROBE_BASE_RATIO,
   OVERLAY_PROBE_CLOUD_RATIO,
   OVERLAY_PROBE_COUNT,
@@ -19,42 +15,9 @@ import {
 /**
  * 雲を大気へ差し込む合成。
  *
- * `AerialPerspectiveNode` に `overlay` が無いので自前で書く。式は takram の
- * 断片シェーダから写した。**写しは原本と照合する。**ライブラリを上げて式が
- * 変われば、ここが落ちる。
+ * 式は takram の断片シェーダから写した。段 S2b-2 まで原本と照合する 4 本が
+ * あったが、takram を外して原本が無くなったので消した（`overlayProbe.ts` の注記）。
  */
-
-const TAKRAM_FRAG = fileURLToPath(
-  new URL(
-    '../../node_modules/@takram/three-atmosphere/src/shaders/aerialPerspectiveEffect.frag',
-    import.meta.url,
-  ),
-)
-
-describe('写した式が原本と一致する', () => {
-  const source = readFileSync(TAKRAM_FRAG, 'utf8')
-
-  it('早期打ち切りの条件が原本にある', () => {
-    expect(source).toContain(OVERLAY_EARLY_OUT_GLSL)
-  })
-
-  it('合成の行が原本にある', () => {
-    expect(source).toContain(OVERLAY_COMPOSITE_GLSL)
-  })
-
-  it('合成の行は 2 か所にある', () => {
-    // 深度 1 で抜ける枝と、地物のある枝の 2 か所。片方だけ変わっても
-    // 気づけるように数まで固定する
-    const count = source.split(OVERLAY_COMPOSITE_GLSL).length - 1
-    expect(count).toBe(2)
-  })
-
-  it('照合そのものが働いている', () => {
-    // 原本を読めていなければ上の 3 件は空振りで通る
-    expect(source).toContain('void mainImage(')
-    expect(source.includes('if (overlay.a == 0.5) {')).toBe(false)
-  })
-})
 
 describe('固定入力が両方の枝を通る', () => {
   it('不透明度がちょうど 1 に届く', () => {

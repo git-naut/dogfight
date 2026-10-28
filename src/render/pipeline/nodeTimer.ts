@@ -29,6 +29,11 @@ import { lastFrameOf, summarizeFrames, type FramePassTimes, type PassSource } fr
  * パスごとの ms を `timestampQueryPool.render.timestamps` に残している
  * （`WebGPUTimestampQueryPool.js` の `_resolveQueries`）。次の解決で消されるので、
  * 解決が決着したその場で読む。何のパスかは `sourceOf`（`PassInspector`）が引く。
+ *
+ * **コンピュートの時刻も解決する**（段 S3）。three はコンピュートの時刻を別の記録
+ * （`timestampQueryPool.compute`）に持つ。描画だけを解決していたので、FFT の海の計算が
+ * 実機の計測に 1 本も入らなかった。両方を解決し、合計にも内訳にも足す。コンピュートの
+ * 無い場面では記録が無く（解決は `undefined`）、値は前と変わらない。
  */
 
 interface TimestampRenderer {
@@ -37,6 +42,7 @@ interface TimestampRenderer {
   backend?: {
     timestampQueryPool?: {
       render?: { timestamps?: ReadonlyMap<string, number> } | null
+      compute?: { timestamps?: ReadonlyMap<string, number> } | null
     }
   }
 }
@@ -46,9 +52,14 @@ export type PassSourceLookup = (uid: string) => PassSource | undefined
 
 /** 1 回の解決に入っていた全フレームの内訳。読めなければ空 */
 function readFrames(target: TimestampRenderer, sourceOf: PassSourceLookup): FramePassTimes[] {
-  const timestamps = target.backend?.timestampQueryPool?.render?.timestamps
-  if (timestamps === undefined || timestamps.size === 0) return []
-  return summarizeFrames(timestamps, sourceOf)
+  const pools = target.backend?.timestampQueryPool
+  // 描画（鍵が `r:`）とコンピュート（`c:`）の記録を 1 つに合わせる。鍵は重ならない
+  const merged = new Map<string, number>()
+  for (const pool of [pools?.render, pools?.compute]) {
+    for (const [uid, ms] of pool?.timestamps ?? []) merged.set(uid, ms)
+  }
+  if (merged.size === 0) return []
+  return summarizeFrames(merged, sourceOf)
 }
 
 export function createNodeTimer(renderer: Renderer, sourceOf?: PassSourceLookup): GpuFrameTimer {
@@ -87,9 +98,13 @@ export function createNodeTimer(renderer: Renderer, sourceOf?: PassSourceLookup)
       }
 
       waiting++
-      void target
-        .resolveTimestampsAsync('render')
-        .then((ms) => {
+      void Promise.all([target.resolveTimestampsAsync('render'), target.resolveTimestampsAsync('compute')])
+        .then(([renderMs, computeMs]) => {
+          // コンピュートの無い場面では `undefined`（足さない）
+          const ms =
+            typeof renderMs === 'number' && typeof computeMs === 'number' && Number.isFinite(computeMs)
+              ? renderMs + computeMs
+              : renderMs
           // **`undefined` も 0 も「測れていない」。**`timestamp-query` が
           // 無ければ `undefined`、解決する物が無いか GPU の状態が乱れて
           // いれば初期値の 0 が返る。0 を数に混ぜると最小値が 0 になる

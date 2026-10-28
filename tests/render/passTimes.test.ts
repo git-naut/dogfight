@@ -143,6 +143,9 @@ describe('名札と群', () => {
     // 自前の霞の LUT（段 S2b-1）
     expect(passGroup({ scene: 'Sky [ Aerial ]', target: 'SkyAerial' })).toBe('霞')
     expect(passGroup({ scene: 'Sky [ Aerial T ]', target: 'SkyAerialT' })).toBe('霞')
+    // FFT の海のコンピュート（段 S3）。描き先は無い
+    expect(passGroup({ scene: 'Ocean [ Evolve ]', target: '' })).toBe('海')
+    expect(passGroup({ scene: 'Ocean [ FFT Cols ]', target: '' })).toBe('海')
     // 名前の無い焼き直しは、どちらにも入れない
     expect(passGroup({ scene: 'RTT', target: '' })).toBe(UNGROUPED)
   })

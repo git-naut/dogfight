@@ -44,6 +44,7 @@ import {
   type SceneOptions,
 } from './types'
 import { WebGPUUnavailable } from './webgpuRequired'
+import { FIXED_DT } from '../../sim/loop'
 import { createHillaireSky, type SkyLighting } from '../sky/hillaireSky'
 
 /**
@@ -154,6 +155,14 @@ export async function createNodePipeline(
   const anchor = new THREE.Vector3(0, 0, 0)
   /** 空と霞の LUT を焼き直し、機体の光を入れ直す。場面を描く前に呼ぶ */
   const updateSky = () => sky.update(renderer, camera, solar.sunDirectionWorld, anchor)
+
+  // ---- FFT の海を目で見る画面（段 S3、`?ocean=debug`）----
+  //
+  // 場面には繋がない。出力を海の画面に差し替え、毎フレーム海を解く。時刻は sim の
+  // フレーム番号（`updateClouds` の `cloudTime`）から
+  const oceanDebug = options.oceanDebug === true ? await createOceanDebug(options) : null
+  oceanDebug?.sim.init(renderer)
+  let oceanTicks = 0
 
   const noise = await bakeNodeCloudNoise(renderer)
 
@@ -389,6 +398,11 @@ export async function createNodePipeline(
    * 同じ形の前例が環境反射（`applyPreset` の中）と `?env=0` の切り替えにある。
    */
   function buildOutput(q: QualitySettings): webgpu.Node {
+    if (oceanDebug !== null) {
+      // 色をそのまま出す（トーンマッピングを通さない）
+      ownsOutputTransform = true
+      return oceanDebug.node as unknown as webgpu.Node
+    }
     // **強さは鎖の外で持つ。**プリセットが変わっても組み直さずに済む値は
     // uniform にして、組み直しは段の出し入れだけに絞る
     // **掃引の上書きが勝つ。**プリセットの値は表の側の既定で、`?bloomstrength=`
@@ -530,6 +544,7 @@ export async function createNodePipeline(
     // 雲影は地面を描く前に焼く。**鎖の中では手遅れになる**
     if (cloudsEnabled) clouds.renderShadow(renderer)
     updateSky()
+    oceanDebug?.sim.update(renderer, oceanTicks, 0)
     pipeline.render()
   }
 
@@ -647,6 +662,7 @@ export async function createNodePipeline(
     },
 
     updateClouds(update) {
+      oceanTicks = Math.round(update.cloudTime / FIXED_DT)
       coverage = update.coverage
       clouds.update(update)
       surfaceState.setWaveTime(update.cloudTime)
@@ -732,6 +748,7 @@ export async function createNodePipeline(
       gpuTimer.begin()
       if (cloudsEnabled) clouds.renderShadow(renderer)
       updateSky()
+      oceanDebug?.sim.update(renderer, oceanTicks, 0)
       pipeline.render()
       gpuTimer.end()
     },
@@ -865,6 +882,7 @@ export async function createNodePipeline(
       noise.dispose()
       radianceQuad.dispose()
       sky.dispose()
+      oceanDebug?.sim.dispose()
       terrainMesh.dispose()
       water.dispose()
       heightTexture.dispose()
@@ -872,6 +890,25 @@ export async function createNodePipeline(
       renderer.dispose()
     },
   }
+}
+
+/**
+ * 海の画面を組む（`?ocean=debug`）。海のモジュールは画面を開いたときだけ読む。
+ * 条件は web-ocean の既定（`WEB_OCEAN_DEFAULTS`）で、計測用の口でカスケード数と格子を振る
+ */
+async function createOceanDebug(options: SceneOptions) {
+  const [{ createOceanSimulation }, { createOceanDebugNode }, { WEB_OCEAN_DEFAULTS }] = await Promise.all([
+    import('../ocean/oceanNodes'),
+    import('../ocean/oceanDebug'),
+    import('../ocean/reference'),
+  ])
+  const params = {
+    ...WEB_OCEAN_DEFAULTS,
+    cascades: WEB_OCEAN_DEFAULTS.cascades.slice(0, options.oceanCascades ?? WEB_OCEAN_DEFAULTS.cascades.length),
+    size: options.oceanFftSize ?? WEB_OCEAN_DEFAULTS.size,
+  }
+  const sim = createOceanSimulation(params)
+  return { sim, params, node: createOceanDebugNode(sim, params) }
 }
 
 /** 時刻から太陽の向き（three の `Vector3` で持つ）と高度 */

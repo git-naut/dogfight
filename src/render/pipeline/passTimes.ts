@@ -115,6 +115,8 @@ export const PASS_GROUPS: readonly PassGroupRule[] = [
   { group: '空', test: (s) => s.scene === 'Sky [ View ]' },
   // 自前の霞の LUT（入る光と透過率の 2 枚）を毎フレーム焼くパス（段 S2b-1）
   { group: '霞', test: (s) => s.scene === 'Sky [ Aerial ]' || s.scene === 'Sky [ Aerial T ]' },
+  // FFT の海のコンピュート（段 S3、`ocean/oceanNodes.ts`）
+  { group: '海', test: (s) => s.scene.startsWith('Ocean [') },
   { group: '場面', test: (s) => s.scene === 'Scene' },
   { group: '爆発', test: (s) => s.scene === 'Overlay' },
   // 霞・雲・重ね描き・ブルームを合わせて焼くパス（`nodeOutput.ts` の `compositeRtt`）

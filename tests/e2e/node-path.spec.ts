@@ -33,6 +33,7 @@ import {
   screenRay,
 } from '../../src/render/sky/skyProbe'
 import { IRRADIANCE_TABLE } from '../../src/render/sky/irradianceTable'
+import { OCEAN_PROBE_TOLERANCE } from '../../src/render/ocean/oceanProbe'
 import {
   SURFACE_PROBE_SIDE,
   WATER_PROBE_REGIONS,
@@ -550,6 +551,40 @@ test.describe('node 経路', () => {
       expect(lutNormalizedError(gpuTable, cpuTable, false), `${label}の向きの検査に歯がない`).toBeGreaterThan(0.1)
     }
   }
+
+  /**
+   * **FFT の海（段 S3）。**全カスケード 256² を GPU で解き、ページの中で CPU 参照
+   * （`src/render/ocean/reference.ts`）と比べた要約を読む（場が大きく、JSON で取り出せない）。
+   * 許容は各カスケード・各成分の最大値に対する差で 1e-4（ユーザーの決定）。2026-10-28 の
+   * 実測は最大 4.1e-6。WebGL2 の組み立てに共有メモリが無いので WebGPU だけで流す
+   */
+  test('FFT の海が CPU 参照と一致する', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
+    const { result, errors } = await probe(page, 'gpu=2&oceanprobe=1')
+    expect(errors).toEqual([])
+    const ocean = result.ocean
+    expect(ocean, '海を解いていない').toBeTruthy()
+    const count = 6 * 256 * 256
+    expect(ocean!.lengths).toEqual({
+      h0: count * 4,
+      frequencyIndex: count,
+      specA: count * 4,
+      specB: count * 4,
+      displacement: count * 4,
+      derivatives: count * 4,
+    })
+    // 周波数の番号の食い違いは、32 ビットの丸めで境目をまたいだものだけ（実測 644 個）
+    expect(ocean!.index.unexplained, JSON.stringify(ocean!.index)).toBe(0)
+    for (const key of ['h0', 'specA', 'specB', 'displacement', 'derivatives'] as const) {
+      // eslint-disable-next-line no-console
+      console.log(`[海] ${key} 最大値に対する差 ${ocean![key].toExponential(2)}`)
+      expect(ocean![key], `${key}（最大の要素 ${JSON.stringify(ocean!.worst[key])}）`).toBeLessThanOrEqual(
+        OCEAN_PROBE_TOLERANCE,
+      )
+    }
+    // **向きを取り違えたら落ちること。**x と y を入れ替えても一致するなら比べ方が空回り
+    expect(ocean!.displacementTransposed, '向きの検査に歯がない').toBeGreaterThan(0.1)
+  })
 
   test('TSL の自前の空が CPU 参照と一致する', async ({ page }) => {
     await expectSkyMatchesReference(page, 1)

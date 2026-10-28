@@ -197,6 +197,11 @@ export interface SceneOptions {
   /** 地形と海面を描くか。GPU 時間の内訳を差分で測るための切り替え */
   showTerrain?: boolean
   showWater?: boolean
+  /** FFT の海を目で見る画面にするか（`?ocean=debug`、段 S3） */
+  oceanDebug?: boolean
+  /** 計測用: 海のカスケード数と格子の一辺。品質表に載せるのは CP2 のあと */
+  oceanCascades?: number
+  oceanFftSize?: number
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean
   /**
@@ -559,6 +564,21 @@ export interface NodeProbeResult {
    * LUT は RGBA の float を行ごと（読み戻しの並び）に持つ。焼くとき v を裏返すので、
    * 行 y は CPU 参照の行 height - 1 - y に当たる（`sky/skyProbe.ts` の `lutRelativeError`）
    */
+  /**
+   * FFT の海を GPU で解いて CPU 参照と比べた要約。`?oceanprobe=1` で WebGPU のときだけ
+   * 埋まる（段 S3、`ocean/oceanProbe.ts`）
+   */
+  ocean: (import('../ocean/oceanProbe').OceanProbeSummary & {
+    /** 読み戻した場ごとの要素の数（32 ビットの数の個数） */
+    lengths: Record<string, number>
+    /** ページの中で CPU 参照を解いて比べた所要 ms */
+    compareMs: number
+    /**
+     * 1 フレームの所要 ms（時間発展と逆 FFT、3 回の中央値）と、初期値を作る所要。
+     * カスケード数と格子の大きさを振る。GPU の仕事が終わるまで待った壁時計
+     */
+    cost: { cascades: number; size: number; updateMs: number; initMs: number }[]
+  }) | null
   sky: {
     transmittance: number[]
     multiscatter: number[]

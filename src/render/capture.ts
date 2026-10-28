@@ -66,6 +66,15 @@ export interface CaptureConfig {
    */
   showTerrain: boolean
   showWater: boolean
+  /**
+   * FFT の海を目で見る画面にするか。`?ocean=debug`（段 S3）。場面は描かず、カスケードごとの
+   * 高さ・傾き・ヤコビアンを並べる（`ocean/oceanDebug.ts`）
+   */
+  oceanDebug: boolean
+  /** 計測用: 海のカスケード数（`?oceancascades=`）。品質表に載せるのは CP2 のあと */
+  oceanCascades: number | null
+  /** 計測用: 海の格子の一辺（`?oceanfft=`、2 のべき） */
+  oceanFftSize: number | null
   /** 環境反射を使うか。`?env=0` で切る。質感の比較に使う */
   showEnvironment: boolean
   /**
@@ -266,6 +275,12 @@ export interface CaptureConfig {
    */
   skyProbe: boolean
   /**
+   * FFT の海を GPU で解いて CPU 参照と比べるか。`?oceanprobe=1`（段 S3）。
+   *
+   * 自己診断（`?gpu=2`）だけが読み、`gpuProbe.ocean` へ置く。WebGPU が要る
+   */
+  oceanProbe: boolean
+  /**
    * 影を node 経路で立てて測るか。`?nodeshadow=1`。
    *
    * `?gpu=1` か `?gpu=2` と併せて使う。既定の経路には効かない
@@ -411,6 +426,9 @@ export function readCaptureConfig(search: string): CaptureConfig {
     govTest: params.get('govtest') === '1',
     showTerrain: params.get('terrain') !== '0',
     showWater: params.get('water') !== '0',
+    oceanDebug: params.get('ocean') === 'debug',
+    oceanCascades: params.has('oceancascades') ? Number(params.get('oceancascades')) : null,
+    oceanFftSize: params.has('oceanfft') ? Number(params.get('oceanfft')) : null,
     showEnvironment: params.get('env') !== '0',
     smaa: params.get('smaa') !== '0',
     bloom: params.get('bloom') !== '0',
@@ -471,6 +489,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     marchProbe: params.get('marchprobe') === '1',
     heightProbe: params.get('heightprobe') === '1',
     skyProbe: params.get('skyprobe') === '1',
+    oceanProbe: params.get('oceanprobe') === '1',
     nodeShadow: params.get('nodeshadow') === '1',
     spriteProbe: params.get('spriteprobe') === '1',
     toneProbe: params.get('toneprobe') === '1',

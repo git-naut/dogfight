@@ -143,6 +143,11 @@ export interface NodeProbeOptions {
    */
   skyProbe?: boolean
   /**
+   * FFT の海を GPU で解いて CPU 参照と比べるか。`?oceanprobe=1`（段 S3）。
+   * 固定の入力と比べ方は `ocean/oceanProbe.ts` が唯一の定義。WebGPU のときだけ走る
+   */
+  oceanProbe?: boolean
+  /**
    * 影を node 経路で立てて測るか。`?nodeshadow=1`。
    *
    * `shadow(light)` の経路が立つか、プリセットのフィルタが渡るか、影マップが
@@ -886,6 +891,70 @@ export async function runNodeProbe(
         projectionInverse: camera.projectionMatrixInverse.toArray(),
         cameraWorld: camera.matrixWorld.toArray(),
       },
+    }
+  }
+
+  // ---- FFT の海（段 S3）----
+  //
+  // 全カスケード 256² を GPU で解き、読み戻してページの中で CPU 参照と比べる。返すのは
+  // 差の要約だけ（`ocean/oceanProbe.ts` の注記）。共有メモリを使うので WebGPU のときだけ
+  let ocean: NodeProbeResult['ocean'] = null
+  if (options.oceanProbe === true && isWebGPU) {
+    const oceanNodes = await import('../ocean/oceanNodes')
+    const oceanProbe = await import('../ocean/oceanProbe')
+    const { WEB_OCEAN_DEFAULTS } = await import('../ocean/reference')
+    const sim = oceanNodes.createOceanSimulation(WEB_OCEAN_DEFAULTS)
+    sim.init(renderer)
+    sim.update(renderer, oceanProbe.OCEAN_PROBE_TICKS, oceanProbe.OCEAN_PROBE_ALPHA)
+    const read = async (node: { value: unknown }, int = false) => {
+      const buffer = await renderer.getArrayBufferAsync(node.value as never)
+      return int ? new Uint32Array(buffer) : new Float32Array(buffer)
+    }
+    const gpu = {
+      h0: await read(sim.h0),
+      frequencyIndex: await read(sim.frequencyIndex, true),
+      specA: await read(sim.specA),
+      specB: await read(sim.specB),
+      displacement: await read(sim.displacement),
+      derivatives: await read(sim.derivatives),
+    }
+    const compareStarted = performance.now()
+    const summary = oceanProbe.compareOcean(
+      gpu,
+      WEB_OCEAN_DEFAULTS,
+      oceanProbe.OCEAN_PROBE_TICKS,
+      oceanProbe.OCEAN_PROBE_ALPHA,
+    )
+    sim.dispose()
+
+    // 1 フレームの所要（時間発展と逆 FFT）。カスケード数と格子の大きさを振る。GPU の仕事が
+    // 終わるまで待って壁時計で測る（SwiftShader では CPU の時間がそのまま出る）
+    const device = (renderer.backend as unknown as { device: { queue: { onSubmittedWorkDone(): Promise<void> } } }).device
+    const cost: { cascades: number; size: number; updateMs: number; initMs: number }[] = []
+    for (const [cascades, size] of [[6, 256], [4, 256], [4, 128], [3, 128]] as const) {
+      const params = { ...WEB_OCEAN_DEFAULTS, cascades: WEB_OCEAN_DEFAULTS.cascades.slice(0, cascades), size }
+      const variant = oceanNodes.createOceanSimulation(params)
+      const initStarted = performance.now()
+      variant.init(renderer)
+      variant.update(renderer, 0, 0)
+      await device.queue.onSubmittedWorkDone()
+      const initMs = performance.now() - initStarted
+      const samples: number[] = []
+      for (let i = 1; i <= 3; i++) {
+        const started = performance.now()
+        variant.update(renderer, i * 2, 0)
+        await device.queue.onSubmittedWorkDone()
+        samples.push(performance.now() - started)
+      }
+      samples.sort((a, b) => a - b)
+      cost.push({ cascades, size, updateMs: samples[1]!, initMs })
+      variant.dispose()
+    }
+    ocean = {
+      ...summary,
+      lengths: Object.fromEntries(Object.entries(gpu).map(([k, v]) => [k, v.length])),
+      compareMs: performance.now() - compareStarted,
+      cost,
     }
   }
 
@@ -1963,6 +2032,7 @@ export async function runNodeProbe(
     march,
     heightProbe,
     sky,
+    ocean,
     sprite,
     tone,
     overlay,

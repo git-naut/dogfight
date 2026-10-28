@@ -33,11 +33,18 @@ function deferred(): Deferred {
   return { promise, settle, fail }
 }
 
-/** 解決の返り値を 1 回ずつ台本どおりに返すレンダラ */
-function scripted(queue: Deferred[]): { renderer: Renderer; readonly calls: number } {
+/**
+ * 解決の返り値を 1 回ずつ台本どおりに返すレンダラ。台本は描画（`'render'`）の解決の分で、
+ * コンピュート（`'compute'`）の解決は `compute` を返す（既定は記録の無い場面の `undefined`）
+ */
+function scripted(
+  queue: Deferred[],
+  compute: () => Promise<number | undefined> = () => Promise.resolve(undefined),
+): { renderer: Renderer; readonly calls: number } {
   let calls = 0
   const renderer = {
-    resolveTimestampsAsync(): Promise<number | undefined> {
+    resolveTimestampsAsync(type?: string): Promise<number | undefined> {
+      if (type === 'compute') return compute()
       const item = queue[calls++]
       if (item === undefined) throw new Error(`台本より多く呼ばれた（${calls} 回目）`)
       return item.promise
@@ -153,6 +160,32 @@ describe('node 経路の GPU タイマー', () => {
     timer.end()
     expect(fake.calls).toBe(0)
     expect(timer.dropped).toBe(0)
+  })
+
+  it('コンピュートの時刻も合計と内訳に入る（段 S3）', async () => {
+    // FFT の海の計算は three のコンピュートの記録に入る。描画だけを解決していたので、
+    // 実機の計測に 1 本も入らなかった
+    const d = deferred()
+    const fake = scripted([d], () => Promise.resolve(0.75))
+    const render = new Map<string, number>()
+    const compute = new Map<string, number>()
+    ;(fake.renderer as unknown as { backend: unknown }).backend = {
+      timestampQueryPool: { render: { timestamps: render }, compute: { timestamps: compute } },
+    }
+    const timer = createNodeTimer(fake.renderer, (uid) =>
+      uid.startsWith('c:') ? { scene: 'Ocean [ Evolve ]', target: '' } : { scene: 'Scene', target: 'output' },
+    )
+    timer.begin(1)
+    timer.end()
+    render.set('r:1:3:f7', 2)
+    compute.set('c:1:5:f7', 0.75)
+    d.settle(2)
+    await flush()
+
+    const [sample] = timer.collect()
+    expect(sample!.ms).toBe(2.75)
+    expect(sample!.passes!.totalMs).toBe(2.75)
+    expect(sample!.passes!.passes.map((p) => p.group).sort()).toEqual(['場面', '海'])
   })
 
   it('内訳を同じ解決の Map から読み、名札を付ける（段 S0a）', async () => {

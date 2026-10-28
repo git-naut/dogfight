@@ -896,20 +896,19 @@ test.describe('node 経路', () => {
     // 場面に入っていないので、暖機の 1 枚で実描画が要る。私物の
     // `_quadMesh` へ手を伸ばして組む道も測ったが、描き先・トーンマッピング・
     // 出力の色空間まで揃えても 1 枚目の差が 1,578 ms 残った
+    //
+    // **組み立ては数で数える**（段 S2b-2 の追補、ユーザーの決定）。2026-10-28 まで
+    // 「暖機 > 2 枚目 × 1.5」「1 枚目 < 暖機 × 0.6」と時間の比で縛っていたが、CI の
+    // 分割 18 で 3 度落ちた（9de0e6c・ef8dd11・0441de9、どれもやり直しで通過）。
+    // 毎フレームの描画が組み立てより重く、CPU の取り合いで 1 枚だけ伸びると比が崩れる。
+    // シェーダのプログラムの数は取り合いに左右されない。手元の実測は 28 → 53 → 53 → 53
     expect(
-      p.warmupMs,
-      `暖機 ${p.warmupMs} ms が 2 枚目 ${p.secondFrameMs} ms と変わらない`,
-    ).toBeGreaterThan(p.secondFrameMs * 1.5)
-    // 暖機のあとは 1 枚目も定常と変わらない。**定常と比べる。**2026-10-28 まで
-    // 「暖機 × 0.6 より短い」で縛っていたが、CI の分割 18 で 2 度（0.67・0.68）
-    // 落ちた。暖機のうち組み立ての分に対して毎フレームの描画が重く、CPU の取り合い
-    // で描画の側だけが伸びると比が上がる。手元で 1 本ずつ流しても負荷で 0.38〜0.47
-    // と動いた。そのとき 1 枚目は定常の 1.00〜1.16 倍で、組み立ては残っていない。
-    // 検査の狙いをそのまま見る形にした（ユーザーの決定）
-    expect(
-      p.firstFrameMs,
-      `暖機のあとの 1 枚目が ${p.firstFrameMs} ms（定常は ${p.steadyMs} ms、暖機は ${p.warmupMs} ms）`,
-    ).toBeLessThan(p.steadyMs * 1.5)
+      p.programsAfterWarmup,
+      `暖機でプログラムが増えていない（前 ${p.programsBeforeWarmup}、後 ${p.programsAfterWarmup}）`,
+    ).toBeGreaterThan(p.programsBeforeWarmup)
+    // 暖機のあとは 1 枚目も 2 枚目も組み立てない
+    expect(p.programsAfterFirst, '暖機のあとの 1 枚目で組み立てた').toBe(p.programsAfterWarmup)
+    expect(p.programsAfterSecond, '暖機のあとの 2 枚目で組み立てた').toBe(p.programsAfterWarmup)
     // **起動は壁時計で縛らない。**SwiftShader は CPU 律速なので、ワーカーが
     // 同時に描くと伸びる（`docs/lessons.md` の記録）。単独で回すと 5,952 ms
     // だったものが、spec を丸ごと回すと 31,702 ms になった。**競合を

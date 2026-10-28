@@ -673,6 +673,15 @@ export interface NodeProbeResult {
     /** そのうち LUT の実行時計算のぶん */
     lutMs: number
     /**
+     * シェーダのプログラムの数（`info.memory.programs`）。暖機の前・後、暖機のあとの
+     * 1 枚目・2 枚目の後。**暖機で増え、そのあと増えない**ことで、組み立てが暖機に
+     * 収まったかを時間に頼らず数える（段 S2b-2 の追補）
+     */
+    programsBeforeWarmup: number
+    programsAfterWarmup: number
+    programsAfterFirst: number
+    programsAfterSecond: number
+    /**
      * 1 枚目のミリ秒。
      *
      * **2 枚目と差が出るなら、事前コンパイルが鎖まで覆えていない。**

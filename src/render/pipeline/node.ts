@@ -1695,18 +1695,25 @@ export async function runNodeProbe(
     // 私物の `_quadMesh` へ手を伸ばして組む道も測った。描き先・トーン
     // マッピング・出力の色空間まで揃えても 1 枚目の差が 1,578 ms 残った
     // ので採らない。**支えられていない口に頼っても覆い切れない。**
+    // **組み立ては数で数える。**シェーダのプログラムが新しくできた数
+    // （`info.memory.programs`）は、CPU の取り合いに左右されない（段 S2b-2 の追補）
+    const programs = () => renderer.info.memory.programs
+    const programsBeforeWarmup = programs()
     const warmupStarted = performance.now()
     await drawOnce()
     const warmupMs = performance.now() - warmupStarted
+    const programsAfterWarmup = programs()
 
     // 1 枚目と 2 枚目を分けて測る。暖機のあとなら差は出ないはず
     const firstPipelineStarted = performance.now()
     await drawOnce()
     const firstPipelineMs = performance.now() - firstPipelineStarted
+    const programsAfterFirst = programs()
 
     const secondStarted = performance.now()
     await drawOnce()
     const secondFrameMs = performance.now() - secondStarted
+    const programsAfterSecond = programs()
 
     let steadyMs = Infinity
     let last = { frameCalls: 0, drawCalls: 0 }
@@ -1813,6 +1820,10 @@ export async function runNodeProbe(
       startupMs:
         initMs + volumeMs + pipelineBuildMs + compileCloudsMs + warmupMs,
       lutMs: pipelineLutMs,
+      programsBeforeWarmup,
+      programsAfterWarmup,
+      programsAfterFirst,
+      programsAfterSecond,
       firstFrameMs: firstPipelineMs,
       secondFrameMs,
       steadyMs,

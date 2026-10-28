@@ -11,6 +11,7 @@ import {
   cascadeBands,
   cascadeGain,
   latticeBands,
+  amplitude,
   cosSpread,
   directionDelta,
   wrapAngle,
@@ -173,6 +174,14 @@ describe('スペクトルの形', () => {
       const f = Math.fround(v)
       expect(Number.isInteger(f), `カスケード ${c} の上限 ${v} が丸めで整数になる`).toBe(false)
       expect(Math.ceil(f), `カスケード ${c} の上限 ${v}`).toBe(Math.ceil(v))
+    }
+  })
+
+  it('境目ちょうどの格子点（r² = 36）は上のカスケードに入る（下限を含む）', () => {
+    // 波数の帯では丸めしだいで分かれた点（段 S3）。整数の帯で、下限を含むと決めた
+    for (let c = 1; c < P.cascades.length; c++) {
+      expect(amplitude(6, 0, c, P), `カスケード ${c} の (6, 0)`).toBeGreaterThan(0)
+      expect(amplitude(0, -6, c, P), `カスケード ${c} の (0, -6)`).toBeGreaterThan(0)
     }
   })
 

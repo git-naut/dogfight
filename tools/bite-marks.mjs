@@ -2293,10 +2293,12 @@ export const BITE_MARKS = [
     id: 'ocean-band-tie',
     kind: '定数の摂動',
     file: 'src/render/ocean/reference.ts',
+    // **35 にしない。**r² は整数で、35 は 2 つの平方数の和にならないので 36 と同じ点を選ぶ
+    // （壊しても何も変わらない変異。最初はこれで書いて生き残った）
     find: '    rMin2.push(c === 0 ? 0.25 : 36)\n',
-    replace: '    rMin2.push(c === 0 ? 0.25 : 35)\n',
+    replace: '    rMin2.push(c === 0 ? 0.25 : 37)\n',
     expect: 'tests/render/oceanReference.test.ts',
-    why: '帯の下限が格子の半径 6 からずれると、隣のカスケードと波が重なるか抜ける。境目の 4 点だけの違いで、絵では見えない',
+    why: '帯の下限が格子の半径 6 からずれると、境目の 4 点の波がどのカスケードからも抜ける。絵では見えない',
   },
   {
     id: 'ocean-jxz-not-restored',

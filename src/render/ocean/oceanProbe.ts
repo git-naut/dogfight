@@ -282,6 +282,13 @@ export const OCEAN_SURFACE_PROBE_SPANS = { far: 3_072, near: 16 } as const
  */
 export const OCEAN_SURFACE_TOLERANCE = { far: 2e-3, near: { '16': 2e-4, '32': 1e-5 } } as const
 
+/**
+ * LEAN のモーメントの許容（段 S4a-2）。2026-10-29 の実測は遠い点 16・32 ビットとも 1.4e-3、
+ * 近い点 16 ビット 9.6e-4・32 ビット 7.6e-6。16 ビットの近い点が高さより 1 桁大きいのは、2 乗の
+ * 量に 16 ビットの丸め（相対 2⁻¹¹）が残るため。許容は実測の約 2 倍（余裕の取り方は推測）
+ */
+export const OCEAN_MOMENT_TOLERANCE = { far: 2e-3, near: { '16': 2e-3, '32': 2e-5 } } as const
+
 /** 突き合わせの点 (x, z, 間隔, 0)。起点から幅 span の四方に散らす。乱数は使わない */
 export function oceanSurfaceProbePoints(span: number = OCEAN_SURFACE_PROBE_SPANS.far): Float32Array {
   const out = new Float32Array(OCEAN_SURFACE_PROBE_CELLS.length * OCEAN_SURFACE_PROBE_COUNT * 4)
@@ -429,4 +436,20 @@ export function compareOceanSurface(
     }
   }
   return { error, byCell, transposed, skipped }
+}
+
+/**
+ * LEAN のモーメントの場 (sx², sz², sx·sz, 0)。傾きの場 (sx, sz, jxx, jzz) から要素ごとに積を作る
+ * （段 S4a-2）。GPU は同じ積を写すときに作り、**積のまま**ミップを平均する
+ */
+export function oceanMomentField(derivatives: ArrayLike<number>): Float64Array {
+  const out = new Float64Array(derivatives.length)
+  for (let i = 0; i < derivatives.length; i += 4) {
+    const sx = derivatives[i]!
+    const sz = derivatives[i + 1]!
+    out[i] = sx * sx
+    out[i + 1] = sz * sz
+    out[i + 2] = sx * sz
+  }
+  return out
 }

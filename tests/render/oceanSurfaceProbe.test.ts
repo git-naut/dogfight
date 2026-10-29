@@ -5,6 +5,7 @@ import {
   OCEAN_SURFACE_PROBE_SPANS,
   buildOceanMips,
   compareOceanSurface,
+  oceanMomentField,
   oceanSurfaceProbePoints,
   sampleOceanCpu,
 } from '@render/ocean/oceanProbe'
@@ -126,5 +127,22 @@ describe('突き合わせの点と比べ方', () => {
     expect(s.transposed).toBeGreaterThan(0.1)
     expect(s.skipped).toBeGreaterThan(0)
     expect(s.byCell).toHaveLength(OCEAN_SURFACE_PROBE_CELLS.length)
+  })
+})
+
+describe('LEAN のモーメントの場', () => {
+  it('傾きの 2 乗と積、4 成分目は 0', () => {
+    const m = oceanMomentField([2, -3, 9, 9, 0.5, 4, 1, 1])
+    expect(Array.from(m)).toEqual([4, 9, -6, 0, 0.25, 16, 2, 0])
+  })
+
+  it('積のまま平均すると、平均の積より大きい（粗い段に分散が残る）', () => {
+    // 傾きが +1 と −1 の 2 × 2 を 1 段平均すると、平均の傾きは 0 だが 2 乗の平均は 1
+    const n = 2
+    const d = field(n, (x, y, ch) => (ch === 0 ? ((x + y) % 2 === 0 ? 1 : -1) : 0))
+    const mips = buildOceanMips(oceanMomentField(d), n, 1)
+    const mean = buildOceanMips(d, n, 1)[1]![0]!
+    expect(mean).toBe(0)
+    expect(mips[1]![0]).toBe(1)
   })
 })

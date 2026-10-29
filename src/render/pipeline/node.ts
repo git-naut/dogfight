@@ -968,30 +968,105 @@ export async function runNodeProbe(
       highParams,
     )
     type SurfaceSummary = import('../ocean/oceanProbe').OceanSurfaceSummary
-    const surface = {} as Record<'16' | '32', Record<'far' | 'near', SurfaceSummary>>
+    type SurfaceKey = 'far' | 'near' | 'momentsFar' | 'momentsNear'
+    const surface = {} as Record<'16' | '32', Record<SurfaceKey, SurfaceSummary>>
     for (const precision of [16, 32] as const) {
       const textures = surfaceNodes.createOceanTextures(highSim, precision)
       textures.update(renderer)
       const sampler = surfaceNodes.createOceanSampler(highParams)
       sampler.setOrigin(...oceanProbe.OCEAN_SURFACE_PROBE_ORIGIN)
-      const bySpan = {} as Record<'far' | 'near', SurfaceSummary>
-      for (const span of ['far', 'near'] as const) {
-        const points = oceanProbe.oceanSurfaceProbePoints(oceanProbe.OCEAN_SURFACE_PROBE_SPANS[span])
-        const surfaceProbe = surfaceNodes.createOceanSurfaceProbe(sampler, textures, points)
-        renderer.compute(surfaceProbe.node)
-        const values = await read(surfaceProbe.output as unknown as { value: unknown })
-        bySpan[span] = oceanProbe.compareOceanSurface(
-          values,
-          points,
-          highFields.displacement,
-          highParams,
-          layout.oceanCascadeLod,
-          layout.oceanCascadeSkipped,
-        )
+      const bySpan = {} as Record<SurfaceKey, SurfaceSummary>
+      // 高さ（段 S4a-1）と LEAN のモーメント（段 S4a-2）。モーメントの相手は CPU 参照の傾きの積
+      const moments = oceanProbe.oceanMomentField(highFields.derivatives)
+      for (const [field, cpu] of [
+        ['displacement', highFields.displacement],
+        ['moments', moments],
+      ] as const) {
+        for (const span of ['far', 'near'] as const) {
+          const points = oceanProbe.oceanSurfaceProbePoints(oceanProbe.OCEAN_SURFACE_PROBE_SPANS[span])
+          const surfaceProbe = surfaceNodes.createOceanSurfaceProbe(sampler, textures, points, field)
+          renderer.compute(surfaceProbe.node)
+          const values = await read(surfaceProbe.output as unknown as { value: unknown })
+          const key: SurfaceKey = field === 'displacement' ? span : span === 'far' ? 'momentsFar' : 'momentsNear'
+          bySpan[key] = oceanProbe.compareOceanSurface(
+            values,
+            points,
+            cpu,
+            highParams,
+            layout.oceanCascadeLod,
+            layout.oceanCascadeSkipped,
+          )
+        }
       }
       surface[precision] = bySpan
       textures.dispose()
     }
+    // 1 回の所要（段 S4a-2）。海と写しとミップ、泡の更新とそのミップを分けて測る。泡はキャプチャで
+    // 前から 16 回回すので、ここが撮る時間に効く。GPU の仕事を待った壁時計（3 回の中央値）
+    const foamModule = await import('../ocean/oceanFoam')
+    const surfaceCost = await (async () => {
+      const textures = surfaceNodes.createOceanTextures(highSim, 16)
+      const sampler = surfaceNodes.createOceanSampler(highParams)
+      // 泡の段と解像度は high と同じ（品質表の `oceanFoamLevels`・`oceanFoamResolution`）
+      const high = (await import('../quality')).QUALITY_PRESETS.high
+      const foam = foamModule.createOceanFoam(
+        sampler,
+        textures,
+        high.oceanFoamLevels,
+        { speed: highParams.windSpeed, direction: highParams.windDirection },
+        high.oceanFoamResolution,
+      )
+      const time = async (run: () => void) => {
+        const samples: number[] = []
+        for (let i = 0; i < 4; i++) {
+          const started = performance.now()
+          run()
+          await device.queue.onSubmittedWorkDone()
+          if (i > 0) samples.push(performance.now() - started)
+        }
+        samples.sort((a, b) => a - b)
+        return samples[1]!
+      }
+      let t = 0
+      const result = {
+        simulationMs: await time(() => highSim.update(renderer, (t += 4), 0)),
+        texturesMs: await time(() => textures.update(renderer)),
+        foamMs: await time(() => foam.update(renderer, 0, 0, 4 / 120, false)),
+      }
+      // 前から回して泡を作る（`OceanSurface.update` と同じ手順）。2 回回して読み戻し、ビット単位で
+      // 比べる（キャプチャの決定論）。泡の量の分布も返す（穏やかな海で泡が出ているか）
+      const warm = async () => {
+        const steps = surfaceNodes.FOAM_WARMUP_STEPS
+        const stride = surfaceNodes.FOAM_WARMUP_STRIDE
+        for (let k = steps - 1; k >= 0; k--) {
+          highSim.update(renderer, oceanProbe.OCEAN_PROBE_TICKS - k * stride, 0)
+          textures.update(renderer)
+          foam.update(renderer, 0, 0, (stride * 1) / 120, k === steps - 1)
+        }
+        return new Float32Array(await renderer.getArrayBufferAsync(foam.state.value as never))
+      }
+      const a = await warm()
+      const b = await warm()
+      let differing = 0
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) differing++
+      let covered = 0
+      let fresh = 0
+      let maxFoam = 0
+      let minJ = Infinity
+      const texels = a.length / 4
+      for (let i = 0; i < texels; i++) {
+        if (a[i * 4]! > 0.05) covered++
+        if (a[i * 4 + 1]! > 0.05) fresh++
+        maxFoam = Math.max(maxFoam, a[i * 4]!)
+        minJ = Math.min(minJ, a[i * 4 + 2]!)
+      }
+      foam.dispose()
+      textures.dispose()
+      return {
+        ...result,
+        foam: { texels, differing, covered: covered / texels, fresh: fresh / texels, maxFoam, minJ },
+      }
+    })()
     highSim.dispose()
 
     ocean = {
@@ -1000,6 +1075,7 @@ export async function runNodeProbe(
       compareMs: performance.now() - compareStarted,
       cost,
       surface,
+      surfaceCost,
       float32Filterable: renderer.hasFeature('float32-filterable'),
     }
   }

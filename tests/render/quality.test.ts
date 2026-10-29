@@ -209,6 +209,9 @@ describe('品質プリセットの表', () => {
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFftSize)).toEqual([128, 128, 256, 256])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanLodLevels)).toEqual([8, 10, 12, 13])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFoamLevels)).toEqual([0, 1, 2, 2])
+    // 段 S4a-2: 予算（海 5.5 ms）に合わせた泡の解像度と異方性（ultra は推測、S5 で測る）
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFoamResolution)).toEqual([512, 512, 512, 1024])
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanAnisotropy)).toEqual([1, 1, 1, 4])
     for (const name of PRESET_ORDER) {
       const q = QUALITY_PRESETS[name]
       // カスケードは web-ocean の 6 つの先頭から取る。格子は 2 のべき

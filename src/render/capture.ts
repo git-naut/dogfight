@@ -79,6 +79,13 @@ export interface CaptureConfig {
   ocean: boolean
   /** 海面のテクスチャの精度。`?oceantex=16|32`、無ければ null（既定の 16） */
   oceanTexturePrecision: 16 | 32 | null
+  /** 計測用: 海面のテクスチャの異方性の上限（`?oceananiso=`）と泡の段数（`?oceanfoam=`） */
+  oceanAnisotropy: number | null
+  oceanFoamLevels: number | null
+  /** 計測用: 泡の解像度（`?oceanfoamres=`）・遠くのカスケードを飛ばすか（`?oceanskip=`）・空を引く回数（`?oceansky=`） */
+  oceanFoamResolution: number | null
+  oceanSkipFar: boolean | null
+  oceanSkyLookups: 2 | 3 | null
   /** 環境反射を使うか。`?env=0` で切る。質感の比較に使う */
   showEnvironment: boolean
   /**
@@ -435,6 +442,11 @@ export function readCaptureConfig(search: string): CaptureConfig {
     oceanFftSize: params.has('oceanfft') ? Number(params.get('oceanfft')) : null,
     ocean: params.get('ocean') === '1',
     oceanTexturePrecision: params.get('oceantex') === '32' ? 32 : params.get('oceantex') === '16' ? 16 : null,
+    oceanAnisotropy: params.has('oceananiso') ? Number(params.get('oceananiso')) : null,
+    oceanFoamLevels: params.has('oceanfoam') ? Number(params.get('oceanfoam')) : null,
+    oceanFoamResolution: params.has('oceanfoamres') ? Number(params.get('oceanfoamres')) : null,
+    oceanSkipFar: params.has('oceanskip') ? params.get('oceanskip') === '1' : null,
+    oceanSkyLookups: params.get('oceansky') === '2' ? 2 : params.get('oceansky') === '3' ? 3 : null,
     showEnvironment: params.get('env') !== '0',
     smaa: params.get('smaa') !== '0',
     bloom: params.get('bloom') !== '0',

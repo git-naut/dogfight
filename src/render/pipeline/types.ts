@@ -209,6 +209,13 @@ export interface SceneOptions {
   ocean?: boolean
   /** 海面のテクスチャの精度（`?oceantex=16|32`）。既定は 16。段 S4a-1 で絵と費用を比べる */
   oceanTexturePrecision?: 16 | 32
+  /** 計測用: 海面のテクスチャの異方性の上限（`?oceananiso=`、既定 16）と泡の段数（`?oceanfoam=`） */
+  oceanAnisotropy?: number
+  oceanFoamLevels?: number
+  /** 計測用: 泡の解像度（`?oceanfoamres=`）・遠くのカスケードを飛ばすか（`?oceanskip=1`）・空を引く回数（`?oceansky=2`） */
+  oceanFoamResolution?: number
+  oceanSkipFar?: boolean
+  oceanSkyLookups?: 2 | 3
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean
   /**
@@ -591,7 +598,24 @@ export interface NodeProbeResult {
      * 海面のテクスチャ（段 S4a-1）。high の条件（4 × 256、CP2 の C）の変位をテクスチャへ写し、
      * 頂点シェーダと同じ引き方の値を CPU 参照の場と比べる。精度（16・32）ごと
      */
-    surface: Record<'16' | '32', Record<'far' | 'near', import('../ocean/oceanProbe').OceanSurfaceSummary>>
+    surface: Record<
+      '16' | '32',
+      Record<'far' | 'near' | 'momentsFar' | 'momentsNear', import('../ocean/oceanProbe').OceanSurfaceSummary>
+    >
+    /**
+     * high の条件の 1 回の所要 ms（段 S4a-2）。海（時間発展と逆 FFT）、写しとミップ（3 枚）、泡の
+     * 更新とそのミップ（1024² × 2 段）。GPU の仕事を待った壁時計
+     */
+    surfaceCost: {
+      simulationMs: number
+      texturesMs: number
+      foamMs: number
+      /**
+       * 前から 16 回回した泡を 2 回作って比べた結果。`differing` は食い違った数（0 が決定論）。
+       * `covered`・`fresh` は泡の量・新しさが 0.05 を越えた texel の割合
+       */
+      foam: { texels: number; differing: number; covered: number; fresh: number; maxFoam: number; minJ: number }
+    }
     /** 32 ビットのテクスチャを線形に補間できるか（`float32-filterable`） */
     float32Filterable: boolean
   }) | null

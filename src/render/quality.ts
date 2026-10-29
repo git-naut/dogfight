@@ -219,6 +219,17 @@ export interface QualitySettings {
   /** 泡の層の数（0 で泡なし、段 S4a-2 で使う）。web-ocean は近と遠の 2 層 */
   oceanFoamLevels: number
   /**
+   * 泡のクリップマップの一辺の texel（段 S4a-2）。web-ocean は 1024。high で 1024 は予算
+   * （海 5.5 ms、2026-10-29 の改訂）を越えたので 512（実測で泡の計算 −0.5 ms）。ultra は推測
+   */
+  oceanFoamResolution: number
+  /**
+   * 海面で引くテクスチャの異方性の上限（段 S4a-2）。web-ocean は 16。high の 16 は海面の描画で
+   * 約 +2 ms、4 でも予算を越えたので 1（ユーザーの決定、2026-10-29）。中景から先のさざ波は
+   * ならされる。ultra は推測、S5 で測る
+   */
+  oceanAnisotropy: number
+  /**
    * 軌跡のリボンの分割数。0 で軌跡なし。
    *
    * コントレイルと翼端渦が使う。sim が持つ履歴（768 本 = 25.6 秒）のうち、
@@ -339,6 +350,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     oceanFftSize: 128,
     oceanLodLevels: 8,
     oceanFoamLevels: 0,
+    oceanFoamResolution: 512,
+    oceanAnisotropy: 1,
     trailSegments: 0,
     missileTrailSegments: 0,
     explosionSprites: 0,
@@ -379,6 +392,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     oceanFftSize: 128,
     oceanLodLevels: 10,
     oceanFoamLevels: 1,
+    oceanFoamResolution: 512,
+    oceanAnisotropy: 1,
     trailSegments: 192,
     missileTrailSegments: 192,
     explosionSprites: 6,
@@ -427,6 +442,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     oceanFftSize: 256,
     oceanLodLevels: 12,
     oceanFoamLevels: 2,
+    oceanFoamResolution: 512,
+    oceanAnisotropy: 1,
     trailSegments: 384,
     missileTrailSegments: 384,
     explosionSprites: 12,
@@ -475,6 +492,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     oceanFftSize: 256,
     oceanLodLevels: 13,
     oceanFoamLevels: 2,
+    oceanFoamResolution: 1024,
+    oceanAnisotropy: 4,
     trailSegments: 768,
     missileTrailSegments: 512,
     explosionSprites: 12,

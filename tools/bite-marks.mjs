@@ -2381,4 +2381,13 @@ export const BITE_MARKS = [
     expect: 'tests/render/oceanSurfaceProbe.test.ts',
     why: 'texel の中心の半 texel を落とすと、CPU の引き方が GPU と半 texel ずれ、テクスチャの向きと位置の検査が狂う',
   },
+  {
+    id: 'ocean-moment-cross',
+    kind: '定数の摂動',
+    file: 'src/render/ocean/oceanProbe.ts',
+    find: '    out[i + 2] = sx * sz\n',
+    replace: '    out[i + 2] = sx * sx\n',
+    expect: 'tests/render/oceanSurfaceProbe.test.ts',
+    why: 'LEAN の交差の項（sx·sz）を誤ると、異方のきらめきの向きが風に対して傾く。CPU 側が誤ると GPU との突き合わせが別の量を比べる',
+  },
 ]

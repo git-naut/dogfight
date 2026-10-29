@@ -33,7 +33,7 @@ import {
   screenRay,
 } from '../../src/render/sky/skyProbe'
 import { IRRADIANCE_TABLE } from '../../src/render/sky/irradianceTable'
-import { OCEAN_PROBE_TOLERANCE, OCEAN_SURFACE_TOLERANCE } from '../../src/render/ocean/oceanProbe'
+import { OCEAN_MOMENT_TOLERANCE, OCEAN_PROBE_TOLERANCE, OCEAN_SURFACE_TOLERANCE } from '../../src/render/ocean/oceanProbe'
 import {
   SURFACE_PROBE_SIDE,
   WATER_PROBE_REGIONS,
@@ -589,15 +589,68 @@ test.describe('node 経路', () => {
     // 同じ引き方（`oceanCascadeLod`・`oceanUvOffset`）で引いた値を CPU 参照と比べる
     // eslint-disable-next-line no-console
     console.log(`[海面] float32-filterable ${ocean!.float32Filterable} ${JSON.stringify(ocean!.surface)}`)
+    // eslint-disable-next-line no-console
+    console.log(`[海面] 1 回の所要 ${JSON.stringify(ocean!.surfaceCost)}`)
+
+    // **泡（段 S4a-2）。**前から 16 回回した泡を 2 回作り、ビット単位で一致すること（キャプチャの
+    // 決定論）。穏やかな海でも泡が出ていること（2026-10-29 の実測で 3.2%、J の最小 0.33）
+    const foam = ocean!.surfaceCost.foam
+    // high の泡（2 段 × 512²、品質表の `oceanFoamLevels`・`oceanFoamResolution`）
+    expect(foam.texels, '泡のクリップマップの大きさ').toBe(2 * 512 * 512)
+    expect(foam.differing, '同じ手順で作った泡が食い違う').toBe(0)
+    expect(foam.covered, '泡が出ていない').toBeGreaterThan(0.005)
+    expect(foam.covered, '泡が出すぎている').toBeLessThan(0.2)
+    expect(foam.minJ, '面が畳まれる所が無い（J の閾値 0.68）').toBeLessThan(0.68)
     for (const precision of ['16', '32'] as const) {
-      for (const span of ['far', 'near'] as const) {
+      for (const span of ['far', 'near', 'momentsFar', 'momentsNear'] as const) {
         const s = ocean!.surface[precision][span]
-        const tolerance = span === 'far' ? OCEAN_SURFACE_TOLERANCE.far : OCEAN_SURFACE_TOLERANCE.near[precision]
+        // LEAN のモーメント（段 S4a-2）は 2 乗の量なので 16 ビットの丸めが大きく残る
+        const tolerance =
+          span === 'far'
+            ? OCEAN_SURFACE_TOLERANCE.far
+            : span === 'near'
+              ? OCEAN_SURFACE_TOLERANCE.near[precision]
+              : span === 'momentsFar'
+                ? OCEAN_MOMENT_TOLERANCE.far
+                : OCEAN_MOMENT_TOLERANCE.near[precision]
         expect(s.error, `${precision} ビット・${span} の差（間隔ごと ${JSON.stringify(s.byCell)}）`).toBeLessThanOrEqual(tolerance)
         expect(s.skipped, '足さないカスケードが無い（粗い段の検査が空回り）').toBeGreaterThan(0)
         expect(s.transposed, `${precision} ビット・${span} の向きの検査に歯がない`).toBeGreaterThan(0.1)
       }
     }
+  })
+
+  /**
+   * **FFT の海面は同じフレームを 2 回撮ると画素が一致する**（段 S4a-2）。
+   *
+   * 泡は履歴を持つので、キャプチャは前から 4 フレーム刻みで 16 回回して作る（S4a-2 の合意）。
+   * ページを開き直して同じフレームを撮り、1 画素も動かないことを見る。泡の状態そのものの一致は
+   * 「FFT の海が CPU 参照と一致する」が記憶域で見ている。ここは描画まで含めた決定論
+   */
+  test('FFT の海面は同じフレームを 2 回撮ると画素が一致する', async ({ page }) => {
+    test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
+    test.setTimeout(900_000)
+    const errors: string[] = []
+    page.on('console', (m) => {
+      if (m.type() === 'error') errors.push(m.text().slice(0, 200))
+    })
+    const scene = SCENES.find((sc: { name: string }) => sc.name === 'low-pass-afternoon')!
+    const shoot = async () => {
+      const params = captureParams(scene)
+      params.set('ocean', '1')
+      await page.goto(`/dogfight/?${params.toString()}`)
+      await page.waitForSelector('body[data-capture-ready="1"]', { timeout: 600_000 })
+      // 前から回した海の仕事が GPU に残っていると、撮る処理がそれを待つ（SwiftShader で数十秒）
+      return PNG.sync.read(await page.locator('#viewport').screenshot({ timeout: 300_000 }))
+    }
+    const a = await shoot()
+    const b = await shoot()
+    let differing = 0
+    for (let i = 0; i < a.data.length; i += 4) {
+      if (a.data[i] !== b.data[i] || a.data[i + 1] !== b.data[i + 1] || a.data[i + 2] !== b.data[i + 2]) differing++
+    }
+    expect(differing, `2 回撮って ${differing} 画素が動いた`).toBe(0)
+    expect(errors).toEqual([])
   })
 
   test('TSL の自前の空が CPU 参照と一致する', async ({ page }) => {

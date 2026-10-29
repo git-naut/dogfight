@@ -1,16 +1,10 @@
 import {
   BufferAttribute,
   DynamicDrawUsage,
-  FloatType,
-  HalfFloatType,
   InstancedBufferAttribute,
   InstancedBufferGeometry,
-  LinearFilter,
-  LinearMipmapLinearFilter,
   Mesh,
   PlaneGeometry,
-  RGBAFormat,
-  RepeatWrapping,
   type Vector3,
 } from 'three'
 import {
@@ -20,10 +14,13 @@ import {
   abs,
   attribute,
   clamp,
+  dFdx,
+  dFdy,
   dot,
   exp,
   float,
   floor,
+  fwidth,
   instanceIndex,
   instancedArray,
   int,
@@ -39,18 +36,26 @@ import {
   smoothstep,
   sqrt,
   step,
-  storageTexture,
   texture,
   uint,
   uniform,
-  uvec2,
   varying,
   vec2,
   vec3,
   vec4,
 } from 'three/tsl'
-import { MeshBasicNodeMaterial, StorageArrayTexture, type ComputeNode, type Node, type Renderer } from 'three/webgpu'
+import {
+  MeshBasicNodeMaterial,
+  type ComputeNode,
+  type Node,
+  type Renderer,
+  type StorageArrayTexture,
+  type StorageTexture,
+} from 'three/webgpu'
 import { createUnitGrid } from '../terrain/terrainMesh'
+import { createLayeredMips, createLayeredTexture } from './oceanMips'
+import { FOAM_LEVEL_SIZES, createFoamPattern, createOceanFoam } from './oceanFoam'
+import { FIXED_DT } from '../../sim/loop'
 import { createOceanSimulation, type OceanSimulation } from './oceanNodes'
 import {
   OCEAN_EDGE_FADE,
@@ -62,7 +67,7 @@ import {
   selectOceanPatches,
   type OceanPatch,
 } from './oceanLayout'
-import { oceanParamsFor, type OceanSpectrumParams } from './reference'
+import { OCEAN_LOOP_TICKS, oceanParamsFor, type OceanSpectrumParams } from './reference'
 import type { QualitySettings } from '../quality'
 
 /**
@@ -88,6 +93,14 @@ export type OceanTexturePrecision = 16 | 32
 /** インスタンスの上限。実測でパッチは high 531・ultra 684 枚（高度 2.5 m、`oceanLayout.test.ts`） */
 const MAX_PATCHES = 1024
 
+/** キャプチャで泡を作るために前から回す回数と刻み（S4a-2 の合意: 4 フレーム刻みで 16 回） */
+export const FOAM_WARMUP_STEPS = 16
+export const FOAM_WARMUP_STRIDE = 4
+/** 刻みがこれより飛んだら前から回し直す（0.25 秒）。ライブの 1 フレームは 1〜4 刻み */
+const FOAM_WARMUP_JUMP = 30
+/** ライブで泡を一度に進める上限 s（web-ocean の 0.1） */
+const MAX_FOAM_DT = 0.1
+
 /** 板の一辺 m。今の板の海（`terrain/water.ts`）と同じ */
 const PLATE_EXTENT = 300_000
 
@@ -103,130 +116,71 @@ const PLATE_OVERLAP = 2
 const WATER_BODY: readonly [number, number, number] = [0.0256, 0.128, 0.1536]
 /** 解けない細かい傾きの分散（web-ocean の `waterCol.w`） */
 const UNRESOLVED_SLOPE_VARIANCE = 0.0024
+/** 波頭の透過光の色と強さ（web-ocean の `sssCol`） */
+const SSS_COLOR: readonly [number, number, number] = [0.035, 0.12, 0.085]
+const SSS_STRENGTH = 2.6
+/** その場の J から出す泡（web-ocean の `foamP`、泡の強さ 1） */
+const FOAM_FRESH_THRESHOLD = 0.48
+const FOAM_FRESH_GAIN = 2.5
+const FOAM_COVER = 1
 
 export interface OceanTextures {
+  /** (Dx, Dy, Dz, jxz) */
   readonly displacement: StorageArrayTexture
+  /** (sx, sz, jxx, jzz) */
   readonly derivatives: StorageArrayTexture
+  /** LEAN のモーメント (sx², sz², sx·sz, 0)。ミップは積のまま平均する（`oceanMips.ts`） */
+  readonly moments: StorageArrayTexture
   readonly precision: OceanTexturePrecision
-  /** 記憶域からテクスチャの段 0 へ写す */
-  readonly copy: ComputeNode
-  /** ミップの段 1 から最後まで（段ごとに 1 回）。配列ごと `renderer.compute` に渡す */
-  readonly mips: ComputeNode[]
   /** 写してミップを作る。海を解いたあとに呼ぶ */
   update(renderer: Renderer): void
   dispose(): void
 }
 
+/**
+ * 画素シェーダで引くテクスチャの異方性フィルタの上限。海面は水平線へ向けて斜めに見るので、
+ * 等方のミップでは遠くの傾きが潰れる（web-ocean の `sampRepeat` と同じ 16）
+ */
+const OCEAN_ANISOTROPY = 16
+
 /** FFT の出力を写す配列テクスチャ。層がカスケード */
-export function createOceanTextures(sim: OceanSimulation, precision: OceanTexturePrecision): OceanTextures {
+export function createOceanTextures(
+  sim: OceanSimulation,
+  precision: OceanTexturePrecision,
+  anisotropy = OCEAN_ANISOTROPY,
+): OceanTextures {
   const N = sim.size
   const C = sim.cascades
-  const make = (name: string) => {
-    const t = new StorageArrayTexture(N, N, C)
-    t.type = precision === 32 ? FloatType : HalfFloatType
-    t.format = RGBAFormat
-    t.wrapS = RepeatWrapping
-    t.wrapT = RepeatWrapping
-    t.magFilter = LinearFilter
-    t.minFilter = LinearMipmapLinearFilter
-    // 段の数を確保させるために立てる。中身は自前のコンピュートで作るので、three の生成は止める
-    // （`mipmapsAutoUpdate` が false なら `Textures.js` も `Bindings.js` も作らない）
-    t.generateMipmaps = true
-    ;(t as unknown as { mipmapsAutoUpdate: boolean }).mipmapsAutoUpdate = false
-    t.name = name
-    return t
-  }
-  const displacement = make('OceanDisplacement')
-  const derivatives = make('OceanDerivatives')
-  const read = (buffer: unknown, i: N<'uint'>) => (buffer as { element(i: unknown): N<'vec4'> }).element(i)
-  const store = (t: StorageArrayTexture, layer: N<'uint'>, xy: N<'uvec2'>, value: N<'vec4'>, level = 0) =>
-    (
-      storageTexture(t) as unknown as {
-        setMipLevel(l: number): { depth(d: unknown): { store(uv: unknown, v: unknown): unknown } }
-      }
-    )
-      .setMipLevel(level)
-      .depth(int(layer))
-      .store(xy, value)
-
-  const copy = Fn(() => {
-    const idx = uint(instanceIndex).toVar()
-    const c = idx.div(N * N).toVar()
-    const rem = idx.mod(N * N)
-    const xy = uvec2(rem.mod(N), rem.div(N)).toVar() as unknown as N<'uvec2'>
-    store(displacement, c, xy, read(sim.displacement, idx))
-    store(derivatives, c, xy, read(sim.derivatives, idx))
-  })().compute(C * N * N, [64]) as unknown as ComputeNode
-  ;(copy as unknown as { name: string }).name = 'Ocean [ Copy ]'
-
-  // ---- ミップ。段 l の texel は段 l−1 の 2 × 2 の平均 ----
-  //
-  // **three の生成（`generateMipmaps`）を使わない。**層 × 段 × 2 枚の描画パス（high で 64 本）に
-  // なり、GPU の時刻の道具で測れない（計時の付かないパスで走る）。ここは 32 ビットの記憶域の
-  // ピラミッドで平均して、各段へ書く。同じテクスチャを読みながら別の段へ書くと、ビューの用途が
-  // 衝突する（読む側のビューが全段を含む）ので、前の段は記憶域から読む
-  const levels = Math.log2(N)
-  const offsets: number[] = []
-  let total = 0
-  for (let l = 1; l <= levels; l++) {
-    offsets.push(total)
-    total += C * (N >> l) ** 2
-  }
-  const pyramidA = instancedArray(total, 'vec4')
-  const pyramidB = instancedArray(total, 'vec4')
-  const write = (buffer: unknown, i: N<'uint'>, v: N<'vec4'>) =>
-    (buffer as { element(i: unknown): { assign(v: unknown): void } }).element(i).assign(v)
-  const mips: ComputeNode[] = []
-  for (let l = 1; l <= levels; l++) {
-    const n = N >> l
-    const pn = n * 2
-    const srcA = l === 1 ? sim.displacement : pyramidA
-    const srcB = l === 1 ? sim.derivatives : pyramidB
-    const srcOffset = l === 1 ? 0 : offsets[l - 2]!
-    const dstOffset = offsets[l - 1]!
-    const node = Fn(() => {
-      const idx = uint(instanceIndex).toVar()
-      const c = idx.div(n * n).toVar()
-      const rem = idx.mod(n * n)
-      const x = rem.mod(n).toVar()
-      const y = rem.div(n).toVar()
-      const i00 = c.mul(pn * pn).add(y.mul(2 * pn)).add(x.mul(2)).add(srcOffset).toVar()
-      const average = (src: unknown) =>
-        read(src, i00)
-          .add(read(src, i00.add(1)))
-          .add(read(src, i00.add(pn)))
-          .add(read(src, i00.add(pn + 1)))
-          .mul(0.25)
-          .toVar() as unknown as N<'vec4'>
-      const a = average(srcA)
-      const b = average(srcB)
-      write(pyramidA, idx.add(dstOffset), a)
-      write(pyramidB, idx.add(dstOffset), b)
-      const xy = uvec2(x, y) as unknown as N<'uvec2'>
-      store(displacement, c, xy, a, l)
-      store(derivatives, c, xy, b, l)
-    })().compute(C * n * n, [64]) as unknown as ComputeNode
-    mips.push(node)
-  }
-  // 計時の名札は `renderer.compute` に渡したものの `name`（`passInspector.ts`）。配列に付ける
-  ;(mips as unknown as { name: string }).name = 'Ocean [ Mip ]'
-
+  const displacement = createLayeredTexture(N, C, precision, 'OceanDisplacement')
+  const derivatives = createLayeredTexture(N, C, precision, 'OceanDerivatives', anisotropy)
+  const moments = createLayeredTexture(N, C, precision, 'OceanMoments', anisotropy)
+  const chain = createLayeredMips(
+    N,
+    C,
+    [
+      { source: sim.displacement, texture: displacement },
+      { source: sim.derivatives, texture: derivatives },
+      {
+        source: sim.derivatives,
+        texture: moments,
+        map: (d) => vec4(d.x.mul(d.x), d.y.mul(d.y), d.x.mul(d.y), 0) as unknown as N<'vec4'>,
+      },
+    ],
+    'Ocean',
+  )
   return {
     displacement,
     derivatives,
+    moments,
     precision,
-    copy,
-    mips,
     update(renderer) {
-      renderer.compute(copy)
-      renderer.compute(mips as never)
+      chain.update(renderer)
     },
     dispose() {
       displacement.dispose()
       derivatives.dispose()
-      for (const node of [copy, ...mips]) {
-        ;(node as unknown as { dispose?: () => void }).dispose?.()
-      }
+      moments.dispose()
+      chain.dispose()
     },
   }
 }
@@ -236,6 +190,13 @@ export interface OceanSampler {
   readonly params: OceanSpectrumParams
   /** カスケード c を xz で引く。lod を渡せばその段、渡さなければ画面の微分から（画素シェーダ） */
   cascade(textureOf: StorageArrayTexture, c: number, xz: N<'vec2'>, lod?: N<'float'>): N<'vec4'>
+  /**
+   * 勾配を明示して引く（`gx`・`gy` は xz の画面の微分、m）。分岐の中で引くときに使う。WGSL は
+   * 暗黙の微分で引くことを一様でない分岐の中で許さない
+   */
+  cascadeGrad(textureOf: StorageArrayTexture, c: number, xz: N<'vec2'>, gx: N<'vec2'>, gy: N<'vec2'>): N<'vec4'>
+  /** 最後の段（1 × 1、場全体の平均） */
+  cascadeTop(textureOf: StorageArrayTexture, c: number): N<'vec4'>
   /** 頂点の間隔 cell m の変位 (Dx, Dy, Dz)。粗すぎるカスケードは足さない */
   displacement(textures: OceanTextures, xz: N<'vec2'>, cell: N<'float'>): N<'vec3'>
   /** 頂点の間隔からカスケード c の段（`oceanCascadeLod`） */
@@ -262,6 +223,15 @@ export function createOceanSampler(params: OceanSpectrumParams): OceanSampler {
         .add(0.5 / Nn) as unknown as N<'vec2'>
       const t = (texture(textureOf, uv) as unknown as { depth(d: unknown): { level(l: unknown): unknown } }).depth(int(c))
       return (lod === undefined ? t : t.level(lod)) as unknown as N<'vec4'>
+    },
+    cascadeGrad(textureOf, c, xz, gx, gy) {
+      const L = params.cascades[c]!
+      const t = sampler.cascade(textureOf, c, xz) as unknown as { grad(x: unknown, y: unknown): unknown }
+      return t.grad(gx.div(L), gy.div(L)) as unknown as N<'vec4'>
+    },
+    cascadeTop(textureOf, c) {
+      const t = texture(textureOf, vec2(0.5, 0.5)) as unknown as { depth(d: unknown): { level(l: unknown): unknown } }
+      return t.depth(int(c)).level(float(logN)) as unknown as N<'vec4'>
     },
     lod(c, cell) {
       const texel = params.cascades[c]! / Nn
@@ -293,8 +263,8 @@ export function createOceanSampler(params: OceanSpectrumParams): OceanSampler {
 
 /** 海面の陰影の入力。光は自前の空から */
 export interface OceanLighting {
-  /** 向き dir の空の放射輝度（`HillaireSky.radiance`） */
-  skyRadiance(dir: N<'vec3'>): N<'vec3'>
+  /** 向き dir の空の放射輝度。`spread` は映り込みの広がり rad（`HillaireSky.radiance`） */
+  skyRadiance(dir: N<'vec3'>, spread?: N<'float'>): N<'vec3'>
   /** 余弦を含まない太陽の照度（`scalarIlluminance(world).get('direct')`） */
   sunIlluminance(world: N<'vec3'>): N<'vec3'>
   /** 上向きの面の天空の照度（`scalarIlluminance(world).get('indirect')`） */
@@ -306,6 +276,29 @@ export interface OceanLighting {
   camera: N<'vec3'>
 }
 
+/** 海面が読む泡（`oceanFoam.ts`） */
+/** 陰影の軽くする手（段 S4a-2 の費用の切り分け、計測用の口） */
+export interface OceanShadeOptions {
+  /** 遠くで最後の段に届く細かいカスケードを引かず、モーメントの最後の段を 1 回引く */
+  skipFar: boolean
+  /** 空を引く回数。2 なら天頂の空を上半球の平均で代える */
+  skyLookups: 2 | 3
+  /** 画素で引くテクスチャの異方性の上限（飛ばす判定に使う） */
+  anisotropy: number
+}
+
+export interface OceanFoamInputs {
+  /** 模様（R 網目・G 細かい網目・B 濃淡・A 筋） */
+  pattern: StorageTexture
+  /** ワールドのクリップマップ。0 段なら null（瞬間の泡だけ） */
+  world: StorageArrayTexture | null
+  levels: number
+  /** 秒。sim のフレーム番号から（模様の流れと風の斑） */
+  time: N<'float'>
+  /** 風の向き (cos, sin)。x と z */
+  wind: readonly [number, number]
+}
+
 /** Schlick、水の F0 = 0.02（web-ocean の `fresnelWater`） */
 const fresnelWater = (c: N<'float'>) => {
   const x = float(1).sub(clamp(c, 0, 1))
@@ -313,12 +306,15 @@ const fresnelWater = (c: N<'float'>) => {
   return float(0.02).add(x2.mul(x2).mul(x).mul(0.98)) as unknown as N<'float'>
 }
 
-/** Smith の Λ（傾きの分散が等方のとき。web-ocean の `lambdaSmith` の cov = (σ², σ², 0)） */
-const lambdaSmith = (w: N<'vec3'>, variance: N<'float'>) =>
+/** Smith の Λ。傾きの共分散 cov = (σxx, σzz, σxz) の向き w の断面で（web-ocean の `lambdaSmith`） */
+const lambdaSmith = (w: N<'vec3'>, cov: N<'vec3'>) =>
   Fn(() => {
-    const xz2 = max(dot(w.xz, w.xz), 1e-8)
-    const cotT = w.y.div(sqrt(xz2))
-    const a = max(cotT, 1e-3).div(sqrt(variance.mul(2).max(1e-7))).toVar()
+    const xz2 = max(dot(w.xz, w.xz), 1e-8).toVar()
+    const il = float(1).div(sqrt(xz2)).toVar()
+    const az = w.xz.mul(il).toVar()
+    const sig2 = az.x.mul(az.x).mul(cov.x).add(az.y.mul(az.y).mul(cov.y)).add(az.x.mul(az.y).mul(cov.z).mul(2))
+    const cotT = w.y.mul(il)
+    const a = max(cotT, 1e-3).div(sqrt(max(sig2, 1e-7).mul(2))).toVar()
     const out = float(0).toVar()
     If(a.lessThan(1.6), () => {
       out.assign(float(1).sub(a.mul(1.259)).add(a.mul(a).mul(0.396)).div(a.mul(3.535).add(a.mul(a).mul(2.181))))
@@ -326,71 +322,216 @@ const lambdaSmith = (w: N<'vec3'>, variance: N<'float'>) =>
     return out
   })() as unknown as N<'float'>
 
+/** 泡の模様（web-ocean の `foamPattern`） */
+const foamPattern = (pattern: StorageTexture, xz: N<'vec2'>, t: N<'float'>) => {
+  const a = texture(pattern, xz.mul(0.23).add(vec2(0.013, 0).mul(t))).r
+  const b = texture(pattern, xz.mul(0.71).add(vec2(0.37, 0.71))).g
+  return a.mul(0.78).add(b.mul(0.22)) as unknown as N<'float'>
+}
+
 /**
- * 海面の色（霞の前）。
+ * 海面の色（霞の前）。web-ocean の `OCEAN` の画素シェーダの写し。光は自前の空から、霞は場面の
+ * 合成が掛ける。環境キューブの代わりに空の見え方の LUT を広がりのミップで引く。
  *
- * @param xz    変位の前の xz（ラグランジュの座標）。傾きはここで引く
- * @param world 描く点のワールド座標（変位の後）
+ * @param xz     変位の前の xz（ラグランジュの座標）。傾き・モーメント・泡はここで引く
+ * @param world  描く点のワールド座標（変位の後）
+ * @param height 変位の高さ（波頭の透過光）。板は 0
  */
 export function oceanShadeNode(
   sampler: OceanSampler,
   textures: OceanTextures,
+  foam: OceanFoamInputs,
   lighting: OceanLighting,
   xz: N<'vec2'>,
   world: N<'vec3'>,
+  height: N<'float'>,
+  shade: OceanShadeOptions = { skipFar: false, skyLookups: 3, anisotropy: OCEAN_ANISOTROPY },
 ): N<'vec4'> {
   return Fn(() => {
-    // 傾き。画素の微分でミップを選ぶ（遠くは平均して滑らかに）
+    const [wx, wz] = foam.wind
+    // 風の斑（短い波が強い所と凪いだ所、web-ocean の cat's paws）
+    const gustN = texture(foam.pattern, xz.mul(0.011).add(vec2(wx, wz).mul(foam.time.mul(0.0004)))).b
+    const gust = mix(0.35, 1.2, smoothstep(0.3, 0.72, gustN)).toVar()
+
+    // 傾き・ヤコビアン・LEAN の共分散。画素の微分でミップを選ぶ
     const s = vec2(0, 0).toVar()
     const jxx = float(0).toVar()
     const jzz = float(0).toVar()
+    const jxz = float(0).toVar()
+    const cov = vec3(0, 0, 0).toVar()
+    const Nn = sampler.params.size
+    const logN = Math.log2(Nn)
+    // 画面の微分は分岐の外で（一様な制御の中で）求める
+    const gx = dFdx(xz).toVar() as unknown as N<'vec2'>
+    const gy = dFdy(xz).toVar() as unknown as N<'vec2'>
+    const footMajor = max(length(gx), length(gy)).toVar()
+    const footMinor = min(length(gx), length(gy)).toVar()
     for (let c = 0; c < sampler.params.cascades.length; c++) {
-      const d = sampler.cascade(textures.derivatives, c, xz).toVar()
-      s.addAssign(d.xy)
-      jxx.addAssign(d.z)
-      jzz.addAssign(d.w)
+      // 斑は細かいカスケード（c ≥ 3）にだけ掛ける
+      const share = c >= 4 ? 1 : c >= 3 ? 0.5 : 0
+      const gk = share === 0 ? float(1) : mix(float(1), gust, share)
+      const accumulate = (dv: N<'vec4'>, mv: N<'vec4'>, av: N<'vec4'>) => {
+        s.addAssign(dv.xy)
+        jxx.addAssign(dv.z)
+        jzz.addAssign(dv.w)
+        jxz.addAssign(av.w)
+        cov.addAssign(vec3(max(mv.x.sub(dv.x.mul(dv.x)), 0), max(mv.y.sub(dv.y.mul(dv.y)), 0), mv.z.sub(dv.x.mul(dv.y))))
+      }
+      if (!shade.skipFar) {
+        accumulate(
+          sampler.cascade(textures.derivatives, c, xz).mul(gk).toVar() as unknown as N<'vec4'>,
+          sampler.cascade(textures.moments, c, xz).mul(gk.mul(gk)).toVar() as unknown as N<'vec4'>,
+          sampler.cascade(textures.displacement, c, xz).mul(gk) as unknown as N<'vec4'>,
+        )
+        continue
+      }
+      // 画素が覆う texel の数から、異方性フィルタが選ぶ段（短い軸か、長い軸 / 異方性の上限）
+      const texelsPerMeter = Nn / sampler.params.cascades[c]!
+      const lod = log2(max(max(footMajor.div(shade.anisotropy), footMinor).mul(texelsPerMeter), 1e-6))
+      If(lod.lessThan(logN - 0.5), () => {
+        accumulate(
+          sampler.cascadeGrad(textures.derivatives, c, xz, gx, gy).mul(gk).toVar() as unknown as N<'vec4'>,
+          sampler.cascadeGrad(textures.moments, c, xz, gx, gy).mul(gk.mul(gk)).toVar() as unknown as N<'vec4'>,
+          sampler.cascadeGrad(textures.displacement, c, xz, gx, gy).mul(gk) as unknown as N<'vec4'>,
+        )
+      }).Else(() => {
+        // 傾き・J の横の項は平均 0。モーメントの最後の段（場全体の平均）が分散として残る（LEAN の極限）
+        const mv = sampler.cascadeTop(textures.moments, c).mul(gk.mul(gk)).toVar()
+        cov.addAssign(vec3(mv.x, mv.y, mv.z))
+      })
     }
-    const jx = max(jxx.add(1), 0.15)
-    const jz = max(jzz.add(1), 0.15)
-    const slope = vec2(s.x.div(jx), s.y.div(jz)).toVar()
-    const nrm = normalize(vec3(slope.x.negate(), 1, slope.y.negate())).toVar()
-
     const rel = world.sub(lighting.camera).toVar()
     const dist = length(rel).toVar()
     const V = rel.negate().div(max(dist, 1e-3)).toVar()
     const Ld = lighting.sunDirection
-    const shade = lighting.sunShade(world)
-    const sunE = lighting.sunIlluminance(world).mul(shade).toVar()
-    // 上半球の平均の放射輝度。web-ocean は環境キューブの 5 点で求めるが、ここは天空の照度を π で割る
-    // （今の板の海と同じ。照度は余弦の重み付きの平均）
-    const skyHemi = lighting.skyIlluminance(world).mul(1 / Math.PI).toVar()
 
-    // ---- 太陽の映り込み。傾きの分布はまだ等方の解けない分だけ（LEAN は段 S4a-2）----
-    const variance = float(UNRESOLVED_SLOPE_VARIANCE).add(smoothstep(30, 500, dist).mul(0.0035)).toVar()
+    // 解けない細かい傾き。遠くで Cox-Munk 並みの合計へ近づける
+    const unres = float(UNRESOLVED_SLOPE_VARIANCE).add(smoothstep(30, 500, dist).mul(0.0035))
+    cov.addAssign(vec3(unres, unres, 0))
+    const jx = max(jxx.add(1), 0.15)
+    const jz = max(jzz.add(1), 0.15)
+    const sl = vec2(s.x.div(jx), s.y.div(jz)).toVar()
+    const nrm = normalize(vec3(sl.x.negate(), 1, sl.y.negate())).toVar()
+    // 鏡面の折り返しを抑える。画素の中の傾きの変化でローブを広げる
+    const dsx = dFdx(sl).toVar()
+    const dsy = dFdy(sl).toVar()
+    const aa = vec3(
+      dsx.x.mul(dsx.x).add(dsy.x.mul(dsy.x)),
+      dsx.y.mul(dsx.y).add(dsy.y.mul(dsy.y)),
+      dsx.x.mul(dsx.y).add(dsy.x.mul(dsy.y)),
+    )
+      .mul(0.5)
+      .toVar()
+    cov.addAssign(aa.mul(min(1, float(0.03).div(max(max(aa.x, aa.y), 1e-8)))))
+    const J = jxx.add(1).mul(jzz.add(1)).sub(jxz.mul(jxz)).toVar()
+
+    const sunE = lighting.sunIlluminance(world).mul(lighting.sunShade(world)).toVar()
+    // 上半球の平均の放射輝度。web-ocean は環境キューブの 5 点、ここは天空の照度を π で割る
+    const skyHemi = lighting.skyIlluminance(world).mul(1 / Math.PI).toVar()
+    // 天頂と法線の向きの空（web-ocean はキューブの最も粗い段とその 1 つ上）
+    // 2 回にするときは、天頂の空を上半球の平均で代える（どちらも画素に依らず滑らか）
+    const skyUp = (
+      shade.skyLookups === 3 ? lighting.skyRadiance(vec3(0, 1, 0) as unknown as N<'vec3'>, float(Math.PI / 2)) : skyHemi
+    ).toVar()
+    const skyN = lighting
+      .skyRadiance(normalize(vec3(nrm.x, max(nrm.y, 0.05), nrm.z)) as unknown as N<'vec3'>, float(Math.PI / 4))
+      .toVar()
+
+    // ---- 太陽のきらめき。傾きの異方のガウス分布 ----
     const Hv = normalize(V.add(Ld)).toVar()
     const hs = Hv.xz.negate().div(max(Hv.y, 1e-3))
-    const dsl = hs.sub(slope).toVar()
-    const pdf = exp(dot(dsl, dsl).div(variance).mul(-0.5)).div(variance.mul(2 * Math.PI))
+    const dsl = hs.sub(sl).toVar()
+    const det = max(cov.x.mul(cov.y).sub(cov.z.mul(cov.z)), 1e-10).toVar()
+    const e = dsl.x
+      .mul(dsl.x)
+      .mul(cov.y)
+      .add(dsl.y.mul(dsl.y).mul(cov.x))
+      .sub(dsl.x.mul(dsl.y).mul(cov.z).mul(2))
+      .div(det)
+    const pdf = exp(e.mul(-0.5)).div(sqrt(det).mul(2 * Math.PI))
     const hy2 = Hv.y.mul(Hv.y)
     const Dm = pdf.div(max(hy2.mul(hy2), 1e-6))
-    const G = float(1).div(float(1).add(lambdaSmith(V, variance)).add(lambdaSmith(Ld, variance)))
+    const covN = cov as unknown as N<'vec3'>
+    const G = float(1).div(float(1).add(lambdaSmith(V, covN)).add(lambdaSmith(Ld, covN)))
     const Fh = fresnelWater(dot(V, Hv))
     const spec = sunE.mul(Fh.mul(Dm).mul(G).div(max(V.y, 0.02).mul(4))).mul(step(0, Ld.y)).toVar()
 
-    // ---- 空の映り込み（web-ocean の R.y の折り返し。地平線の下を引かない）----
-    const R = reflect(V.negate(), nrm).toVar()
+    // ---- 空の映り込み ----
+    // すれすれに見ると、見える面は見る側へ傾いた面に偏り、高く灰色の空を映す
+    const sig = sqrt(max(cov.x.add(cov.y), 1e-6).mul(0.5)).toVar()
+    const vh = normalize(vec3(V.x, 0, V.z).add(vec3(1e-5, 0, 0))).toVar()
+    const sigV = sqrt(
+      max(vh.x.mul(vh.x).mul(cov.x).add(vh.z.mul(vh.z).mul(cov.y)).add(vh.x.mul(vh.z).mul(cov.z).mul(2)), 1e-6),
+    ).toVar()
+    const aV = max(V.y, 1e-3).div(max(sqrt(float(1).sub(V.y.mul(V.y))), 1e-3)).div(sigV.mul(1.4142))
+    const tilt = sigV.mul(0.32).mul(float(1).sub(smoothstep(0, 2.5, aV)))
+    const nV = normalize(nrm.add(vh.mul(tilt))).toVar()
+    const R = reflect(V.negate(), nV).toVar()
     const Ry = abs(R.y).mul(0.4).add(max(R.y, 0).mul(0.6))
-    const refl = lighting.skyRadiance(normalize(vec3(R.x, Ry, R.z))).toVar()
-    // フレネルは長い波の面に、細かい面の分を寄せた法線で（web-ocean の `nF`）
+    // 広がりは傾きの標準偏差の 2 倍（web-ocean の `envLod` の `2 * sig`）
+    const refl = lighting.skyRadiance(normalize(vec3(R.x, Ry, R.z)) as unknown as N<'vec3'>, sig.mul(2)).toVar()
     const nF = normalize(mix(nrm, vec3(0, 1, 0), 0.45))
     const Fr = fresnelWater(max(dot(nF, V), 0)).toVar()
 
-    // ---- 水中から戻る光（拡散。画素ごとの法線は使わない）----
+    // ---- 水中から戻る光と、逆光の波頭の透過光 ----
+    const ambient = skyUp.mul(1.3).add(skyN.mul(0.5)).toVar()
     const body = vec3(WATER_BODY[0], WATER_BODY[1], WATER_BODY[2])
       .mul(skyHemi.mul(1.6).add(sunE.mul(max(Ld.y, 0)).mul(0.8)))
       .toVar()
+    const crest = clamp(height.sub(0.05).div(0.9), 0, 1)
+    const toSun = max(dot(Ld, V.negate()), 0)
+    const thin = clamp(float(0.5).sub(dot(Ld, nrm).mul(0.5)), 0, 1).pow(3)
+    const k1 = float(SSS_STRENGTH).mul(crest).mul(crest).mul(toSun.pow(4)).mul(thin).mul(exp(dist.div(-600)))
+    const sss = vec3(SSS_COLOR[0], SSS_COLOR[1], SSS_COLOR[2])
+    body.addAssign(sss.mul(sunE).mul(k1))
 
-    const color = body.mul(float(1).sub(Fr)).add(refl.mul(Fr)).add(spec)
+    // ---- 泡 ----
+    // 残る泡はワールドのクリップマップから（近くは細かい段、遠くは粗い段）、その外はその場の J から
+    const fwl = vec4(0, 0, 0, 0).toVar()
+    const w1 = float(0).toVar()
+    if (foam.world !== null && foam.levels > 0) {
+      const cheb = max(abs(xz.x.sub(lighting.camera.x)), abs(xz.y.sub(lighting.camera.z))).toVar()
+      const S0 = FOAM_LEVEL_SIZES[0]!
+      const w0 = float(1).sub(smoothstep(0.3 * S0, 0.45 * S0, cheb)).toVar()
+      const fw0 = (texture(foam.world, xz.div(S0)) as unknown as { depth(d: unknown): N<'vec4'> }).depth(int(0))
+      if (foam.levels > 1) {
+        const S1 = FOAM_LEVEL_SIZES[1]!
+        w1.assign(float(1).sub(smoothstep(0.3 * S1, 0.45 * S1, cheb)))
+        const fw1 = (texture(foam.world, xz.div(S1)) as unknown as { depth(d: unknown): N<'vec4'> }).depth(int(1))
+        fwl.assign(mix(fw1, fw0, w0).mul(w1))
+      } else {
+        w1.assign(w0)
+        fwl.assign(fw0.mul(w0))
+      }
+    }
+    const fresh = clamp(float(FOAM_FRESH_THRESHOLD).sub(J).mul(FOAM_FRESH_GAIN), 0, 1).toVar()
+    const cover = clamp(max(fwl.x, fresh.mul(float(1).sub(w1.mul(0.7)))).add(fwl.y.mul(0.6)).mul(FOAM_COVER), 0, 1.5).toVar()
+    // 古い泡は風に沿った筋へほどけ、新しい波頭の泡は密なまま
+    const ws = vec2(dot(xz, vec2(wx, wz)), dot(xz, vec2(-wz, wx)))
+    const streak = texture(foam.pattern, ws.mul(vec2(0.035, 0.11))).a
+    const freshK = clamp(fwl.y.mul(2).add(fresh), 0, 1)
+    cover.mulAssign(mix(smoothstep(0.25, 0.75, streak).mul(1.5), float(1), freshK))
+    const pat = foamPattern(foam.pattern, xz, foam.time).toVar()
+    const fw = fwidth(pat).add(0.03)
+    // 薄い泡は半透明の膜、濃い泡は縁のはっきりした白
+    const soft = float(0.04).add(float(1).sub(clamp(cover, 0, 1)).mul(0.14))
+    const fm = smoothstep(float(1).sub(cover).sub(fw).sub(soft), float(1).sub(cover).add(fw).add(soft), pat)
+    const foamMask = clamp(fm.mul(smoothstep(0, 0.5, cover)), 0, 1)
+      .mul(float(0.68).add(smoothstep(0.3, 0.9, cover).mul(0.32)))
+      .toVar()
+    foamMask.assign(max(foamMask, smoothstep(0.35, 0.9, fwl.y).mul(smoothstep(0.25, 0.6, pat.add(0.25))).mul(0.95)))
+    // 泡の下の水は気泡で明るく色づく
+    body.addAssign(sss.mul(sunE.mul(0.05).add(ambient.mul(0.35))).mul(clamp(cover, 0, 1)))
+    body.addAssign(vec3(0.1, 0.32, 0.3).mul(skyUp).mul(fwl.y).mul(0.35))
+    const bub = texture(foam.pattern, xz.mul(1.9).add(vec2(0.21, 0.53))).g
+    const foamAlb = vec3(0.82, 0.87, 0.92).mul(float(0.78).add(bub.mul(0.3)))
+    // 泡は半球全体（冷たい天頂を含む）から光を受けるので、色の薄い環境光にする
+    const foamAmb = skyHemi.add(skyN.mul(0.3)).toVar()
+    const foamAmbN = mix(foamAmb, vec3(dot(foamAmb, vec3(0.2126, 0.7152, 0.0722))), 0.85)
+    const foamLit = foamAlb.mul(sunE.mul(max(dot(nrm, Ld), 0)).mul(0.318 * 0.5).add(foamAmbN.mul(1.55)))
+
+    const color = body.mul(float(1).sub(Fr)).add(refl.mul(Fr)).add(spec).toVar()
+    color.assign(mix(color, foamLit, foamMask.mul(0.95)))
     return vec4(color, 1)
   })() as unknown as N<'vec4'>
 }
@@ -416,6 +557,16 @@ export interface OceanSurfaceOptions {
   quality: QualitySettings
   precision: OceanTexturePrecision
   lighting: OceanLighting
+  /** 計測用: 画素で引くテクスチャの異方性の上限（既定は品質表の `oceanAnisotropy`） */
+  anisotropy?: number
+  /** 計測用: 泡の段数の上書き（既定は品質表の `oceanFoamLevels`） */
+  foamLevels?: number
+  /** 計測用: 泡のクリップマップの解像度（既定は品質表の `oceanFoamResolution`） */
+  foamResolution?: number
+  /** 計測用: 遠くの細かいカスケードを飛ばすか（既定 true） */
+  skipFar?: boolean
+  /** 計測用: 空を引く回数（既定 2） */
+  skyLookups?: 2 | 3
 }
 
 export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOptions): OceanSurface {
@@ -441,17 +592,51 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
   // 覆う範囲 (x0, z0, 一辺, 根の一辺)。縁で変位を絞り、板はその内側を描かない
   const cover = uniform(vec4(0, 0, 0, 1))
 
-  /** カスケード数・格子・精度に依る一式。品質が変わったら作り直す */
+  // 泡の模様は品質に依らないので 1 回だけ作る。時刻は sim のフレーム番号から
+  const pattern = createFoamPattern(renderer)
+  const time = uniform(0)
+
+  /** カスケード数・格子・精度・泡の段に依る一式。品質が変わったら作り直す */
   function build(q: QualitySettings) {
     const params = oceanParamsFor(q.oceanCascades, q.oceanFftSize)
     const simulation = createOceanSimulation(params)
     simulation.init(renderer)
-    const textures = createOceanTextures(simulation, options.precision)
+    // 異方性と泡の解像度は品質表から（計測用の口が上書きする）。遠くのカスケードを飛ばす手と
+    // 空 2 回は既定で入れる（段 S4a-2 の予算の改訂、2026-10-29）
+    const shadeOptions: OceanShadeOptions = {
+      skipFar: options.skipFar ?? true,
+      skyLookups: options.skyLookups ?? 2,
+      anisotropy: options.anisotropy ?? q.oceanAnisotropy,
+    }
+    const textures = createOceanTextures(simulation, options.precision, shadeOptions.anisotropy)
     const sampler = createOceanSampler(params)
-    return { params, simulation, textures, sampler, ...buildMaterials(sampler, textures) }
+    const foamLevels = options.foamLevels ?? q.oceanFoamLevels
+    const foam =
+      foamLevels > 0
+        ? createOceanFoam(
+            sampler,
+            textures,
+            foamLevels,
+            { speed: params.windSpeed, direction: params.windDirection },
+            options.foamResolution ?? q.oceanFoamResolution,
+          )
+        : null
+    const foamInputs: OceanFoamInputs = {
+      pattern: pattern.texture,
+      world: foam?.world ?? null,
+      levels: foam?.levels ?? 0,
+      time: time as unknown as N<'float'>,
+      wind: [Math.cos(params.windDirection), Math.sin(params.windDirection)],
+    }
+    return { params, simulation, textures, sampler, foam, ...buildMaterials(sampler, textures, foamInputs, shadeOptions) }
   }
 
-  function buildMaterials(sampler: OceanSampler, textures: OceanTextures) {
+  function buildMaterials(
+    sampler: OceanSampler,
+    textures: OceanTextures,
+    foamInputs: OceanFoamInputs,
+    shadeOptions: OceanShadeOptions,
+  ) {
     const coverNode = cover as unknown as N<'vec4'>
 
     // ---- CDLOD の頂点 ----
@@ -471,7 +656,7 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
       return vec3(xz.x, xz.y, morph)
     })() as unknown as N<'vec3'>
     const xz = patch.xy as unknown as N<'vec2'>
-    const position = Fn(() => {
+    const displacement = Fn(() => {
       // 寄せている間は頂点の間隔が倍へ近づく（web-ocean の `eff`）
       const cell = patchInfo.w.mul(patch.z.add(1))
       // 縁で変位を 0 へ（`oceanEdgeFade`）
@@ -481,11 +666,12 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
       )
       const t = clamp(inset.div(coverNode.w.mul(OCEAN_EDGE_FADE)), 0, 1)
       const fade = t.mul(t).mul(float(3).sub(t.mul(2)))
-      const disp = sampler.displacement(textures, xz, cell as unknown as N<'float'>).mul(fade).toVar()
-      return vec3(xz.x.add(disp.x), disp.y, xz.y.add(disp.z))
-    })()
-    // 変位の前の xz を画素へ渡す（傾きは変位の前の座標で引く）
+      return sampler.displacement(textures, xz, cell as unknown as N<'float'>).mul(fade)
+    })() as unknown as N<'vec3'>
+    const position = vec3(xz.x.add(displacement.x), displacement.y, xz.y.add(displacement.z))
+    // 変位の前の xz と高さを画素へ渡す（傾きは変位の前の座標で引く。高さは波頭の透過光）
     const xzVarying = varying(xz, 'oceanXZ') as unknown as N<'vec2'>
+    const heightVarying = varying(displacement.y, 'oceanHeight') as unknown as N<'float'>
 
     const material = new MeshBasicNodeMaterial()
     ;(material as unknown as { positionNode: unknown }).positionNode = position
@@ -493,9 +679,12 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
     ;(material as unknown as { outputNode: unknown }).outputNode = oceanShadeNode(
       sampler,
       textures,
+      foamInputs,
       lighting,
       xzVarying,
       positionWorld as unknown as N<'vec3'>,
+      heightVarying,
+      shadeOptions,
     )
 
     // ---- 外側の板。変位は無く、範囲の内側を描かない ----
@@ -509,7 +698,16 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
         .and(p.y.greaterThan(coverNode.y.add(PLATE_OVERLAP)))
         .and(p.y.lessThan(coverNode.y.add(coverNode.z).sub(PLATE_OVERLAP)))
       Discard(inside)
-      return oceanShadeNode(sampler, textures, lighting, p as unknown as N<'vec2'>, plateWorld)
+      return oceanShadeNode(
+        sampler,
+        textures,
+        foamInputs,
+        lighting,
+        p as unknown as N<'vec2'>,
+        plateWorld,
+        float(0) as unknown as N<'float'>,
+        shadeOptions,
+      )
     })()
     return { material, plateMaterial }
   }
@@ -525,6 +723,15 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
 
   const patches: OceanPatch[] = []
   let patchCount = 0
+  /** 最後に海を解いた刻み。null は未だ解いていない（または作り直した） */
+  let lastTicks: number | null = null
+
+  /** 刻み t の海を解いてテクスチャへ写し、泡を dt 秒進める */
+  function step(r: Renderer, camera: Vector3, t: number, dt: number, reset: boolean): void {
+    parts.simulation.update(r, t, 0)
+    parts.textures.update(r)
+    parts.foam?.update(r, camera.x, camera.z, dt, reset)
+  }
 
   function upload(): void {
     patchCount = Math.min(patches.length, MAX_PATCHES)
@@ -566,19 +773,36 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
       upload()
       plate.position.x = camera.x
       plate.position.z = camera.z
-      parts.simulation.update(r, ticks, 0)
-      parts.textures.update(r)
+      time.value = (ticks % OCEAN_LOOP_TICKS) * FIXED_DT
+      // **同じ刻みなら解き直さない。**キャプチャは 1 枚に 8 フレーム描くが、海は変わらない
+      if (ticks === lastTicks) return
+      if (lastTicks === null || Math.abs(ticks - lastTicks) > FOAM_WARMUP_JUMP) {
+        // 前から回して泡を作る（キャプチャと、飛んだあと）。4 フレーム刻みで 16 回（S4a-2 の合意）
+        for (let k = FOAM_WARMUP_STEPS - 1; k >= 0; k--) {
+          step(r, camera, ticks - k * FOAM_WARMUP_STRIDE, FOAM_WARMUP_STRIDE * FIXED_DT, k === FOAM_WARMUP_STEPS - 1)
+        }
+      } else {
+        step(r, camera, ticks, Math.min(Math.max(ticks - lastTicks, 0) * FIXED_DT, MAX_FOAM_DT), false)
+      }
+      lastTicks = ticks
     },
     setQuality(next) {
-      const rebuild = next.oceanCascades !== quality.oceanCascades || next.oceanFftSize !== quality.oceanFftSize
+      const rebuild =
+        next.oceanCascades !== quality.oceanCascades ||
+        next.oceanFftSize !== quality.oceanFftSize ||
+        next.oceanFoamLevels !== quality.oceanFoamLevels ||
+        next.oceanFoamResolution !== quality.oceanFoamResolution ||
+        next.oceanAnisotropy !== quality.oceanAnisotropy
       quality = next
       if (!rebuild) return false
       const old = parts
       parts = build(next)
+      lastTicks = null
       mesh.material = parts.material
       plate.material = parts.plateMaterial
       old.simulation.dispose()
       old.textures.dispose()
+      old.foam?.dispose()
       old.material.dispose()
       old.plateMaterial.dispose()
       return true
@@ -592,8 +816,10 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
       plateGeometry.dispose()
       parts.simulation.dispose()
       parts.textures.dispose()
+      parts.foam?.dispose()
       parts.material.dispose()
       parts.plateMaterial.dispose()
+      pattern.dispose()
     },
   }
 }
@@ -602,7 +828,12 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
  * 突き合わせ用に、点 (x, z, 間隔, 0) ごと・カスケードごとの変位を頂点シェーダと同じ引き方で
  * 求めて書く（`oceanProbe.ts` の `compareOceanSurface`）。足さないカスケードは 0
  */
-export function createOceanSurfaceProbe(sampler: OceanSampler, textures: OceanTextures, points: Float32Array) {
+export function createOceanSurfaceProbe(
+  sampler: OceanSampler,
+  textures: OceanTextures,
+  points: Float32Array,
+  field: 'displacement' | 'moments' = 'displacement',
+) {
   const M = points.length / 4
   const C = sampler.params.cascades.length
   const logN = Math.log2(sampler.params.size)
@@ -615,7 +846,7 @@ export function createOceanSurfaceProbe(sampler: OceanSampler, textures: OceanTe
       const lod = sampler.lod(c, pt.z).toVar()
       const value = vec4(0, 0, 0, 0).toVar()
       If(lod.lessThan(logN), () => {
-        value.assign(sampler.cascade(textures.displacement, c, pt.xy as unknown as N<'vec2'>, lod as unknown as N<'float'>))
+        value.assign(sampler.cascade(textures[field], c, pt.xy as unknown as N<'vec2'>, lod as unknown as N<'float'>))
       })
       ;(output as unknown as { element(i: unknown): { assign(v: unknown): void } }).element(k.mul(C).add(c)).assign(value)
     }

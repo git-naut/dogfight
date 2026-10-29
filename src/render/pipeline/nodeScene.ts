@@ -365,6 +365,11 @@ export async function createNodePipeline(
     return createOceanSurface(renderer, {
       quality,
       precision: o.oceanTexturePrecision ?? 16,
+      ...(o.oceanAnisotropy !== undefined ? { anisotropy: o.oceanAnisotropy } : {}),
+      ...(o.oceanFoamLevels !== undefined ? { foamLevels: o.oceanFoamLevels } : {}),
+      ...(o.oceanFoamResolution !== undefined ? { foamResolution: o.oceanFoamResolution } : {}),
+      ...(o.oceanSkipFar !== undefined ? { skipFar: o.oceanSkipFar } : {}),
+      ...(o.oceanSkyLookups !== undefined ? { skyLookups: o.oceanSkyLookups } : {}),
       lighting: {
         skyRadiance: (dir) => sky.radiance(dir),
         sunIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('direct'),

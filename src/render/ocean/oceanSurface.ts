@@ -55,6 +55,8 @@ import {
 import { createUnitGrid } from '../terrain/terrainMesh'
 import { createLayeredMips, createLayeredTexture } from './oceanMips'
 import { FOAM_LEVEL_SIZES, createFoamPattern, createOceanFoam } from './oceanFoam'
+import { createCalmNodes, type CalmNodes } from './oceanCalmNodes'
+import type { CarrierPose } from './oceanCalm'
 import { FIXED_DT } from '../../sim/loop'
 import { createOceanSimulation, type OceanSimulation } from './oceanNodes'
 import {
@@ -111,9 +113,11 @@ const PLATE_EXTENT = 300_000
  */
 const PLATE_OVERLAP = 2
 
-// ---- web-ocean の水の値（`ocean.html` の `f[76..83]`、濁り 1.6）----
-/** 水中から戻る散乱の色（web-ocean の `waterCol.rgb` = (0.016, 0.080, 0.096) × 濁り 1.6） */
-const WATER_BODY: readonly [number, number, number] = [0.0256, 0.128, 0.1536]
+// ---- web-ocean の水の値（`ocean.html` の `f[76..83]`）----
+/** 水中から戻る散乱の色の元（web-ocean の `waterCol.rgb` は (0.016, 0.080, 0.096) × 濁り） */
+const WATER_BODY_BASE: readonly [number, number, number] = [0.016, 0.08, 0.096]
+/** 濁りの既定（web-ocean の `P.turbidity`、沿岸の値）。外洋の値は S4b の絵の承認で選ぶ（S4a-3 の合意） */
+export const OCEAN_TURBIDITY = 1.6
 /** 解けない細かい傾きの分散（web-ocean の `waterCol.w`） */
 const UNRESOLVED_SLOPE_VARIANCE = 0.0024
 /** 波頭の透過光の色と強さ（web-ocean の `sssCol`） */
@@ -277,8 +281,12 @@ export interface OceanLighting {
 }
 
 /** 海面が読む泡（`oceanFoam.ts`） */
-/** 陰影の軽くする手（段 S4a-2 の費用の切り分け、計測用の口） */
+/** 陰影の設定。軽くする手（段 S4a-2）と、空母のまわりの凪・水の濁り（段 S4a-3） */
 export interface OceanShadeOptions {
+  /** 空母のまわりの凪（`oceanCalmNodes.ts`）。傾きに s、モーメントに s² を掛ける */
+  calm: CalmNodes
+  /** 水の濁り（水中から戻る散乱の色の倍率） */
+  turbidity: number
   /** 遠くで最後の段に届く細かいカスケードを引かず、モーメントの最後の段を 1 回引く */
   skipFar: boolean
   /** 空を引く回数。2 なら天頂の空を上半球の平均で代える */
@@ -345,7 +353,13 @@ export function oceanShadeNode(
   xz: N<'vec2'>,
   world: N<'vec3'>,
   height: N<'float'>,
-  shade: OceanShadeOptions = { skipFar: false, skyLookups: 3, anisotropy: OCEAN_ANISOTROPY },
+  shade: OceanShadeOptions = {
+    calm: createCalmNodes(null),
+    turbidity: OCEAN_TURBIDITY,
+    skipFar: false,
+    skyLookups: 3,
+    anisotropy: OCEAN_ANISOTROPY,
+  },
 ): N<'vec4'> {
   return Fn(() => {
     const [wx, wz] = foam.wind
@@ -366,10 +380,12 @@ export function oceanShadeNode(
     const gy = dFdy(xz).toVar() as unknown as N<'vec2'>
     const footMajor = max(length(gx), length(gy)).toVar()
     const footMinor = min(length(gx), length(gy)).toVar()
+    // 空母のまわりの凪。変位と傾きに s、モーメントに s²（gk に掛けておけば両方に効く）
+    const calm = shade.calm.calm(xz).toVar()
     for (let c = 0; c < sampler.params.cascades.length; c++) {
       // 斑は細かいカスケード（c ≥ 3）にだけ掛ける
       const share = c >= 4 ? 1 : c >= 3 ? 0.5 : 0
-      const gk = share === 0 ? float(1) : mix(float(1), gust, share)
+      const gk = (share === 0 ? calm : mix(float(1), gust, share).mul(calm)) as unknown as N<'float'>
       const accumulate = (dv: N<'vec4'>, mv: N<'vec4'>, av: N<'vec4'>) => {
         s.addAssign(dv.xy)
         jxx.addAssign(dv.z)
@@ -475,7 +491,8 @@ export function oceanShadeNode(
 
     // ---- 水中から戻る光と、逆光の波頭の透過光 ----
     const ambient = skyUp.mul(1.3).add(skyN.mul(0.5)).toVar()
-    const body = vec3(WATER_BODY[0], WATER_BODY[1], WATER_BODY[2])
+    const t = shade.turbidity
+    const body = vec3(WATER_BODY_BASE[0] * t, WATER_BODY_BASE[1] * t, WATER_BODY_BASE[2] * t)
       .mul(skyHemi.mul(1.6).add(sunE.mul(max(Ld.y, 0)).mul(0.8)))
       .toVar()
     const crest = clamp(height.sub(0.05).div(0.9), 0, 1)
@@ -567,6 +584,10 @@ export interface OceanSurfaceOptions {
   skipFar?: boolean
   /** 計測用: 空を引く回数（既定 2） */
   skyLookups?: 2 | 3
+  /** 空母の位置と向き。居ない場面では null（凪も喫水線の泡も無い） */
+  carrier?: CarrierPose | null
+  /** 水の濁り（既定 `OCEAN_TURBIDITY`、`?oceanturbidity=`） */
+  turbidity?: number
 }
 
 export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOptions): OceanSurface {
@@ -592,6 +613,9 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
   // 覆う範囲 (x0, z0, 一辺, 根の一辺)。縁で変位を絞り、板はその内側を描かない
   const cover = uniform(vec4(0, 0, 0, 1))
 
+  // 空母のまわりの凪と喫水線の泡。空母は動かないので、作るときに位置を焼き込む
+  const calmNodes = createCalmNodes(options.carrier ?? null)
+
   // 泡の模様は品質に依らないので 1 回だけ作る。時刻は sim のフレーム番号から
   const pattern = createFoamPattern(renderer)
   const time = uniform(0)
@@ -604,6 +628,8 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
     // 異方性と泡の解像度は品質表から（計測用の口が上書きする）。遠くのカスケードを飛ばす手と
     // 空 2 回は既定で入れる（段 S4a-2 の予算の改訂、2026-10-29）
     const shadeOptions: OceanShadeOptions = {
+      calm: calmNodes,
+      turbidity: options.turbidity ?? OCEAN_TURBIDITY,
       skipFar: options.skipFar ?? true,
       skyLookups: options.skyLookups ?? 2,
       anisotropy: options.anisotropy ?? q.oceanAnisotropy,
@@ -619,6 +645,7 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
             foamLevels,
             { speed: params.windSpeed, direction: params.windDirection },
             options.foamResolution ?? q.oceanFoamResolution,
+            calmNodes,
           )
         : null
     const foamInputs: OceanFoamInputs = {
@@ -666,7 +693,7 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
       )
       const t = clamp(inset.div(coverNode.w.mul(OCEAN_EDGE_FADE)), 0, 1)
       const fade = t.mul(t).mul(float(3).sub(t.mul(2)))
-      return sampler.displacement(textures, xz, cell as unknown as N<'float'>).mul(fade)
+      return sampler.displacement(textures, xz, cell as unknown as N<'float'>).mul(fade).mul(calmNodes.calm(xz))
     })() as unknown as N<'vec3'>
     const position = vec3(xz.x.add(displacement.x), displacement.y, xz.y.add(displacement.z))
     // 変位の前の xz と高さを画素へ渡す（傾きは変位の前の座標で引く。高さは波頭の透過光）

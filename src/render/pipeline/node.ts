@@ -1001,6 +1001,44 @@ export async function runNodeProbe(
       surface[precision] = bySpan
       textures.dispose()
     }
+    // 空母のまわりの凪と喫水線の泡（段 S4a-3）。GPU の式を CPU の純関数と突き合わせる。艦首を振った
+    // 空母のまわりに格子状に点を置く（船体の中・帯の中・帯の外を含む）
+    const calmModule = await import('../ocean/oceanCalm')
+    const calmNodesModule = await import('../ocean/oceanCalmNodes')
+    const tsl = await import('three/tsl')
+    const carrierPose = { x: -1_234.5, z: 2_345.25, heading: 0.83 }
+    const calmPoints: number[] = []
+    for (let i = -20; i <= 20; i++) {
+      for (let j = -12; j <= 12; j++) calmPoints.push(carrierPose.x + i * 9.7, carrierPose.z + j * 9.3)
+    }
+    const calmNodes = calmNodesModule.createCalmNodes(carrierPose)
+    const calmInput = tsl.instancedArray(new Float32Array(calmPoints), 'vec2')
+    const calmOutput = tsl.instancedArray(calmPoints.length / 2, 'vec2')
+    const calmCompute = tsl
+      .Fn(() => {
+        const k = tsl.uint(tsl.instanceIndex).toVar()
+        const p = (calmInput as unknown as { element(i: unknown): { toVar(): unknown } }).element(k).toVar()
+        ;(calmOutput as unknown as { element(i: unknown): { assign(v: unknown): void } })
+          .element(k)
+          .assign(tsl.vec2(calmNodes.calm(p as never), calmNodes.waterline(p as never)))
+      })()
+      .compute(calmPoints.length / 2, [64])
+    renderer.compute(calmCompute as never)
+    const calmValues = await read(calmOutput as unknown as { value: unknown })
+    let calmError = 0
+    let waterlineError = 0
+    let calmZero = 0
+    let waterlineOn = 0
+    for (let k = 0; k < calmPoints.length / 2; k++) {
+      const [lx, lz] = calmModule.carrierLocal(calmPoints[k * 2]!, calmPoints[k * 2 + 1]!, carrierPose)
+      const d = calmModule.hullDistance(lx, lz)
+      calmError = Math.max(calmError, Math.abs(calmValues[k * 2]! - calmModule.carrierCalm(d)))
+      waterlineError = Math.max(waterlineError, Math.abs(calmValues[k * 2 + 1]! - calmModule.waterlineFoam(d)))
+      if (calmModule.carrierCalm(d) === 0) calmZero++
+      if (calmModule.waterlineFoam(d) > 0) waterlineOn++
+    }
+    const calm = { points: calmPoints.length / 2, calmError, waterlineError, calmZero, waterlineOn }
+
     // 1 回の所要（段 S4a-2）。海と写しとミップ、泡の更新とそのミップを分けて測る。泡はキャプチャで
     // 前から 16 回回すので、ここが撮る時間に効く。GPU の仕事を待った壁時計（3 回の中央値）
     const foamModule = await import('../ocean/oceanFoam')
@@ -1076,6 +1114,7 @@ export async function runNodeProbe(
       cost,
       surface,
       surfaceCost,
+      calm,
       float32Filterable: renderer.hasFeature('float32-filterable'),
     }
   }

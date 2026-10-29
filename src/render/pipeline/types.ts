@@ -216,6 +216,8 @@ export interface SceneOptions {
   oceanFoamResolution?: number
   oceanSkipFar?: boolean
   oceanSkyLookups?: 2 | 3
+  /** 水の濁り（`?oceanturbidity=`、既定は web-ocean の 1.6）。値は S4b の絵の承認で選ぶ */
+  oceanTurbidity?: number
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean
   /**
@@ -616,6 +618,11 @@ export interface NodeProbeResult {
        */
       foam: { texels: number; differing: number; covered: number; fresh: number; maxFoam: number; minJ: number }
     }
+    /**
+     * 空母のまわりの凪と喫水線の泡（段 S4a-3）。GPU の式と CPU の純関数の差の最大。`calmZero` は
+     * 凪の係数が 0（船体の中と水線）の点の数、`waterlineOn` は泡を注ぐ点の数（検査が空回りしない目安）
+     */
+    calm: { points: number; calmError: number; waterlineError: number; calmZero: number; waterlineOn: number }
     /** 32 ビットのテクスチャを線形に補間できるか（`float32-filterable`） */
     float32Filterable: boolean
   }) | null

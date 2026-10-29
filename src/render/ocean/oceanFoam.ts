@@ -22,6 +22,7 @@ import {
 } from 'three/tsl'
 import { StorageTexture, type ComputeNode, type Node, type Renderer, type StorageArrayTexture } from 'three/webgpu'
 import { createLayeredMips, createLayeredTexture, type LayeredMips } from './oceanMips'
+import { createCalmNodes, type CalmNodes } from './oceanCalmNodes'
 import type { OceanSampler, OceanTextures } from './oceanSurface'
 
 /**
@@ -235,6 +236,7 @@ export function createOceanFoam(
   levels: number,
   wind: { speed: number; direction: number },
   resolution = FOAM_RESOLUTION,
+  calm: CalmNodes = createCalmNodes(null),
 ): OceanFoam {
   const R = resolution
   const L = Math.min(levels, FOAM_LEVEL_SIZES.length)
@@ -297,7 +299,9 @@ export function createOceanFoam(
         jxz.addAssign(a.w)
       })
     }
-    const J = jxx.add(1).mul(jzz.add(1)).sub(jxz.mul(jxz)).toVar()
+    // 空母のまわりは凪がせる（変位と同じ s を J の項に掛ける）。船体の中で J が 1 になり泡が出ない
+    const k = calm.calm(p).toVar()
+    const J = jxx.mul(k).add(1).mul(jzz.mul(k).add(1)).sub(jxz.mul(k).mul(jxz.mul(k))).toVar()
 
     // 前の泡を風下から引く（半ラグランジュの移流）
     const before = vec4(0, 0, 0, 0).toVar()
@@ -310,7 +314,8 @@ export function createOceanFoam(
         .depth(int(lvl))
         .level(0))
     })
-    const inject = float(FOAM_THRESHOLD).sub(J).mul(FOAM_GAIN).clamp(0, 1).toVar()
+    // 喫水線の泡の帯（段 S4a-3）を波頭の泡に重ねる
+    const inject = max(float(FOAM_THRESHOLD).sub(J).mul(FOAM_GAIN).clamp(0, 1), calm.waterline(p)).toVar()
     const f = before.x.mul(exp(dtU.mul(-FOAM_DECAY))).toVar()
     f.assign(max(f, inject))
     f.assign(min(f.add(inject.mul(dtU).mul(FOAM_GROWTH)), FOAM_MAX))

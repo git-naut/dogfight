@@ -592,6 +592,15 @@ test.describe('node 経路', () => {
     // eslint-disable-next-line no-console
     console.log(`[海面] 1 回の所要 ${JSON.stringify(ocean!.surfaceCost)}`)
 
+    // **空母のまわりの凪と喫水線の泡（段 S4a-3）。**GPU の式が CPU の純関数（`oceanCalm.ts`）と
+    // 一致すること。艦首を振った空母で、回転の向きの取り違えも捕まえる
+    // eslint-disable-next-line no-console
+    console.log(`[凪] ${JSON.stringify(ocean!.calm)}`)
+    expect(ocean!.calm.calmError, '凪の係数の差').toBeLessThan(1e-4)
+    expect(ocean!.calm.waterlineError, '喫水線の泡の差').toBeLessThan(1e-4)
+    expect(ocean!.calm.calmZero, '船体の中の点が無い').toBeGreaterThan(20)
+    expect(ocean!.calm.waterlineOn, '喫水線の帯の点が無い').toBeGreaterThan(5)
+
     // **泡（段 S4a-2）。**前から 16 回回した泡を 2 回作り、ビット単位で一致すること（キャプチャの
     // 決定論）。穏やかな海でも泡が出ていること（2026-10-29 の実測で 3.2%、J の最小 0.33）
     const foam = ocean!.surfaceCost.foam

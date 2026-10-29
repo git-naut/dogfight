@@ -82,6 +82,18 @@ const LOOK_AHEAD = 60
  * （機体の機首下げの速さは変えない、ユーザーの決定）
  */
 const POSITION_TAU = 0.3
+
+/**
+ * カメラを海面（高さ 0）からこれより下げない m（段 S4a-3）。FFT の波は見た目だけで sim の海面は
+ * 平らなので、低空でカメラが波の下へ潜ると水中が写る。high の波の高さの上限はカスケードごとの
+ * 最大の和で 1.02 m（`oceanCalm.test.ts`）。描画だけで掛け、sim の機体の位置は触らない
+ */
+export const CAMERA_MIN_HEIGHT = 2.5
+
+/** カメラの高さの下限を掛ける */
+export function cameraFloor(y: number): number {
+  return Math.max(y, CAMERA_MIN_HEIGHT)
+}
 /**
  * 機体の左右の向きの位置の時定数 s（段 D1）。ヨーのずれが段 C4 で 32 画素になり、録画（38〜44 画素）
  * より小さかった。左右だけ延ばし、0.4 秒で 41 画素（0.3 で 32・0.5 で 48・0.6 で 55）。引きとロールは
@@ -212,6 +224,7 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
       currentOffset.addScaledVector(offsetError, kp).addScaledVector(bodyRightAxis, lateral * kpLat)
       currentLook.lerp(desiredLook, kt)
       camera.position.copy(craftPos).add(currentOffset)
+      camera.position.y = cameraFloor(camera.position.y)
       target.copy(craftPos).add(currentLook)
 
       // ロールを遅らせて追う（段 B4）。いまのカメラの上向きと機体の上向きの、視線まわりの角度の差を
@@ -237,6 +250,7 @@ export function createChaseCamera(camera: THREE.PerspectiveCamera): ChaseCamera 
       currentOffset.copy(desiredOffset)
       currentLook.copy(desiredLook)
       camera.position.copy(craftPos).add(currentOffset)
+      camera.position.y = cameraFloor(camera.position.y)
       target.copy(craftPos).add(currentLook)
       up.copy(bodyUp)
       rollRate = 0

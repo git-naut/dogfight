@@ -86,6 +86,8 @@ export interface CaptureConfig {
   oceanFoamResolution: number | null
   oceanSkipFar: boolean | null
   oceanSkyLookups: 2 | 3 | null
+  /** 水の濁り（`?oceanturbidity=`）。S4b の絵の承認で値を選ぶための口 */
+  oceanTurbidity: number | null
   /** 環境反射を使うか。`?env=0` で切る。質感の比較に使う */
   showEnvironment: boolean
   /**
@@ -447,6 +449,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     oceanFoamResolution: params.has('oceanfoamres') ? Number(params.get('oceanfoamres')) : null,
     oceanSkipFar: params.has('oceanskip') ? params.get('oceanskip') === '1' : null,
     oceanSkyLookups: params.get('oceansky') === '2' ? 2 : params.get('oceansky') === '3' ? 3 : null,
+    oceanTurbidity: params.has('oceanturbidity') ? Number(params.get('oceanturbidity')) : null,
     showEnvironment: params.get('env') !== '0',
     smaa: params.get('smaa') !== '0',
     bloom: params.get('bloom') !== '0',

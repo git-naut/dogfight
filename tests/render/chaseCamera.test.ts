@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import type { AircraftSample } from '@sim/aircraft'
-import { createChaseCamera } from '../../src/render/camera'
+import { CAMERA_MIN_HEIGHT, createChaseCamera } from '../../src/render/camera'
 
 /**
  * 追従カメラ（2026-10-02）。**ライブの絵はキャプチャと違う道を通る。**キャプチャは
@@ -83,5 +83,24 @@ describe('追従カメラ', () => {
     const actual = camera.position.clone().sub(new THREE.Vector3(0, 2000, 0)).setY(0).normalize()
     // 定位置から 2 度以上ずれる（0.09 秒の遅れ × 0.5 rad/s ≈ 2.6 度）
     expect(THREE.MathUtils.radToDeg(actual.angleTo(behind))).toBeGreaterThan(2)
+  })
+})
+
+describe('カメラの高さの下限（段 S4a-3）', () => {
+  it('海面すれすれを飛んでもカメラは 2.5 m より下がらない', () => {
+    // FFT の波は見た目だけで、sim の海面は平ら。カメラが波の下へ潜ると水中が写る
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 5, 100000)
+    const chase = createChaseCamera(camera)
+    const sample = {
+      position: { x: 0, y: 0.5, z: 0 },
+      // 機首を 30 度上げる。後ろ上のカメラは後ろ下へ回り、下限が無ければ海面の約 6 m 下に来る
+      orientation: { x: 0.2588, y: 0, z: 0, w: 0.9659 },
+      speed: 200,
+    } as unknown as AircraftSample
+    chase.snap(sample, LOOK)
+    expect(camera.position.y).toBeGreaterThanOrEqual(CAMERA_MIN_HEIGHT)
+    for (let i = 0; i < 60; i++) chase.update(sample, 1 / 60, LOOK)
+    expect(camera.position.y).toBeGreaterThanOrEqual(CAMERA_MIN_HEIGHT)
+    expect(CAMERA_MIN_HEIGHT).toBe(2.5)
   })
 })

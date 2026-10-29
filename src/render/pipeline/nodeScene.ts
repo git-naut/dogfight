@@ -370,6 +370,9 @@ export async function createNodePipeline(
       ...(o.oceanFoamResolution !== undefined ? { foamResolution: o.oceanFoamResolution } : {}),
       ...(o.oceanSkipFar !== undefined ? { skipFar: o.oceanSkipFar } : {}),
       ...(o.oceanSkyLookups !== undefined ? { skyLookups: o.oceanSkyLookups } : {}),
+      ...(o.oceanTurbidity !== undefined ? { turbidity: o.oceanTurbidity } : {}),
+      // 空母は台本が要求したときだけ居る（`views.ts` と同じ判定と既定の置き方）
+      carrier: o.carrierUrl !== undefined ? (o.carrier ?? { x: 0, z: 0, heading: 0 }) : null,
       lighting: {
         skyRadiance: (dir) => sky.radiance(dir),
         sunIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('direct'),

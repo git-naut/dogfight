@@ -204,6 +204,21 @@ export interface QualitySettings {
    */
   skyEnvironment: boolean
   /**
+   * FFT の海のカスケードの数（段 S4a、CP2 の決定）。カスケードは長い順に web-ocean の
+   * 6 つ（1,103 m〜0.26 m）の先頭から取る。減らしても有義波高は変わらず（エネルギーは長い
+   * 波）、細かい波の作りが粗くなる。実機の計算の所要は `docs/measuring.md` の「段 S3」
+   */
+  oceanCascades: number
+  /** FFT の海の 1 カスケードの格子の一辺（2 のべき）。128 で最も細かい波は 12 cm まで */
+  oceanFftSize: number
+  /**
+   * 海面の CDLOD の段数。最も細かい段の一辺が 0.5 m で、段ごとに 2 倍。カメラを中心に敷く
+   * （地形の四分木は 48 km の定義域に固定だが、海は水平線まで続く）
+   */
+  oceanLodLevels: number
+  /** 泡の層の数（0 で泡なし、段 S4a-2 で使う）。web-ocean は近と遠の 2 層 */
+  oceanFoamLevels: number
+  /**
    * 軌跡のリボンの分割数。0 で軌跡なし。
    *
    * コントレイルと翼端渦が使う。sim が持つ履歴（768 本 = 25.6 秒）のうち、
@@ -320,6 +335,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     aircraftShadowMapSize: 0,
     shadowFilter: 'basic',
     skyEnvironment: false,
+    oceanCascades: 3,
+    oceanFftSize: 128,
+    oceanLodLevels: 8,
+    oceanFoamLevels: 0,
     trailSegments: 0,
     missileTrailSegments: 0,
     explosionSprites: 0,
@@ -356,6 +375,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     aircraftShadowMapSize: 512,
     shadowFilter: 'basic',
     skyEnvironment: true,
+    oceanCascades: 4,
+    oceanFftSize: 128,
+    oceanLodLevels: 10,
+    oceanFoamLevels: 1,
     trailSegments: 192,
     missileTrailSegments: 192,
     explosionSprites: 6,
@@ -400,6 +423,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     aircraftShadowMapSize: 1024,
     shadowFilter: 'pcf',
     skyEnvironment: true,
+    oceanCascades: 4,
+    oceanFftSize: 256,
+    oceanLodLevels: 12,
+    oceanFoamLevels: 2,
     trailSegments: 384,
     missileTrailSegments: 384,
     explosionSprites: 12,
@@ -444,6 +471,10 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     // ultra の影の差は影マップの大きさ 2048 で付ける
     shadowFilter: 'pcf',
     skyEnvironment: true,
+    oceanCascades: 6,
+    oceanFftSize: 256,
+    oceanLodLevels: 13,
+    oceanFoamLevels: 2,
     trailSegments: 768,
     missileTrailSegments: 512,
     explosionSprites: 12,

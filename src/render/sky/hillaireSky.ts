@@ -111,6 +111,8 @@ export interface HillaireSky {
   readonly backgroundNode: Node<'vec3'>
   /** `Scene.environmentNode` に入れる。反射の向きで空の見え方の LUT を引く */
   readonly environmentNode: Node<'vec3'>
+  /** 向き dir（ワールド、単位ベクトル）の空の放射輝度。海面の映り込みが読む（段 S4a-1） */
+  radiance(dir: Node<'vec3'>): Node<'vec3'>
   readonly lighting: SkyLighting
   /** 直達光。影の投げ手を兼ねる。場面へ足すのは呼ぶ側 */
   readonly sunLight: SkySunLight
@@ -378,6 +380,7 @@ export function createHillaireSky(renderer: Renderer): HillaireSky {
   return {
     backgroundNode,
     environmentNode,
+    radiance: (dir) => skyAt(dir, 0),
     lighting,
     sunLight,
     skyLight,

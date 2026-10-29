@@ -75,6 +75,10 @@ export interface CaptureConfig {
   oceanCascades: number | null
   /** 計測用: 海の格子の一辺（`?oceanfft=`、2 のべき） */
   oceanFftSize: number | null
+  /** FFT の海面を描くか。`?ocean=1`（段 S4a-1）。今の板の海を隠して替える */
+  ocean: boolean
+  /** 海面のテクスチャの精度。`?oceantex=16|32`、無ければ null（既定の 16） */
+  oceanTexturePrecision: 16 | 32 | null
   /** 環境反射を使うか。`?env=0` で切る。質感の比較に使う */
   showEnvironment: boolean
   /**
@@ -429,6 +433,8 @@ export function readCaptureConfig(search: string): CaptureConfig {
     oceanDebug: params.get('ocean') === 'debug',
     oceanCascades: params.has('oceancascades') ? Number(params.get('oceancascades')) : null,
     oceanFftSize: params.has('oceanfft') ? Number(params.get('oceanfft')) : null,
+    ocean: params.get('ocean') === '1',
+    oceanTexturePrecision: params.get('oceantex') === '32' ? 32 : params.get('oceantex') === '16' ? 16 : null,
     showEnvironment: params.get('env') !== '0',
     smaa: params.get('smaa') !== '0',
     bloom: params.get('bloom') !== '0',

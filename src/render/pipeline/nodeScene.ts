@@ -25,6 +25,7 @@ import {
 } from '../terrain/nodeMaterials'
 import { createTerrainMesh, createTerrainUniforms, type TerrainMesh } from '../terrain/terrainMesh'
 import { createWater, type Water } from '../terrain/water'
+import { terrainCloudShadeNode } from '../terrain/surfaceNodes'
 import { createHeightTexture, createNormalTexture } from '../terrain/heightTexture'
 import { defaultTerrain, type Terrain } from '../../sim/terrain'
 import { DEFAULT_HOUR, sunFrameForHour } from '../geoFrame'
@@ -341,6 +342,40 @@ export async function createNodePipeline(
   water.mesh.visible = options.showWater ?? true
   scene.add(water.mesh)
 
+  // ---- FFT の海面（段 S4a-1、`?ocean=1`）----
+  //
+  // 立てたときだけ海のモジュールを読み、今の板の海を隠して CDLOD の海面と外側の板に替える。
+  // 光は自前の空から、太陽の遮りは今の板の海と同じ（雲影 × 機体の影）
+  const ocean = options.ocean === true && oceanDebug === null ? await createOceanSurfaceFor(options) : null
+  if (ocean !== null) {
+    water.mesh.visible = false
+    ocean.setVisible(options.showWater ?? true)
+    scene.add(ocean.mesh, ocean.plate)
+  }
+  const oceanCamera = new THREE.Vector3()
+  /** 海を解いてテクスチャへ写し、パッチを選ぶ。場面を描く前に呼ぶ */
+  const updateOcean = () => {
+    if (ocean === null) return
+    camera.getWorldPosition(oceanCamera)
+    ocean.update(renderer, oceanCamera, oceanTicks)
+  }
+
+  async function createOceanSurfaceFor(o: SceneOptions) {
+    const { createOceanSurface } = await import('../ocean/oceanSurface')
+    return createOceanSurface(renderer, {
+      quality,
+      precision: o.oceanTexturePrecision ?? 16,
+      lighting: {
+        skyRadiance: (dir) => sky.radiance(dir),
+        sunIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('direct'),
+        skyIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('indirect'),
+        sunDirection: surfaceState.inputs.sunDirectionWorld,
+        sunShade: (world) => terrainCloudShadeNode(surfaceState.inputs, world).mul(aircraftShade) as unknown as webgpu.Node<'float'>,
+        camera: surfaceState.morphOrigin,
+      },
+    })
+  }
+
   /**
    * 雲を合成へ出すか。`setMeasureConfig({ clouds: false })` で 0 にする。
    *
@@ -545,6 +580,7 @@ export async function createNodePipeline(
     if (cloudsEnabled) clouds.renderShadow(renderer)
     updateSky()
     oceanDebug?.sim.update(renderer, oceanTicks, 0)
+    updateOcean()
     pipeline.render()
   }
 
@@ -556,6 +592,7 @@ export async function createNodePipeline(
     clouds.setQuality(quality)
     terrainMesh.setQuality(quality)
     water.setQuality(quality)
+    ocean?.setQuality(quality)
     views.trails.setQuality(quality)
     views.missileSmoke.setQuality(quality)
     views.damageSmoke.setQuality(quality)
@@ -597,6 +634,18 @@ export async function createNodePipeline(
     terrain,
     terrainMesh,
     water,
+    ocean:
+      ocean === null
+        ? null
+        : {
+            get patchCount() {
+              return ocean.patchCount
+            },
+            get triangleCount() {
+              return ocean.triangleCount
+            },
+            precision: ocean.textures.precision,
+          },
     aircraft: views.aircraft,
     targetViews: views.targetViews,
     enemyViews: views.enemyViews,
@@ -749,6 +798,7 @@ export async function createNodePipeline(
       if (cloudsEnabled) clouds.renderShadow(renderer)
       updateSky()
       oceanDebug?.sim.update(renderer, oceanTicks, 0)
+      updateOcean()
       pipeline.render()
       gpuTimer.end()
     },
@@ -834,7 +884,10 @@ export async function createNodePipeline(
         )
       }
       if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
-      if (config.water !== undefined) water.mesh.visible = config.water
+      if (config.water !== undefined) {
+        if (ocean !== null) ocean.setVisible(config.water)
+        else water.mesh.visible = config.water
+      }
       if (config.aircraft !== undefined) views.aircraft.object.visible = config.aircraft
       if (config.targets !== undefined) views.targetViews.object.visible = config.targets
       if (config.enemies !== undefined) views.enemyViews.object.visible = config.enemies
@@ -883,6 +936,7 @@ export async function createNodePipeline(
       radianceQuad.dispose()
       sky.dispose()
       oceanDebug?.sim.dispose()
+      ocean?.dispose()
       terrainMesh.dispose()
       water.dispose()
       heightTexture.dispose()

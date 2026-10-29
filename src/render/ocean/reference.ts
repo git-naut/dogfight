@@ -85,6 +85,45 @@ export const WEB_OCEAN_DEFAULTS: OceanSpectrumParams = {
   gain: 1,
 }
 
+/**
+ * dogfight の海（CP2 の C、2026-10-29 ユーザーの決定）。風 6 m/s・吹送 20 km・うねり 0.3 m
+ * （波長 80 m）。向き・γ・choppy などは web-ocean の既定のまま。有義波高は格子の分散から
+ * 0.63 m（`significantWaveHeight`）
+ */
+export const DOGFIGHT_OCEAN: OceanSpectrumParams = {
+  ...WEB_OCEAN_DEFAULTS,
+  windSpeed: 6,
+  fetch: 20_000,
+  swellHeight: 0.3,
+  swellLength: 80,
+}
+
+/**
+ * 品質表の列（`oceanCascades`・`oceanFftSize`）から条件を作る。カスケードは長い側から残す。
+ * エネルギーは長い波にあるので、減らしても有義波高はほぼ変わらない（CP2 の実測）
+ */
+export function oceanParamsFor(cascades: number, size: number, base: OceanSpectrumParams = DOGFIGHT_OCEAN): OceanSpectrumParams {
+  return { ...base, cascades: base.cascades.slice(0, cascades), size }
+}
+
+/** 有義波高 4√m0 m。m0 は格子の上の分散 Σ 2(a(n)² + a(-n)²) を全カスケードで足したもの */
+export function significantWaveHeight(p: OceanSpectrumParams): number {
+  const bands = latticeBands(p)
+  const N = p.size
+  let m0 = 0
+  for (let c = 0; c < p.cascades.length; c++) {
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const [nx, ny] = latticeIndex(x, y, N)
+        const a = amplitude(nx, ny, c, p, bands)
+        const b = amplitude(-nx, -ny, c, p, bands)
+        m0 += 2 * (a * a + b * b)
+      }
+    }
+  }
+  return 4 * Math.sqrt(m0)
+}
+
 // ---- 分散とスペクトル ----
 
 /** 角周波数 rad/s。深水の重力波に毛管波の項を足す（web-ocean の `omegaOf`） */

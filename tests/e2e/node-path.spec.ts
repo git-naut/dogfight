@@ -33,7 +33,7 @@ import {
   screenRay,
 } from '../../src/render/sky/skyProbe'
 import { IRRADIANCE_TABLE } from '../../src/render/sky/irradianceTable'
-import { OCEAN_PROBE_TOLERANCE } from '../../src/render/ocean/oceanProbe'
+import { OCEAN_PROBE_TOLERANCE, OCEAN_SURFACE_TOLERANCE } from '../../src/render/ocean/oceanProbe'
 import {
   SURFACE_PROBE_SIDE,
   WATER_PROBE_REGIONS,
@@ -584,6 +584,20 @@ test.describe('node 経路', () => {
     }
     // **向きを取り違えたら落ちること。**x と y を入れ替えても一致するなら比べ方が空回り
     expect(ocean!.displacementTransposed, '向きの検査に歯がない').toBeGreaterThan(0.1)
+
+    // **海面のテクスチャ（段 S4a-1）。**変位をミップ付きのテクスチャへ写し、頂点シェーダと
+    // 同じ引き方（`oceanCascadeLod`・`oceanUvOffset`）で引いた値を CPU 参照と比べる
+    // eslint-disable-next-line no-console
+    console.log(`[海面] float32-filterable ${ocean!.float32Filterable} ${JSON.stringify(ocean!.surface)}`)
+    for (const precision of ['16', '32'] as const) {
+      for (const span of ['far', 'near'] as const) {
+        const s = ocean!.surface[precision][span]
+        const tolerance = span === 'far' ? OCEAN_SURFACE_TOLERANCE.far : OCEAN_SURFACE_TOLERANCE.near[precision]
+        expect(s.error, `${precision} ビット・${span} の差（間隔ごと ${JSON.stringify(s.byCell)}）`).toBeLessThanOrEqual(tolerance)
+        expect(s.skipped, '足さないカスケードが無い（粗い段の検査が空回り）').toBeGreaterThan(0)
+        expect(s.transposed, `${precision} ビット・${span} の向きの検査に歯がない`).toBeGreaterThan(0.1)
+      }
+    }
   })
 
   test('TSL の自前の空が CPU 参照と一致する', async ({ page }) => {

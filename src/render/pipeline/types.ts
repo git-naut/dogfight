@@ -202,6 +202,13 @@ export interface SceneOptions {
   /** 計測用: 海のカスケード数と格子の一辺。品質表に載せるのは CP2 のあと */
   oceanCascades?: number
   oceanFftSize?: number
+  /**
+   * FFT の海面を描くか（`?ocean=1`、段 S4a-1）。立てると今の板の海を隠し、CDLOD の海面と
+   * 外側の板（`ocean/oceanSurface.ts`）に替える。既定の絵は動かさない
+   */
+  ocean?: boolean
+  /** 海面のテクスチャの精度（`?oceantex=16|32`）。既定は 16。段 S4a-1 で絵と費用を比べる */
+  oceanTexturePrecision?: 16 | 32
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean
   /**
@@ -318,6 +325,8 @@ export interface ScenePipeline {
   readonly terrain: Terrain
   readonly terrainMesh: TerrainMesh
   readonly water: Water
+  /** FFT の海面（`?ocean=1` のときだけ）。パッチの数と三角形の数を計器が読む */
+  readonly ocean: { readonly patchCount: number; readonly triangleCount: number; readonly precision: number } | null
   readonly aircraft: AircraftView
   readonly targetViews: TargetViews
   readonly enemyViews: EnemyViews
@@ -578,6 +587,13 @@ export interface NodeProbeResult {
      * カスケード数と格子の大きさを振る。GPU の仕事が終わるまで待った壁時計
      */
     cost: { cascades: number; size: number; updateMs: number; initMs: number }[]
+    /**
+     * 海面のテクスチャ（段 S4a-1）。high の条件（4 × 256、CP2 の C）の変位をテクスチャへ写し、
+     * 頂点シェーダと同じ引き方の値を CPU 参照の場と比べる。精度（16・32）ごと
+     */
+    surface: Record<'16' | '32', Record<'far' | 'near', import('../ocean/oceanProbe').OceanSurfaceSummary>>
+    /** 32 ビットのテクスチャを線形に補間できるか（`float32-filterable`） */
+    float32Filterable: boolean
   }) | null
   sky: {
     transmittance: number[]

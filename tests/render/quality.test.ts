@@ -204,6 +204,20 @@ describe('品質プリセットの表', () => {
     expect(getQuality(DEFAULT_PRESET).renderScale).toBe(1)
   })
 
+  it('海の 4 列は段ごとに減らない（段 S4a、CP2 の決定の値）', () => {
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanCascades)).toEqual([3, 4, 4, 6])
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFftSize)).toEqual([128, 128, 256, 256])
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanLodLevels)).toEqual([8, 10, 12, 13])
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFoamLevels)).toEqual([0, 1, 2, 2])
+    for (const name of PRESET_ORDER) {
+      const q = QUALITY_PRESETS[name]
+      // カスケードは web-ocean の 6 つの先頭から取る。格子は 2 のべき
+      expect(q.oceanCascades, name).toBeGreaterThanOrEqual(1)
+      expect(q.oceanCascades, name).toBeLessThanOrEqual(6)
+      expect(Math.log2(q.oceanFftSize) % 1, name).toBe(0)
+    }
+  })
+
   it('環境反射は low だけ切る', () => {
     // 段 S2b-2 で大きさの列（skyEnvironmentSize、low は 0）を置き換えた。low で切る
     // 決まりは前の列から引き継ぐ
@@ -264,6 +278,8 @@ describe('品質プリセットの表', () => {
       'missileFlameSprites',
       // ブルーム。low では掛けない
       'bloomStrength',
+      // 海の泡の層。low では出さない（段 S4a）
+      'oceanFoamLevels',
     ])
     for (const name of PRESET_ORDER) {
       const q = QUALITY_PRESETS[name]

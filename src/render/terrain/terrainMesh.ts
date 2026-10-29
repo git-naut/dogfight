@@ -121,7 +121,7 @@ export interface TerrainMesh {
  * position.xy が格子座標で、z は使わない。頂点シェーダがパッチの原点と
  * 大きさを掛けてワールド座標にする。
  */
-function createUnitGrid(cells: number): {
+export function createUnitGrid(cells: number): {
   position: Float32Array
   index: Uint32Array
 } {

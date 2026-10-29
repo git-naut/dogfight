@@ -115,8 +115,9 @@ F/A-18C は SGI 形式の 512×512。F-16 は PNG で、`f16.png` が 2048×2048
 |---|---|---|---|---|---|
 | `src/render/sky/skyNodes.ts`・`src/render/sky/reference.ts` | 大気の LUT（`ATMO_CORE_WGSL`・`TRANS_LUT`・`MS_LUT`・`SKYVIEW_LUT`、Hillaire 2020 の方式）。WGSL のコンピュートを TSL のフラグメントと TypeScript へ写した | Maksymilian Dendura | MIT | [Noniv/web-ocean](https://github.com/Noniv/web-ocean)（コミット a07c7fd の `ocean.html`） | 2026-10-24 |
 | `src/render/ocean/oceanNodes.ts`・`src/render/ocean/reference.ts` | FFT の海（`SIM_INIT`・`SIM_EVOLVE`・`FFT_ROWS`・`FFT_COLS`、Tessendorf の方式。JONSWAP・Donelan-Banner・カスケードの帯）。WGSL のコンピュートを TSL のコンピュートと TypeScript へ写した | Maksymilian Dendura | MIT | 同上 | 2026-10-24 |
+| `src/render/ocean/oceanSurface.ts`・`src/render/ocean/oceanLayout.ts` | 海面（`OCEAN` の頂点シェーダの CDLOD と変位、画素シェーダの空の映り込み・フレネル・太陽の映り込み・水中から戻る光と水の色の値）。WGSL を TSL へ写した | Maksymilian Dendura | MIT | 同上 | 2026-10-24 |
 
-散乱の定数は takram（Bruneton の既定）にそろえて変えてある（`docs/decisions/0044-hillaire-sky.md`）。海は式の意味を変えず、32 ビットの計算の手順を 6 か所変えた（`docs/decisions/0046-fft-ocean-base.md`）。MIT の許諾の文は次のとおり。
+散乱の定数は takram（Bruneton の既定）にそろえて変えてある（`docs/decisions/0044-hillaire-sky.md`）。海は式の意味を変えず、32 ビットの計算の手順を 6 か所変えた（`docs/decisions/0046-fft-ocean-base.md`）。海面はパッチのセルの数・カメラ中心の敷き方・ミップの作り方を変えた（`docs/decisions/0047-ocean-surface-base.md`）。MIT の許諾の文は次のとおり。
 
 ```
 MIT License

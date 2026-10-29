@@ -950,11 +950,57 @@ export async function runNodeProbe(
       cost.push({ cascades, size, updateMs: samples[1]!, initMs })
       variant.dispose()
     }
+
+    // 海面のテクスチャ（段 S4a-1）。high の条件で解き、テクスチャへ写して頂点シェーダと同じ
+    // 引き方で引く。比べる相手は CPU 参照の場（周波数の番号は GPU のものを使う。上と同じ理由）
+    const surfaceNodes = await import('../ocean/oceanSurface')
+    const layout = await import('../ocean/oceanLayout')
+    const reference = await import('../ocean/reference')
+    const highParams = reference.oceanParamsFor(4, 256)
+    const highSim = oceanNodes.createOceanSimulation(highParams)
+    highSim.init(renderer)
+    highSim.update(renderer, oceanProbe.OCEAN_PROBE_TICKS, oceanProbe.OCEAN_PROBE_ALPHA)
+    const highFields = reference.oceanFields(
+      reference.buildH0(highParams),
+      await read(highSim.frequencyIndex, true),
+      oceanProbe.OCEAN_PROBE_TICKS,
+      oceanProbe.OCEAN_PROBE_ALPHA,
+      highParams,
+    )
+    type SurfaceSummary = import('../ocean/oceanProbe').OceanSurfaceSummary
+    const surface = {} as Record<'16' | '32', Record<'far' | 'near', SurfaceSummary>>
+    for (const precision of [16, 32] as const) {
+      const textures = surfaceNodes.createOceanTextures(highSim, precision)
+      textures.update(renderer)
+      const sampler = surfaceNodes.createOceanSampler(highParams)
+      sampler.setOrigin(...oceanProbe.OCEAN_SURFACE_PROBE_ORIGIN)
+      const bySpan = {} as Record<'far' | 'near', SurfaceSummary>
+      for (const span of ['far', 'near'] as const) {
+        const points = oceanProbe.oceanSurfaceProbePoints(oceanProbe.OCEAN_SURFACE_PROBE_SPANS[span])
+        const surfaceProbe = surfaceNodes.createOceanSurfaceProbe(sampler, textures, points)
+        renderer.compute(surfaceProbe.node)
+        const values = await read(surfaceProbe.output as unknown as { value: unknown })
+        bySpan[span] = oceanProbe.compareOceanSurface(
+          values,
+          points,
+          highFields.displacement,
+          highParams,
+          layout.oceanCascadeLod,
+          layout.oceanCascadeSkipped,
+        )
+      }
+      surface[precision] = bySpan
+      textures.dispose()
+    }
+    highSim.dispose()
+
     ocean = {
       ...summary,
       lengths: Object.fromEntries(Object.entries(gpu).map(([k, v]) => [k, v.length])),
       compareMs: performance.now() - compareStarted,
       cost,
+      surface,
+      float32Filterable: renderer.hasFeature('float32-filterable'),
     }
   }
 

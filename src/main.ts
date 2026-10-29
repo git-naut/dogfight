@@ -458,6 +458,8 @@ async function main(): Promise<void> {
     oceanDebug: capture.oceanDebug,
     ...(capture.oceanCascades !== null ? { oceanCascades: capture.oceanCascades } : {}),
     ...(capture.oceanFftSize !== null ? { oceanFftSize: capture.oceanFftSize } : {}),
+    ocean: capture.ocean,
+    ...(capture.oceanTexturePrecision !== null ? { oceanTexturePrecision: capture.oceanTexturePrecision } : {}),
     showEnvironment: capture.showEnvironment,
     smaa: capture.smaa,
     bloom: capture.bloom,

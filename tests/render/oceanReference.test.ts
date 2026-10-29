@@ -6,6 +6,9 @@ import {
   OCEAN_LOOP_TICKS,
   OCEAN_TICK_SECONDS,
   WEB_OCEAN_DEFAULTS as P,
+  DOGFIGHT_OCEAN,
+  oceanParamsFor,
+  significantWaveHeight,
   buildFrequencyIndex,
   buildH0,
   cascadeBands,
@@ -414,5 +417,38 @@ describe('自己診断の比べ方', () => {
     const bad = Int32Array.from(cpuIndex)
     bad[5] = bad[5]! + 3
     expect(checkFrequencyIndex(bad, small).unexplained).toBe(1)
+  })
+})
+
+describe('dogfight の海（CP2 の C）', () => {
+  it('有義波高が 0.63 m で、どのプリセットでも 0.5〜0.8 m の内', () => {
+    // 穏やかな海（計画のユーザーの決定 3）。CP2 で 4√m0 = 0.632 m を見て C を選んだ
+    for (const [c, n] of [
+      [3, 128],
+      [4, 128],
+      [4, 256],
+      [6, 256],
+    ] as const) {
+      const hs = significantWaveHeight(oceanParamsFor(c, n))
+      expect(hs).toBeGreaterThan(0.62)
+      expect(hs).toBeLessThan(0.64)
+    }
+  })
+
+  it('風とうねりだけを web-ocean の既定から変える', () => {
+    expect(DOGFIGHT_OCEAN.windSpeed).toBe(6)
+    expect(DOGFIGHT_OCEAN.fetch).toBe(20_000)
+    expect(DOGFIGHT_OCEAN.swellHeight).toBe(0.3)
+    expect(DOGFIGHT_OCEAN.swellLength).toBe(80)
+    const { windSpeed, fetch, swellHeight, swellLength, ...rest } = DOGFIGHT_OCEAN
+    const { windSpeed: _a, fetch: _b, swellHeight: _c, swellLength: _d, ...base } = P
+    expect(rest).toEqual(base)
+    void [windSpeed, fetch, swellHeight, swellLength, _a, _b, _c, _d]
+  })
+
+  it('カスケードは長い側から残す', () => {
+    const p = oceanParamsFor(3, 128)
+    expect(p.cascades).toEqual(P.cascades.slice(0, 3))
+    expect(p.size).toBe(128)
   })
 })

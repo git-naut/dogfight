@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { vec3, Fn, vec4, uniform, screenUV, rtt } from 'three/tsl'
+import { vec3, Fn, vec4, uniform } from 'three/tsl'
 import * as webgpu from 'three/webgpu'
 import { createChaseCamera } from '../camera'
 import { createNodeBackend } from './nodeBackend'
@@ -14,24 +14,10 @@ import { createNodeRadialSprite } from '../weapons/spriteNodes'
 import { sceneOcclusion } from '../weapons/sceneOcclusion'
 import { createNodeTrailMaterial } from '../weapons/trailNodes'
 import { createNodeVaporMaterial } from '../aircraft/vaporNodes'
-import { bakeNodeCloudNoise } from '../clouds/nodeNoise'
-import { createCloudsNodePass, type CloudsNodePass } from '../clouds/cloudsNodePass'
-import { SHADOW_EXTENT } from '../clouds/geometry'
-import { bakePlane, createBakeQuad, readPlane } from '../clouds/volume'
-import {
-  createNodeSurfaceState,
-  createTerrainNodeMaterial,
-  createWaterNodeMaterial,
-} from '../terrain/nodeMaterials'
-import { createTerrainMesh, createTerrainUniforms, type TerrainMesh } from '../terrain/terrainMesh'
-import { createWater, type Water } from '../terrain/water'
-import { terrainCloudShadeNode } from '../terrain/surfaceNodes'
-import { createHeightTexture, createNormalTexture } from '../terrain/heightTexture'
-import { defaultTerrain, type Terrain } from '../../sim/terrain'
+import { bakePlane, createBakeQuad, readPlane } from './bake'
 import { DEFAULT_HOUR, sunFrameForHour } from '../geoFrame'
 import { createGpuTimer, type GpuTimer } from '../gpuTimer'
 import {
-  applyQualityOverride,
   getQuality,
   type PresetName,
   type QualitySettings,
@@ -47,7 +33,7 @@ import {
 import { WebGPUUnavailable } from './webgpuRequired'
 import { FIXED_DT } from '../../sim/loop'
 import { createHillaireSky, type SkyLighting } from '../sky/hillaireSky'
-import { CLOUD_SHADOW_OCTAVE_DROP, createCloudLayers } from '../sky/cloudLayerNodes'
+import { CLOUD_SHADOW_OCTAVE_DROP, cloudLayerTexture, createCloudLayers } from '../sky/cloudLayerNodes'
 import { layerSunTransmittance } from '../sky/cloudLayersReference'
 
 /**
@@ -58,7 +44,7 @@ import { layerSunTransmittance } from '../sky/cloudLayersReference'
  *
  * **経路に依らない部分は共有側にある。**場面に置く物は `views.ts`、
  * 組み立ての順序は `nodeBuild.ts`、出力ノードは `nodeOutput.ts`、空と霞と光は
- * `sky/hillaireSky.ts`、雲ノイズは `clouds/nodeNoise.ts`、バックエンドの
+ * `sky/hillaireSky.ts`、層の雲は `sky/cloudLayerNodes.ts`、海は `ocean/`、バックエンドの
  * facade は `nodeBackend.ts`。ここはそれらを繋ぐだけにする。
  *
  * **WebGPU が要る。**段 S1 で GLSL 退避路を捨てた。WebGPU が無いときは
@@ -88,8 +74,7 @@ export async function createNodePipeline(
   canvas: HTMLCanvasElement,
   options: SceneOptions,
 ): Promise<ScenePipeline> {
-  const qualityOverride = options.qualityOverride ?? {}
-  let quality = applyQualityOverride(getQuality(options.preset), qualityOverride)
+  let quality = getQuality(options.preset)
 
   const renderer = new webgpu.WebGPURenderer({
     canvas,
@@ -146,7 +131,7 @@ export async function createNodePipeline(
   // 書かない半透明の物（爆発、飛行機雲、煙）が、空の手前で場面のパスの中に重なる
   const sky = createHillaireSky(renderer)
   sky.setSun(solar.sunDirectionWorld)
-  /** 照度の口。地形・海・雲・照度の読み戻しが同じものを読む */
+  /** 照度の口。海・雲・照度の読み戻しが同じものを読む */
   const atmosphereNodes: SkyLighting = sky.lighting
   /** 環境反射。入れないときも明示的に null を入れる（`undefined` が残ると判定を誤る） */
   const environmentFor = (on: boolean): unknown => (on ? sky.environmentNode : null)
@@ -167,17 +152,6 @@ export async function createNodePipeline(
   oceanDebug?.sim.init(renderer)
   let oceanTicks = 0
 
-  const noise = await bakeNodeCloudNoise(renderer)
-
-  // 高さ場は sim が持つ。生成時間は sim 層で測れない（`performance.now()` が
-  // 使えない）のでここで挟む
-  const terrainStart = performance.now()
-  const terrain: Terrain = defaultTerrain()
-  const terrainMs = performance.now() - terrainStart
-
-  const heightTexture = createHeightTexture(terrain)
-  const normalTexture = createNormalTexture(terrain)
-
   // 場面のパスを先に作る。雲は深度テクスチャを要るので順が決まる
   // **発光体のブルームは組み立ての時点で決める。**MRT の面は場面のパスを
   // 作るときにしか足せない。実行中にプリセットが下がっても面は残るが、
@@ -188,36 +162,22 @@ export async function createNodePipeline(
     emissive: bloomEmissive,
   })
 
-  // 雲の太陽光と天空光は LUT から取る。**CPU 側に値が無い**ので、
-  // 原点の海面高度で 1 度だけ引く（GLSL 経路もフレームに 1 つの値を使う）
-  const cloudOrigin = vec3(0, 0, 0)
-  const cloudUp = vec3(0, 1, 0)
-  const cloudSunColor = atmosphereNodes.scalarIlluminance(cloudOrigin).get('direct')
-  const cloudAmbientColor = atmosphereNodes
-    .illuminance(cloudOrigin, cloudUp)
-    .indirect.mul(1 / Math.PI)
-
   let coverage = options.coverage ?? DEFAULT_COVERAGE
 
-  // ---- 層の雲（段 S4c、`?clouds=layers`）----
+  // ---- 層の雲（段 S4c で作り、段 S4b で既定にした。ADR 0050）----
   //
-  // 立てると合成へ体積の雲の代わりにこれを渡す（体積の雲のパスは参照されず走らない）。雲影マップも
-  // 焼かず、海と機体の光は層を横切る太陽の線の透過率で遮る
-  const cloudLayers =
-    options.cloudLayers === true
-      ? createCloudLayers({
-          view: sky.view,
-          skyRadiance: (dir, spread) => sky.radiance(dir, spread),
-          sunIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('direct'),
-          octaves: quality.cloudLayerOctaves,
-        })
-      : null
+  // 合成へ前乗算の色を渡す。海と機体の光は、層を横切る太陽の線の透過率で遮る
+  const cloudLayers = createCloudLayers({
+    view: sky.view,
+    skyRadiance: (dir, spread) => sky.radiance(dir, spread),
+    sunIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('direct'),
+    octaves: quality.cloudLayerOctaves,
+  })
   let cloudTimeSeconds = 0
   const layerCamera = new THREE.Vector3()
   const drawingSize = new THREE.Vector2()
   /** 層の雲の uniform と、機体の光の雲の透過率を入れる。空を焼く前に呼ぶ */
   const updateCloudLayers = () => {
-    if (cloudLayers === null) return
     camera.getWorldPosition(layerCamera)
     renderer.getDrawingBufferSize(drawingSize)
     const pixelAngle = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(drawingSize.y, 1)
@@ -226,35 +186,11 @@ export async function createNodePipeline(
     const sun = solar.sunDirectionWorld
     sky.setSunCloudTransmittance(layerSunTransmittance(anchor.x, anchor.y, anchor.z, sun, coverage, cloudTimeSeconds, octaves))
   }
-  const clouds: CloudsNodePass = createCloudsNodePass({
-    camera,
-    noise: { shape: noise.shape, detail: noise.detail, weather: noise.weather },
-    quality,
-    coverage,
-    sceneDepth: depthTexture,
-    captureMode: options.cloudCaptureMode ?? false,
-    temporal: options.cloudTemporal ?? true,
-    clampScale: 1,
-    sunColorNode: cloudSunColor,
-    ambientColorNode: cloudAmbientColor,
-  })
 
-  const surfaceState = createNodeSurfaceState(
-    {
-      heightMap: heightTexture,
-      terrainNormalMap: normalTexture,
-      cloudShadowMap: clouds.shadowTexture,
-      extent: terrain.extent,
-      texels: terrain.size,
-      cloudShadowExtent: SHADOW_EXTENT,
-    },
-    quality,
-  )
-  surfaceState.setSunDirection(
-    solar.sunDirectionWorld.x,
-    solar.sunDirectionWorld.y,
-    solar.sunDirectionWorld.z,
-  )
+  // 海面が読む太陽の向きと、寄せの基準（主カメラのワールド位置）。帳簿が `setSurfaceFrame` で入れる。
+  // **組み込みの `cameraPosition` を使わない。**影を焼くパスでは光源のカメラが入る
+  const surfaceSun = uniform(solar.sunDirectionWorld.clone())
+  const surfaceCamera = uniform(new THREE.Vector3())
 
   // **環境反射は `?env=0` で外せる。**品質表の `skyEnvironment` に台本の指定を重ねる
   // （GLSL 経路の `scene.environment = showEnvironment ? ... : null` と同じ）
@@ -339,46 +275,11 @@ export async function createNodePipeline(
   })
   const aircraftShade = shadowInfo.shade
 
-  // 地形と海面。**格子もパッチの選び方も GLSL 経路と同じものを使う。**
-  // 差し替わるのは材質だけで、工場を受け取る口が両方にある
-  // **`?illum=0` で段 17b の形へ戻せる。**大気の LUT から引くのをやめると
-  // `surfaceState` の放射輝度（照度の読み戻しが入れた値）を使う。
-  // 差分の帰属を測るための口（段 20a-4）
-  const useLutIlluminance = options.illuminance ?? true
-  const sharedUniforms = createTerrainUniforms(terrain, SHADOW_EXTENT)
-  const terrainMesh: TerrainMesh = createTerrainMesh(terrain, quality, sharedUniforms, () =>
-    useLutIlluminance
-      ? createTerrainNodeMaterial(surfaceState, aircraftShade, atmosphereNodes.illuminance)
-      : createTerrainNodeMaterial(surfaceState, aircraftShade),
-  )
-  terrainMesh.mesh.visible = options.showTerrain ?? true
-  scene.add(terrainMesh.mesh)
-
-  /**
-   * 海面が読む放射輝度。
-   *
-   * **太陽は余弦を含まない側を使う。**スペキュラは太陽の見かけの明るさで
-   * 決まるので、面の傾きで暗くしてはいけない。天空は半球の重みが要るので
-   * 間接を pi で割る
-   */
-  const water: Water = createWater(quality, sharedUniforms, () =>
-    useLutIlluminance
-      ? createWaterNodeMaterial(surfaceState, aircraftShade, (world, normal) => ({
-          sun: atmosphereNodes.scalarIlluminance(world).get('direct'),
-          sky: atmosphereNodes.illuminance(world, normal).indirect.mul(1 / Math.PI),
-        }))
-      : createWaterNodeMaterial(surfaceState, aircraftShade),
-  )
-  water.mesh.visible = options.showWater ?? true
-  scene.add(water.mesh)
-
-  // ---- FFT の海面（段 S4a-1、`?ocean=1`）----
+  // ---- FFT の海（段 S3〜S4a で作り、段 S4b で既定にした。ADR 0046〜0049）----
   //
-  // 立てたときだけ海のモジュールを読み、今の板の海を隠して CDLOD の海面と外側の板に替える。
-  // 光は自前の空から、太陽の遮りは今の板の海と同じ（雲影 × 機体の影）
-  const ocean = options.ocean === true && oceanDebug === null ? await createOceanSurfaceFor(options) : null
+  // `?ocean=debug` のときは海の画面だけを出すので、海面は作らない
+  const ocean = oceanDebug === null ? await createOceanSurfaceFor(options) : null
   if (ocean !== null) {
-    water.mesh.visible = false
     ocean.setVisible(options.showWater ?? true)
     scene.add(ocean.mesh, ocean.plate)
   }
@@ -407,13 +308,10 @@ export async function createNodePipeline(
         skyRadiance: (dir) => sky.radiance(dir),
         sunIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('direct'),
         skyIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('indirect'),
-        sunDirection: surfaceState.inputs.sunDirectionWorld,
-        // 層の雲のときは層を横切る太陽の線の透過率で遮る（段 S4c）
-        sunShade: (world) =>
-          (cloudLayers !== null
-            ? cloudLayers.sunTransmittance(world).mul(aircraftShade)
-            : terrainCloudShadeNode(surfaceState.inputs, world).mul(aircraftShade)) as unknown as webgpu.Node<'float'>,
-        camera: surfaceState.morphOrigin,
+        sunDirection: surfaceSun as unknown as webgpu.Node<'vec3'>,
+        // 太陽の遮りは層の雲 × 機体の影
+        sunShade: (world) => cloudLayers.sunTransmittance(world).mul(aircraftShade) as unknown as webgpu.Node<'float'>,
+        camera: surfaceCamera as unknown as webgpu.Node<'vec3'>,
       },
     })
   }
@@ -430,7 +328,7 @@ export async function createNodePipeline(
    * 追う診断が「雲あり/なしの差」で雲の領域を求めていて、切れないせいで
    * 差が出ず、雲が 1/9 しかないという誤った読みを出した（2026-09-14）
    */
-  const cloudVisibility = uniform(1)
+  const cloudVisibility = uniform(options.showClouds === false ? 0 : 1)
 
   /**
    * ブルームの強さと閾値。**露出が変わったら閾値も動かす。**
@@ -474,25 +372,6 @@ export async function createNodePipeline(
    * `needsUpdate` を立てると `_updateContext` が組み直す（`RenderPipeline.js`）。
    * 同じ形の前例が環境反射（`applyPreset` の中）と `?env=0` の切り替えにある。
    */
-  /**
-   * 層の雲を品質表の倍率（`cloudLayerResolutionScale`）の解像度で焼く（web-ocean と同じく半分）。
-   * 合成は全解像度で引いて拡大する。名前は計時の群「雲」の目印（`passTimes.ts`）
-   */
-  function cloudLayerTexture(q: QualitySettings): webgpu.Node<'vec4'> {
-    const node = cloudLayers!.node(
-      (scenePass.getTextureNode('depth') as unknown as { x: webgpu.Node<'float'> }).x,
-      screenUV as never,
-    )
-    const texture = (rtt as unknown as (n: unknown, w: null, h: null, o: { resolutionScale: number }) => webgpu.Node<'vec4'>)(
-      node,
-      null,
-      null,
-      { resolutionScale: q.cloudLayerResolutionScale },
-    )
-    ;(texture as unknown as { name: string }).name = 'cloudLayers'
-    return texture
-  }
-
   function buildOutput(q: QualitySettings): webgpu.Node {
     if (oceanDebug !== null) {
       // 色をそのまま出す（トーンマッピングを通さない）
@@ -508,9 +387,11 @@ export async function createNodePipeline(
       aerial: sky.aerial,
       smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
       scenePass,
-      cloudNode: (cloudLayers !== null
-        ? cloudLayerTexture(q).mul(cloudVisibility)
-        : clouds.node.mul(cloudVisibility)) as unknown as webgpu.Node<'vec4'>,
+      cloudNode: cloudLayerTexture(
+        cloudLayers,
+        (scenePass.getTextureNode('depth') as unknown as { x: webgpu.Node<'float'> }).x,
+        q.cloudLayerResolutionScale,
+      ).mul(cloudVisibility) as unknown as webgpu.Node<'vec4'>,
       overlay,
       quality: q,
       bloom: bloom as unknown as BloomFactory,
@@ -557,7 +438,6 @@ export async function createNodePipeline(
     // **立てていないときは渡さない。**渡すと `castShadow` が立ち、
     // low プリセットで「影が切れている」の検査が通らない
     shadowLight: shadowInfo.enabled ? shadowLight : null,
-    clouds,
   })
   const pipeline = built.pipeline
   prewarmExplosions()
@@ -566,7 +446,7 @@ export async function createNodePipeline(
 
   // ---- 放射輝度を LUT から読み戻す ----
   //
-  // **地形・海・雲が実際に使う値を、GPU から読み戻す。**機体の光の色は CPU が
+  // **海・雲が実際に使う値を、GPU から読み戻す。**機体の光の色は CPU が
   // 同じ式で出す（`sky/hillaireSky.ts`）が、計器と `太陽光の色が時刻で変わる` は
   // 場面の照度そのものを見る。段 S2b-2 までは takram の `AtmosphereLight` が色を
   // 持たず、これが CPU で読める唯一の値だった。
@@ -615,21 +495,11 @@ export async function createNodePipeline(
     const ratio = Math.min(dpr, quality.maxPixelRatio) * quality.renderScale
     renderer.setPixelRatio(ratio)
     renderer.setSize(cssWidth, cssHeight, false)
-    // **描画バッファの実寸を渡す。**CSS の寸法を渡すと `renderScale` と
-    // `maxPixelRatio` が雲に届かず、**dpr が 1 より大きい画面で node の雲
-    // だけが粗くなる**（実測。dpr 1.5・high で旧経路 960 幅に対し 640 幅）。
-    // 旧経路は `composer.setSize()` が実寸を各パスへ配るので同じ幅になる
-    clouds.setSize(
-      Math.round(cssWidth * ratio),
-      Math.round(cssHeight * ratio),
-    )
     camera.aspect = cssWidth / cssHeight
     camera.updateProjectionMatrix()
   }
   applySize()
 
-  /** 雲のパスを描いているか。計測で切ったときは影の焼き込みも止める */
-  let cloudsEnabled = true
   /** 最後の `render()` のフレーム番号（`info.frame`）。段 S0e */
   let renderFrameId = 0
   const cameraWorld = new THREE.Vector3()
@@ -639,8 +509,6 @@ export async function createNodePipeline(
     // **番号を進めないと場面のパスが 1 枚目しか走らない。**理由は
     // `nodeBuild.ts` の `advanceNodeFrame` の注記
     advanceNodeFrame(renderer)
-    // 雲影は地面を描く前に焼く。**鎖の中では手遅れになる**
-    if (cloudsEnabled && cloudLayers === null) clouds.renderShadow(renderer)
     updateCloudLayers()
     updateSky()
     oceanDebug?.sim.update(renderer, oceanTicks, 0)
@@ -652,11 +520,8 @@ export async function createNodePipeline(
   let environmentOn = options.showEnvironment !== false && quality.skyEnvironment
 
   function applyPreset(preset: PresetName): void {
-    quality = applyQualityOverride(getQuality(preset), qualityOverride)
-    cloudLayers?.setOctaves(quality.cloudLayerOctaves)
-    clouds.setQuality(quality)
-    terrainMesh.setQuality(quality)
-    water.setQuality(quality)
+    quality = getQuality(preset)
+    cloudLayers.setOctaves(quality.cloudLayerOctaves)
     ocean?.setQuality(quality)
     views.trails.setQuality(quality)
     views.missileSmoke.setQuality(quality)
@@ -696,9 +561,6 @@ export async function createNodePipeline(
     camera,
     chase,
 
-    terrain,
-    terrainMesh,
-    water,
     ocean:
       ocean === null
         ? null
@@ -753,57 +615,21 @@ export async function createNodePipeline(
       if (next === hour) return
       hour = next
       solar = sunFrameFor(hour)
-      surfaceState.setSunDirection(
-        solar.sunDirectionWorld.x,
-        solar.sunDirectionWorld.y,
-        solar.sunDirectionWorld.z,
-      )
+      ;(surfaceSun.value as THREE.Vector3).copy(solar.sunDirectionWorld)
       sky.setSun(solar.sunDirectionWorld)
       void refreshRadiance()
     },
 
     setSurfaceFrame(frame) {
-      surfaceState.setCloudShadowCenter(frame.cloudShadowCenter.x, frame.cloudShadowCenter.y)
-      // 層の雲のときは雲影マップを焼かないので切る（段 S4c）
-      surfaceState.setCloudShadowEnabled(frame.cloudShadowEnabled && cloudLayers === null)
-      surfaceState.setSunDirection(
-        frame.sunDirectionWorld.x,
-        frame.sunDirectionWorld.y,
-        frame.sunDirectionWorld.z,
-      )
-      surfaceState.setSunRadiance(frame.sunRadiance.x, frame.sunRadiance.y, frame.sunRadiance.z)
-      surfaceState.setSkyRadiance(frame.skyRadiance.x, frame.skyRadiance.y, frame.skyRadiance.z)
-      surfaceState.setMorphOrigin(frame.morphOrigin.x, frame.morphOrigin.y, frame.morphOrigin.z)
+      ;(surfaceSun.value as THREE.Vector3).copy(frame.sunDirectionWorld)
+      ;(surfaceCamera.value as THREE.Vector3).copy(frame.morphOrigin)
     },
 
     updateClouds(update) {
       oceanTicks = Math.round(update.cloudTime / FIXED_DT)
       coverage = update.coverage
       cloudTimeSeconds = update.cloudTime
-      clouds.update(update)
-      surfaceState.setWaveTime(update.cloudTime)
     },
-
-    get noiseMs() {
-      return noise.ms
-    },
-    get noiseStats() {
-      return noise.stats
-    },
-    get noiseSlice() {
-      return noise.slice
-    },
-    get weatherSlice() {
-      return noise.weatherSlice
-    },
-    get cloudHdrTarget() {
-      return clouds.isHdrTarget
-    },
-
-    get cloudRenderCount() {
-      return clouds.renderCount
-    },
-
 
     updateAircraftShadow(position) {
       if (!shadowInfo.enabled) return
@@ -844,9 +670,6 @@ export async function createNodePipeline(
     get drawnTriangles() {
       return backend.triangles
     },
-    get terrainMs() {
-      return terrainMs
-    },
 
     get cameraWorld() {
       return cameraWorld
@@ -862,7 +685,6 @@ export async function createNodePipeline(
       // GPU の timestamp の鍵に入る番号。CPU の内訳を同じ番号で残すために控える（段 S0e）
       renderFrameId = renderer.info.frame
       gpuTimer.begin()
-      if (cloudsEnabled && cloudLayers === null) clouds.renderShadow(renderer)
       updateCloudLayers()
       updateSky()
       oceanDebug?.sim.update(renderer, oceanTicks, 0)
@@ -951,11 +773,7 @@ export async function createNodePipeline(
             '組み立ての中で読まれるので、切り替えるには鎖の組み直しが要る',
         )
       }
-      if (config.terrain !== undefined) terrainMesh.mesh.visible = config.terrain
-      if (config.water !== undefined) {
-        if (ocean !== null) ocean.setVisible(config.water)
-        else water.mesh.visible = config.water
-      }
+      if (config.water !== undefined) ocean?.setVisible(config.water)
       if (config.aircraft !== undefined) views.aircraft.object.visible = config.aircraft
       if (config.targets !== undefined) views.targetViews.object.visible = config.targets
       if (config.enemies !== undefined) views.enemyViews.object.visible = config.enemies
@@ -966,9 +784,6 @@ export async function createNodePipeline(
       if (config.explosions !== undefined) views.explosions.object.visible = config.explosions
       if (config.flares !== undefined) views.flares.object.visible = config.flares
       if (config.trails !== undefined) views.trails.object.visible = config.trails
-      if (config.detailNormals !== undefined) {
-        surfaceState.setDetailNormals(config.detailNormals)
-      }
       if (config.aircraftShadow !== undefined) {
         // **投げ手の側で切る。**光の `castShadow` は触らない（立て直すと
         // three の光の系が影のノードをもう 1 つ作る）
@@ -984,31 +799,21 @@ export async function createNodePipeline(
         pipeline.needsUpdate = true
       }
       if (config.clouds !== undefined) {
-        cloudsEnabled = config.clouds
-        // **合成からも外す。**`cloudsEnabled` は雲影にしか効かないので、
-        // これが無いと雲は画面に出たままになる
+        // 合成から外す（費用は下がらない。下の注記）
         cloudVisibility.value = config.clouds ? 1 : 0
       }
-      if (config.terrainPatchCells !== undefined) {
-        terrainMesh.setQuality({ ...quality, terrainPatchCells: config.terrainPatchCells })
-      }
       if (config.lodDistanceScale !== undefined) {
-        terrainMesh.setQuality({ ...quality, lodDistanceScale: config.lodDistanceScale })
+        ocean?.setQuality({ ...quality, lodDistanceScale: config.lodDistanceScale })
       }
     },
 
     dispose() {
       gpuTimer.dispose()
       views.dispose()
-      noise.dispose()
       radianceQuad.dispose()
       sky.dispose()
       oceanDebug?.sim.dispose()
       ocean?.dispose()
-      terrainMesh.dispose()
-      water.dispose()
-      heightTexture.dispose()
-      normalTexture.dispose()
       renderer.dispose()
     },
   }

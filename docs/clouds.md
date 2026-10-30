@@ -1,5 +1,7 @@
 # ボリュメトリック雲
 
+> Phase 11 の段 S4b（2026-10-30）で廃止した。雲は web-ocean の 2 枚の層（`src/render/sky/cloudLayerNodes.ts`、ADR 0050）に替わった。この文書のファイルはどれも残っていない。雲の時刻（`cloudTime`）は `src/render/sky/cloudLayersReference.ts` へ、読み戻した絵の比べ方は `src/render/pixelCompare.ts` へ移した。経緯の記録として残す。
+
 `src/render/clouds/` の中身を、原理と実装の対応で説明する。係数をいじるときはここを読んでから触る。
 
 雲はこのプロジェクトで最大のシェーダ作業になった。実装中に何度か間違えて絵が壊れたので、その原因も残してある。同じ間違いは後の Phase でもやりやすい。

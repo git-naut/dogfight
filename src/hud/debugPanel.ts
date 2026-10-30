@@ -56,9 +56,9 @@ export interface RenderInfo {
    * 使わないぶん、重ければ CPU 律速の側に効く
    */
   cpuHudMs: number
-  /** 描いている地形パッチの枚数と三角形数。予算の確認に使う */
-  terrainPatches: number
-  terrainTriangles: number
+  /** 描いている海面のパッチの枚数と三角形数。予算の確認に使う */
+  oceanPatches: number
+  oceanTriangles: number
   /** 機体の三角形数。**自機だけ。**敵機は含まない */
   aircraftTriangles: number
   /**
@@ -116,7 +116,7 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
     // パスの群ごとの ms（段 S0a）。予算の割り振りを画面で読む
     ['gpuPasses', 'GPU 内訳'],
     ['cpu', 'CPU 時間'],
-    ['terrain', '地形'],
+    ['ocean', '海面'],
     ['aircraft', '機体'],
     ['enemies', '敵機'],
     ['draws', '投入'],
@@ -198,8 +198,8 @@ export function createDebugPanel(host: HTMLElement): DebugPanel {
           `(シム ${render.cpuSimMs.toFixed(1)} / 準備 ${render.cpuSyncMs.toFixed(1)} / 投入 ${render.cpuRenderMs.toFixed(1)} / HUD ${render.cpuHudMs.toFixed(1)})`,
       )
       set(
-        'terrain',
-        `${render.terrainPatches} 枚 / ${(render.terrainTriangles / 1000).toFixed(0)}k 三角形`,
+        'ocean',
+        `${render.oceanPatches} 枚 / ${(render.oceanTriangles / 1000).toFixed(0)}k 三角形`,
       )
       set(
         'aircraft',

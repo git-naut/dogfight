@@ -82,58 +82,6 @@ export interface QualitySettings {
    * 絵を読む回数は増えず、範囲の計算が全画素に少し増えるだけ。low は切る
    */
   heatHaze: boolean
-
-  /**
-   * 雲のレイマーチを走らせる解像度の倍率。
-   *
-   * 当初の案では Low をビルボード、Medium をメッシュクラスタ、High 以上を
-   * レイマーチとしていたが、雲の実装を3つ作ることになり工数に見合わない。
-   * 1つのレイマーチで解像度とステップ数だけを段階にする。
-   */
-  cloudResolutionScale: number
-  /** 主マーチの上限ステップ数 */
-  cloudMaxSteps: number
-  /** 太陽方向への二次マーチのステップ数 */
-  cloudLightSteps: number
-  /** ディテールノイズで輪郭を削るか */
-  cloudDetail: boolean
-  /** 地面へ雲影を落とすか */
-  cloudGroundShadow: boolean
-  /**
-   * 雲のレイマーチを打ち切る距離 m。
-   *
-   * **ここが遠方の雲海を決める。**雲層（1,200〜4,500 m）の内側を水平に
-   * 飛ぶと視線がいくらでも雲の中を進み、遠方の雲が水平線際で横に長い帯に
-   * なる。打ち切った先は大気の霞に溶ける。
-   *
-   * 費用にも直結する。歩数は `cloudMaxSteps` で決まるが、同じ歩数で
-   * 覆う距離が縮むぶん手前の刻みが細かくなる（`stepGrowthScale`）。
-   *
-   * 以前は `clouds.frag` と `cloudsPass.ts` に写しで 2 つ持っていた
-   */
-  cloudMaxDistance: number
-
-  /**
-   * 地形パッチの一辺のセル数。
-   *
-   * CDLOD は同じパッチを InstancedMesh で並べる方式なので、この 1 つの値で
-   * 全レベルの細かさが決まる。三角形数は パッチ枚数 × セル数² × 2。
-   *
-   * 実機の実測では、ここを 32 から 24 へ落として三角形を 44% 減らしても
-   * GPU 時間は 0.03〜0.05 ms しか減らなかった。地形を丸ごと消しても
-   * 0.20〜0.32 ms。費用の主は雲と後処理なので、ここを絞る意味は薄い。
-   * 内訳は docs/terrain.md にある。
-   */
-  terrainPatchCells: number
-  /**
-   * 地形の LOD の段数。
-   *
-   * レベル 0 が最も細かく、1 段ごとにセルが倍になる。段数で見える距離が
-   * 決まり、n 段なら レベル0の範囲 × 2^(n-1) まで届く。
-   */
-  terrainLodLevels: number
-  /** 地表の近距離の凹凸を法線の摂動で出すか */
-  terrainDetailNormals: boolean
   /**
    * 機体の外板の細部（`MaterialDetail`）。
    *
@@ -156,14 +104,12 @@ export interface QualitySettings {
    * 白い円錐の膜。24 段 x 32 分割の円錐 1 枚（1,536 三角形）。**組み立てのときに決まる**
    */
   vaporCone: boolean
-  /** 海面に太陽のスペキュラを乗せるか */
-  waterSpecular: boolean
 
   /**
    * LOD の切り替え距離の倍率。
    *
-   * 地形パッチのレベル 0 のセルの大きさに掛ける。大きくすると手前が細かく
-   * なるかわりに、同じ段数で届く距離が伸びる。
+   * 海面の四分木の分割距離（`ocean/oceanLayout.ts` の `lodRange`）に掛ける。大きくすると
+   * 手前が細かくなるかわりに三角形が増える。段 S4b まで地形の四分木も読んでいた
    */
   lodDistanceScale: number
 
@@ -339,19 +285,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     bloomEmissive: false,
     lensEffects: false,
     heatHaze: false,
-    cloudResolutionScale: 0.125,
-    cloudMaxSteps: 27,
-    cloudLightSteps: 2,
-    cloudDetail: false,
-    cloudGroundShadow: false,
-    cloudMaxDistance: 12_000,
-    terrainPatchCells: 16,
-    terrainLodLevels: 5,
-    terrainDetailNormals: false,
     materialDetail: 'none',
     canopyClearcoat: false,
     vaporCone: false,
-    waterSpecular: false,
     lodDistanceScale: 0.5,
     aircraftShadowMapSize: 0,
     shadowFilter: 'basic',
@@ -383,19 +319,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     bloomEmissive: true,
     lensEffects: true,
     heatHaze: true,
-    cloudResolutionScale: 0.25,
-    cloudMaxSteps: 51,
-    cloudLightSteps: 3,
-    cloudDetail: true,
-    cloudGroundShadow: true,
-    cloudMaxDistance: 12_000,
-    terrainPatchCells: 24,
-    terrainLodLevels: 6,
-    terrainDetailNormals: true,
     materialDetail: 'none',
     canopyClearcoat: true,
     vaporCone: true,
-    waterSpecular: true,
     lodDistanceScale: 0.75,
     aircraftShadowMapSize: 512,
     shadowFilter: 'basic',
@@ -429,25 +355,9 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     bloomEmissive: true,
     lensEffects: true,
     heatHaze: true,
-    // 実機（Intel Arc 140V）の実測で、1/4 解像度のとき雲パスは 2.7 ms、
-    // フレーム全体で 5.2 ms / 16.7 ms だった。1/2 なら画素数 4 倍で
-    // 雲 10.8 ms、合計 13 ms 前後に収まる
-    cloudResolutionScale: 0.5,
-    cloudMaxSteps: 163,
-    cloudLightSteps: 4,
-    cloudDetail: true,
-    cloudGroundShadow: true,
-    cloudMaxDistance: 12_000,
-    // 実測で 220 枚 × 32² × 2 = 45 万三角形。プレースホルダ機体は数百なので、
-    // これがシーンのほぼ全部になる。Phase 4 の機体 9 機で 550k 前後を
-    // 見込むと、合計は予算 1.5M の内側に収まる
-    terrainPatchCells: 32,
-    terrainLodLevels: 7,
-    terrainDetailNormals: true,
     materialDetail: 'procedural',
     canopyClearcoat: true,
     vaporCone: true,
-    waterSpecular: true,
     lodDistanceScale: 1,
     aircraftShadowMapSize: 1024,
     shadowFilter: 'pcf',
@@ -479,25 +389,11 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     bloomEmissive: true,
     lensEffects: true,
     heatHaze: true,
-    // High より上の段。実機で 60fps は狙わない位置づけ。
-    // High の実測から外挿すると雲パスで 22 ms 前後になる（未実測）
-    cloudResolutionScale: 1,
-    cloudMaxSteps: 214,
-    cloudLightSteps: 8,
-    cloudDetail: true,
-    cloudGroundShadow: true,
-    cloudMaxDistance: 12_000,
-    // 48 だと三角形が 1.18M になり、機体のぶんが残らない。40 で 82 万
-    terrainPatchCells: 40,
-    // High と同じ 7 段。段数を増やすより手前を細かくするほうが効く
-    terrainLodLevels: 7,
-    terrainDetailNormals: true,
     materialDetail: 'procedural',
     canopyClearcoat: true,
     vaporCone: true,
-    waterSpecular: true,
-    // 1.5 だと三角形が 2.19M になり、シーン予算 1.5M を単独で超える。
-    // セル数を 48 へ上げたぶん、切り替え距離は控えめにする
+    // 地形のときに決めた値（1.5 だと地形の三角形が 2.19M でシーン予算 1.5M を超えた）。
+    // 海面での見直しは段 S5
     lodDistanceScale: 1.15,
     aircraftShadowMapSize: 2048,
     // high と同じ。three 0.186 で `pcfSoft` が無くなった（型のコメント）。
@@ -534,50 +430,6 @@ export function resolvePreset(value: string | null | undefined): PresetName {
 
 export function getQuality(name: PresetName): QualitySettings {
   return QUALITY_PRESETS[name]
-}
-
-/**
- * プリセットの一部を上書きする。
- *
- * 実機でつまみを振って GPU 時間を測るための入口。プリセットの値は実測で
- * 決めると先に書いたので、測る手段を URL に用意しておく。
- * `?cloudScale=` `?cloudSteps=` `?cloudLight=` `?lod=` `?cells=` から渡す。
- */
-export interface QualityOverride {
-  resolutionScale?: number
-  maxSteps?: number
-  lightSteps?: number
-  /** 地形の LOD 切り替え距離の倍率 */
-  lodDistanceScale?: number
-  /** 地形パッチの一辺のセル数 */
-  terrainPatchCells?: number
-  /** 雲のレイマーチを打ち切る距離 m。遠方の雲海の見え方と費用を振るのに使う */
-  cloudMaxDistance?: number
-}
-
-export function applyQualityOverride(
-  base: QualitySettings,
-  override: QualityOverride,
-): QualitySettings {
-  return {
-    ...base,
-    ...(override.resolutionScale !== undefined
-      ? { cloudResolutionScale: override.resolutionScale }
-      : {}),
-    ...(override.maxSteps !== undefined ? { cloudMaxSteps: override.maxSteps } : {}),
-    ...(override.lightSteps !== undefined
-      ? { cloudLightSteps: override.lightSteps }
-      : {}),
-    ...(override.lodDistanceScale !== undefined
-      ? { lodDistanceScale: override.lodDistanceScale }
-      : {}),
-    ...(override.terrainPatchCells !== undefined
-      ? { terrainPatchCells: override.terrainPatchCells }
-      : {}),
-    ...(override.cloudMaxDistance !== undefined
-      ? { cloudMaxDistance: override.cloudMaxDistance }
-      : {}),
-  }
 }
 
 /** 1段下のプリセット。最下段なら null。 */

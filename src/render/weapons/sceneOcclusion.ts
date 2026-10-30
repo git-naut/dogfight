@@ -15,7 +15,7 @@ import type { Node } from 'three/webgpu'
  * 遠平面の距離になるので、いつも見える。
  *
  * **深度は素の `texture()` で引く。**`pass.getTextureNode('depth')` を材質へ渡すと、
- * 材質を焼くたびに場面がもう 1 度描かれる（`cloudsNodePass.ts` と同じ約束）
+ * 材質を焼くたびに場面がもう 1 度描かれる（`nodeOutput.ts` の `createScenePass` と同じ約束）
  */
 export type OcclusionFactory = () => Node<'float'>
 

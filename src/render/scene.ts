@@ -13,9 +13,7 @@ import type { SmokeSource } from '../sim/weapons/missile'
 import type { Launcher } from '../sim/combat'
 import { createHungMissiles } from './weapons/missileView'
 import type { PresetName, QualitySettings } from './quality'
-import type { TerrainStats } from '../sim/terrain'
-import { cloudTime } from './clouds/geometry'
-import type { ShadowInputs } from './clouds/shadowInputs'
+import { cloudTime } from './sky/cloudLayersReference'
 import { FIXED_DT } from '../sim/loop'
 import { computeHeatHaze, createHeatHazeState } from './heatHaze'
 import { speedOfSound } from '../sim/isa'
@@ -47,8 +45,8 @@ export function createMissilePose(): MissilePose {
  * 段 S2b-2 で takram から置き換えた）。ライティングも同じ LUT から導かれるので、
  * 時刻を変えれば光の色と強さが一貫して変わる。
  *
- * 地面は起伏する地形と海面。高さ場は sim が持っていて、ここはそれを
- * テクスチャへ上げて頂点シェーダで引くだけ。
+ * 地面は FFT の海面（`ocean/`）、雲は 2 枚の層（`sky/cloudLayerNodes.ts`）。段 S4b で
+ * 島（高さ場と地形）と体積の雲を消して置き換えた。sim の地面は海面（高度 0）だけ。
  */
 
 export interface SceneHandle {
@@ -75,14 +73,6 @@ export interface SceneHandle {
    */
   readonly sunRadiance: THREE.Vector3
   readonly skyRadiance: THREE.Vector3
-  /** 雲ノイズの生成にかかったミリ秒。性能の記録用 */
-  readonly noiseMs: number
-  /** 雲ノイズが空でないことの確認用 */
-  readonly noiseStats: { min: number; max: number; mean: number }
-  /** 形状ノイズの中央スライスの左下 16x16。`?noiseprobe=1` のときだけ読む */
-  readonly noiseSlice: Uint8Array
-  /** 気象マップの左下 16x16。`?noiseprobe=1` のときだけ読む */
-  readonly weatherSlice: Uint8Array
   /** GPU のフレーム時間 ms。拡張が無ければ 0 */
   readonly gpuFrameMs: number
   /** 直近しばらくの GPU フレーム時間の最大 ms。予算の判断はこちらで行う */
@@ -99,24 +89,9 @@ export interface SceneHandle {
   /** 雲のパスの直近の最大 ms */
   /** GPU 時間の計測が使えるか */
   readonly gpuTimerSupported: boolean
-  /**
-   * 雲影マップを決めた入力。`?shadowprobe=1` で使う。
-   *
-   * TSL 版へ**同じ値を渡す**ための口。別の入力で焼いたものを比べると、
-   * 一致しなかったときに移植の欠陥なのか入力の違いなのかが分からない
-   */
-  readShadowInputs(): ShadowInputs
-  /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
-  readonly cloudHdrTarget: boolean
-  /** 雲を焼いた回数。ライブで毎フレーム焼けているかを見る */
-  readonly cloudRenderCount: number
-  /** 高さ場の生成にかかったミリ秒 */
-  readonly terrainMs: number
-  /** 高さ場の中身。min と max が同じなら生成に失敗している */
-  readonly terrainStats: TerrainStats
-  /** 描いている地形パッチの枚数と三角形数。予算の確認に使う */
-  readonly terrainPatches: number
-  readonly terrainTriangles: number
+  /** 描いている海面のパッチの枚数と三角形数。予算の確認に使う（段 S4b で地形から替えた） */
+  readonly oceanPatches: number
+  readonly oceanTriangles: number
   /** 機体の三角形数。読み込めていなければ 0 */
   readonly aircraftTriangles: number
   /** 作った標的機の複製の数。三角形はこの数だけ増える */
@@ -286,9 +261,6 @@ export async function createScene(
   const {
     camera,
     chase,
-    terrain,
-    terrainMesh,
-    water,
     aircraft,
     targetViews,
     enemyViews,
@@ -303,22 +275,6 @@ export async function createScene(
     trails,
   } = pipeline
 
-  const shadowCenter = new THREE.Vector2()
-  /**
-   * 直近に雲影を焼いた入力。`?shadowprobe=1` で読む。
-   *
-   * **`updateClouds` へ渡したものをそのまま写す。**別に導き直すと、
-   * 導き方が食い違ったときに気づけない
-   */
-  const lastShadowInputs: ShadowInputs = {
-    cloudTime: 0,
-    coverage: 0,
-    sunX: 0,
-    sunY: 0,
-    sunZ: 0,
-    centerX: 0,
-    centerZ: 0,
-  }
   /** 影の箱を合わせるのに使う。毎フレーム作らない */
   const aircraftPosition = new THREE.Vector3()
   /** 陽炎の範囲。毎フレーム書き換える */
@@ -373,22 +329,6 @@ export async function createScene(
       return pipeline.sunElevation
     },
 
-    get noiseMs() {
-      return pipeline.noiseMs
-    },
-
-    get noiseStats() {
-      return pipeline.noiseStats
-    },
-
-    get noiseSlice() {
-      return pipeline.noiseSlice
-    },
-
-    get weatherSlice() {
-      return pipeline.weatherSlice
-    },
-
     get gpuFrameMs() {
       return pipeline.gpuFrameMs
     },
@@ -415,22 +355,6 @@ export async function createScene(
 
     get gpuTimerSupported() {
       return pipeline.gpuTimerSupported
-    },
-
-    get cloudRenderCount() {
-      return pipeline.cloudRenderCount
-    },
-
-    get cloudHdrTarget() {
-      return pipeline.cloudHdrTarget
-    },
-
-    get terrainMs() {
-      return pipeline.terrainMs
-    },
-
-    get terrainStats() {
-      return terrain.stats
     },
 
     get aircraftTriangles() {
@@ -501,16 +425,12 @@ export async function createScene(
       return pipeline.aircraftShadowReady
     },
 
-    get terrainPatches() {
-      return terrainMesh.patchCount
+    get oceanPatches() {
+      return pipeline.ocean?.patchCount ?? 0
     },
 
-    get terrainTriangles() {
-      return terrainMesh.triangleCount
-    },
-
-    readShadowInputs() {
-      return { ...lastShadowInputs }
+    get oceanTriangles() {
+      return pipeline.ocean?.triangleCount ?? 0
     },
 
     get quality() {
@@ -574,25 +494,10 @@ export async function createScene(
 
       // 雲の流れは実時間ではなく sim のフレーム番号から導く。
       // これでキャプチャモードの絵が固定される
-      shadowCenter.set(sample.position.x, sample.position.z)
-      const cloudParams = {
+      pipeline.updateClouds({
         cloudTime: cloudTime(frame, FIXED_DT),
-        sunDirection: pipeline.sunDirectionWorld,
-        sunColor: pipeline.sunRadiance,
-        ambientColor: pipeline.skyRadiance,
         coverage: options.coverage ?? DEFAULT_COVERAGE,
-        shadowCenter,
-        groundShadow: pipeline.quality.cloudGroundShadow,
-      }
-      pipeline.updateClouds(cloudParams)
-
-      lastShadowInputs.cloudTime = cloudParams.cloudTime
-      lastShadowInputs.coverage = cloudParams.coverage
-      lastShadowInputs.sunX = cloudParams.sunDirection.x
-      lastShadowInputs.sunY = cloudParams.sunDirection.y
-      lastShadowInputs.sunZ = cloudParams.sunDirection.z
-      lastShadowInputs.centerX = shadowCenter.x
-      lastShadowInputs.centerZ = shadowCenter.y
+      })
 
       // LOD はカメラ位置で決める。機体位置ではない（追従カメラは後方にいる）。
       // chase の更新後に読むこと
@@ -602,11 +507,7 @@ export async function createScene(
       // 帳簿が書き先を知っていると、組み手を替えたときに黙って効かなくなる
       // （段 20a-2-3。当時は GLSL 経路が共有ユニフォームへ書いていた）
       pipeline.setSurfaceFrame({
-        cloudShadowCenter: shadowCenter,
-        cloudShadowEnabled: pipeline.quality.cloudGroundShadow,
         sunDirectionWorld: pipeline.sunDirectionWorld,
-        sunRadiance: pipeline.sunRadiance,
-        skyRadiance: pipeline.skyRadiance,
         morphOrigin: cameraWorld,
       })
 
@@ -661,11 +562,6 @@ export async function createScene(
         explosions.update(explosionSource, frame, cameraWorld, cameraForward)
         explosionTrails.update(explosionSource, frame, cameraWorld, cameraForward)
       }
-
-      terrainMesh.update(cameraWorld.x, cameraWorld.z)
-      water.follow(cameraWorld.x, cameraWorld.z)
-      // 波の位相もフレーム番号から導く。実時間を使うと絵が固定されない
-      water.setWaveTime(cloudTime(frame, FIXED_DT))
     },
 
     async compileShaders() {

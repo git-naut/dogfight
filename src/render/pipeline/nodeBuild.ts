@@ -4,7 +4,7 @@ import { RenderPipeline } from 'three/webgpu'
 /**
  * node 経路のポストの鎖を組む。**順序がこの関数の中身。**
  *
- * 外せない順序が 3 つあり、どれも破っても例外が出ない形で壊れる。
+ * 外せない順序が 2 つあり、どちらも破っても例外が出ない形で壊れる。
  * どれも実測で踏んでいて `docs/lessons.md` に記録がある。
  *
  * 1. `RenderPipeline` を作る前に `setMRT()` と `getTextureNode()` を
@@ -14,13 +14,12 @@ import { RenderPipeline } from 'three/webgpu'
  *    three の光の系が影のノードをもう 1 つ作り、その本体が生成されない
  *    まま `updateBefore` だけ残って `compileAsync` の中で落ちる。
  *    伏せたままでは影マップが焼かれないので、あとで立てる側も要る。
- * 3. **雲のクアッドは場面に入っていない。**`compileAsync(scene, camera)`
- *    は場面の物しか組まないので、別に組む（段 19。1 枚目 3,210.7 ms 対
- *    2 枚目 987.0 ms）。
  *
- * 段 S2b-2 まで 4 つ目があった。takram の大気の LUT は `compileAsync` の
+ * 消えた順序が 2 つある。段 S2b-2 まで、takram の大気の LUT は `compileAsync` の
  * あとでなければ作れず、先に照度を焼くと地表が真っ黒になった。自前の空
  * （`sky/hillaireSky.ts`）は LUT を作ってから場面を組むので、この順序は消えた。
+ * 段 S4b まで、体積の雲のクアッドは場面に入っておらず、別に組んでいた（段 19。
+ * 1 枚目 3,210.7 ms 対 2 枚目 987.0 ms）。層の雲は合成の中で描くので、鎖の暖機で組まれる。
  *
  * **写しを 2 つ作らない。**プローブと本番の場面で同じ順序を 2 度書くと、
  * 片方だけ直したときに気づけない。順序を知っているのはここだけにする。
@@ -50,17 +49,13 @@ export interface NodePipelineBuildInput {
    * ならない。**立っていたら投げる（黙って進むと落ちる場所が遠くなる）
    */
   shadowLight?: ShadowCaster | null
-  /** 雲のパス。場面に入っていないので別に組む */
-  clouds?: { compile(renderer: Renderer): Promise<void> } | null
 }
 
 export interface NodePipelineBuild {
   pipeline: RenderPipeline
   /** 場面の事前コンパイルにかかったミリ秒 */
   compileSceneMs: number
-  /** 雲のクアッドの事前コンパイルにかかったミリ秒 */
-  compileCloudsMs: number
-  /** 上の 2 つを含む総和 */
+  /** 組み立ての総和 */
   totalMs: number
 }
 
@@ -70,7 +65,6 @@ export async function buildNodePipeline(
   const { renderer, scene, camera, outputNode } = input
   const ownsOutputTransform = input.ownsOutputTransform ?? false
   const shadowLight = input.shadowLight ?? null
-  const clouds = input.clouds ?? null
 
   if (shadowLight !== null && shadowLight.castShadow) {
     throw new Error(
@@ -101,14 +95,9 @@ export async function buildNodePipeline(
   }
   const compileSceneMs = performance.now() - started
 
-  const cloudsStarted = performance.now()
-  if (clouds !== null) await clouds.compile(renderer)
-  const compileCloudsMs = performance.now() - cloudsStarted
-
   return {
     pipeline,
     compileSceneMs,
-    compileCloudsMs,
     totalMs: performance.now() - started,
   }
 }

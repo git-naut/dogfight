@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath, URL } from 'node:url'
 import {
   OCEAN_LEAF,
   OCEAN_LOD_BIAS,
   OCEAN_PATCH_CELLS,
   distanceToPatch,
+  lodRange,
   oceanCascadeLod,
   oceanCascadeSkipped,
   oceanUvOffset,
+  createUnitGrid,
+  morphFactor,
   oceanCoverage,
   oceanEdgeFade,
   oceanMorph,
@@ -16,7 +21,6 @@ import {
   type OceanCamera,
   type OceanPatch,
 } from '@render/ocean/oceanLayout'
-import { lodRange } from '@render/terrain/layout'
 import { PRESET_ORDER, QUALITY_PRESETS } from '@render/quality'
 
 /**
@@ -372,5 +376,83 @@ describe('カスケードを引く段と uv', () => {
       const d = gpu - x / L
       expect(Math.abs(d - Math.round(d))).toBeLessThan(1e-9)
     }
+  })
+})
+
+/**
+ * 分割距離・寄せ・格子の部品。段 S4b で地形を消したときに `terrain/layout.ts`・
+ * `terrain/terrainMesh.ts` から移し、検査も `terrain.test.ts` から移した
+ */
+describe('親の格子への寄せの量', () => {
+  it('寄せ始める前は 0、寄せ終われば 1', () => {
+    expect(morphFactor(0, 100, 200)).toBe(0)
+    expect(morphFactor(100, 100, 200)).toBe(0)
+    expect(morphFactor(150, 100, 200)).toBeCloseTo(0.5, 6)
+    expect(morphFactor(200, 100, 200)).toBe(1)
+    expect(morphFactor(999, 100, 200)).toBe(1)
+  })
+
+  it('幅がゼロでも NaN を出さない', () => {
+    expect(morphFactor(150, 200, 200)).toBe(0)
+  })
+})
+
+describe('単位の格子', () => {
+  it('一辺 cells のとき頂点は (cells + 1)²、三角形は 2 cells²', () => {
+    const grid = createUnitGrid(OCEAN_PATCH_CELLS)
+    expect(grid.position.length).toBe((OCEAN_PATCH_CELLS + 1) ** 2 * 3)
+    expect(grid.index.length).toBe(OCEAN_PATCH_CELLS * OCEAN_PATCH_CELLS * 6)
+  })
+
+  it('格子座標は 0..1 で、z は 0', () => {
+    const grid = createUnitGrid(4)
+    for (let i = 0; i < grid.position.length; i += 3) {
+      expect(grid.position[i]).toBeGreaterThanOrEqual(0)
+      expect(grid.position[i]).toBeLessThanOrEqual(1)
+      expect(grid.position[i + 1]).toBeGreaterThanOrEqual(0)
+      expect(grid.position[i + 1]).toBeLessThanOrEqual(1)
+      expect(grid.position[i + 2]).toBe(0)
+    }
+    // 角の 4 点
+    expect([grid.position[0], grid.position[1]]).toEqual([0, 0])
+    const last = grid.position.length - 3
+    expect([grid.position[last], grid.position[last + 1]]).toEqual([1, 1])
+  })
+
+  it('三角形の頂点はすべて格子の中を指す', () => {
+    const grid = createUnitGrid(4)
+    const vertices = grid.position.length / 3
+    for (const k of grid.index) expect(k).toBeLessThan(vertices)
+  })
+})
+
+/**
+ * 頂点の寄せがどの位置を基準にしているか。
+ *
+ * **組み込みの `cameraPosition` を使ってはいけない。**影を焼くパスでは three が光源の
+ * カメラを入れてくるので、基準が描くパスごとに変わり、裂け目になる。海面は影を投げない
+ * ので今は絵に出ないが、**出てから気づく形にしない。**段 S4b で地形の同じ検査から移した
+ */
+describe('寄せの基準位置', () => {
+  const source = readFileSync(
+    fileURLToPath(new URL('../../src/render/ocean/oceanSurface.ts', import.meta.url)),
+    'utf8',
+  )
+  /** コメントを外した本文。**注記に名前が出るだけで落ちる形にしない** */
+  const body = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+
+  it('組み込みの cameraPosition を使わない', () => {
+    expect(body.includes('cameraPosition')).toBe(false)
+  })
+
+  it('明示したカメラの uniform からの距離で寄せ量を決めている', () => {
+    expect(body).toContain('const cam = lighting.camera')
+    // 親の格子へ寄せる本体。消すと T 字の裂け目が出る
+    expect(body).toContain('mix(g, parent, morph)')
+  })
+
+  it('コメントを外す処理が本文を消していない', () => {
+    // 全部消してしまえば上の検査は「無いこと」を空振りで通す
+    expect(body).toContain('export function createOceanSurface(')
   })
 })

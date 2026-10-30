@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NODE_REFERENCE as ref } from '../e2e/nodeReference'
-import { DEFAULT_COVERAGE } from '@render/pipeline/types'
-import { SHADOW_TILES } from '@render/clouds/geometry'
-import {
-  MARCH_PROBE_HEIGHT,
-  MARCH_PROBE_WIDTH,
-  byteDifference,
-} from '@render/clouds/marchProbe'
+import { byteDifference } from '@render/pixelCompare'
 import {
   SPRITE_PROBE_SIDE,
   spriteDrawnPixels,
@@ -24,12 +18,6 @@ import {
   overlayMarkerCounts,
   overlayProbeExpected,
 } from '@render/overlayProbe'
-import {
-  SURFACE_PROBE_SIDE,
-  WATER_PROBE_REGIONS,
-  surfaceBranchCounts,
-  surfaceLevels,
-} from '@render/terrain/surfaceProbe'
 import { DEFAULT_PROJECT } from '../e2e/launch.mjs'
 
 /**
@@ -47,41 +35,6 @@ import { DEFAULT_PROJECT } from '../e2e/launch.mjs'
 describe('GLSL 経路の出力の記録', () => {
   it('既定の project で撮ってある', () => {
     expect(ref.project).toBe(DEFAULT_PROJECT)
-  })
-
-  it('雲影は既定の雲量で、太陽が地平線の上にいる構図で焼いてある', () => {
-    // 道具は TS を読めないので雲量を写している。食い違いをここで止める
-    expect(ref.shadow.coverage).toBe(DEFAULT_COVERAGE)
-    expect(ref.shadow.inputs.coverage).toBe(DEFAULT_COVERAGE)
-    // 太陽が地平線の上にいないと影マップは全面 1 になる
-    expect(ref.shadow.inputs.sunY).toBeGreaterThan(0.02)
-  })
-
-  it('雲影の分布と配置が比較の役に立つ広がりを持つ', () => {
-    // 1 つのビンに寄っていたら比較が空回りする
-    const nonEmpty = ref.shadow.bins.filter((v) => v > 0).length
-    expect(nonEmpty).toBeGreaterThan(1)
-    expect(ref.shadow.tiles.length).toBe(SHADOW_TILES * SHADOW_TILES)
-    const spread = Math.max(...ref.shadow.tiles) - Math.min(...ref.shadow.tiles)
-    expect(spread).toBeGreaterThan(0.01)
-  })
-
-  it('ノイズと気象マップは 16x16 の RGBA で、値が散っている', () => {
-    for (const slice of [ref.noiseSlice, ref.weatherSlice]) {
-      expect(slice.length).toBe(16 * 16 * 4)
-      expect(new Set(slice).size).toBeGreaterThan(16)
-    }
-  })
-
-  it('マーチは打ち切りと透過率で抜ける枝の両方を通り、足し込みが履歴を読む', () => {
-    const pixels = MARCH_PROBE_WIDTH * MARCH_PROBE_HEIGHT
-    expect(ref.march.samples.hit).toBe(pixels)
-    expect(ref.march.samples.max).toBeGreaterThan(100)
-    expect(ref.march.exhausted).toBeGreaterThan(10)
-    expect(ref.march.exhausted).toBeLessThan(pixels / 2)
-    expect(Math.min(...ref.march.tiles)).toBeGreaterThan(0.05)
-    expect(ref.march.resolveChanged).toBeGreaterThan(1000)
-    expect(ref.march.resolveUv.length).toBe(pixels * 4)
   })
 
   it('円形スプライトの CPU 参照が GLSL の絵とバイト一致する', () => {
@@ -123,39 +76,6 @@ describe('GLSL 経路の出力の記録', () => {
       late: OVERLAY_PROBE_LATE_COUNT,
       other: 0,
     })
-  })
-
-  it('地表と海面は枝をすべて通り、階調を使い切っている', () => {
-    const pixels = SURFACE_PROBE_SIDE * SURFACE_PROBE_SIDE
-    expect(ref.surface.terrain.length).toBe(pixels * 4)
-    expect(ref.surface.water.length).toBe(WATER_PROBE_REGIONS.length)
-    expect(ref.surface.waterBranches.length).toBe(WATER_PROBE_REGIONS.length)
-
-    const tb = surfaceBranchCounts(ref.surface.terrainBranches)
-    expect(tb.other).toBe(0)
-    expect(tb.r).toBeGreaterThan(pixels / 10)
-    expect(tb.r).toBeLessThan(pixels)
-    expect(tb.g).toBeGreaterThan(50)
-    expect(tb.b).toBeGreaterThan(pixels / 10)
-
-    let tap = 0
-    let bicubic = 0
-    let foam = 0
-    let wave = 0
-    let far = 0
-    for (const branches of ref.surface.waterBranches) {
-      const wb = surfaceBranchCounts(branches)
-      expect(wb.other).toBe(0)
-      tap += wb.r
-      bicubic += wb.g
-      foam += wb.b
-      wave += wb.a
-      far += pixels - wb.a
-    }
-    for (const n of [tap, bicubic, foam, wave, far]) expect(n).toBeGreaterThan(pixels / 10)
-
-    expect(surfaceLevels(ref.surface.terrain)).toBeGreaterThan(32)
-    for (const water of ref.surface.water) expect(surfaceLevels(water)).toBeGreaterThan(16)
   })
 
   it('空を背にした半透明の物が写っている', () => {

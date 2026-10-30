@@ -264,23 +264,30 @@ describe('飛ばして比べる（実測）', () => {
   })
 
   /**
-   * **地面の回避も効く。**高度 1,500 m から 45 度・300 m/s で降りると、
-   * エキスパートは墜落し、スタンダードは最低 79 m で生還する。
+   * **地面の回避も効く。**高度 400 m から 60 度・300 m/s で降りると、
+   * エキスパートは海面に墜落し、スタンダードは最低 121 m で生還する。
+   *
+   * 段 S4b まで条件は高度 1,500 m・45 度だった。そこでエキスパートが落ちたのは
+   * −Z の先の島（海岸まで約 4 km）に当たったためで、島を消すと最低 1,130 m で
+   * 機首が自然に起きて落ちなくなった。海面に対して同じことが起きる条件へ替えた
    */
   it('急降下から放置しても助かる', () => {
-    const setup = { altitude: 1500, diveDeg: 45, speed: 300 }
+    const setup = { altitude: 400, diveDeg: 60, speed: 300 }
     expect(fly('expert', 30, setup).crashed).toBe(true)
     expect(fly('standard', 30, setup).crashed).toBe(false)
   })
 
   /**
    * **限界はある。**立て直しに要る高度を初期高度が下回っていれば、
-   * 入った時点で助からない。高度 1,200 m から 60 度・350 m/s は
-   * `recoverFloor` が 2,153 m を要求する。
+   * 入った時点で助からない。高度 400 m から 75 度・350 m/s は
+   * `recoverFloor` が 2,972 m を要求する。
+   *
+   * 段 S4b まで条件は高度 1,200 m・60 度だった。島に当たって落ちていたので、
+   * 島を消すと最低 871 m で生還した（上の検査と同じ事情）
    */
   it('入った時点で助からない条件では落ちる', () => {
-    const setup = { altitude: 1200, diveDeg: 60, speed: 350 }
-    expect(recoverFloor(350, -(60 * Math.PI) / 180, 0)).toBeGreaterThan(setup.altitude)
+    const setup = { altitude: 400, diveDeg: 75, speed: 350 }
+    expect(recoverFloor(350, -(75 * Math.PI) / 180, 0)).toBeGreaterThan(setup.altitude)
     expect(fly('standard', 30, setup).crashed).toBe(true)
   })
 })

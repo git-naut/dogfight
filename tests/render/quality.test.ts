@@ -11,12 +11,6 @@ import {
   resolvePreset,
   type PresetName,
 } from '@render/quality'
-import {
-  LIGHT_MARCH_LIMIT,
-  MARCH_LOOP_LIMIT,
-  NEAR_STEP,
-  stepGrowthScale,
-} from '@render/clouds/geometry'
 
 describe('品質プリセットの表', () => {
   it('4 段そろっている', () => {
@@ -66,104 +60,10 @@ describe('品質プリセットの表', () => {
     }
   })
 
-  it('雲のステップ数が段ごとに増える', () => {
-    const steps = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudMaxSteps)
-    for (let i = 1; i < steps.length; i++) {
-      expect(steps[i]!).toBeGreaterThan(steps[i - 1]!)
-    }
-    const light = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudLightSteps)
-    for (let i = 1; i < light.length; i++) {
-      expect(light[i]!).toBeGreaterThan(light[i - 1]!)
-    }
-  })
-
-  it('雲の解像度が段ごとに上がる', () => {
-    const scales = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudResolutionScale)
-    for (let i = 1; i < scales.length; i++) {
-      expect(scales[i]!).toBeGreaterThan(scales[i - 1]!)
-    }
-  })
-
-  it('雲の解像度が 1 を超えない', () => {
-    // 画面より高い解像度でマーチしても意味がない
-    for (const name of PRESET_ORDER) {
-      expect(QUALITY_PRESETS[name].cloudResolutionScale).toBeGreaterThan(0)
-      expect(QUALITY_PRESETS[name].cloudResolutionScale).toBeLessThanOrEqual(1)
-    }
-  })
-
-  it('High は実機の計測に基づく値になっている', () => {
-    // Intel Arc 140V の実測で、1/4 のとき雲 2.7 ms・全体 5.2 ms / 16.7 ms。
-    // 1/2 なら画素数 4 倍で 13 ms 前後に収まる
-    expect(QUALITY_PRESETS.high.cloudResolutionScale).toBeCloseTo(0.5, 6)
-  })
-
-  it('光マーチのステップ数がシェーダの上限を超えない', () => {
-    // TSL のループ（`marchNodes.ts`）は `LIGHT_MARCH_LIMIT` 回で打ち切っている
-    // （段 S1 まではこの値を GLSL の `clouds.frag` が写しで持っていた）
-    expect(LIGHT_MARCH_LIMIT).toBe(8)
-    for (const name of PRESET_ORDER) {
-      expect(QUALITY_PRESETS[name].cloudLightSteps).toBeLessThanOrEqual(LIGHT_MARCH_LIMIT)
-    }
-  })
-
-  it('主マーチのステップ数がシェーダの上限を超えない', () => {
-    // TSL のループは `MARCH_LOOP_LIMIT` 回で打ち切っている。プリセットの歩数は
-    // それより小さくないと、打ち切りの検出（`?marchprobe=1` の `exhausted`）が働かない
-    expect(MARCH_LOOP_LIMIT).toBe(512)
-    for (const name of PRESET_ORDER) {
-      expect(QUALITY_PRESETS[name].cloudMaxSteps).toBeLessThanOrEqual(MARCH_LOOP_LIMIT)
-    }
-  })
-
-  it('地形パッチの分割が段ごとに上がる', () => {
-    const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].terrainPatchCells)
-    for (let i = 1; i < values.length; i++) {
-      expect(values[i]!).toBeGreaterThan(values[i - 1]!)
-    }
-  })
-
-  it('地形の LOD 段数が段ごとに減らない', () => {
-    // High と Ultra は同じ 7 段。段数を増やすより手前を細かくするほうが効く
-    const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].terrainLodLevels)
-    for (let i = 1; i < values.length; i++) {
-      expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!)
-    }
-  })
-
   it('LOD の切り替え距離の倍率が段ごとに上がる', () => {
     const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].lodDistanceScale)
     for (let i = 1; i < values.length; i++) {
       expect(values[i]!).toBeGreaterThan(values[i - 1]!)
-    }
-  })
-
-  it('地形の三角形数が予算に収まる', () => {
-    // パッチは レベル0 が 4x4 の 16 枚、以降のリングが各 12 枚。
-    // ポリゴン予算はシーン合計 1.5M（CLAUDE.md）
-    for (const name of PRESET_ORDER) {
-      const q = QUALITY_PRESETS[name]
-      const patches = 16 + (q.terrainLodLevels - 1) * 12
-      const triangles = patches * q.terrainPatchCells ** 2 * 2
-      expect(triangles).toBeLessThan(1_000_000)
-    }
-  })
-
-  it('low だけ地表の法線摂動と海面のスペキュラを切っている', () => {
-    expect(QUALITY_PRESETS.low.terrainDetailNormals).toBe(false)
-    expect(QUALITY_PRESETS.low.waterSpecular).toBe(false)
-    for (const name of ['medium', 'high', 'ultra'] as const) {
-      expect(QUALITY_PRESETS[name].terrainDetailNormals).toBe(true)
-      expect(QUALITY_PRESETS[name].waterSpecular).toBe(true)
-    }
-  })
-
-  it('low だけ雲のディテールと地面の雲影を切っている', () => {
-    expect(QUALITY_PRESETS.low.cloudDetail).toBe(false)
-    expect(QUALITY_PRESETS.low.cloudGroundShadow).toBe(false)
-    for (const name of ['medium', 'high', 'ultra'] as const) {
-      expect(QUALITY_PRESETS[name].cloudDetail).toBe(true)
-      expect(QUALITY_PRESETS[name].cloudGroundShadow).toBe(true)
     }
   })
 
@@ -230,40 +130,6 @@ describe('品質プリセットの表', () => {
     expect(QUALITY_PRESETS.low.skyEnvironment).toBe(false)
     for (const name of PRESET_ORDER.filter((n) => n !== 'low')) {
       expect(QUALITY_PRESETS[name].skyEnvironment, name).toBe(true)
-    }
-  })
-
-  it('雲のマーチの上限距離が段によらず同じ', () => {
-    // **これは費用の段ではなく絵の決めごと。**段によって遠くの雲が
-    // 出たり消えたりすると、品質を落としたときに構図が変わる
-    const values = PRESET_ORDER.map((name) => QUALITY_PRESETS[name].cloudMaxDistance)
-    expect(new Set(values).size, `段ごとに違う: ${values.join(', ')}`).toBe(1)
-  })
-
-  it('歩数が上限距離を歩幅の伸びで覆い切る', () => {
-    // `stepGrowthScale` の契約。足りないとマーチが途中で止まり、止まる位置が
-    // 空振りの歩数で決まるのでカメラの移動で前後する（遠くの雲が現れたり
-    // 消えたりする形）
-    for (const name of PRESET_ORDER) {
-      const q = QUALITY_PRESETS[name]
-      const g = stepGrowthScale(q.cloudMaxSteps, q.cloudMaxDistance)
-      const reach = g * (Math.exp((NEAR_STEP * q.cloudMaxSteps) / g) - 1)
-      // 二分法なので厳密には届かない（実測で 11999.999999999989）。
-      // 1e-9 の相対誤差まで許す
-      expect(reach, `${name} の到達距離`).toBeGreaterThanOrEqual(
-        q.cloudMaxDistance * (1 - 1e-9),
-      )
-    }
-  })
-
-  it('上の 2 段は上限距離でも手前の 4 倍より細かく刻む', () => {
-    // 「近くは細かいが遠くは粗い」を実機で指摘された経緯がある。
-    // 下の 2 段は歩数が少ないので粗くなるのを許す
-    for (const name of ['high', 'ultra'] as const) {
-      const q = QUALITY_PRESETS[name]
-      const g = stepGrowthScale(q.cloudMaxSteps, q.cloudMaxDistance)
-      const far = NEAR_STEP * (1 + q.cloudMaxDistance / g)
-      expect(far / NEAR_STEP, `${name} の上限での粗さ`).toBeLessThanOrEqual(4)
     }
   })
 

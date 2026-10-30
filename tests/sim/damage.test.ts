@@ -6,7 +6,6 @@ import { Enemy, ENEMY_INTEGRITY } from '@sim/enemy'
 import { Target } from '@sim/target'
 import { World } from '@sim/world'
 import { makeInput } from '@sim/input'
-import { defaultTerrain } from '@sim/terrain'
 import { trimCondition } from '@sim/flightModel'
 import { airDensity } from '@sim/isa'
 import {
@@ -30,7 +29,6 @@ import {
 
 const ALT = 3000
 const ORIGIN = new Vec3(0, ALT, 0)
-const terrain = defaultTerrain()
 const rng = new Rng(1)
 
 describe('ダメージの段階', () => {
@@ -89,7 +87,7 @@ describe('ダメージの段階', () => {
 
 describe('敵機のダメージ', () => {
   function enemy(): Enemy {
-    return new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN, { terrain })
+    return new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN)
   }
 
   it('無傷では煙が出ない', () => {
@@ -123,9 +121,7 @@ describe('敵機のダメージ', () => {
   it('傷が深いと舵の効きが落ちて旋回率が下がる', () => {
     // 同じ指令を与えて、向きの変化を比べる
     const measure = (damage: number): number => {
-      const e = new Enemy({ offset: new Vec3(0, 0, 3000), speed: 250 }, ORIGIN, {
-        terrain,
-      })
+      const e = new Enemy({ offset: new Vec3(0, 0, 3000), speed: 250 }, ORIGIN)
       e.damage(damage)
       const target = new Target({ offset: new Vec3(2000, 0, 0), speed: 240 }, ORIGIN)
       const start = new Vec3().copy(e.velocity).multiplyScalar(1 / e.speed)
@@ -141,9 +137,7 @@ describe('敵機のダメージ', () => {
 
 describe('煙の履歴', () => {
   it('無傷でも記録する。濃さ 0 の点が並ぶ', () => {
-    const e = new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN, {
-      terrain,
-    })
+    const e = new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN)
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
     for (let i = 0; i < 40; i++) e.step(FIXED_DT, target, rng)
     // 4 ステップごとに 1 本
@@ -152,9 +146,7 @@ describe('煙の履歴', () => {
   })
 
   it('記録は排気口の位置。機体の後ろに出る', () => {
-    const e = new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN, {
-      terrain,
-    })
+    const e = new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN)
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
     e.step(FIXED_DT, target, rng)
     const point = e.smoke.trailPoint(0).position
@@ -164,9 +156,7 @@ describe('煙の履歴', () => {
   })
 
   it('傷ついてからの点だけ濃さを持つ', () => {
-    const e = new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN, {
-      terrain,
-    })
+    const e = new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN)
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
     for (let i = 0; i < 40; i++) e.step(FIXED_DT, target, rng)
     e.damage(ENEMY_INTEGRITY * 0.7)
@@ -178,9 +168,7 @@ describe('煙の履歴', () => {
   })
 
   it('履歴の長さで頭打ちになる', () => {
-    const e = new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN, {
-      terrain,
-    })
+    const e = new Enemy({ offset: new Vec3(0, 0, -500), speed: 250 }, ORIGIN)
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
     const steps = (DAMAGE_SMOKE_LENGTH + 50) * DAMAGE_SMOKE_STRIDE
     for (let i = 0; i < steps; i++) e.step(FIXED_DT, target, rng)

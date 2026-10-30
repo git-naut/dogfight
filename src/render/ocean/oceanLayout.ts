@@ -1,9 +1,7 @@
-import { lodRange, morphFactor } from '../terrain/layout'
-
 /**
  * 海面のパッチの選び方（CDLOD、段 S4a-1）。
  *
- * 地形の四分木（`terrain/layout.ts`）と同じく、静的な四分木から選ぶ。違いは 2 つ。
+ * 段 S4b で消した地形の四分木（`terrain/layout.ts`）と同じく、静的な四分木から選ぶ。違いは 2 つ。
  *
  * - **カメラを中心に敷く。**地形は 48 km の定義域に固定だが、海は水平線まで続く。
  *   根（一辺 `oceanRootSize`）を、カメラを含む根の格子のまわりに 3 × 3 で並べる。
@@ -14,7 +12,8 @@ import { lodRange, morphFactor } from '../terrain/layout'
  * 根の外（変位のある範囲の外）は、平らな板が新しい海の材質で覆う。根の縁へ向けて変位を
  * 0 へ絞り（`oceanEdgeFade`）、継ぎ目を出さない。
  *
- * three を import しない。分割の距離（`lodRange`）とモーフ（`morphFactor`）は地形と共通。
+ * three を import しない。分割の距離（`lodRange`）とモーフ（`morphFactor`）と格子（`createUnitGrid`）は、
+ * 段 S4b で地形を消したときに `terrain/layout.ts`・`terrain/terrainMesh.ts` から移した。
  */
 
 /** 最も細かいパッチの一辺 m */
@@ -32,6 +31,54 @@ export const OCEAN_EDGE_FADE = 0.25
 
 /** 寄せ始める位置。分割距離に対する比（地形と同じ） */
 const MORPH_START_RATIO = 0.62
+
+/**
+ * 分割距離はノードの一辺のこの倍数。地形の四分木で決めた値（1.8 で、32 セルのパッチの
+ * 頂点の間隔が画面で 35 px 前後。2.4 では三角形が 3 割増えて見え方は変わらなかった）
+ */
+const RANGE_FACTOR = 1.8
+
+/** ノードを割る距離 m。一辺に比例させると、隣り合うノードの深さの差が 1 以内に収まる */
+export function lodRange(nodeSize: number, distanceScale: number): number {
+  return nodeSize * RANGE_FACTOR * distanceScale
+}
+
+/** 親の格子へ寄せる量 0..1。0 なら自分の格子のまま、1 なら親の格子に完全に一致する */
+export function morphFactor(distance: number, start: number, end: number): number {
+  if (end <= start) return 0
+  const t = (distance - start) / (end - start)
+  return t < 0 ? 0 : t > 1 ? 1 : t
+}
+
+/** 0..1 の正方格子。position.xy が格子座標（z は 0）。頂点シェーダがパッチの原点と大きさを掛ける */
+export function createUnitGrid(cells: number): { position: Float32Array; index: Uint32Array } {
+  const side = cells + 1
+  const position = new Float32Array(side * side * 3)
+  for (let j = 0; j < side; j++) {
+    for (let i = 0; i < side; i++) {
+      const o = (j * side + i) * 3
+      position[o] = i / cells
+      position[o + 1] = j / cells
+    }
+  }
+  const index = new Uint32Array(cells * cells * 6)
+  let k = 0
+  for (let j = 0; j < cells; j++) {
+    for (let i = 0; i < cells; i++) {
+      const a = j * side + i
+      const b = a + 1
+      const c = a + side
+      const d = c + 1
+      index[k++] = a
+      index[k++] = c
+      index[k++] = b
+      index[k++] = b
+      index[k++] = c
+      index[k++] = d
+    }
+  }
+  return { position, index }
+}
 
 export interface OceanPatch {
   /** -X, -Z 側の角のワールド座標 */

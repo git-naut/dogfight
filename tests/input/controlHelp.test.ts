@@ -44,10 +44,8 @@ function keyHandlingFiles(): { path: string; source: string }[] {
   return collectTsFiles(SRC)
     .map((path) => ({ path, source: readFileSync(path, 'utf8') }))
     .filter(({ source }) => source.includes('keydown') || source.includes('KeyboardEvent'))
-    // **診断だけのキーは操作説明に載せない。**`cloudDiag.ts` の `P` は
-    // `?clouddiag=manual` のときだけ効き、手順は画面へ出す。ここを外さないと
-    // 「説明に無いキー」で落ちる。**除外はこの 1 本だけに留める**
-    .filter(({ path }) => !path.endsWith('cloudDiag.ts'))
+  // 段 S4b まで、診断だけのキー（`cloudDiag.ts` の `P`、`?clouddiag=manual`）を除いていた。
+  // 体積の雲の診断ごと消したので、除外は無い
 }
 
 /** 実装が入力の判定に使っているキーコード */

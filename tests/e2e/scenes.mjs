@@ -43,8 +43,8 @@ export function captureParams(query = {}) {
  * 実際に見張っているかを確かめる。
  */
 export const TOGGLES = [
-  ['terrain', 'terrain'],
   ['water', 'water'],
+  ['clouds', 'clouds'],
   ['environment', 'env'],
   ['aircraftShadow', 'shadow'],
   ['targets', 'targets'],
@@ -97,25 +97,27 @@ export const TOGGLES = [
  * （`smoke.spec.ts` の DLZ・ミッション時計・警告の方位）が担う。
  */
 export const SCENES = [
-  { name: 'level-afternoon', script: 'level', frame: 240, hour: 16, coverage: 0.29, watches: ['terrain', 'aircraft'] },
-  { name: 'level-backlit', script: 'level', frame: 240, hour: 8, coverage: 0.29, watches: ['terrain', 'aircraft'] },
+  { name: 'level-afternoon', script: 'level', frame: 240, hour: 16, coverage: 0.29, watches: ['water', 'aircraft'] },
+  { name: 'level-backlit', script: 'level', frame: 240, hour: 8, coverage: 0.29, watches: ['water', 'aircraft'] },
   // バンク 66 度・3.27 G・揚力係数 0.449 なので翼端渦が 0.30 の濃さで出る。
   // 荷重倍数で判定していたころは出なかった
   { name: 'bank-left-dusk', script: 'bank-left', frame: 420, hour: 18.3, coverage: 0.29, watches: ['aircraft', 'lens'] },
-  { name: 'low-pass-afternoon', script: 'low-pass', frame: 240, hour: 16, coverage: 0.29, watches: ['terrain', 'water', 'aircraft', 'bloom'] },
+  { name: 'low-pass-afternoon', script: 'low-pass', frame: 240, hour: 16, coverage: 0.29, watches: ['water', 'aircraft', 'bloom'] },
   // 雲を主題にした構図
   { name: 'clouds-climb', script: 'pull-up', frame: 200, hour: 16, coverage: 0.29, watches: ['aircraft', 'lens'] },
   { name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.8, watches: ['aircraft'] },
-  { name: 'clouds-clear', script: 'level', frame: 240, hour: 16, coverage: 0, watches: ['terrain', 'aircraft'] },
-  // 地形を主題にした構図。島を見下ろす、海岸線を低空で抜ける、雲を突き抜ける主峰
-  { name: 'terrain-overlook', script: 'island-run', frame: 2000, hour: 9, coverage: 0.29, watches: ['terrain', 'lens'] },
-  { name: 'terrain-coast', script: 'low-pass', frame: 1800, hour: 9, coverage: 0.29, watches: ['terrain', 'water'] },
-  { name: 'terrain-peak', script: 'island-run', frame: 3240, hour: 17, coverage: 0.29, watches: ['terrain'] },
+  { name: 'clouds-clear', script: 'level', frame: 240, hour: 16, coverage: 0, watches: ['water', 'aircraft'] },
+  // 海と雲を主題にした構図（段 S4b で島の 3 枚から置き換えた。ユーザーの決定）。
+  // 朝の海を高速の引き起こしで見下ろす、朝の低空の海、夕方に積雲の層の高さを抜ける。
+  // 台本とフレームは島の 3 枚と同じ（`fast-pull` は旧 `island-run`）
+  { name: 'ocean-climb-morning', script: 'fast-pull', frame: 2000, hour: 9, coverage: 0.29, watches: ['water', 'lens'] },
+  { name: 'ocean-low-morning', script: 'low-pass', frame: 1800, hour: 9, coverage: 0.29, watches: ['water'] },
+  { name: 'cloud-layer-dusk', script: 'fast-pull', frame: 3240, hour: 17, coverage: 0.29, watches: ['clouds'] },
   // 機体を主題にした構図。斜め後方からの接写、自分の影が地面を走るカット、
   // 高 G で翼端渦が出るカット、その渦が画面の縁で切れているカット
   // 陽炎（ADR 0041）の見張りもここ。排気口の後ろの範囲が画面に大きく写る
   { name: 'aircraft-close', script: 'bank-left', frame: 30, hour: 12, coverage: 0.29, watches: ['aircraft', 'heatHaze'] },
-  { name: 'aircraft-shadow', script: 'low-pass', frame: 2500, hour: 16, coverage: 0.29, watches: ['aircraftShadow', 'aircraft', 'terrain'] },
+  { name: 'aircraft-shadow', script: 'low-pass', frame: 2500, hour: 16, coverage: 0.29, watches: ['aircraftShadow', 'aircraft', 'water'] },
   { name: 'aircraft-vortex', script: 'pull-up', frame: 430, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
   // 引き起こしを続けて 7.5 秒。左右の渦が画面の下隅を突き抜ける。
   // 軌跡が空中で尻すぼみに消えていないことを、この 1 枚で見張る
@@ -252,7 +254,7 @@ export const SCENES = [
     coverage: 0,
     targets: false,
     enemies: false,
-    watches: ['aircraft', 'terrain', 'water'],
+    watches: ['aircraft', 'water'],
   },
   // 脚が畳まれる途中（Phase 9 の段 6）。f150 で 4 分の 1（22.5 度）。主脚が後ろへ振れる。
   // **f300（半分）は真後ろの構図だと車輪がノズルの陰に隠れて、絵に差が出なかった。**

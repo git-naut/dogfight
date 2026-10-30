@@ -162,22 +162,6 @@ test.describe('ライブループ', () => {
 })
 
 test.describe('雲', () => {
-  test('ノイズが焼けていて空でない', async ({ page }) => {
-    const hook = await capture(page, { frame: 60 })
-    // min と max が同じなら 3D レンダーターゲットへの描画が失敗している
-    expect(hook.noiseStats.max).toBeGreaterThan(hook.noiseStats.min)
-    expect(hook.noiseStats.mean).toBeGreaterThan(0.1)
-    expect(hook.noiseStats.mean).toBeLessThan(0.95)
-  })
-
-  test('雲のバッファが 16bit 浮動小数である', async ({ page }) => {
-    // 8bit へ戻すと、放射輝度の 1/255 刻みが露出 6 倍と AGX で拡大されて
-    // 等高線状の横線が出る。実測で縦横の段差比が 1.477 から 1.635 へ悪化する。
-    // スクリーンショット回帰は許容差 2% に埋もれて検出できないので型を見る
-    const hook = await capture(page, { frame: 60 })
-    expect(hook.cloudHdrTarget).toBe(true)
-  })
-
   test('雲量を変えると絵が変わる', async ({ page }) => {
     await capture(page, { frame: 240, coverage: 0 })
     const clear = await page.locator('#viewport').screenshot()
@@ -249,40 +233,18 @@ test.describe('飛行モデルがブラウザでも成立する', () => {
   })
 })
 
-test.describe('地形', () => {
-  test('高さ場が縮退していない', async ({ page }) => {
-    const hook = await capture(page, { script: 'level', frame: 120 })
-
-    // min と max が同じなら生成に失敗している
-    expect(hook.terrainStats.min).toBeLessThan(0)
-    expect(hook.terrainStats.max).toBeGreaterThan(1_500)
-    // 定義域の大半は海なので平均は海面下
-    expect(hook.terrainStats.mean).toBeLessThan(0)
-  })
-
-  test('高さ場の生成が読み込みを止めない', async ({ page }) => {
-    const hook = await capture(page, { script: 'level', frame: 120 })
-    // 実測 70〜90 ms（1024²）。CI のソフトウェアレンダラでも CPU 処理なので
-    // 大きくは変わらない。
-    //
-    // **これは実時間の検査なので並列実行の取り合いを拾う。**E2E を並列化した
-    // あと、4 ワーカーで 575.7 ms が出て 400 ms の上限に当たった。生成そのものは
-    // 速くなっても遅くなってもいない。上限を 1500 ms へ広げる。
-    //
-    // ここで見たいのは「読み込みを塞ぐほど遅くないこと」だけで、予算の
-    // 締め上げではない。解像度を上げる判断をするときは、並列を切って
-    // （`--workers=1`）測り直すこと。
-    expect(hook.terrainMs).toBeGreaterThan(0)
-    expect(hook.terrainMs).toBeLessThan(1500)
-  })
-
-  test('パッチの枚数と三角形が予算内', async ({ page }) => {
+/**
+ * 海と地面。段 S4b で島を消し、地面は海面（高度 0）だけになった。高さ場の 2 本と
+ * 島を越える・島に当たる 2 本は島ごと消し、パッチの予算は地形から海面へ移した
+ */
+test.describe('海と地面', () => {
+  test('海面のパッチの枚数と三角形が予算内', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 120, preset: 'high' })
-    expect(hook.terrainPatches).toBeGreaterThan(50)
-    // MAX_PATCHES は 512
-    expect(hook.terrainPatches).toBeLessThanOrEqual(512)
-    // 地形の予算は 500k。シーン合計 1.5M のうち機体に 1M 残す
-    expect(hook.terrainTriangles).toBeLessThan(500_000)
+    expect(hook.oceanPatches).toBeGreaterThan(50)
+    // `oceanSurface.ts` の MAX_PATCHES は 1024
+    expect(hook.oceanPatches).toBeLessThanOrEqual(1024)
+    // 地形のときの予算 500k を引き継ぐ。シーン合計 1.5M のうち機体に 1M 残す
+    expect(hook.oceanTriangles).toBeLessThan(500_000)
   })
 
   test('海上では対地高度が海抜と一致する', async ({ page }) => {
@@ -291,30 +253,9 @@ test.describe('地形', () => {
     expect(Math.abs(hook.agl - hook.altitude)).toBeLessThan(1)
   })
 
-  test('island-run は主峰の稜線を越え、対地高度が海抜と食い違う', async ({ page }) => {
-    const hook = await capture(page, { script: 'island-run', frame: 3240 })
-
-    expect(hook.crashed).toBe(false)
-    // 稜線の上。真下の地形が 1,000 m を超えている
-    expect(hook.groundHeight).toBeGreaterThan(1_000)
-    expect(hook.agl).toBeLessThan(hook.altitude - 1_000)
-    // 地面には当たっていない
-    expect(hook.agl).toBeGreaterThan(200)
-  })
-
-  test('低空のまま島へ向かうと地形の高さで墜落する', async ({ page }) => {
-    // low-pass は高度 220 m で島へ突っ込む。海面ではなく島で止まる
-    const hook = await capture(page, { script: 'low-pass', frame: 2600 })
-
-    expect(hook.crashed).toBe(true)
-    expect(hook.groundHeight).toBeGreaterThan(100)
-    expect(hook.altitude).toBeCloseTo(hook.groundHeight, 0)
-    expect(hook.speed).toBe(0)
-  })
-
   test('太陽光の色が時刻で変わる', async ({ page }) => {
     // ライブラリのコンストラクタ引数の名前違いで、太陽光が白 (1,1,1) のまま
-    // 固定されていた。地形の色が時刻で変わらなくなるので数値で見張る
+    // 固定されていた。海と機体の色が時刻で変わらなくなるので数値で見張る
     const morning = await capture(page, { script: 'level', frame: 120, hour: 9 })
     const evening = await capture(page, { script: 'level', frame: 120, hour: 18 })
 
@@ -372,14 +313,14 @@ test.describe('機体', () => {
   test('描いた三角形が予算の内側', async ({ page }) => {
     // 影のパスで機体をもう一度描くので、機体は 2 回ぶん乗る
     const hook = await capture(page, { script: 'level', frame: 120, preset: 'high' })
-    expect(hook.drawnTriangles).toBeGreaterThan(hook.terrainTriangles)
+    expect(hook.drawnTriangles).toBeGreaterThan(hook.oceanTriangles)
     expect(hook.drawnTriangles).toBeLessThan(1_500_000)
     expect(hook.drawCalls).toBeGreaterThan(0)
   })
 
-  test('地形と機体の合計がシーン予算 1.5M の内側', async ({ page }) => {
+  test('海面と機体の合計がシーン予算 1.5M の内側', async ({ page }) => {
     const hook = await capture(page, { script: 'level', frame: 120, preset: 'ultra' })
-    expect(hook.terrainTriangles + hook.aircraftTriangles).toBeLessThan(1_500_000)
+    expect(hook.oceanTriangles + hook.aircraftTriangles).toBeLessThan(1_500_000)
   })
 })
 

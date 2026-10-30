@@ -150,9 +150,8 @@ export interface StepOptions {
   /**
    * 地形。渡さなければ高度 0 の水平面（外洋）として扱う。
    *
-   * 描画と同じ高さ場を引く。GLSL と TypeScript に同じ式を二重に書くと、
-   * いつか片方だけ直して「見えている山と当たる山がずれる」ので、
-   * ここは sim 側の Terrain を正本にする。
+   * 段 S4b で島を消したので、`World` は渡さない（地面は海面だけ）。検査が平坦や斜面を
+   * 差し込む口として残す
    */
   terrain?: TerrainSampler
   /**

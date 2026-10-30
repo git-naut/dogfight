@@ -22,7 +22,6 @@ import type { InputState } from './input'
 import { AUTOPILOT_OVERRIDE, autopilotCommand } from './autopilot'
 import { createApproachGuide, updateApproachGuide, type ApproachGuide } from './approachGuide'
 import type { LandingResult } from './arrestor'
-import { defaultTerrain, type Terrain } from './terrain'
 import { Mission, type MissionSpec } from './mission'
 import { FlybyTracker } from './flyby'
 import { lockingOn } from './ai/fighter'
@@ -76,14 +75,6 @@ export interface WorldOptions {
    * 空中から始まる前提で書いてある。
    */
   launch?: LaunchSpec
-  /**
-   * 地形。省略すると共有の既定地形を使う。
-   *
-   * 地形のシードはワールドのシードとは分けて固定してある。スクリプトごとに
-   * 地形が変わると、スクリーンショット回帰で「同じ入力から同じピクセル」を
-   * 見ている意味が薄れる。
-   */
-  terrain?: Terrain
 }
 
 /** 既定の初期条件。高度 1500 m、真北（-Z）へ 250 m/s。 */
@@ -137,8 +128,6 @@ export class World {
    * もう 1 つ増やすことになる。
    */
   readonly countermeasures = new Countermeasures()
-  /** 地形。描画側も同じものを読んで、当たる山と見える山を一致させる */
-  readonly terrain: Terrain
   /**
    * ミッション。勝敗を判定する。台本に指定がなければ null。
    *
@@ -200,15 +189,14 @@ export class World {
   constructor(options: WorldOptions) {
     this.seed = options.seed
     this.rng = new Rng(options.seed)
-    this.terrain = options.terrain ?? defaultTerrain()
     this.mission = options.mission ? new Mission(options.mission) : null
     this.carrier = options.carrier ? { ...options.carrier } : null
     this.catapult = options.launch ? new Catapult(options.launch, FIXED_DT) : null
-    // 地形は毎ステップ Aircraft が引くので stepOptions に混ぜて渡す。空母があれば甲板の
-    // 当たりも渡す（段 7。自機だけ。敵機と標的機は甲板に降りない）
+    // 空母があれば甲板の当たりを渡す（段 7。自機だけ。敵機と標的機は甲板に降りない）。
+    // **地形は渡さない。**島は Phase 11 の段 S4b で消した（ユーザーの決定、2026-10-30）。
+    // 地形を渡さなければ、機体・弾・敵の回避は海面（高度 0）を地面とみなす
     this.stepOptions = {
       ...(options.step ?? {}),
-      terrain: this.terrain,
       ...(this.carrier !== null ? { deck: carrierDeckSampler(this.carrier) } : {}),
     }
 
@@ -271,9 +259,8 @@ export class World {
       incomingMissiles: this.enemies.flatMap((enemy) => enemy.missiles),
       // 自機の囮。敵のミサイルのシーカーが見る
       decoys: this.countermeasures.burning,
-      terrain: this.terrain,
-      // 地形の最高点より上では、弾が地面を引く必要がない
-      groundLimit: this.terrain.stats.max,
+      // 地面は海面だけ。高度 0 を下回った弾を消す
+      groundLimit: 0,
     })
   }
 

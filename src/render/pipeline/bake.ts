@@ -16,7 +16,7 @@ import {
 } from 'three'
 import { NodeMaterial, type Node, type Renderer } from 'three/webgpu'
 import { int, ivec2, ivec3, texture3D, textureLoad, uniform, uv } from 'three/tsl'
-import { unpadRows } from '../pipeline/readback'
+import { unpadRows } from './readback'
 
 /**
  * node 経路で 3D テクスチャを焼き、中身を読み戻す。

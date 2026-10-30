@@ -74,8 +74,11 @@ describe('基準画像の構図', () => {
     // 段 B9 で 64 件へ。`missile-flame` の `missiles` と `explosions` は、`MUTATE=1` で 2 件とも発火した。
     // 続けてフレアを霞の後ろのパスへ移すと、`enemy-flare-flash` の `bloom` が発火しなくなり、外して 63 件。
     // 陽炎（ADR 0041）の `heatHaze` を `aircraft-close` に足して 64 件。`MUTATE=1` で発火した
+    // Phase 11 の段 S4b で島を消し、`terrain` の見張り 9 件を外した。島の 3 枚を海と雲の 3 枚に
+    // 置き換え、`water` と `clouds` を仮に載せて 61 件。**撮り直し #2 のあとに `MUTATE=1` で
+    // 測って確定する**（まだ実測ではない）
     const total = SCENES.reduce((sum, s) => sum + (s.watches?.length ?? 0), 0)
-    expect(total).toBe(64)
+    expect(total).toBe(61)
     const empty = SCENES.filter((s) => (s.watches ?? []).length === 0).map((s) => s.name)
     // **段 23 で 3 枚に減った。**`aircraft-vortex-fade` は 1.9 G で風圧が
     // 効くので `lens` が載った（渦そのものは薄すぎて載せられていない）

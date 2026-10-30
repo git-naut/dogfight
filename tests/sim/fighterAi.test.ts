@@ -5,7 +5,6 @@ import { Enemy } from '@sim/enemy'
 import { Target } from '@sim/target'
 import { World } from '@sim/world'
 import { neutralInput } from '@sim/input'
-import { defaultTerrain } from '@sim/terrain'
 import { Rng } from '@sim/rng'
 import {
   HARD_FLOOR,
@@ -31,7 +30,6 @@ import { climbAngleOf, pitchCap, pulloutAltitude } from '@sim/ai/steering'
  */
 
 const ORIGIN = new Vec3(0, 3000, 0)
-const terrain = defaultTerrain()
 /** 散布と回避の向きに使う。決定論のため固定シード */
 const rng = new Rng(20260823)
 
@@ -60,7 +58,6 @@ function engage(options: {
   targetSpeed?: number
   turnRate?: number
   seconds: number
-  withTerrain?: boolean
 }): { enemy: Enemy; target: Target; history: Sample[] } {
   const enemy = new Enemy(
     {
@@ -69,7 +66,6 @@ function engage(options: {
       ...(options.heading !== undefined ? { heading: options.heading } : {}),
     },
     ORIGIN,
-    options.withTerrain === false ? {} : { terrain },
   )
   const target = new Target(
     {
@@ -338,6 +334,9 @@ describe('追尾', () => {
  * 最低対地高度が 600 m になった**（低空の条件の開始高度そのまま）。
  *
  * ここに残すのは代表の 8 条件。全条件は重いので走らせない。
+ *
+ * 段 S4b で島を消したので、ゲームと同じく地形を渡さない（海面 0 だけを見る）。斜面の
+ * 記録は経緯として残す。前方を見る式（`terrainClearance`）は `steering.test.ts` が縛る
  */
 describe('自滅しない', () => {
   const cases = [
@@ -379,7 +378,6 @@ describe('状態の遷移', () => {
     const enemy = new Enemy(
       { offset: new Vec3(0, 0, 2000), speed: RECOVER_SPEED - 20 },
       ORIGIN,
-      { terrain },
     )
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
     enemy.step(FIXED_DT, target, rng)
@@ -390,7 +388,6 @@ describe('状態の遷移', () => {
     const enemy = new Enemy(
       { offset: new Vec3(0, 0, 2000), speed: RECOVER_SPEED - 20 },
       ORIGIN,
-      { terrain },
     )
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
     let left = -1
@@ -411,7 +408,6 @@ describe('状態の遷移', () => {
     const low = new Enemy(
       { offset: new Vec3(0, -2900, 2000), speed: RECOVER_SPEED - 20 },
       ORIGIN,
-      { terrain },
     )
     const target = new Target({ offset: new Vec3(), speed: 240 }, ORIGIN)
     for (let i = 0; i < 3 * 120; i++) low.step(FIXED_DT, target, rng)
@@ -422,7 +418,6 @@ describe('状態の遷移', () => {
     const high = new Enemy(
       { offset: new Vec3(0, 3000, 2000), speed: RECOVER_SPEED - 20 },
       ORIGIN,
-      { terrain },
     )
     for (let i = 0; i < 3 * 120; i++) high.step(FIXED_DT, target, rng)
     expect(high.aiState).toBe('recover')

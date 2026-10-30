@@ -48,7 +48,7 @@ const SECONDS_PER_POINT = TRAIL_STRIDE * FIXED_DT
  *
  * | 場面 | M | Cl | M·Cl |
  * | 水平飛行 (low-pass f2500) | 1.20 | 0.044 | 0.053 |
- * | 高速の引き起こし (island-run f2000) | 1.15 | 0.171 | 0.196 |
+ * | 高速の引き起こし (fast-pull f2000) | 1.15 | 0.171 | 0.196 |
  * | 浅い旋回 (bank-left f420) | 0.77 | 0.449 | 0.344 |
  * | 定常旋回 (bank-left f1800) | 0.68 | 0.569 | 0.387 |
  * | 急上昇 (zoom-climb f200) | 1.01 | 0.453 | 0.456 |

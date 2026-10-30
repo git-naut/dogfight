@@ -2,21 +2,6 @@ import { test, expect, type Page } from '@playwright/test'
 import { PNG } from 'pngjs'
 import { captureParams, SCENES } from './scenes.mjs'
 import { hasWebGPU, type TestHook } from './harness'
-import {
-  hashProbeExpected,
-  HASH_PROBE_SIDE,
-} from '../../src/render/hashReference'
-import {
-  histogramL1,
-  maxAbsDifference,
-  SHADOW_TILES,
-} from '../../src/render/clouds/geometry'
-import { encodeShadowInputs } from '../../src/render/clouds/shadowInputs'
-import {
-  SEABED_HEIGHT,
-  TERRAIN_EXTENT,
-  defaultTerrain,
-} from '../../src/sim/terrain'
 import { toneProbeExpected, toneProbeLevels } from '../../src/render/toneProbe'
 import { NODE_REFERENCE as ref } from './nodeReference'
 import * as skyReference from '../../src/render/sky/reference'
@@ -35,13 +20,6 @@ import {
 import { IRRADIANCE_TABLE } from '../../src/render/sky/irradianceTable'
 import { OCEAN_MOMENT_TOLERANCE, OCEAN_PROBE_TOLERANCE, OCEAN_SURFACE_TOLERANCE } from '../../src/render/ocean/oceanProbe'
 import {
-  SURFACE_PROBE_SIDE,
-  WATER_PROBE_REGIONS,
-  surfaceBranchCounts,
-  terrainPatchProbePoint,
-  terrainPatchProbeValues,
-} from '../../src/render/terrain/surfaceProbe'
-import {
   OVERLAY_PROBE_COUNT,
   OVERLAY_PROBE_EARLY_COUNT,
   OVERLAY_PROBE_BASE_RATIO,
@@ -56,12 +34,7 @@ import {
   spriteProbeCrossesCoreCut,
   spriteProbeExpected,
 } from '../../src/render/weapons/spriteProbe'
-import {
-  HEIGHT_PROBE_COUNT,
-  heightMaxError,
-  heightProbePoint,
-} from '../../src/render/terrain/heightProbe'
-import { byteDifference } from '../../src/render/clouds/marchProbe'
+import { byteDifference } from '../../src/render/pixelCompare'
 
 /**
  * node 経路（`WebGPURenderer`）が立つことを確かめる。
@@ -92,37 +65,11 @@ const PROBE_TIMEOUT_MS = 300_000
 
 /**
  * **突き合わせの相手（段 S1 で付け替えた）。**GLSL 経路を捨てたので、CPU に参照の
- * あるもの（スプライト・AgX・雲の合成・ハッシュ・高さ場）は CPU と、無いもの
- * （ノイズ・気象・雲影・マーチ・地表と海面・放射輝度・半透明の画素数）は GLSL の
- * 最後の出力の記録（`nodeReference.ts`）と比べる。記録が GLSL の写しであることは、
- * GLSL が残っていた段 S1a の CI（7723c7c）で確かめた
+ * あるもの（スプライト・AgX・雲の合成）は CPU と、無いもの（放射輝度・半透明の画素数）は
+ * GLSL の最後の出力の記録（`nodeReference.ts`）と比べる。記録が GLSL の写しであることは、
+ * GLSL が残っていた段 S1a の CI（7723c7c）で確かめた。段 S4b で体積の雲（ハッシュ・ノイズ・
+ * 気象・雲影・マーチ）と島（高さ場・地表と海面）の突き合わせを、相手ごと消した
  */
-/**
- * TSL の地表と海面を記録と比べる。**枝の数は整数なので一致、色は階調 1 まで**
- * （GLSL と比べていたときと同じ許容。WGSL は演算順序が動きうる）
- */
-function expectSurfaceMatchesReference(surface: {
-  terrain: number[]
-  terrainBranches: number[]
-  water: number[][]
-  waterBranches: number[][]
-}) {
-  expect(surfaceBranchCounts(surface.terrainBranches), '地表の枝が記録と違う').toEqual(
-    surfaceBranchCounts(ref.surface.terrainBranches),
-  )
-  const terrain = byteDifference(ref.surface.terrain, surface.terrain)
-  expect(terrain.max, `記録との地表の最大差 ${terrain.max}（違うバイト ${terrain.differing}）`)
-    .toBeLessThanOrEqual(1)
-  for (let i = 0; i < WATER_PROBE_REGIONS.length; i++) {
-    expect(surfaceBranchCounts(surface.waterBranches[i]!), `海面 ${i} の枝が記録と違う`).toEqual(
-      surfaceBranchCounts(ref.surface.waterBranches[i]!),
-    )
-    const d = byteDifference(ref.surface.water[i]!, surface.water[i]!)
-    expect(d.max, `記録との海面 ${i} の最大差 ${d.max}（違うバイト ${d.differing}）`)
-      .toBeLessThanOrEqual(1)
-  }
-}
-
 async function probe(page: import('@playwright/test').Page, query: string) {
   const errors: string[] = []
   page.on('console', (msg) => {
@@ -169,8 +116,6 @@ test.describe('node 経路', () => {
     // syntax error`）。計画が退避路として当てにしていた `forceWebGL` は、
     // 大気には効かない
     expect(result.atmosphere).toBe(false)
-    // 形状 64³・ディテール 32³・気象 512² を実際に焼いている
-    expect(result.volumeMs).toBeGreaterThan(0)
     expect(errors).toEqual([])
   })
 
@@ -211,95 +156,12 @@ test.describe('node 経路', () => {
     expect(Math.abs(result.sunElevationDeg - recorded)).toBeLessThanOrEqual(0.02)
   })
 
-  test('TSL のハッシュが CPU 参照とビット一致する', async ({ page }) => {
-    // **ここが移行全体の決定論の土台。**PCG が 1 ビットずれたら、以降の
-    // 雲の絵はすべて別物になる。`uint` の乗算は GLSL でも WGSL でも 2^32 で
-    // 巻くので、仕様上は一致するはず。**「はず」を数値で確かめる**
-    const { result, errors } = await probe(page, 'gpu=1')
-    expect(errors).toEqual([])
-
-    const expected = hashProbeExpected()
-    const side = HASH_PROBE_SIDE
-    expect(result.hashProbe.length).toBe(side * side * 4)
-
-    const actual: number[] = []
-    for (let i = 0; i < side * side; i++) {
-      actual.push(
-        result.hashProbe[i * 4]!,
-        result.hashProbe[i * 4 + 1]!,
-        result.hashProbe[i * 4 + 2]!,
-      )
-    }
-    expect(actual).toEqual([...expected])
-  })
-
-  test('TSL のノイズが GLSL の記録とビット一致する', async ({ page }) => {
-    // 中央スライスの左下 16x16 を RGBA8 で 1,024 個。**統計だけでは
-    // 1 ビットのずれが埋もれる**ので生バイトで比べる
-    const { result, errors } = await probe(page, 'gpu=1')
-    expect(errors).toEqual([])
-    expect(result.noiseSlice.length).toBe(16 * 16 * 4)
-    expect(result.noiseSlice, 'TSL のノイズが記録とずれた').toEqual(ref.noiseSlice)
-  })
-
-  test('TSL の気象マップが GLSL の記録とビット一致する', async ({ page }) => {
-    // **雲の配置を決めるのは 3D ノイズではなくこちら。**周期は 42 km で、
-    // 影マップの一辺 30 km より長い。ずれると雲の湧く場所がまるごと変わる。
-    // それでも雲影の分布（16 ビン）では捕まらないので、生バイトで比べる
-    const { result, errors } = await probe(page, 'gpu=1')
-    expect(errors).toEqual([])
-    expect(result.weatherSlice.length).toBe(16 * 16 * 4)
-    expect(result.weatherSlice, 'TSL の気象マップが記録とずれた').toEqual(ref.weatherSlice)
-  })
-
-  test('WGSL でも GLSL の記録とビット一致する', async ({ page }) => {
+  test('WGSL でも円形スプライトが CPU 参照と一致する', async ({ page }) => {
+    // 段 S4b まで、ハッシュ・雲ノイズ・気象マップ・マーチ・高さ場も WGSL で突き合わせていた。
+    // 体積の雲と島を消したので、スプライトだけが残った
     test.skip(!hasWebGPU(), 'WebGPU の起動引数が要る')
-    const { result, errors } = await probe(
-      page,
-      'gpu=2&marchprobe=1&heightprobe=1&spriteprobe=1',
-    )
+    const { result, errors } = await probe(page, 'gpu=2&spriteprobe=1')
     expect(errors).toEqual([])
-
-    // ハッシュ
-    const expected = hashProbeExpected()
-    const side = HASH_PROBE_SIDE
-    const actual: number[] = []
-    for (let i = 0; i < side * side; i++) {
-      actual.push(
-        result.hashProbe[i * 4]!,
-        result.hashProbe[i * 4 + 1]!,
-        result.hashProbe[i * 4 + 2]!,
-      )
-    }
-    expect(actual, 'WGSL のハッシュが CPU 参照とずれた').toEqual([...expected])
-
-    // ノイズと気象マップ。相手は GLSL の最後の出力の記録
-    expect(result.noiseSlice, 'WGSL のノイズが記録とずれた').toEqual(ref.noiseSlice)
-    expect(result.weatherSlice, 'WGSL の気象マップが記録とずれた').toEqual(ref.weatherSlice)
-
-    // **歩き方は整数で比べられる。**WGSL でもループと分岐が同じなら
-    // 密度サンプル数が完全に一致するはず
-    expect(result.march, 'WGSL 側がマーチを焼いていない').toBeTruthy()
-    expect(result.march!.samples, 'WGSL のマーチの歩き方が記録とずれた').toEqual(ref.march.samples)
-    expect(result.march!.exhausted, 'WGSL の打ち切りの数が記録とずれた').toBe(ref.march.exhausted)
-    // **足し込みのバイト一致は基準から外した（2026-09-14）。**引き方を
-    // `TextureNode.setupUV()` に任せたので、素の GLSL で `vUv` を引く側とは
-    // 揃わない（実測で 36,864 中 26,763 個・最大 181。**絵はほとんど
-    // 変わらない**ことを `tools/cloud-live.mjs` で確かめた）。
-    // 足し込みが働いていることは `resolveChanged` が見る
-
-    // 高さ場。突き合わせる相手は sim の `heightAt` そのもの
-    expect(result.heightProbe, 'WGSL 側が高さ場を引いていない').toBeTruthy()
-    const terrain = defaultTerrain()
-    const expectedHeights = Array.from({ length: HEIGHT_PROBE_COUNT }, (_, i) => {
-      const p = heightProbePoint(i)
-      return terrain.heightAt(p.x, p.z)
-    })
-    const heightWorst = heightMaxError(expectedHeights, result.heightProbe!)
-    expect(
-      heightWorst,
-      `WGSL の高さ場の最大のずれ ${heightWorst} m`,
-    ).toBeLessThan(1e-2)
 
     // 円形スプライト。相手は CPU 参照。**WGSL は演算順序が変わるのでバイト
     // 一致は求めない**
@@ -311,143 +173,6 @@ test.describe('node 経路', () => {
       const d = byteDifference(spriteProbeExpected(opaqueCore), result.sprite![key])
       expect(d.max, `WGSL のスプライト（${key}）と CPU 参照の最大差 ${d.max}`).toBeLessThanOrEqual(1)
     }
-  })
-
-  test('TSL の雲影が GLSL の記録と分布で一致する', async ({ page }) => {
-    // **段 12 の合格条件。**16 ビンのヒストグラムで L1 距離 0.01 未満。
-    // 密度は形状 64³ とディテール 32³ と気象 512² を引くので、この検査は
-    // 3 つの体積が層まで正しく焼けていることも同時に見張る。
-    //
-    // **入力ごと記録から取る。**別の入力で焼いたものを比べると、一致しなかった
-    // ときに移植の欠陥なのか入力の違いなのかが分からない。記録が空回りしない
-    // こと（ビンが散っている・太陽が地平線の上）は `nodeReference.test.ts` が見る
-    const { result, errors } = await probe(
-      page,
-      `gpu=1&shadowinputs=${encodeShadowInputs(ref.shadow.inputs)}`,
-    )
-    expect(errors).toEqual([])
-    expect(result.shadowHistogram, 'TSL 側が影を焼いていない').toBeTruthy()
-
-    const distance = histogramL1(ref.shadow.bins, result.shadowHistogram!)
-    expect(distance, `L1 距離 ${distance}`).toBeLessThan(0.01)
-
-    // **分布だけでは足りない。**ノイズの体積を上下反転しても、気象マップを
-    // 上下反転しても、16 ビンの分布は 0.01 の内側に収まった（どちらも実測）。
-    // 区画ごとの平均なら配置が効く
-    expect(result.shadowTiles, 'TSL 側が影の配置を返していない').toBeTruthy()
-    expect(result.shadowTiles!.length).toBe(SHADOW_TILES * SHADOW_TILES)
-    const worst = maxAbsDifference(ref.shadow.tiles, result.shadowTiles!)
-    expect(worst, `区画ごとの平均の最大のずれ ${worst}`).toBeLessThan(0.02)
-  })
-
-  test('入力が違えば雲影の分布は一致しない', async ({ page }) => {
-    // **検査が働くことの確認。**同じ入力なら一致するという主張は、違う
-    // 入力なら一致しないことを見せて初めて意味を持つ。雲量だけを 0 にする
-    const { result } = await probe(
-      page,
-      `gpu=1&shadowinputs=${encodeShadowInputs({ ...ref.shadow.inputs, coverage: 0 })}`,
-    )
-    const distance = histogramL1(ref.shadow.bins, result.shadowHistogram!)
-    expect(distance, `L1 距離 ${distance}`).toBeGreaterThan(0.01)
-    const worst = maxAbsDifference(ref.shadow.tiles, result.shadowTiles!)
-    expect(worst, `区画ごとの平均の最大のずれ ${worst}`).toBeGreaterThan(0.02)
-  })
-
-  test('TSL のマーチが GLSL の記録と同じ歩き方をする', async ({ page }) => {
-    // **段 13 の合格条件。**固定のカメラと固定の入力で焼く。密度サンプル数と
-    // 打ち切りの数は整数なので、ループと分岐が同じなら完全に一致するはず。
-    // 絵は浮動小数の演算順序で動くので区画平均で見る。
-    //
-    // 相手は GLSL の最後の出力の記録。**通っていない枝は検査されない**ので、
-    // 記録が歩数を使い切る枝と透過率で抜ける枝の両方を通り、雲が視野いっぱいに
-    // あることは `nodeReference.test.ts` が見る（下限はすべて実測から取った）
-    const { result, errors } = await probe(page, 'gpu=1&marchprobe=1')
-    expect(errors).toEqual([])
-    expect(result.march, 'TSL 側がマーチを焼いていない').toBeTruthy()
-
-    // 整数どうし。1 でも違えば歩き方が違う
-    expect(result.march!.samples, '密度サンプル数が記録とずれた').toEqual(ref.march.samples)
-    expect(result.march!.exhausted, '打ち切りの数が記録とずれた').toBe(ref.march.exhausted)
-
-    const worst = maxAbsDifference(ref.march.tiles, result.march!.tiles)
-    expect(worst, `区画ごとの平均の最大のずれ ${worst}`).toBeLessThan(0.02)
-
-    // ---- 時間方向の足し込み ----
-    //
-    // 入力（ずらしを変えたマーチ 2 枚）は上で一致を確かめた経路そのもの。
-    // **履歴を読む枝を通っていること**を見張る。再投影が全部外れていても
-    // 足し込みの結果は現フレームと同じになるだけで、落ちる検査が他に無い
-    expect(result.march!.resolveChanged, '足し込みが現フレームを動かしていない')
-      .toBeGreaterThan(1000)
-    // **足し込みのバイト一致は基準から外した（2026-09-14）。**引き方を
-    // `TextureNode.setupUV()` に任せたので、素の GLSL で `vUv` を引く側とは
-    // バイトが揃わない（実測で 36,864 バイト中 26,763 個・最大 181。**絵は
-    // ほとんど変わらない**ことを `tools/cloud-live.mjs` で確かめた）。
-    //
-    // ---- `prevUv` を数値で突き合わせる ----
-    //
-    // **絵の印象では座標のずれが読めない。**上下反転の切り分けで何度も
-    // 外した（2026-09-14）。`prevUv` を色として焼き、記録とバイトを比べる。
-    // RG に uv、B に「画面内か」が入る
-    const recorded = ref.march.resolveUv
-    const uvDiff = byteDifference(recorded, result.march!.resolveUv)
-    // eslint-disable-next-line no-console
-    console.log(`[prevUv] 違う ${uvDiff.differing} / 最大 ${uvDiff.max}`)
-    // **チャンネル別に見る。**R=u、G=v、B=画面内か。どれがずれているかで
-    // 原因が分かれる（座標そのものか、判定の枝か）
-    const perChannel = [0, 1, 2].map((c) => {
-      let n = 0
-      let max = 0
-      for (let i = c; i < recorded.length; i += 4) {
-        const d = Math.abs(recorded[i]! - result.march!.resolveUv[i]!)
-        if (d > 0) n++
-        if (d > max) max = d
-      }
-      return { n, max }
-    })
-    expect(
-      uvDiff.max,
-      `再投影の座標が記録とずれる。` +
-        `u=${perChannel[0]!.n}個/最大${perChannel[0]!.max} ` +
-        `v=${perChannel[1]!.n}個/最大${perChannel[1]!.max} ` +
-        `画面内=${perChannel[2]!.n}個/最大${perChannel[2]!.max}`,
-    ).toBeLessThanOrEqual(2)
-  })
-
-  test('TSL の高さ場が sim の高さと一致する', async ({ page }) => {
-    // **段 14 の合格条件。**「見えている山と当たる山が違う」を機械で止める。
-    // 突き合わせる相手は GLSL 版ではなく `src/sim/terrain.ts` そのもの
-    const { result, errors } = await probe(page, 'gpu=1&heightprobe=1')
-    expect(errors).toEqual([])
-    expect(result.heightProbe, 'TSL 側が高さ場を引いていない').toBeTruthy()
-    expect(result.heightProbe!.length).toBe(HEIGHT_PROBE_COUNT)
-
-    const terrain = defaultTerrain()
-    const expected = Array.from({ length: HEIGHT_PROBE_COUNT }, (_, i) => {
-      const p = heightProbePoint(i)
-      return terrain.heightAt(p.x, p.z)
-    })
-
-    // **平らな海底ばかりを引いていないこと。**双三次を間違えても一致する
-    const land = expected.filter((h) => h > 0).length
-    const varied = expected.filter((h) => Math.abs(h - SEABED_HEIGHT) > 0.5).length
-    expect(land, `陸地の標本が ${land} 点しかない`).toBeGreaterThan(20)
-    expect(varied, `平らでない標本が ${varied} 点しかない`).toBeGreaterThan(40)
-    expect(Math.max(...expected), '高い山を通っていない').toBeGreaterThan(1000)
-    // **縁の外を通っていること。**止める処理はここでしか通らない
-    const half = TERRAIN_EXTENT / 2
-    const outside = Array.from({ length: HEIGHT_PROBE_COUNT }, (_, i) =>
-      heightProbePoint(i),
-    ).filter((p) => Math.abs(p.x) > half || Math.abs(p.z) > half).length
-    expect(outside, `範囲の外の標本が ${outside} 点しかない`).toBeGreaterThan(4)
-
-    // **1e-3 m には収まらない。**計画はそこを合格条件に置いていたが、
-    // GPU は float32 で解く。CPU 側の式を `Math.fround` で float32 に丸める
-    // だけで最大 1.03 mm ずれることを測った。実測のずれは 4.5 mm で、
-    // 高さ 2,050 m に対して相対 2.2e-6（float32 の 18 ulp ぶん）。
-    // **移植を間違えれば m の単位で外れる**ので、1 cm を関門にする
-    const worst = heightMaxError(expected, result.heightProbe!)
-    expect(worst, `最大のずれ ${worst} m`).toBeLessThan(1e-2)
   })
 
   /**
@@ -930,6 +655,7 @@ test.describe('node 経路', () => {
 
     // **雲は場面のパスより後に走ること。**先に走ると 1 フレーム前の深度を
     // 読む。順はノードを辿った順で決まるので、式の順を入れ替えると落ちる。
+    // 段 S4b で体積の雲のパスから、層の雲を焼く `rtt` に数え口を移した。
     //
     // **描画呼び出しの数で見る。**`frameCalls` は全画面クアッドのパス
     // （雲影や SMAA）も 1 つずつ数えるので、場面が描かれたかどうかは出て
@@ -1004,12 +730,6 @@ test.describe('node 経路', () => {
     // **パスの数では分からない。**投げ手が無くても影のパスは走る（段 15）
     expect(p.shadowFrameCalls).toBe(p.noShadowFrameCalls)
 
-    // 置き換えで地表が動くこと。**0 なら効いていない**
-    expect(
-      p.lightingProbeChanged,
-      `矩形で動いた ${p.lightingProbeChanged} バイト`,
-    ).toBeGreaterThan(1000)
-
     // ---- 事前コンパイルと起動時間（段 19）----
     //
     // **`compileAsync` は場面の物しか組まない。**鎖の全画面クアッドは
@@ -1041,15 +761,13 @@ test.describe('node 経路', () => {
       `起動 ${p.startupMs} ms が定常 ${p.steadyMs} ms の何倍か`,
     ).toBeLessThan(25)
 
-    // 地形が場面に入っていること。**材質が非互換だと黙って描かれない**
-    // （段 9 の記録）ので、パッチ枚数と三角形の数で見る
-    expect(p.terrainPatches, `パッチが ${p.terrainPatches} 枚`).toBeGreaterThan(50)
+    // 海面が場面に入っていること。**材質が非互換だと黙って描かれない**
+    // （段 9 の記録）ので、パッチ枚数と三角形の数で見る（段 S4b で地形から替えた）
+    expect(p.oceanPatches, `パッチが ${p.oceanPatches} 枚`).toBeGreaterThan(50)
     expect(
-      p.terrainTriangles,
-      `地形の三角形が ${p.terrainTriangles}`,
+      p.oceanTriangles,
+      `海面の三角形が ${p.oceanTriangles}`,
     ).toBeGreaterThan(10_000)
-    // 地形と海面のぶん、描画呼び出しが増える
-    expect(p.drawCalls, `描画呼び出しが ${p.drawCalls}`).toBeGreaterThan(60)
 
     // **SMAA が鎖に入っているだけでは足りない。**外すとパスの数が減り、
     // 辺の画素が動くことを見る
@@ -1061,107 +779,6 @@ test.describe('node 経路', () => {
       p.smaaChanged,
       'SMAA を外しても画素が動かない。辺を拾っていない',
     ).toBeGreaterThan(0)
-
-    // 同じプリセットを当て直すと同じ材質が出る。`useDetail` が生成時に
-    // 畳まれるので、切り替えには材質の組み直しが要る。
-    //
-    // **1 枚の絵では確かめられない。**ずらしがフレームごとに動くので、
-    // 同じ材質でも 2 枚は一致しない（実測で 328 バイト）
-    expect(
-      p.marchSourceLength,
-      'マーチの本文が取れていない',
-    ).toBeGreaterThan(1000)
-    const diff = p.requiltDiff
-    expect(
-      p.requiltSameSource,
-      diff === null
-        ? 'プリセットを当て直すと別の材質が出る'
-        : `プリセットを当て直すと別の材質が出る。${diff.index} 文字目で分岐` +
-          `（長さ ${diff.beforeLength} → ${diff.afterLength}）\n` +
-          `  前: ${JSON.stringify(diff.before)}\n` +
-          `  後: ${JSON.stringify(diff.after)}`,
-    ).toBe(true)
-    // 組み直しが何もしていなくても上は通る。変わる側も見る
-    expect(
-      p.requiltOtherDiffers,
-      '違うプリセットを当てても材質が変わらない。組み直しが働いていない',
-    ).toBe(true)
-  })
-
-  test('TSL の地表と海面が GLSL の記録と一致し、枝をすべて通る', async ({
-    page,
-  }) => {
-    // **段 17b。**`terrain.frag` と `water.frag` の色の本体を TSL へ移した。
-    // 大気に触らせていないので `?gpu=1` でも走る。段 S1 で相手を GLSL の
-    // 最後の出力の記録へ替えた
-    const { result, errors } = await probe(page, 'gpu=1&surfaceprobe=1')
-    expect(errors).toEqual([])
-    expect(result.surface, 'TSL 側が地表を焼いていない').toBeTruthy()
-
-    const pixels = SURFACE_PROBE_SIDE * SURFACE_PROBE_SIDE
-    expect(result.surface!.terrain.length).toBe(pixels * 4)
-    expect(result.surface!.water.length).toBe(WATER_PROBE_REGIONS.length)
-
-    // **枝を数えるのが先。**通っていない枝は検査されない（段 13・14・16）。
-    // 記録が摂動・雪・急斜面の岩、海面の 1 タップ・双三次・白波・波の遠近を
-    // すべて通り、階調を使い切っていることは `nodeReference.test.ts` が見る。
-    // ここは枝の数（整数）が記録と一致し、色が階調 1 まで一致することを見る
-    expectSurfaceMatchesReference(result.surface!)
-
-    // 頂点変位は CPU 参照と突き合わせる（高さ場と同じ作法）
-    const patch = terrainPatchProbeValues(result.surface!.patch)
-    expect(patch.length).toBe(pixels)
-    let worstXZ = 0
-    let worstMorph = 0
-    let clampedLow = 0
-    let clampedHigh = 0
-    let ramp = 0
-    for (let row = 0; row < SURFACE_PROBE_SIDE; row++) {
-      for (let col = 0; col < SURFACE_PROBE_SIDE; col++) {
-        const want = terrainPatchProbePoint(col, row)
-        const got = patch[row * SURFACE_PROBE_SIDE + col]!
-        worstXZ = Math.max(worstXZ, Math.abs(want.x - got.x), Math.abs(want.z - got.z))
-        worstMorph = Math.max(worstMorph, Math.abs(want.morph - got.morph))
-        if (want.morph === 0) clampedLow++
-        else if (want.morph === 1) clampedHigh++
-        else ramp++
-      }
-    }
-    // **寄せ量が片側で頭打ちするだけでは `clamp` を外しても気づけない。**
-    // 3 つの領域をすべて通す
-    expect(clampedLow, `寄せ量 0 が ${clampedLow} 画素`).toBeGreaterThan(0)
-    expect(clampedHigh, `寄せ量 1 が ${clampedHigh} 画素`).toBeGreaterThan(0)
-    expect(ramp, `途中の寄せ量が ${ramp} 画素`).toBeGreaterThan(pixels / 10)
-    expect(worstXZ, `頂点位置のずれ ${worstXZ} m`).toBeLessThan(0.01)
-    expect(worstMorph, `寄せ量のずれ ${worstMorph}`).toBeLessThan(1e-5)
-
-    // **照度の形が同じ絵を出すこと。**段 17c で地表のライティングを
-    // `getSplitIlluminance` へ移す。1/pi の掛け忘れや二重掛けがあれば
-    // 3.14 倍ずれるので、同じ値を流し込んで突き合わせる
-    const matched = byteDifference(
-      result.surface!.terrain,
-      result.surface!.terrainMatched,
-    )
-    expect(
-      matched.max,
-      `照度の形との差 ${matched.max} 階調（違うバイト ${matched.differing}）`,
-    ).toBeLessThanOrEqual(1)
-  })
-
-  test('WebGPU でも地表と海面が GLSL の記録と一致する', async ({ page }) => {
-    test.skip(
-      !hasWebGPU(),
-      'WebGPU の起動引数が要る',
-    )
-    const { result, errors } = await probe(page, 'gpu=2&surfaceprobe=1')
-    expect(errors).toEqual([])
-    expect(result.backend).toBe('node-webgpu')
-    expect(result.surface, 'TSL 側が地表を焼いていない').toBeTruthy()
-
-    // **枝の数は WGSL でも同じはず。**通ったか通らないかの整数なので
-    // 丸めが効かない。色は WGSL の演算順序が動きうるので階調 1 まで許す
-    // （段 13・16 と同じ）
-    expectSurfaceMatchesReference(result.surface!)
   })
 
   test('`?gpu=1` では鎖を組まない', async ({ page }) => {
@@ -1253,14 +870,9 @@ test.describe('node 経路', () => {
       `最後のフレームの描画呼び出しが ${hook!.drawCalls}。` +
         'nodeFrame が進んでいない疑い',
     ).toBeGreaterThan(100)
-    expect(hook!.drawnTriangles).toBeGreaterThan(400_000)
-
-    // 雲ノイズが焼けていること。GLSL 経路と同じ主張
-    expect(hook!.noiseStats.max).toBeGreaterThan(hook!.noiseStats.min)
-    expect(hook!.noiseStats.mean).toBeGreaterThan(0.1)
-    expect(hook!.noiseStats.mean).toBeLessThan(0.95)
-    // 8bit へ戻すと等高線状の横線が復活する。型そのものを見る
-    expect(hook!.cloudHdrTarget).toBe(true)
+    // 段 S4b で地形（約 45 万）を FFT の海面に替え、実測 144,539 になった。下限は 40 万から
+    // 10 万へ改めた。進んでいなければ 3 三角形なので、見張りの役目は変わらない
+    expect(hook!.drawnTriangles).toBeGreaterThan(100_000)
 
     // **放射輝度に CPU 側の値が無い。**`AtmosphereLight` の `direct` と
     // `indirect` は on/off で色ではないので、照度を焼いて読み戻している。

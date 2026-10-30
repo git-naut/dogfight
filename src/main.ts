@@ -9,13 +9,13 @@ import { getScript } from './sim/scripts'
 import { spawnFromSpec } from './sim/replay'
 import { createScene, createMissilePose, type MissilePose } from './render/scene'
 import { runNodeProbe } from './render/pipeline/node'
-import { CAPTURE_CONVERGE_FRAMES } from './render/clouds/geometry'
 import {
   readCaptureConfig,
   isDebugEnabled,
   resolveControlMode,
   installTestHook,
   DEFAULT_SEED,
+  CAPTURE_CONVERGE_FRAMES,
 } from './render/capture'
 import { getQuality, PerformanceGovernor, type PresetName } from './render/quality'
 import { pushFrame, type CpuFrame } from './render/cpuFrames'
@@ -30,12 +30,6 @@ import { createTitlePanel, type TitlePanel } from './hud/titlePanel'
 import { createSettingsPanel, type SettingsPanel } from './hud/settingsPanel'
 import { createPausePanel, type PausePanel } from './hud/pausePanel'
 import { createGameAudio, type GameAudio } from './audio/audio'
-import {
-  computeCloudDiag,
-  readCanvas,
-  runManualCloudDiag,
-  showCloudDiag,
-} from './render/cloudDiag'
 import { probeAudio, renderEngineSweep, renderSpatialDemo, renderWeaponDemo } from './audio/probe'
 import {
   loadSettings,
@@ -99,13 +93,10 @@ const hook = installTestHook({
   droppedSteps: 0,
   backend: '',
   webglVersion: 0,
-  cloudRenderCount: 0,
   atmosphereReady: false,
   sunElevation: 0,
   sunRadiance: [0, 0, 0],
   skyRadiance: [0, 0, 0],
-  noiseMs: 0,
-  noiseStats: { min: 0, max: 0, mean: 0 },
   gpuFrameMs: 0,
   gpuTimerSupported: false,
   gpuPassSources: [],
@@ -113,13 +104,10 @@ const hook = installTestHook({
   gpuPassMismatches: 0,
   gpuPassHistory: [],
   cpuFrameHistory: [],
-  cloudHdrTarget: false,
   benchMs: 0,
   benchSweep: [],
-  terrainMs: 0,
-  terrainStats: { min: 0, max: 0, mean: 0 },
-  terrainPatches: 0,
-  terrainTriangles: 0,
+  oceanPatches: 0,
+  oceanTriangles: 0,
   aircraftTriangles: 0,
   hudReady: false,
   hudSpeedKt: 0,
@@ -221,9 +209,6 @@ const hook = installTestHook({
   gearOverspeed: false,
   audioProbe: null,
   gpuProbe: null,
-  noiseSlice: null,
-  weatherSlice: null,
-  shadowInputs: null,
   speed: 0,
   altitude: 0,
   agl: 0,
@@ -399,13 +384,6 @@ async function main(): Promise<void> {
       height: window.innerHeight,
       hour: initialSettings.hour,
       quality,
-      // **記録の入力をそのまま渡す。**`?shadowinputs=` は GLSL の最後の出力の
-      // 記録（`tests/e2e/node-reference.json`）の入力を載せる。ここで導き直すと、
-      // ヒストグラムの不一致が移植の欠陥なのか入力の違いなのか分からない
-      shadowInputs: capture.shadowInputs,
-      marchProbe: capture.marchProbe,
-      ...(capture.uvProbeMode !== undefined ? { uvProbeMode: capture.uvProbeMode } : {}),
-      heightProbe: capture.heightProbe,
       skyProbe: capture.skyProbe,
       oceanProbe: capture.oceanProbe,
       nodeShadow: capture.nodeShadow,
@@ -413,7 +391,6 @@ async function main(): Promise<void> {
       toneProbe: capture.toneProbe,
       overlayProbe: capture.overlayProbe,
       nodePipeline: capture.nodePipeline,
-      surfaceProbe: capture.surfaceProbe,
     })
     hook.gpuProbe = probe
     hook.backend = probe.backend
@@ -442,23 +419,12 @@ async function main(): Promise<void> {
         }
       : {}),
     coverage: capture.coverage,
-    qualityOverride: {
-      ...(capture.cloudScale !== null ? { resolutionScale: capture.cloudScale } : {}),
-      ...(capture.cloudSteps !== null ? { maxSteps: capture.cloudSteps } : {}),
-      ...(capture.cloudLight !== null ? { lightSteps: capture.cloudLight } : {}),
-      ...(capture.lodScale !== null ? { lodDistanceScale: capture.lodScale } : {}),
-      ...(capture.terrainCells !== null ? { terrainPatchCells: capture.terrainCells } : {}),
-      ...(capture.cloudFar !== null ? { cloudMaxDistance: capture.cloudFar } : {}),
-    },
     ...(capture.exposure !== null ? { exposure: capture.exposure } : {}),
-    cloudTemporal: !capture.noTemporal,
-    cloudCaptureMode: capture.enabled,
-    showTerrain: capture.showTerrain,
     showWater: capture.showWater,
+    showClouds: capture.showClouds,
     oceanDebug: capture.oceanDebug,
     ...(capture.oceanCascades !== null ? { oceanCascades: capture.oceanCascades } : {}),
     ...(capture.oceanFftSize !== null ? { oceanFftSize: capture.oceanFftSize } : {}),
-    ocean: capture.ocean,
     ...(capture.oceanTexturePrecision !== null ? { oceanTexturePrecision: capture.oceanTexturePrecision } : {}),
     ...(capture.oceanAnisotropy !== null ? { oceanAnisotropy: capture.oceanAnisotropy } : {}),
     ...(capture.oceanFoamLevels !== null ? { oceanFoamLevels: capture.oceanFoamLevels } : {}),
@@ -466,7 +432,6 @@ async function main(): Promise<void> {
     ...(capture.oceanSkipFar !== null ? { oceanSkipFar: capture.oceanSkipFar } : {}),
     ...(capture.oceanSkyLookups !== null ? { oceanSkyLookups: capture.oceanSkyLookups } : {}),
     ...(capture.oceanTurbidity !== null ? { oceanTurbidity: capture.oceanTurbidity } : {}),
-    cloudLayers: capture.cloudLayers,
     showEnvironment: capture.showEnvironment,
     smaa: capture.smaa,
     bloom: capture.bloom,
@@ -481,7 +446,6 @@ async function main(): Promise<void> {
     lens: capture.lens,
     heatHaze: capture.heatHaze,
     lensStage: capture.lensStage,
-    illuminance: capture.illuminance,
     showAircraftShadow: capture.showAircraftShadow,
     showTargets: capture.showTargets,
     showEnemies: capture.showEnemies,
@@ -505,17 +469,10 @@ async function main(): Promise<void> {
   hook.atmosphereReady = true
   // **生バイトを出すのは頼まれたときだけ。**1,024 個をフックへ常時置くと
   // 読み出しの費用が全テストに乗る
-  hook.noiseSlice = capture.noiseProbe ? [...view.noiseSlice] : null
-  hook.weatherSlice = capture.noiseProbe ? [...view.weatherSlice] : null
   hook.sunElevation = view.sunElevation
   hook.sunRadiance = view.sunRadiance.toArray()
   hook.skyRadiance = view.skyRadiance.toArray()
-  hook.noiseMs = view.noiseMs
-  hook.noiseStats = view.noiseStats
   hook.gpuTimerSupported = view.gpuTimerSupported
-  hook.cloudHdrTarget = view.cloudHdrTarget
-  hook.terrainMs = view.terrainMs
-  hook.terrainStats = view.terrainStats
   hook.aircraftTriangles = view.aircraftTriangles
   hook.aircraftSurfaces = view.aircraftSurfaces
   hook.environmentReady = view.environmentReady
@@ -734,8 +691,8 @@ async function main(): Promise<void> {
     hook.elevator = sample.elevator
     hook.aileron = sample.aileron
     hook.rudder = sample.rudder
-    hook.terrainPatches = view.terrainPatches
-    hook.terrainTriangles = view.terrainTriangles
+    hook.oceanPatches = view.oceanPatches
+    hook.oceanTriangles = view.oceanTriangles
     hook.aircraftTriangles = view.aircraftTriangles
     hook.targetCount = targetSamples.length
     hook.targetInstances = view.targetInstances
@@ -825,8 +782,6 @@ async function main(): Promise<void> {
     hook.sunElevation = view.sunElevation
   hook.sunRadiance = view.sunRadiance.toArray()
   hook.skyRadiance = view.skyRadiance.toArray()
-  hook.noiseMs = view.noiseMs
-  hook.noiseStats = view.noiseStats
   hook.gpuTimerSupported = view.gpuTimerSupported
   }
 
@@ -879,8 +834,9 @@ async function main(): Promise<void> {
     // 何度も回すが、HUD は別の canvas なので描き直す必要はない
     drawHud(world)
 
-    // 雲は時間方向に足し込むので、1 枚だけ描いても収束しない。
+    // 体積の雲は時間方向に足し込むので、1 枚だけ描いても収束しなかった。
     // カメラを止めたまま必要な本数を描く。実時間は使わないので決定論は保たれる。
+    // 層の雲（段 S4b）で本数を減らせるかは `CAPTURE_CONVERGE_FRAMES` の注記。
     //
     // **雲量 0 なら 1 枚でよい。**マーチが何も返さないので蓄積の中身が毎回
     // 同じになり、8 枚描いても絵は変わらない。基準画像 36 枚のうち 30 枚が
@@ -893,10 +849,6 @@ async function main(): Promise<void> {
           ? 2
           : CAPTURE_CONVERGE_FRAMES
     for (let i = 0; i < converge; i++) view.render()
-
-    // **雲影マップを決めた入力を出す。**`?gpu=1|2` の自己診断へ同じ値を
-    // `?shadowinputs=` で渡すための口。GLSL の分布を読む口は段 S1 で捨てた
-    if (capture.shadowProbe) hook.shadowInputs = view.readShadowInputs()
 
     if (capture.sweep) {
       const samplesPerCase = capture.bench > 0 ? capture.bench : 40
@@ -1341,8 +1293,6 @@ async function main(): Promise<void> {
     }
 
     hook.droppedSteps = driver.droppedSteps
-    // **毎フレーム出す。**シムのフレームと並べて、雲が焼けているかを見る
-    hook.cloudRenderCount = view.cloudRenderCount
     publishGpuPasses()
     debug?.update(sample, world.frame, smoothedFps, {
       sunElevation: view.sunElevation,
@@ -1357,8 +1307,8 @@ async function main(): Promise<void> {
       cpuSyncMs,
       cpuRenderMs,
       cpuHudMs,
-      terrainPatches: view.terrainPatches,
-      terrainTriangles: view.terrainTriangles,
+      oceanPatches: view.oceanPatches,
+      oceanTriangles: view.oceanTriangles,
       aircraftTriangles: view.aircraftTriangles,
       drawCalls: view.drawCalls,
       drawnTriangles: view.drawnTriangles,
@@ -1424,108 +1374,6 @@ async function main(): Promise<void> {
   finishBoot()
   requestAnimationFrame(frame)
 
-  // **実機の GPU で雲の追従を数値にする。**`?clouddiag=1`。
-  //
-  // WSL2 の WebGPU は SwiftShader にしか乗らず、Windows の Chrome へ CDP で
-  // 繋ぐ道も塞がれている（`src/render/cloudDiag.ts` の注記）。ページの中で
-  // 2 枚撮って比べ、結果を DOM へ出せば、ヘッドレスの `--screenshot` 1 枚で
-  // 読める
-  if (new URLSearchParams(window.location.search).has('clouddiag')) {
-    if (new URLSearchParams(window.location.search).get('clouddiag') === 'manual') {
-      runManualCloudDiag({ canvas: canvas!, view, computeCloudDiag, showCloudDiag, readCanvas })
-    } else {
-      void runCloudDiag()
-    }
-  }
-
-  /** タイトルを飛ばし、水平に整えてから回して 3 枚撮る */
-  async function runCloudDiag(): Promise<void> {
-    const waitFrames = (n: number) =>
-      new Promise<void>((resolve) => {
-        const from = world.frame
-        const tick = () => {
-          if (world.frame - from >= n) resolve()
-          else requestAnimationFrame(tick)
-        }
-        tick()
-      })
-
-    /** **口を足さずにイベントで押す。**`KeyboardInput` は window に付く */
-    const key = (code: string, down: boolean) =>
-      window.dispatchEvent(
-        new KeyboardEvent(down ? 'keydown' : 'keyup', { code, bubbles: true }),
-      )
-
-    titlePanel?.hide()
-    // 機首を上げて空と雲を入れる。**`KeyW` はピッチ下げ、`KeyS` が上げ**
-    key('KeyS', true)
-    await waitFrames(180)
-    key('KeyS', false)
-    await waitFrames(120)
-
-    const base = readCanvas(canvas!)
-    // **雲の領域はその場で実測する。**どこにあるかを推測しない
-    view.setMeasureConfig?.({ clouds: false })
-    await waitFrames(6)
-    const noClouds = readCanvas(canvas!)
-    view.setMeasureConfig?.({ clouds: true })
-    await waitFrames(6)
-
-    // **ロールだけでなく上昇下降でも出る**という報告（2026-09-14）。
-    // `?clouddiag=pitch` でピッチに切り替える
-    const mode =
-      new URLSearchParams(window.location.search).get('clouddiag') === 'pitch'
-        ? 'pitch'
-        : 'roll'
-    const moveKey = mode === 'pitch' ? 'KeyS' : 'KeyA'
-    const bankBefore = (world.player.bank * 180) / Math.PI
-    // **描画フレームと雲の焼き回数を並べる。**雲が描画ごとに更新されて
-    // いなければ、遅れて「ついてくる」ように見える
-    const bakesBefore = view.cloudRenderCount
-    let drawn = 0
-    const countDraw = () => {
-      drawn++
-      requestAnimationFrame(countDraw)
-    }
-    requestAnimationFrame(countDraw)
-    // **入力を止めずに撮る。**報告は「入力するとすぐに挙動する」。
-    // 入力を止めて落ち着いてから撮ると、雲が追いついて差が消える。
-    // `?lag=N` で入力してから撮るまでのフレーム数を変えられる
-    const lag = Number(
-      new URLSearchParams(window.location.search).get('lag') ?? '24',
-    )
-    key(moveKey, true)
-    await waitFrames(lag)
-    const rolled = readCanvas(canvas!)
-    key(moveKey, false)
-    // **回した後の雲の位置も要る。**重心の移動を出すには、回す前と後の
-    // 両方で「雲がどこにあるか」を知る必要がある
-    // **雲の位置は入力を止めてから測る。**動いている最中に切り替えると
-    // 雲あり/なしの 2 枚で視点がずれ、差が雲でなく視点の移動になる
-    view.setMeasureConfig?.({ clouds: false })
-    await waitFrames(6)
-    const rolledNoClouds = readCanvas(canvas!)
-    view.setMeasureConfig?.({ clouds: true })
-    await waitFrames(6)
-    const rolledDegrees = Math.abs((world.player.bank * 180) / Math.PI - bankBefore)
-
-    const diag = computeCloudDiag(
-        base,
-        rolled,
-        noClouds,
-        rolledDegrees,
-        view.backend.kind,
-        drawn,
-        view.cloudRenderCount - bakesBefore,
-        rolledNoClouds,
-    )
-    showCloudDiag(diag, {
-      base,
-      rolled,
-      cloud: diag.masks.cloud,
-      cloudAfter: diag.masks.cloudAfter,
-    })
-  }
 }
 
 main().catch((error: unknown) => {

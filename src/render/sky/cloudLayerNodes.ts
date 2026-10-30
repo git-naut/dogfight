@@ -1,4 +1,4 @@
-import { Fn, If, abs, clamp, dot, exp, float, getViewPosition, int, length, max, min, mix, normalize, pow, smoothstep, sqrt, uniform, vec2, vec3, vec4, wgslFn } from 'three/tsl'
+import { Fn, If, abs, clamp, dot, exp, float, getViewPosition, int, length, max, min, mix, normalize, pow, rtt, screenUV, smoothstep, sqrt, uniform, vec2, vec3, vec4, wgslFn } from 'three/tsl'
 import { Vector3 } from 'three'
 import type { Node } from 'three/webgpu'
 import {
@@ -14,7 +14,7 @@ import { GROUND_RADIUS } from './reference'
  * 層の雲（段 S4c）。web-ocean（MIT、a07c7fd）の `SKY_CLOUD_FUNCS` の写し。
  *
  * 1.5 km の積雲と 4.5 km の高層雲の 2 枚の薄い層を、場面の合成の中で画素ごとに求める。出力は
- * 前乗算の色（rgb, 隠す割合）で、体積の雲（`clouds/cloudsNodePass.ts`）と同じく合成が霞の上に
+ * 前乗算の色（rgb, 隠す割合）で、段 S4b で消した体積の雲と同じく合成が霞の上に
  * 重ねる（`overlayNodes.ts`）。
  *
  * - **縁と密度とノイズは WGSL のまま**（`wgslFn`。計画で認めた数値核の WGSL 併用）。CPU 参照は
@@ -368,4 +368,23 @@ export function createCloudLayers(inputs: CloudLayerInputs): CloudLayers {
       ;(cameraXZ.value as { set(x: number, y: number): void }).set(camera.x / 1000, camera.z / 1000)
     },
   }
+}
+
+/**
+ * 層の雲を `resolutionScale` 倍の解像度で焼いたテクスチャ（品質表の `cloudLayerResolutionScale`、
+ * web-ocean と同じく半分）。合成は全解像度で引いて拡大する。名前は計時の群「雲」の目印
+ * （`passTimes.ts`）。本番の場面（`nodeScene.ts`）と自己診断（`node.ts`）が同じものを通す。
+ *
+ * `depth` は場面のパスの深度。**場面のパスより後に焼くこと**（`nodeOutput.ts` の順序の注記）
+ */
+export function cloudLayerTexture(layers: CloudLayers, depth: N<'float'>, resolutionScale: number): N<'vec4'> {
+  const node = layers.node(depth, screenUV as never)
+  const texture = (rtt as unknown as (n: unknown, w: null, h: null, o: { resolutionScale: number }) => N<'vec4'>)(
+    node,
+    null,
+    null,
+    { resolutionScale },
+  )
+  ;(texture as unknown as { name: string }).name = 'cloudLayers'
+  return texture
 }

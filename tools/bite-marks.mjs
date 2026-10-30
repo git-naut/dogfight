@@ -200,33 +200,9 @@ export const BITE_MARKS = [
     expect: 'tests/sim/aircraft.test.ts',
     why: '迎角制限器を常に切る。既定で効いていることを見張れているか。切れるようにしてある機能は、既定側も見張らないと片側しか通らない',
   },
-  {
-    id: 'shadow-tiles-drop-length-guard',
-    kind: '文の削除',
-    file: 'src/render/clouds/geometry.ts',
-    find: '  if (bytes.length < width * height * 4) return []\n',
-    replace: '',
-    expect: 'tests/render/shadowHistogram.test.ts',
-    why: '読み戻せていない絵を 0 で埋めて返すと、GLSL 版との突き合わせが「一致した」になる。長さが足りないときは空を返すこと',
-  },
-  {
-    id: 'shadow-tiles-single-cell',
-    kind: '定数の摂動',
-    file: 'src/render/clouds/geometry.ts',
-    find: 'export const SHADOW_TILES = 4',
-    replace: 'export const SHADOW_TILES = 1',
-    expect: 'tests/render/shadowHistogram.test.ts',
-    lesson: '分布は配置を見ない',
-  },
-  {
-    id: 'shadow-inputs-drop-empty-check',
-    kind: '文の削除',
-    file: 'src/render/clouds/shadowInputs.ts',
-    find: "  if (parts.some((p) => p.trim() === '')) return null\n",
-    replace: '',
-    expect: 'tests/render/shadowInputs.test.ts',
-    why: "`Number('')` は 0 を返すので、末尾の欠けた `?shadowinputs=` が「中心 Z が 0」として黙って通る。TSL 版と GLSL 版が別の入力で焼いたものを比べることになる",
-  },
+
+
+
   {
     id: 'readback-drop-stride-guard',
     kind: '文の削除',
@@ -242,43 +218,27 @@ export const BITE_MARKS = [
     expect: 'tests/render/readback.test.ts',
     lesson: '読み戻しの向きと原点がバックエンドで違う',
   },
-  {
-    id: 'march-samples-drop-high-byte',
-    kind: '文の削除',
-    file: 'src/render/clouds/marchProbe.ts',
-    find: 'bytes[i * 4]! * 256 + bytes[i * 4 + 1]!',
-    replace: 'bytes[i * 4 + 1]!',
-    expect: 'tests/render/marchProbe.test.ts',
-    why: '密度サンプル数は R と G に 16bit で詰めてある。上位バイトを落とすと 256 以上が全部同じに見え、歩き方の違いが埋もれる',
-  },
-  {
-    id: 'march-camera-below-slab',
-    kind: '定数の摂動',
-    file: 'src/render/clouds/marchProbe.ts',
-    find: '  positionY: 2000,\n  positionZ: 0,',
-    replace: '  positionY: 900,\n  positionZ: 0,',
-    expect: 'tests/render/marchProbe.test.ts',
-    lesson: '通っていない枝は検査されない',
-  },
+
+
   {
     id: 'byte-difference-drop-length-guard',
     kind: '文の削除',
-    file: 'src/render/clouds/marchProbe.ts',
+    file: 'src/render/pixelCompare.ts',
     find: `  if (a.length !== b.length) {
     return { differing: Number.POSITIVE_INFINITY, max: Number.POSITIVE_INFINITY }
   }
 `,
     replace: '',
-    expect: 'tests/render/marchProbe.test.ts',
+    expect: 'tests/render/pixelCompare.test.ts',
     why: '長さの違う 2 枚を先頭だけ比べると「違うバイト 0 個」になる。読み戻せていない絵を一致したと読む形を作らない',
   },
   {
     id: 'byte-difference-ignore-floor',
     kind: '条件の固定',
-    file: 'src/render/clouds/marchProbe.ts',
+    file: 'src/render/pixelCompare.ts',
     find: '    if (d > floor) differing++',
     replace: '    if (d > 0) differing++',
-    expect: 'tests/render/marchProbe.test.ts',
+    expect: 'tests/render/pixelCompare.test.ts',
     lesson: '「動いたバイト数」の閾値を雑音が支えていた',
   },
   {
@@ -362,15 +322,7 @@ export const BITE_MARKS = [
     expect: 'tests/render/scenePass.test.ts',
     why: 'SSR が読む法線の面が作られない。getTextureNode だけでは 2 本目の出力を書き出さない',
   },
-  {
-    id: 'terrain-fragment-node',
-    kind: '条件の固定',
-    file: 'src/render/terrain/nodeMaterials.ts',
-    find: '  ;(material as unknown as { outputNode: unknown }).outputNode =\n    terrainSurfaceNode(',
-    replace: '  ;(material as unknown as { fragmentNode: unknown }).fragmentNode =\n    terrainSurfaceNode(',
-    expect: 'tests/render/surfaceMrt.test.ts',
-    lesson: '`fragmentNode` を持つ材質には MRT が当たらない',
-  },
+
   {
     id: 'flame-mrt-missing',
     kind: '文の削除',
@@ -425,51 +377,11 @@ export const BITE_MARKS = [
     expect: 'tests/tools/detailJudge.test.ts',
     why: '変わった場所が無いと中央値は NaN。NaN との比較はすべて false なので、< で書くと「艶が出た」になる',
   },
-  {
-    id: 'height-probe-step-on-grid',
-    kind: '定数の摂動',
-    file: 'src/render/terrain/heightProbe.ts',
-    find: 'step: { x: 1237.3, z: 1511.7 }',
-    replace: 'step: { x: 1248, z: 1536 }',
-    expect: 'tests/render/heightProbe.test.ts',
-    why: '刻みをテクセル 48 m の倍数にすると双三次が t = 0 になり、焼いた値をそのまま返すだけの検査になる。補間の途中を通さないと写し間違いが見えない',
-  },
-  {
-    id: 'height-error-drop-nan-guard',
-    kind: '文の削除',
-    file: 'src/render/terrain/heightProbe.ts',
-    find: '    if (!Number.isFinite(d)) return Number.POSITIVE_INFINITY\n',
-    replace: '',
-    expect: 'tests/render/heightProbe.test.ts',
-    why: 'NaN との差は比較が常に false になるので、最大のずれ 0 として通ってしまう。読み戻せていない点を一致したと読む形を作らない',
-  },
-  {
-    id: 'surface-probe-flat-region',
-    kind: '定数の摂動',
-    file: 'src/render/terrain/surfaceProbe.ts',
-    find: 'origin: { x: -1708, z: -15100 },',
-    replace: 'origin: { x: 18000, z: 18000 },',
-    expect: 'tests/render/surfaceProbe.test.ts',
-    lesson: '通っていない枝は検査されない',
-  },
-  {
-    id: 'surface-probe-sun-flat',
-    kind: '定数の摂動',
-    file: 'src/render/terrain/surfaceProbe.ts',
-    find: 'unit(0.42, 0.63, -0.65)',
-    replace: 'unit(0.42, 0.03, -0.65)',
-    expect: 'tests/render/surfaceProbe.test.ts',
-    why: '太陽が低いと雲影の足元へのずらしが `sunDirectionWorld.y > 0.05` の枝を通らない。標高のある地表で影の位置がずれる写し間違いが見えなくなる',
-  },
-  {
-    id: 'surface-shadow-uniform',
-    kind: '定数の摂動',
-    file: 'src/render/terrain/surfaceProbe.ts',
-    find: 'data[y * size + x] = Math.round(Math.min(1, stripe * blocks) * 255)',
-    replace: 'data[y * size + x] = 128',
-    expect: 'tests/render/surfaceProbe.test.ts',
-    why: '雲影が一様だと、引く位置を間違えても同じ値が返って一致してしまう',
-  },
+
+
+
+
+
   {
     id: 'overlay-probe-never-opaque',
     kind: '定数の摂動',

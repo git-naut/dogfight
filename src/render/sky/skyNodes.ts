@@ -62,7 +62,7 @@ import {
  * Hillaire の大気の LUT を TSL で焼く（段 S2a）。
  *
  * web-ocean（MIT、a07c7fd）の `TRANS_LUT`・`MS_LUT`・`SKYVIEW_LUT` の写し。web-ocean は
- * コンピュートで焼くが、ここは全画面のクアッドへフラグメントで焼く（`clouds/volume.ts` の
+ * コンピュートで焼くが、ここは全画面のクアッドへフラグメントで焼く（`pipeline/bake.ts` の
  * `bakePlane`）。WebGL2 と WebGPU の両方のバックエンドで同じ式が走り、自己診断
  * （`?gpu=1|2`）で CPU 参照（`reference.ts`）と比べられる。
  *
@@ -72,7 +72,7 @@ import {
  *
  * **焼くときは v を裏返す**（`bakeUv`）。node 経路はレンダーターゲットのテクスチャを
  * 引くとき v を裏返すので、焼く側で打ち消すと「LUT の uv」をそのまま `texture()` に
- * 渡せる（`clouds/noiseNodes.ts` の `bakeUv` と同じ約束）。
+ * 渡せる（段 S4b で消した雲ノイズの `bakeUv` と同じ約束）。
  *
  * **ループの中のテクスチャは LOD 0 で引く。**分岐の中で微分を使う暗黙の LOD は
  * WGSL で許されない。

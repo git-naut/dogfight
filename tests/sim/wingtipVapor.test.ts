@@ -23,7 +23,7 @@ describe('wingtipVapor', () => {
   })
 
   it('高速で荷重倍数の低い引き起こしでは出ない。3.39 G でも足りない', () => {
-    expect(vaporAt('island-run', 2000)).toBeLessThan(0.25)
+    expect(vaporAt('fast-pull', 2000)).toBeLessThan(0.25)
   })
 
   it('定常旋回では出る。荷重倍数は 3.08 しかない', () => {

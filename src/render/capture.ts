@@ -1,10 +1,6 @@
 import { DEFAULT_COVERAGE, type NodeProbeResult } from './pipeline/types'
 import type { FramePassTimes, PassSource } from './pipeline/passTimes'
 import type { CpuFrame } from './cpuFrames'
-import {
-  decodeShadowInputs,
-  type ShadowInputs,
-} from './clouds/shadowInputs'
 import { resolvePreset, type MaterialDetail, type PresetName } from './quality'
 import { DEFAULT_HOUR } from './geoFrame'
 
@@ -38,18 +34,6 @@ export interface CaptureConfig {
   exposure: number | null
   /** 雲量 0..1 */
   coverage: number
-  /** 雲のレイマーチ解像度の上書き。実機で振って GPU 時間を測る用 */
-  cloudScale: number | null
-  /** 主マーチのステップ数の上書き */
-  cloudSteps: number | null
-  /** 光マーチの段数の上書き */
-  cloudLight: number | null
-  /** 地形の LOD 切り替え距離の倍率の上書き */
-  lodScale: number | null
-  /** 地形パッチの一辺のセル数の上書き */
-  terrainCells: number | null
-  /** 時間方向の足し込みを切るか。比較用 */
-  noTemporal: boolean
   /** 自動降格を止める。実機で品質を固定して計測するため */
   noDegrade: boolean
   /**
@@ -57,15 +41,13 @@ export interface CaptureConfig {
    * 戻す働き（`PerformanceGovernor`）を実機で確かめるため（ADR 0042）
    */
   govTest: boolean
-  /**
-   * 地形と海面を描くか。`?terrain=0` `?water=0` で切る。
-   *
-   * どちらが GPU 時間を食っているかは、切ってみないと分からない。
-   * 雲では `?probe` で実行量を数えたが、地形は頂点とラスタライズの費用が
-   * 主なので数えられない。差分で測る
-   */
-  showTerrain: boolean
+  /** 海面を描くか。`?water=0` で切る。海の費用を差分で測る口 */
   showWater: boolean
+  /**
+   * 層の雲を合成するか。`?clouds=0` で切る（段 S4b）。画素の逆テスト（`MUTATE=1`）が
+   * 雲を見張っている基準画像を確かめる口。合成から外すだけで費用は下がらない
+   */
+  showClouds: boolean
   /**
    * FFT の海を目で見る画面にするか。`?ocean=debug`（段 S3）。場面は描かず、カスケードごとの
    * 高さ・傾き・ヤコビアンを並べる（`ocean/oceanDebug.ts`）
@@ -75,8 +57,6 @@ export interface CaptureConfig {
   oceanCascades: number | null
   /** 計測用: 海の格子の一辺（`?oceanfft=`、2 のべき） */
   oceanFftSize: number | null
-  /** FFT の海面を描くか。`?ocean=1`（段 S4a-1）。今の板の海を隠して替える */
-  ocean: boolean
   /** 海面のテクスチャの精度。`?oceantex=16|32`、無ければ null（既定の 16） */
   oceanTexturePrecision: 16 | 32 | null
   /** 計測用: 海面のテクスチャの異方性の上限（`?oceananiso=`）と泡の段数（`?oceanfoam=`） */
@@ -88,8 +68,6 @@ export interface CaptureConfig {
   oceanSkyLookups: 2 | 3 | null
   /** 水の濁り（`?oceanturbidity=`）。S4b の絵の承認で値を選ぶための口 */
   oceanTurbidity: number | null
-  /** 雲を web-ocean の 2 層にするか。`?clouds=layers`（段 S4c） */
-  cloudLayers: boolean
   /** 環境反射を使うか。`?env=0` で切る。質感の比較に使う */
   showEnvironment: boolean
   /**
@@ -159,15 +137,6 @@ export interface CaptureConfig {
    * 動いたらどの段が動かしたのかを 1 つずつ切って見る
    */
   lensStage: 'tone' | 'blur' | 'full'
-  /**
-   * 地表と海面のライティングを大気の LUT から引くか。`?illum=0` で段 17b の
-   * 形（`surfaceState` の放射輝度）へ戻す。
-   *
-   * **差分の帰属を測るための口（段 20a-4）。**計画は
-   * `getSplitIlluminance` の影響を「地形が映る 40 枚」と見積もっている。
-   * 既定の経路には効かない
-   */
-  illuminance: boolean
   /** 機体の影を使うか。`?shadow=0` で切る。切り分けと計測に使う */
   showAircraftShadow: boolean
   /**
@@ -253,36 +222,6 @@ export interface CaptureConfig {
    * 段 S1 で GLSL 経路と、それを名指しする `?webgl=1` を捨てた。
    */
   gpu: number
-  /** 足し込みのプローブで代表点を出すか。`?uvmode=world` */
-  uvProbeMode: 'world' | undefined
-  /**
-   * 雲ノイズの突き合わせ用の読み戻しを出すか。`?noiseprobe=1`。
-   *
-   * 形状ノイズの中央スライスの左下 16x16 を `hook.noiseSlice` に置く。
-   * **統計だけでは 1 ビットのずれが埋もれる**ので、生バイトを出す
-   */
-  noiseProbe: boolean
-  /**
-   * 雲影マップを決めた入力を出すか。`?shadowprobe=1`。
-   *
-   * `hook.shadowInputs` へ置く。自己診断（`?gpu=1|2`）へ `?shadowinputs=` で
-   * 渡し直すための口。分布を読み戻す GLSL の口は段 S1 で捨てた
-   */
-  shadowProbe: boolean
-  /**
-   * 雲のマーチを固定の入力で焼いて出すか。`?marchprobe=1`。
-   *
-   * 自己診断（`?gpu=1|2`）だけが読み、密度サンプル数と打ち切りの数と
-   * 区画平均を `gpuProbe.march` へ置く。3 枚焼くので頼まれたときだけ走らせる
-   */
-  marchProbe: boolean
-  /**
-   * 高さ場を TSL で引いて出すか。`?heightprobe=1`。
-   *
-   * 64 点を焼いて読み戻し、`src/sim/terrain.ts` の `heightAt` と突き合わせる。
-   * **「見えている山と当たる山が違う」を機械で止める**
-   */
-  heightProbe: boolean
   /**
    * 自前の空の LUT と天空光を焼いて出すか。`?skyprobe=1`（段 S2a）。
    *
@@ -329,12 +268,6 @@ export interface CaptureConfig {
    */
   nodePipeline: boolean
   /**
-   * 地表と海面を固定の矩形で焼いて出すか。`?surfaceprobe=1`。
-   *
-   * 自己診断（`?gpu=1|2`）だけが読む
-   */
-  surfaceProbe: boolean
-  /**
    * キャプチャで雲を描き重ねる枚数。`?converge=N`。0 なら既定の規則に従う。
    *
    * 既定は雲量 0 なら 2 枚、そうでなければ `CAPTURE_CONVERGE_FRAMES`。
@@ -342,22 +275,6 @@ export interface CaptureConfig {
    * ことを確かめられるようにしておく
    */
   converge: number
-  /**
-   * TSL 版の雲影を焼くときの入力。`?shadowinputs=t,cov,sx,sy,sz,cx,cz`。
-   *
-   * `?gpu=1|2` の自己診断だけが読む。**記録（`tests/e2e/node-reference.json`）の
-   * 入力をそのまま渡す。**
-   * 導き直すと、導き方が食い違ったときにヒストグラムの不一致が移植の欠陥に
-   * 見える。数が揃わなければ null で、雲影は焼かない
-   */
-  shadowInputs: ShadowInputs | null
-  /**
-   * 雲のマーチを打ち切る距離 m。`?cloudfar=` で振る。
-   *
-   * 遠方の雲海をどこで切るかを絵と費用の両方で測るための口。
-   * 指定しなければプリセットの値
-   */
-  cloudFar: number | null
   /**
    * 起動時にシェーダを全プリセットぶん作るか。
    *
@@ -396,6 +313,15 @@ export interface CaptureConfig {
 export const DEFAULT_SEED = 20260816
 
 /**
+ * キャプチャで描き重ねる本数（雲量が 0 でないとき）。
+ *
+ * 体積の雲は時間方向に足し込むので、カメラを止めたまま 8 枚描いて真の平均を取っていた。
+ * 段 S4b で `clouds/geometry.ts` から移した。層の雲は足し込まないので 1 枚で足りる見込み
+ * だが、**減らすのは確かめてから**（ユーザーの決定、2026-10-30）。それまで本数は動かさない
+ */
+export const CAPTURE_CONVERGE_FRAMES = 8
+
+/**
  * 既定の雲量。**正本は `pipeline/types.ts`。**
  *
  * ノイズを Nyquist 内へ収めた際に塊が育つ方向へ変わったので、点在する
@@ -423,28 +349,13 @@ export function readCaptureConfig(search: string): CaptureConfig {
       ? clampNumber(params.get('exposure'), 0.01, 1000, 1)
       : null,
     coverage: clampNumber(params.get('coverage'), 0, 1, DEFAULT_COVERAGE),
-    cloudScale: params.has('cloudScale')
-      ? clampNumber(params.get('cloudScale'), 0.05, 1, 0.25)
-      : null,
-    cloudSteps: params.has('cloudSteps')
-      ? clampInt(params.get('cloudSteps'), 8, 512, 96)
-      : null,
-    cloudLight: params.has('cloudLight')
-      ? clampInt(params.get('cloudLight'), 1, 8, 6)
-      : null,
-    lodScale: params.has('lod') ? clampNumber(params.get('lod'), 0.2, 3, 1) : null,
-    terrainCells: params.has('cells')
-      ? clampInt(params.get('cells'), 4, 64, 32)
-      : null,
-    noTemporal: params.get('ta') === '0',
     noDegrade: params.get('nodegrade') === '1',
     govTest: params.get('govtest') === '1',
-    showTerrain: params.get('terrain') !== '0',
     showWater: params.get('water') !== '0',
+    showClouds: params.get('clouds') !== '0',
     oceanDebug: params.get('ocean') === 'debug',
     oceanCascades: params.has('oceancascades') ? Number(params.get('oceancascades')) : null,
     oceanFftSize: params.has('oceanfft') ? Number(params.get('oceanfft')) : null,
-    ocean: params.get('ocean') === '1',
     oceanTexturePrecision: params.get('oceantex') === '32' ? 32 : params.get('oceantex') === '16' ? 16 : null,
     oceanAnisotropy: params.has('oceananiso') ? Number(params.get('oceananiso')) : null,
     oceanFoamLevels: params.has('oceanfoam') ? Number(params.get('oceanfoam')) : null,
@@ -452,7 +363,6 @@ export function readCaptureConfig(search: string): CaptureConfig {
     oceanSkipFar: params.has('oceanskip') ? params.get('oceanskip') === '1' : null,
     oceanSkyLookups: params.get('oceansky') === '2' ? 2 : params.get('oceansky') === '3' ? 3 : null,
     oceanTurbidity: params.has('oceanturbidity') ? Number(params.get('oceanturbidity')) : null,
-    cloudLayers: params.get('clouds') === 'layers',
     showEnvironment: params.get('env') !== '0',
     smaa: params.get('smaa') !== '0',
     bloom: params.get('bloom') !== '0',
@@ -476,7 +386,6 @@ export function readCaptureConfig(search: string): CaptureConfig {
       const v = params.get('lens')
       return v === 'blur' || v === 'tone' ? v : 'full'
     })(),
-    illuminance: params.get('illum') !== '0',
     showAircraftShadow: params.get('shadow') !== '0',
     showTargets: params.get('targets') !== '0',
     showEnemies: params.get('enemies') !== '0',
@@ -505,13 +414,6 @@ export function readCaptureConfig(search: string): CaptureConfig {
             ? 'spatial'
             : null,
     gpu: clampInt(params.get('gpu'), 0, 3, 0),
-    // **足し込みのプローブで代表点を出す。**`?uvmode=world`。
-    // `prevUv` がずれる前の段階を見るため（2026-09-14）
-    uvProbeMode: params.get('uvmode') === 'world' ? ('world' as const) : undefined,
-    noiseProbe: params.get('noiseprobe') === '1',
-    shadowProbe: params.get('shadowprobe') === '1',
-    marchProbe: params.get('marchprobe') === '1',
-    heightProbe: params.get('heightprobe') === '1',
     skyProbe: params.get('skyprobe') === '1',
     oceanProbe: params.get('oceanprobe') === '1',
     nodeShadow: params.get('nodeshadow') === '1',
@@ -519,12 +421,7 @@ export function readCaptureConfig(search: string): CaptureConfig {
     toneProbe: params.get('toneprobe') === '1',
     overlayProbe: params.get('overlayprobe') === '1',
     nodePipeline: params.get('nodepipeline') === '1',
-    surfaceProbe: params.get('surfaceprobe') === '1',
     converge: clampInt(params.get('converge'), 0, 16, 0),
-    shadowInputs: decodeShadowInputs(params.get('shadowinputs')),
-    cloudFar: params.has('cloudfar')
-      ? clampNumber(params.get('cloudfar'), 500, 60_000, 26_000)
-      : null,
     precompile: params.get('precompile') !== '0',
     bench: clampInt(params.get('bench'), 0, 200, 0),
     sweep: params.get('sweep') === '1',
@@ -592,15 +489,6 @@ export interface TestHook {
   /** 描画バックエンドの名前。`node-webgl`（`?gpu=1`）/ `node-webgpu` */
   backend: string
   webglVersion: number
-  /**
-   * 雲を焼いた回数。
-   *
-   * **シムのフレームと並べて見る。**node 経路の雲は
-   * `CloudsRenderNode.updateBefore` から焼き、`NodeFrame` は `frameId` で
-   * 重複を潰す。番号が進まなければ 1 度しか焼かれず、雲は最初のフレームの
-   * まま画面に貼り付いて**視点についてくるように見える**
-   */
-  cloudRenderCount: number
   /** 大気の LUT を読み終えたか */
   atmosphereReady: boolean
   /** 太陽高度 rad。時刻を変えたことの検証に使う */
@@ -609,10 +497,6 @@ export interface TestHook {
   sunRadiance: [number, number, number]
   /** 天空光の放射輝度 RGB */
   skyRadiance: [number, number, number]
-  /** 雲ノイズの生成にかかったミリ秒 */
-  noiseMs: number
-  /** 雲ノイズの中身。min と max が同じなら生成に失敗している */
-  noiseStats: { min: number; max: number; mean: number }
   /** GPU のフレーム時間 ms。計測できていなければ 0 */
   gpuFrameMs: number
   gpuTimerSupported: boolean
@@ -635,8 +519,6 @@ export interface TestHook {
    * `gpuPassHistory` と同じなので、実機の計測が突き合わせる。ライブのときだけ入る
    */
   cpuFrameHistory: readonly CpuFrame[]
-  /** 雲のバッファが 16bit 浮動小数か。8bit だと等高線状の横線が出る */
-  cloudHdrTarget: boolean
   /** ?bench=N のときの 1 描画あたりの ms。測っていなければ 0 */
   benchMs: number
   /** ?sweep=1 のときの設定ごとの計測結果 */
@@ -649,13 +531,9 @@ export interface TestHook {
     cpuMaxMs: number
     triangles: number
   }[]
-  /** 高さ場の生成にかかったミリ秒 */
-  terrainMs: number
-  /** 高さ場の中身。min と max が同じなら生成に失敗している */
-  terrainStats: { min: number; max: number; mean: number }
-  /** 描いている地形パッチの枚数と三角形数 */
-  terrainPatches: number
-  terrainTriangles: number
+  /** 描いている海面のパッチの枚数と三角形数（段 S4b で地形から替えた） */
+  oceanPatches: number
+  oceanTriangles: number
   /** 機体の三角形数。読み込めていなければ 0 */
   aircraftTriangles: number
   /** HUD が出ているか */
@@ -792,24 +670,6 @@ export interface TestHook {
    * 立てて glb を 1 枚描いただけの状態で、シムも HUD も動いていない
    */
   gpuProbe: NodeProbeResult | null
-  /**
-   * 形状ノイズの中央スライスの生バイト。`?noiseprobe=1` のときだけ埋まる。
-   *
-   * RGBA8 で 1,024 個。JSON で運ぶので素の配列にする
-   */
-  noiseSlice: number[] | null
-  /**
-   * 気象マップの左下 16x16 の生バイト。`?noiseprobe=1` のときだけ埋まる。
-   *
-   * **雲の配置を決めるのは 3D ノイズではなくこちら**
-   */
-  weatherSlice: number[] | null
-  /**
-   * 雲影マップを決めた入力。`?shadowprobe=1` のときだけ埋まる。
-   *
-   * 自己診断へ `?shadowinputs=` で渡し直すために出す
-   */
-  shadowInputs: ShadowInputs | null
   /**
    * ミッションの決着。台本にミッションがなければ 'none'。
    *

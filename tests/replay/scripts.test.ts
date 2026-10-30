@@ -74,7 +74,7 @@ describe('スクリプトの登録', () => {
       'bank-left',
       'pull-up',
       'low-pass',
-      'island-run',
+      'fast-pull',
       'zoom-climb',
       'turn-in',
       'target-ahead',
@@ -341,29 +341,5 @@ describe('再生の決定論', () => {
     for (let i = 0; i < SEC * 3; i++) world.step(player.at(i))
 
     expect(world.player.position.toArray()).toEqual(full.player.position.toArray())
-  })
-})
-
-describe('island-run — 島を越える', () => {
-  it('海上から主峰の稜線を越え、45 秒間墜落しない', () => {
-    // F/A-18C は F-16 級より加速が鈍いので、島を抜けるまで 42 秒かかる
-    const world = runScript(SCRIPTS['island-run'], SEC * 45)
-    const p = world.player
-
-    expect(p.crashed).toBe(false)
-    // 主峰の稜線（約 1,500 m）より上にいる
-    expect(p.position.y).toBeGreaterThan(1_500)
-    // 島を越えて向こう側の海に出ている
-    expect(p.groundHeight).toBe(0)
-  })
-
-  it('稜線の上で対地高度が海抜より小さくなる', () => {
-    const world = runScript(SCRIPTS['island-run'], SEC * 30)
-    const p = world.player
-
-    expect(p.groundHeight).toBeGreaterThan(1_000)
-    expect(p.agl).toBeLessThan(p.altitude - 1_000)
-    // 地面には当たらない
-    expect(p.agl).toBeGreaterThan(300)
   })
 })

@@ -124,12 +124,8 @@ try {
     const hook = await page.evaluate(() => ({
       backend: window.__dogfight?.backend ?? '',
       frame: window.__dogfight?.frame ?? 0,
-      cloudRenderCount: window.__dogfight?.cloudRenderCount ?? 0,
     }))
-    console.log(
-      `開いた: backend=${hook.backend} frame=${hook.frame} ` +
-        `雲の焼き回数=${hook.cloudRenderCount}`,
-    )
+    console.log(`開いた: backend=${hook.backend} frame=${hook.frame}`)
   }
 } finally {
   await browser.close()

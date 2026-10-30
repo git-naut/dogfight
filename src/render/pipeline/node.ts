@@ -1,83 +1,10 @@
 import * as THREE from 'three'
 import { loadAircraftModel } from '../aircraft/model'
-import {
-  SHADOW_SIZE,
-  shadowHistogram,
-  shadowTileMeans,
-  tileMeans,
-} from '../clouds/geometry'
-import { SHADOW_EXTENT } from '../clouds/geometry'
-import type { ShadowInputs } from '../clouds/shadowInputs'
-import {
-  MARCH_PROBE_AMBIENT,
-  MARCH_PROBE_ASPECT,
-  MARCH_PROBE_CAMERA,
-  MARCH_PROBE_CLOUD_TIME,
-  MARCH_PROBE_COVERAGE,
-  MARCH_PROBE_HEIGHT,
-  MARCH_PROBE_LIGHT_GROWTH,
-  MARCH_PROBE_LIGHT_STEPS,
-  MARCH_PROBE_MAX_DISTANCE,
-  MARCH_PROBE_MAX_STEPS,
-  MARCH_PROBE_PIXEL_JITTER,
-  MARCH_PROBE_START_JITTER,
-  MARCH_PROBE_STEP_GROWTH,
-  MARCH_PROBE_SUN,
-  MARCH_PROBE_SUN_COLOR,
-  MARCH_PROBE_USE_DETAIL,
-  MARCH_PROBE_WIDTH,
-  RESOLVE_PROBE_BLEND_WEIGHT,
-  RESOLVE_PROBE_CLAMP_SCALE,
-  RESOLVE_PROBE_JITTER_B,
-  RESOLVE_PROBE_PREVIOUS_CAMERA,
-  byteDifference,
-  NOISE_FLOOR,
-  marchExhaustedCount,
-  marchSampleStats,
-} from '../clouds/marchProbe'
-import { HASH_PROBE_SIDE } from '../hashReference'
+import { byteDifference, NOISE_FLOOR, tileMeans } from '../pixelCompare'
 import { loadCarrier, placeCarrier, DECK_HEIGHT } from '../carrier'
-import { DEFAULT_EXPOSURE, type NodeProbeResult } from './types'
+import { DEFAULT_COVERAGE, DEFAULT_EXPOSURE, type NodeProbeResult } from './types'
 import { shadowMapType } from './nodeShadow'
 import type { QualitySettings } from '../quality'
-
-/**
- * 生成された本文を、関数定義の並び順に依らない形へ。
- *
- * **three 0.186 で `// codes` の並びが揺れる。**同じプリセットを当て直すと
- * 長さは 24,695 で同じまま、6,828 文字目から順序だけが入れ替わる
- * （`dogfightHg` が先か `tsl_clampWrapping_float` が先か）。式は変わって
- * いないので、行の集合で見る。
- *
- * **弱くなることを承知で使う。**行の集合が同じでも並びが違えば別の
- * プログラムになりうる。ただし WGSL は宣言前の呼び出しを許さないので、
- * 順序が壊れればコンパイルが落ちて他の検査が先に赤くなる。
- */
-function normalizeShaderSource(source: string): string {
-  return source.split('\n').sort().join('\n')
-}
-
-/**
- * 2 つの本文が最初に食い違う位置と、その前後を切り出す。
- *
- * **真偽値だけでは何が変わったか読めない。**生成された名前の連番がずれた
- * だけなのか、式そのものが変わったのかで、対処が正反対になる。
- */
-function firstDifference(
-  a: string,
-  b: string,
-): NonNullable<NodeProbeResult['pipeline']>['requiltDiff'] {
-  if (a === b) return null
-  let i = 0
-  while (i < a.length && i < b.length && a[i] === b[i]) i++
-  return {
-    index: i,
-    beforeLength: a.length,
-    afterLength: b.length,
-    before: a.slice(Math.max(0, i - 60), i + 100),
-    after: b.slice(Math.max(0, i - 60), i + 100),
-  }
-}
 
 /**
  * node 経路を立てて glb を 1 枚描く。
@@ -100,13 +27,6 @@ function firstDifference(
 export interface NodeProbeOptions {
   /** 1 = `forceWebGL: true`、2 = WebGPU */
   gpu: number
-  /**
-   * 足し込みのプローブで何を色にするか。既定は `prevUv`。
-   *
-   * `'world'` にすると再投影の前の代表点を出す。**`prevUv` がずれる前の
-   * 段階で食い違っていれば、原因は光線か slab の側にある**（2026-09-14）
-   */
-  uvProbeMode?: true | 'world'
   aircraftUrl: string
   carrierUrl: string
   width: number
@@ -122,20 +42,6 @@ export interface NodeProbeOptions {
    * 表から来るので、写しを作ると片方だけ古くなる。`?preset=` で振れる
    */
   quality: QualitySettings
-  /**
-   * 雲影を焼くときの入力。null なら焼かない。
-   *
-   * **GLSL 側が実際に焼いた値をそのまま受け取る。**`?shadowinputs=` で渡す。
-   * ここで導き直すと、導き方が食い違ったときにヒストグラムの不一致が
-   * 移植の欠陥に見える
-   */
-  shadowInputs: ShadowInputs | null
-  /**
-   * 高さ場を TSL で引いて出すか。`?heightprobe=1`。
-   *
-   * 標本点は `terrain/heightProbe.ts` が唯一の定義で、CPU 側も同じ式で引く
-   */
-  heightProbe: boolean
   /**
    * 自前の空（Hillaire）の LUT と天空光を焼いて出すか。`?skyprobe=1`（段 S2a）。
    *
@@ -161,25 +67,12 @@ export interface NodeProbeOptions {
   /** 雲の合成を焼くか。`?overlayprobe=1` */
   overlayProbe: boolean
   /**
-   * 地表と海面を固定の矩形で焼くか。`?surfaceprobe=1`。
-   *
-   * 矩形とカメラと放射輝度は `terrain/surfaceProbe.ts` が唯一の定義で、
-   * GLSL 側も同じものを読む
-   */
-  surfaceProbe: boolean
-  /**
    * ポストの鎖を `RenderPipeline` で組むか。`?nodepipeline=1`。
    *
    * `pass(scene, camera)` → 雲の合成 → `smaa` → `renderOutput`。
    * **WebGPU バックエンドでだけ組む。**大気が要るため
    */
   nodePipeline: boolean
-  /**
-   * 雲のマーチを固定の入力で焼くか。`?marchprobe=1`。
-   *
-   * 入力は `clouds/marchProbe.ts` が唯一の定義で、GLSL 側も同じものを読む
-   */
-  marchProbe: boolean
 }
 
 export async function runNodeProbe(
@@ -208,304 +101,10 @@ export async function runNodeProbe(
 
   const isWebGPU = 'isWebGPUBackend' in renderer.backend
 
-  // ---- 雲ノイズと気象マップを TSL で焼く ----
-  //
-  // **体積をそのまま焼く。**段 11 は 1 スライスを 2D のレンダーターゲットへ
-  // 焼いて比べていた。式の一致は見られるが、**層への焼き込みは見張られない。**
-  // 64³ を焼いて中央スライスを引き出せば、式と層の両方が 1 つの検査に乗る。
-  // 密度と雲影を走らせるにも体積そのものが要る
+  // 焼いて読み戻す道具。段 S4b まではここで体積の雲のノイズ・雲影・マーチも焼いていた
   const tsl = await import('three/tsl')
-  const noiseNodes = await import('../clouds/noiseNodes')
-  const volume = await import('../clouds/volume')
-
+  const volume = await import('./bake')
   const quad = volume.createBakeQuad()
-  // 焼き方を知っているのは `clouds/nodeNoise.ts` だけ。周波数の上限の式
-  // （1 セルに 4 テクセル）と気象マップだけ折り返すことを持つ（段 20a-2-3）
-  const nodeNoise = await import('../clouds/nodeNoise')
-  const baked = await nodeNoise.bakeNodeCloudNoise(renderer, quad)
-  const volumeMs = baked.ms
-
-  // 中央スライスと気象マップの左下 16x16 は焼く側が読んで持ち帰る。
-  // **統計だけでは 1 ビットのずれが埋もれる**ので生バイトで比べる。
-  // 気象マップは雲の配置を決めるので、ずれると雲の湧く場所が変わる
-  // （雲影の分布では捕まらない）
-  const noiseSlice = [...baked.slice]
-  const weatherSlice = [...baked.weatherSlice]
-
-  const hashTarget = volume.bakePlane(
-    renderer,
-    quad,
-    HASH_PROBE_SIDE,
-    HASH_PROBE_SIDE,
-    noiseNodes.hashProbeFragmentNode(HASH_PROBE_SIDE),
-  )
-  const hashProbe = await volume.readPlane(
-    renderer,
-    hashTarget,
-    HASH_PROBE_SIDE,
-    HASH_PROBE_SIDE,
-    isWebGPU,
-  )
-  hashTarget.dispose()
-
-  // ---- 雲影マップ ----
-  //
-  // **段 12 の合格条件。**GLSL 版が焼いた 256² と 16 ビンのヒストグラムで
-  // 比べ、L1 距離 0.01 未満を求める。入力は GLSL 側が実際に使った値をもらう
-  // ので、食い違えば移植の欠陥だと言い切れる
-  let shadowBins: number[] | null = null
-  let shadowTiles: number[] | null = null
-  if (options.shadowInputs !== null) {
-    const densityNodes = await import('../clouds/densityNodes')
-    const shadow = options.shadowInputs
-    const shadowTarget = volume.bakePlane(
-      renderer,
-      quad,
-      SHADOW_SIZE,
-      SHADOW_SIZE,
-      densityNodes.cloudShadowFragmentNode(
-        {
-          shapeNoise: baked.shape,
-          detailNoise: baked.detail,
-          weatherMap: baked.weather,
-          cloudTime: tsl.float(shadow.cloudTime),
-          coverage: tsl.float(shadow.coverage),
-        },
-        tsl.uv(),
-        tsl.vec2(shadow.centerX, shadow.centerZ),
-        tsl.float(SHADOW_EXTENT),
-        tsl.vec3(shadow.sunX, shadow.sunY, shadow.sunZ),
-      ),
-    )
-    // ヒストグラムは並びを問わないが、読み戻しの道は 1 本にしておく
-    const bytes = await volume.readPlane(
-      renderer,
-      shadowTarget,
-      SHADOW_SIZE,
-      SHADOW_SIZE,
-      isWebGPU,
-    )
-    shadowBins = shadowHistogram(bytes)
-    // **配置も出す。**分布だけでは影が同じ場所にあることを言えない
-    shadowTiles = shadowTileMeans(bytes, SHADOW_SIZE)
-    shadowTarget.dispose()
-  }
-
-  // ---- 雲のマーチ ----
-  //
-  // **段 13 の合格条件。**固定のカメラと固定の入力で 3 枚焼き、GLSL 版と
-  // 突き合わせる。密度サンプル数と打ち切りの数は整数なので、歩き方が
-  // 同じなら完全に一致するはず。絵は演算順序で動くので区画平均で見る
-  let march: NodeProbeResult['march'] = null
-  if (options.marchProbe) {
-    const marchNodes = await import('../clouds/marchNodes')
-
-    const marchCamera = new THREE.PerspectiveCamera(
-      MARCH_PROBE_CAMERA.fov,
-      MARCH_PROBE_ASPECT,
-      MARCH_PROBE_CAMERA.near,
-      MARCH_PROBE_CAMERA.far,
-    )
-    marchCamera.position.set(
-      MARCH_PROBE_CAMERA.positionX,
-      MARCH_PROBE_CAMERA.positionY,
-      MARCH_PROBE_CAMERA.positionZ,
-    )
-    marchCamera.lookAt(
-      MARCH_PROBE_CAMERA.targetX,
-      MARCH_PROBE_CAMERA.targetY,
-      MARCH_PROBE_CAMERA.targetZ,
-    )
-    marchCamera.updateMatrixWorld()
-    marchCamera.updateProjectionMatrix()
-
-    // `@types/three` は `uniform()` の戻りを TSL のノード型へ絞らないので、
-    // 逃げ口を 1 か所へ寄せる
-    const node = <T>(value: unknown): T => tsl.uniform(value as never) as unknown as T
-
-    const marchInputs = {
-      shapeNoise: baked.shape,
-      detailNoise: baked.detail,
-      weatherMap: baked.weather,
-      cloudTime: tsl.float(MARCH_PROBE_CLOUD_TIME),
-      coverage: tsl.float(MARCH_PROBE_COVERAGE),
-      // 遮蔽物を置かないので深度は 1.0（空）で固定
-      sceneDepth: tsl.float(1),
-      inverseProjectionMatrix: node<Parameters<
-        typeof marchNodes.cloudMarchFragmentNode
-      >[0]['inverseProjectionMatrix']>(marchCamera.projectionMatrixInverse),
-      inverseViewMatrix: node<Parameters<
-        typeof marchNodes.cloudMarchFragmentNode
-      >[0]['inverseViewMatrix']>(marchCamera.matrixWorld),
-      cameraPositionWorld: tsl.vec3(
-        MARCH_PROBE_CAMERA.positionX,
-        MARCH_PROBE_CAMERA.positionY,
-        MARCH_PROBE_CAMERA.positionZ,
-      ),
-      cameraNear: tsl.float(MARCH_PROBE_CAMERA.near),
-      cameraFar: tsl.float(MARCH_PROBE_CAMERA.far),
-      sunDirection: tsl.vec3(MARCH_PROBE_SUN.x, MARCH_PROBE_SUN.y, MARCH_PROBE_SUN.z),
-      sunColor: tsl.vec3(
-        MARCH_PROBE_SUN_COLOR.x,
-        MARCH_PROBE_SUN_COLOR.y,
-        MARCH_PROBE_SUN_COLOR.z,
-      ),
-      ambientColor: tsl.vec3(
-        MARCH_PROBE_AMBIENT.x,
-        MARCH_PROBE_AMBIENT.y,
-        MARCH_PROBE_AMBIENT.z,
-      ),
-      maxSteps: tsl.int(MARCH_PROBE_MAX_STEPS),
-      lightSteps: tsl.int(MARCH_PROBE_LIGHT_STEPS),
-      lightGrowth: tsl.float(MARCH_PROBE_LIGHT_GROWTH),
-      maxMarchDistance: tsl.float(MARCH_PROBE_MAX_DISTANCE),
-      stepGrowthScale: tsl.float(MARCH_PROBE_STEP_GROWTH),
-      startJitter: tsl.float(MARCH_PROBE_START_JITTER),
-      pixelJitter: tsl.vec2(MARCH_PROBE_PIXEL_JITTER.x, MARCH_PROBE_PIXEL_JITTER.y),
-      useDetail: MARCH_PROBE_USE_DETAIL,
-    }
-
-    const bakeMarch = async (mode: 0 | 1 | 2): Promise<number[]> => {
-      const target = volume.bakePlane(
-        renderer,
-        quad,
-        MARCH_PROBE_WIDTH,
-        MARCH_PROBE_HEIGHT,
-        marchNodes.cloudMarchFragmentNode(marchInputs, mode),
-      )
-      const bytes = await volume.readPlane(
-        renderer,
-        target,
-        MARCH_PROBE_WIDTH,
-        MARCH_PROBE_HEIGHT,
-        isWebGPU,
-      )
-      target.dispose()
-      return bytes
-    }
-
-    // ---- 時間方向の足し込み ----
-    //
-    // 現フレームと履歴には、**ずらしだけを変えたマーチの出力そのもの**を
-    // 使う。マーチが両側でバイトまで一致することは前半で確かめてあるので、
-    // 入力が同じであることは言い切れる
-    const resolveNodes = await import('../clouds/resolveNodes')
-    const bakeMarchTarget = (startJitter: number) =>
-      volume.bakePlane(
-        renderer,
-        quad,
-        MARCH_PROBE_WIDTH,
-        MARCH_PROBE_HEIGHT,
-        marchNodes.cloudMarchFragmentNode({ ...marchInputs, startJitter: tsl.float(startJitter) }, 0),
-      )
-
-    const currentTarget = bakeMarchTarget(MARCH_PROBE_START_JITTER)
-    const historyTarget = bakeMarchTarget(RESOLVE_PROBE_JITTER_B)
-
-    const previousCamera = new THREE.PerspectiveCamera(
-      RESOLVE_PROBE_PREVIOUS_CAMERA.fov,
-      MARCH_PROBE_ASPECT,
-      RESOLVE_PROBE_PREVIOUS_CAMERA.near,
-      RESOLVE_PROBE_PREVIOUS_CAMERA.far,
-    )
-    previousCamera.position.set(
-      RESOLVE_PROBE_PREVIOUS_CAMERA.positionX,
-      RESOLVE_PROBE_PREVIOUS_CAMERA.positionY,
-      RESOLVE_PROBE_PREVIOUS_CAMERA.positionZ,
-    )
-    previousCamera.lookAt(
-      RESOLVE_PROBE_PREVIOUS_CAMERA.targetX,
-      RESOLVE_PROBE_PREVIOUS_CAMERA.targetY,
-      RESOLVE_PROBE_PREVIOUS_CAMERA.targetZ,
-    )
-    previousCamera.updateMatrixWorld()
-    previousCamera.updateProjectionMatrix()
-    const previousViewProjection = new THREE.Matrix4().multiplyMatrices(
-      previousCamera.projectionMatrix,
-      previousCamera.matrixWorldInverse,
-    )
-
-    const resolveTarget = volume.bakePlane(
-      renderer,
-      quad,
-      MARCH_PROBE_WIDTH,
-      MARCH_PROBE_HEIGHT,
-      resolveNodes.cloudResolveFragmentNode({
-        // **本番と同じ引き方をする。**素の uv で引き、並びの差は
-        // `TextureNode.setupUV()` に任せる
-        currentFrame: tsl.texture(currentTarget.texture) as never,
-        historyFrame: tsl.texture(historyTarget.texture) as never,
-        inverseProjectionMatrix: marchInputs.inverseProjectionMatrix,
-        inverseViewMatrix: marchInputs.inverseViewMatrix,
-        previousViewProjection: node<
-          typeof marchInputs.inverseViewMatrix
-        >(previousViewProjection),
-        cameraPositionWorld: marchInputs.cameraPositionWorld,
-        blendWeight: tsl.float(RESOLVE_PROBE_BLEND_WEIGHT),
-        texelSize: tsl.vec2(1 / MARCH_PROBE_WIDTH, 1 / MARCH_PROBE_HEIGHT),
-        clampScale: RESOLVE_PROBE_CLAMP_SCALE,
-      }),
-    )
-    // **`prevUv` を色で焼く。**両経路で座標を数値で突き合わせる。
-    // 絵の印象では座標のずれが読めず、上下反転の切り分けで何度も外した
-    const resolveUvTarget = volume.bakePlane(
-      renderer,
-      quad,
-      MARCH_PROBE_WIDTH,
-      MARCH_PROBE_HEIGHT,
-      resolveNodes.cloudResolveFragmentNode({
-        currentFrame: tsl.texture(currentTarget.texture) as never,
-        historyFrame: tsl.texture(historyTarget.texture) as never,
-        inverseProjectionMatrix: marchInputs.inverseProjectionMatrix,
-        inverseViewMatrix: marchInputs.inverseViewMatrix,
-        previousViewProjection: node<
-          typeof marchInputs.inverseViewMatrix
-        >(previousViewProjection),
-        cameraPositionWorld: marchInputs.cameraPositionWorld,
-        blendWeight: tsl.float(RESOLVE_PROBE_BLEND_WEIGHT),
-        texelSize: tsl.vec2(1 / MARCH_PROBE_WIDTH, 1 / MARCH_PROBE_HEIGHT),
-        clampScale: RESOLVE_PROBE_CLAMP_SCALE,
-        uvProbe: (options.uvProbeMode ?? true) as never,
-      }),
-    )
-    const resolveUvBytes = await volume.readPlane(
-      renderer,
-      resolveUvTarget,
-      MARCH_PROBE_WIDTH,
-      MARCH_PROBE_HEIGHT,
-      isWebGPU,
-    )
-    resolveUvTarget.dispose()
-
-    const resolveBytes = await volume.readPlane(
-      renderer,
-      resolveTarget,
-      MARCH_PROBE_WIDTH,
-      MARCH_PROBE_HEIGHT,
-      isWebGPU,
-    )
-    // **足し込みの入力そのものを読む。**履歴を読む枝を通っていなければ、
-    // 足し込みの結果はこれと同じになる
-    const currentBytes = await volume.readPlane(
-      renderer,
-      currentTarget,
-      MARCH_PROBE_WIDTH,
-      MARCH_PROBE_HEIGHT,
-      isWebGPU,
-    )
-    currentTarget.dispose()
-    historyTarget.dispose()
-    resolveTarget.dispose()
-
-    march = {
-      samples: marchSampleStats(await bakeMarch(1)),
-      exhausted: marchExhaustedCount(await bakeMarch(2)),
-      tiles: tileMeans(await bakeMarch(0), MARCH_PROBE_WIDTH, MARCH_PROBE_HEIGHT),
-      resolve: resolveBytes,
-      resolveUv: resolveUvBytes,
-      resolveChanged: byteDifference(resolveBytes, currentBytes).differing,
-    }
-  }
 
   // ---- トーンマッピング ----
   //
@@ -669,55 +268,6 @@ export async function runNodeProbe(
       return bytes
     }
     sprite = { soft: await bakeSprite(false), core: await bakeSprite(true) }
-  }
-
-  // ---- 高さ場 ----
-  //
-  // **段 14 の合格条件。**64 点を焼いて読み戻し、`src/sim/terrain.ts` の
-  // `heightAt` と 1e-3 m 以内で一致することを見る。ずれると「見えている山と
-  // 当たる山が違う」状態になり、高さ場を sim に持たせた意味がなくなる
-  let heightProbe: number[] | null = null
-  if (options.heightProbe) {
-    const heightNodes = await import('../terrain/heightNodes')
-    const { defaultTerrain } = await import('../../sim/terrain')
-    const { createHeightTexture } = await import('../terrain/heightTexture')
-    const probe = await import('../terrain/heightProbe')
-
-    const terrain = defaultTerrain()
-    const heightMap = createHeightTexture(terrain)
-    const fieldInputs = {
-      heightMap,
-      extent: terrain.extent,
-      texels: terrain.size,
-    }
-
-    const side = probe.HEIGHT_PROBE_SIDE
-    heightProbe = []
-    for (const region of probe.HEIGHT_PROBE_REGIONS) {
-      // 画素の位置から標本点を導く。`heightProbePoint` と同じ式
-      const col = tsl.int(tsl.uv().x.mul(side))
-      const row = tsl.int(tsl.uv().y.mul(side))
-      const world = tsl.vec2(
-        tsl.float(col).mul(region.step.x).add(region.origin.x),
-        tsl.float(row).mul(region.step.z).add(region.origin.z),
-      )
-      const heightTarget = volume.bakePlane(
-        renderer,
-        quad,
-        side,
-        side,
-        tsl.vec4(heightNodes.terrainHeightNode(fieldInputs, world), 0, 0, 1),
-        // **8bit では mm の精度が出ない。**32bit 浮動小数で受ける
-        { float: true },
-      )
-      heightProbe.push(
-        ...probe.heightProbeValues(
-          await volume.readPlane(renderer, heightTarget, side, side, isWebGPU),
-        ),
-      )
-      heightTarget.dispose()
-    }
-    heightMap.dispose()
   }
 
   // ---- 自前の空（段 S2a）----
@@ -1174,201 +724,7 @@ export async function runNodeProbe(
     }
   }
 
-  // ---- 地表と海面 ----
-  //
-  // **段 17b。**`terrain.frag` と `water.frag` の色の本体を TSL へ移した。
-  // 固定の矩形を両側へ渡してバイトで比べる。**大気に触らせない**ので
-  // `?gpu=1` でも走り、そこでは丸めまで一致するはず
-  let surface: NodeProbeResult['surface'] = null
-  if (options.surfaceProbe) {
-    const surfaceNodes = await import('../terrain/surfaceNodes')
-    const heightNodesRef = await import('../terrain/heightNodes')
-    const { defaultTerrain } = await import('../../sim/terrain')
-    const { createHeightTexture, createNormalTexture } = await import(
-      '../terrain/heightTexture'
-    )
-    const probe = await import('../terrain/surfaceProbe')
-
-    const terrain = defaultTerrain()
-    const heightMap = createHeightTexture(terrain)
-    const normalMap = createNormalTexture(terrain)
-    // 雲影マップの代わり。中身は `surfaceProbe.ts` が決める。段 S1 で GLSL 版の
-    // `surfaceProbeGl.ts` から移した（読むのはここだけ）
-    const shadowSize = probe.SURFACE_PROBE_SHADOW_SIZE
-    const shadowMap = new THREE.DataTexture(
-      probe.surfaceProbeShadowData(),
-      shadowSize,
-      shadowSize,
-      THREE.RedFormat,
-      THREE.UnsignedByteType,
-    )
-    shadowMap.minFilter = THREE.LinearFilter
-    shadowMap.magFilter = THREE.LinearFilter
-    shadowMap.wrapS = THREE.ClampToEdgeWrapping
-    shadowMap.wrapT = THREE.ClampToEdgeWrapping
-    shadowMap.generateMipmaps = false
-    shadowMap.needsUpdate = true
-    const side = probe.SURFACE_PROBE_SIDE
-
-    const inputs: import('../terrain/surfaceNodes').SurfaceInputs = {
-      heightMap,
-      extent: terrain.extent,
-      texels: terrain.size,
-      terrainNormalMap: normalMap,
-      cloudShadowMap: shadowMap,
-      cloudShadowCenter: tsl.vec2(
-        probe.SURFACE_PROBE_SHADOW_CENTER.x,
-        probe.SURFACE_PROBE_SHADOW_CENTER.z,
-      ),
-      cloudShadowExtent: tsl.float(probe.SURFACE_PROBE_SHADOW_EXTENT),
-      cloudShadowEnabled: tsl.float(1),
-      sunDirectionWorld: tsl.vec3(
-        probe.SURFACE_PROBE_SUN_DIRECTION.x,
-        probe.SURFACE_PROBE_SUN_DIRECTION.y,
-        probe.SURFACE_PROBE_SUN_DIRECTION.z,
-      ),
-      sunRadiance: tsl.vec3(
-        probe.SURFACE_PROBE_SUN_RADIANCE.x,
-        probe.SURFACE_PROBE_SUN_RADIANCE.y,
-        probe.SURFACE_PROBE_SUN_RADIANCE.z,
-      ),
-      skyRadiance: tsl.vec3(
-        probe.SURFACE_PROBE_SKY_RADIANCE.x,
-        probe.SURFACE_PROBE_SKY_RADIANCE.y,
-        probe.SURFACE_PROBE_SKY_RADIANCE.z,
-      ),
-    }
-
-    /** 画素の位置から矩形の中のワールド座標を出す。GLSL 側と同じ式 */
-    const worldXZ = (region: import('../terrain/surfaceProbe').SurfaceRegion) => {
-      const col = tsl.floor(tsl.uv().x.mul(side))
-      const row = tsl.floor(tsl.uv().y.mul(side))
-      return tsl.vec2(
-        col.add(0.5).div(side).mul(region.span).add(region.origin.x),
-        row.add(0.5).div(side).mul(region.span).add(region.origin.z),
-      )
-    }
-
-    const bake = async (
-      fragment: import('three/webgpu').Node<'vec4'>,
-    ): Promise<number[]> => {
-      const target = volume.bakePlane(renderer, quad, side, side, fragment)
-      const bytes = await volume.readPlane(renderer, target, side, side, isWebGPU)
-      target.dispose()
-      return bytes
-    }
-
-    /**
-     * 照度の口へ、段 17b までと同じ値を流し込む差し替え。
-     *
-     * **1/pi がちょうど 1 回だけ掛かることを縛る。**`skyRadiance` は
-     * 放射輝度なので pi を掛けて照度へ戻す。掛け忘れや二重掛けがあれば
-     * 3.14 倍ずれて出る
-     */
-    const matchedIlluminance: import('../terrain/surfaceNodes').IlluminanceProvider =
-      (_world, normal) => ({
-        direct: inputs.sunRadiance.mul(
-          tsl.max(tsl.dot(normal, inputs.sunDirectionWorld), 0),
-        ),
-        indirect: inputs.skyRadiance.mul(Math.PI),
-      })
-
-    const terrainFragment = (
-      branchMode: boolean,
-      illuminance?: import('../terrain/surfaceNodes').IlluminanceProvider,
-    ) =>
-      tsl.Fn(() => {
-        const region = probe.TERRAIN_PROBE_REGION
-        const xz = worldXZ(region).toVar()
-        const world = tsl.vec3(
-          xz.x,
-          heightNodesRef.terrainHeightNode(inputs, xz),
-          xz.y,
-        ).toVar()
-        return surfaceNodes.terrainSurfaceNode(
-          inputs,
-          world,
-          tsl.vec3(region.camera.x, region.camera.y, region.camera.z),
-          tsl.float(1),
-          tsl.float(1),
-          illuminance !== undefined ? { illuminance } : { branchMode },
-        )
-      })() as import('three/webgpu').Node<'vec4'>
-
-    const waterFragment = (regionIndex: number, branchMode: boolean) =>
-      tsl.Fn(() => {
-        const region = probe.WATER_PROBE_REGIONS[regionIndex]!
-        const xz = worldXZ(region).toVar()
-        // 海面は高度 0 の平らな板
-        const world = tsl.vec3(xz.x, 0, xz.y).toVar()
-        return surfaceNodes.waterSurfaceNode(
-          inputs,
-          world,
-          tsl.vec3(region.camera.x, region.camera.y, region.camera.z),
-          tsl.float(probe.SURFACE_PROBE_WAVE_TIME),
-          tsl.float(1),
-          tsl.float(1),
-          { branchMode },
-        )
-      })() as import('three/webgpu').Node<'vec4'>
-
-    // 頂点変位。**高さ場と同じく CPU 参照と突き合わせる**（`heightProbe.ts`
-    // の作法）。GLSL 側は `tests/render/terrain.test.ts` が本文で縛る
-    const patch = probe.TERRAIN_PATCH_PROBE
-    const patchFragment = tsl.Fn(() => {
-      const cells = patch.cells
-      // 実際の格子点だけを通す。連続にすると段差の境目に乗る
-      const unit = (axis: import('three/webgpu').Node<'float'>) =>
-        tsl.min(tsl.floor(axis.mul(cells + 1)), cells).div(cells)
-      const unitGrid = tsl.vec2(unit(tsl.uv().x), unit(tsl.uv().y)).toVar()
-      const world = surfaceNodes
-        .terrainPatchWorldNode(
-          unitGrid,
-          tsl.vec4(patch.origin.x, patch.origin.z, patch.size, patch.size / cells),
-          tsl.vec2(patch.morphStart, patch.morphEnd),
-          tsl.vec3(patch.basis.x, patch.basis.y, patch.basis.z),
-        )
-        .toVar()
-      const height = heightNodesRef.terrainHeightNode(
-        inputs,
-        tsl.vec2(world.x, world.y),
-      )
-      return tsl.vec4(world.x, world.y, world.z, height)
-    })() as import('three/webgpu').Node<'vec4'>
-
-    const patchTarget = volume.bakePlane(renderer, quad, side, side, patchFragment, {
-      // **8bit では m の精度が出ない。**32bit 浮動小数で受ける
-      float: true,
-    })
-    const patchBytes = await volume.readPlane(
-      renderer,
-      patchTarget,
-      side,
-      side,
-      isWebGPU,
-    )
-    patchTarget.dispose()
-
-    surface = {
-      patch: patchBytes,
-      terrain: await bake(terrainFragment(false)),
-      terrainBranches: await bake(terrainFragment(true)),
-      terrainMatched: await bake(terrainFragment(false, matchedIlluminance)),
-      water: [],
-      waterBranches: [],
-    }
-    for (let i = 0; i < probe.WATER_PROBE_REGIONS.length; i++) {
-      surface.water.push(await bake(waterFragment(i, false)))
-      surface.waterBranches.push(await bake(waterFragment(i, true)))
-    }
-
-    heightMap.dispose()
-    normalMap.dispose()
-    shadowMap.dispose()
-  }
-
   quad.dispose()
-  baked.dispose()
 
   renderer.setPixelRatio(1)
   renderer.setSize(options.width, options.height, false)
@@ -1561,17 +917,15 @@ export async function runNodeProbe(
   // ---- ポストの鎖 ----
   //
   // **段 17 の後半。**`RenderPipeline` + `pass(scene, camera)` + 雲の合成 +
-  // `smaa` + `renderOutput`。ここで初めて node 経路がポスト付きの絵を出す。
+  // `smaa` + `renderOutput`。段 S4b で雲を層の雲に、地形と板の海を FFT の海面に替えた。ここで初めて node 経路がポスト付きの絵を出す。
   //
   // 露出とトーンマッピングはレンダラの値から入る。`RenderPipeline._update`
   // が `renderOutput(outputNode, renderer.toneMapping, ...)` を足し、
   // `ToneMappingNode` の露出は `rendererReference('toneMappingExposure')` な
   // ので、**GLSL 経路と同じ「レンダラに 6 を置く」形になる。**
   let pipelineResult: NodeProbeResult['pipeline'] = null
-  let clouds: import('../clouds/cloudsNodePass').CloudsNodePass | null = null
   if (options.nodePipeline && isWebGPU && sceneSky !== null) {
     const pipelineSky = sceneSky
-    const cloudsNodePass = await import('../clouds/cloudsNodePass')
     // SMAA は `three/tsl` ではなく addons 側にある。面積テクスチャと探索
     // テクスチャを data URI で内包する
     const { smaa } = await import('three/examples/jsm/tsl/display/SMAANode.js')
@@ -1581,103 +935,35 @@ export async function runNodeProbe(
     const atmosphereIlluminance = atmosphereNodes.illuminance
     const scalarIlluminance = atmosphereNodes.scalarIlluminance
 
-    // **雲の太陽光と天空光も LUT から取る。**大気は緩やかにしか変わらないので、
-    // 原点の海面高度で 1 度だけ引く（GLSL 経路もフレームに 1 つの値を使っていた）
-    const cloudOrigin = tsl.vec3(0, 0, 0)
-    const cloudUp = tsl.vec3(0, 1, 0)
-    const cloudSunColor = scalarIlluminance(cloudOrigin).get('direct')
-    const cloudAmbientColor = atmosphereIlluminance(cloudOrigin, cloudUp).indirect.mul(
-      1 / Math.PI,
-    )
-
     // **`pass.getTextureNode()` を自前の材質へ渡してはいけない**（その材質を
-    // 焼くたびに場面がもう 1 度描かれる）。深度は素のテクスチャを引く。
-    // 組み方を知っているのは `nodeOutput.ts` だけ（段 20a-2-3）
+    // 焼くたびに場面がもう 1 度描かれる）。組み方を知っているのは `nodeOutput.ts` だけ（段 20a-2-3）
     const nodeOutput = await import('./nodeOutput')
-    const { scenePass, depthTexture: sceneDepthTexture } = nodeOutput.createScenePass(
-      scene,
-      camera,
-    )
+    const { scenePass } = nodeOutput.createScenePass(scene, camera)
 
-    clouds = cloudsNodePass.createCloudsNodePass({
-      camera,
-      noise: {
-        shape: baked.shape,
-        detail: baked.detail,
-        weather: baked.weather,
-      },
-      quality: options.quality,
-      coverage: MARCH_PROBE_COVERAGE,
-      sceneDepth: sceneDepthTexture,
-      captureMode: true,
-      temporal: true,
-      clampScale: 0,
-      sunColorNode: cloudSunColor,
-      ambientColorNode: cloudAmbientColor,
-    })
-    clouds.setSize(options.width, options.height)
-    // 色は `sunColorNode` と `ambientColorNode` で上書きしてある（段 17c）。
-    // ここへ渡す固定入力は、ノードを外したときの控え
-    clouds.update({
-      cloudTime: MARCH_PROBE_CLOUD_TIME,
-      sunDirection: sunDirectionWorld,
-      sunColor: new THREE.Vector3(
-        MARCH_PROBE_SUN_COLOR.x,
-        MARCH_PROBE_SUN_COLOR.y,
-        MARCH_PROBE_SUN_COLOR.z,
-      ),
-      ambientColor: new THREE.Vector3(
-        MARCH_PROBE_AMBIENT.x,
-        MARCH_PROBE_AMBIENT.y,
-        MARCH_PROBE_AMBIENT.z,
-      ),
-      coverage: MARCH_PROBE_COVERAGE,
-      shadowCenter: new THREE.Vector2(0, 0),
-      groundShadow: true,
-    })
-    // ---- 地形と海面を場面へ入れる ----
+    // ---- 層の雲（段 S4b で体積の雲から替えた。ADR 0050）----
     //
-    // **格子もパッチの選び方も GLSL 経路と同じものを使う。**差し替わるのは
-    // 材質だけで、`createTerrainMesh` と `createWater` が工場を受け取る
-    const nodeMaterials = await import('../terrain/nodeMaterials')
-    const terrainMeshMod = await import('../terrain/terrainMesh')
-    const waterMod = await import('../terrain/water')
-    const { defaultTerrain: makeTerrain } = await import('../../sim/terrain')
-    const heightTex = await import('../terrain/heightTexture')
-
-    const sceneTerrain = makeTerrain()
-    const sceneHeightMap = heightTex.createHeightTexture(sceneTerrain)
-    const sceneNormalMap = heightTex.createNormalTexture(sceneTerrain)
-
-    const surfaceState = nodeMaterials.createNodeSurfaceState(
-      {
-        heightMap: sceneHeightMap,
-        terrainNormalMap: sceneNormalMap,
-        cloudShadowMap: clouds.shadowTexture,
-        extent: sceneTerrain.extent,
-        texels: sceneTerrain.size,
-        cloudShadowExtent: SHADOW_EXTENT,
-      },
-      options.quality,
+    // 本番の場面と同じ部品を同じ焼き方（`cloudLayerTexture`）で通す。雲量は既定、時刻は 0
+    const cloudLayerNodes = await import('../sky/cloudLayerNodes')
+    const cloudLayers = cloudLayerNodes.createCloudLayers({
+      view: pipelineSky.view,
+      skyRadiance: (dir, spread) => pipelineSky.radiance(dir, spread),
+      sunIlluminance: (world) => scalarIlluminance(world).get('direct'),
+      octaves: options.quality.cloudLayerOctaves,
+    })
+    const cloudTexture = cloudLayerNodes.cloudLayerTexture(
+      cloudLayers,
+      (scenePass.getTextureNode('depth') as unknown as { x: import('three/webgpu').Node<'float'> }).x,
+      options.quality.cloudLayerResolutionScale,
     )
-    // **太陽の向きだけが実物。**放射輝度は段 13 の固定入力で、LUT から
-    // 取り出すのは段 17c（`getSplitIlluminance`）の仕事
-    surfaceState.setSunDirection(
-      sunDirectionWorld.x,
-      sunDirectionWorld.y,
-      sunDirectionWorld.z,
-    )
-    surfaceState.setSunRadiance(
-      MARCH_PROBE_SUN_COLOR.x,
-      MARCH_PROBE_SUN_COLOR.y,
-      MARCH_PROBE_SUN_COLOR.z,
-    )
-    surfaceState.setSkyRadiance(
-      MARCH_PROBE_AMBIENT.x,
-      MARCH_PROBE_AMBIENT.y,
-      MARCH_PROBE_AMBIENT.z,
-    )
-    surfaceState.setCloudShadowCenter(0, 0)
+    // **焼いた時点の描画呼び出しを数える。**雲は場面の深度を読むので、場面のパスより
+    // 先に焼くと 1 フレーム前の深度で打ち切る。絵には出ないので数で見る
+    let cloudDrawCallsAtRun = -1
+    const cloudRtt = cloudTexture as unknown as { updateBefore(frame: unknown): unknown }
+    const bakeClouds = cloudRtt.updateBefore.bind(cloudRtt)
+    cloudRtt.updateBefore = (frame) => {
+      cloudDrawCallsAtRun = renderer.info.render.drawCalls
+      return bakeClouds(frame)
+    }
 
     // ---- 機体の影 ----
     //
@@ -1728,117 +1014,39 @@ export async function runNodeProbe(
         shadowLight,
       ) as unknown as import('three/webgpu').Node<'float'>
     }
-    const noAircraftShade = aircraftShade
 
-    const sharedUniforms = terrainMeshMod.createTerrainUniforms(
-      sceneTerrain,
-      SHADOW_EXTENT,
-    )
-    const nodeTerrainMesh = terrainMeshMod.createTerrainMesh(
-      sceneTerrain,
-      options.quality,
-      sharedUniforms,
-      () =>
-        nodeMaterials.createTerrainNodeMaterial(
-          surfaceState,
-          noAircraftShade,
-          atmosphereIlluminance,
-        ),
-    )
-    // 差分の帰属を測るために、段 17b までの形も 1 つ組んでおく
-    const legacyTerrainMaterial = nodeMaterials.createTerrainNodeMaterial(
-      surfaceState,
-      noAircraftShade,
-    )
-    /**
-     * 海面が読む放射輝度。
-     *
-     * **太陽は余弦を含まない側を使う。**スペキュラは太陽の見かけの明るさで
-     * 決まるので、面の傾きで暗くしてはいけない。天空は半球の重みが要るので
-     * `getSplitIlluminance` の間接を pi で割る。LUT を 2 度引くぶんの費用は
-     * `steadyMs` で測る
-     */
-    const waterRadiance: import('../terrain/surfaceNodes').WaterRadianceProvider =
-      (world, normal) => ({
-        sun: scalarIlluminance(world).get('direct'),
-        sky: atmosphereIlluminance(world, normal).indirect.mul(1 / Math.PI),
-      })
+    // ---- 海面を場面へ入れる（段 S4b で地形と板の海から替えた）----
+    //
+    // 本番の場面（`nodeScene.ts` の `createOceanSurfaceFor`）と同じ光を渡す。太陽の遮りは
+    // 層の雲 × 機体の影。空母は場面と同じく原点に置く
+    const { createOceanSurface } = await import('../ocean/oceanSurface')
+    const surfaceSun = tsl.uniform(sunDirectionWorld.clone())
+    const surfaceCamera = tsl.uniform(new THREE.Vector3())
+    const ocean = createOceanSurface(renderer, {
+      quality: options.quality,
+      precision: 16,
+      carrier: { x: 0, z: 0, heading: 0 },
+      lighting: {
+        skyRadiance: (dir) => pipelineSky.radiance(dir),
+        sunIlluminance: (world) => scalarIlluminance(world).get('direct'),
+        skyIlluminance: (world) => scalarIlluminance(world).get('indirect'),
+        sunDirection: surfaceSun as unknown as import('three/webgpu').Node<'vec3'>,
+        sunShade: (world) =>
+          cloudLayers.sunTransmittance(world).mul(aircraftShade) as unknown as import('three/webgpu').Node<'float'>,
+        camera: surfaceCamera as unknown as import('three/webgpu').Node<'vec3'>,
+      },
+    })
+    scene.add(ocean.mesh, ocean.plate)
 
-    const nodeWater = waterMod.createWater(
-      options.quality,
-      sharedUniforms,
-      () =>
-        nodeMaterials.createWaterNodeMaterial(
-          surfaceState,
-          noAircraftShade,
-          waterRadiance,
-        ),
-    )
-    scene.add(nodeTerrainMesh.mesh)
-    scene.add(nodeWater.mesh)
-
-    // **場面のカメラでは地表がほとんど映らない。**矩形で密に測り直す。
-    // 段 17b の突き合わせに使ったのと同じ 5 km 角と同じカメラを使う
-    const lightProbe = await import('../terrain/surfaceProbe')
-    const heightNodesForLight = await import('../terrain/heightNodes')
-    const lightQuad = volume.createBakeQuad()
-    const lightRegion = lightProbe.TERRAIN_PROBE_REGION
-    const lightSide = lightProbe.SURFACE_PROBE_SIDE
-    const lightFragment = (
-      illum?: import('../terrain/surfaceNodes').IlluminanceProvider,
-    ) =>
-      tsl.Fn(() => {
-        const col = tsl.floor(tsl.uv().x.mul(lightSide))
-        const row = tsl.floor(tsl.uv().y.mul(lightSide))
-        const xz = tsl
-          .vec2(
-            col.add(0.5).div(lightSide).mul(lightRegion.span).add(lightRegion.origin.x),
-            row.add(0.5).div(lightSide).mul(lightRegion.span).add(lightRegion.origin.z),
-          )
-          .toVar()
-        const world = tsl.vec3(
-          xz.x,
-          heightNodesForLight.terrainHeightNode(surfaceState.inputs, xz),
-          xz.y,
-        ).toVar()
-        return nodeMaterials.terrainSurfaceForProbe(
-          surfaceState,
-          world,
-          tsl.vec3(lightRegion.camera.x, lightRegion.camera.y, lightRegion.camera.z),
-          illum,
-        )
-      })() as import('three/webgpu').Node<'vec4'>
-
-    const bakeLight = async (
-      illum?: import('../terrain/surfaceNodes').IlluminanceProvider,
-    ): Promise<number[]> => {
-      const target = volume.bakePlane(
-        renderer,
-        lightQuad,
-        lightSide,
-        lightSide,
-        lightFragment(illum),
-      )
-      const bytes = await volume.readPlane(
-        renderer,
-        target,
-        lightSide,
-        lightSide,
-        isWebGPU,
-      )
-      target.dispose()
-      return bytes
-    }
-
-    // 空の LUT（透過率と多重散乱）は `createHillaireSky` が組む時点で焼いてある。
-    // takram のときは `compileAsync` のあとでなければ作れず、先に焼くと地表が
-    // 真っ黒になった（段 S2b-2 で消えた順序）
-
-    // カメラの位置からパッチを選び、寄せる基準と海面の位置を合わせる
     const cameraWorld = camera.getWorldPosition(new THREE.Vector3())
-    nodeTerrainMesh.update(cameraWorld.x, cameraWorld.z)
-    nodeWater.follow(cameraWorld.x, cameraWorld.z)
-    surfaceState.setMorphOrigin(cameraWorld.x, cameraWorld.y, cameraWorld.z)
+    ;(surfaceCamera.value as THREE.Vector3).copy(cameraWorld)
+    const pixelAngle = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / options.height
+    /** 描く前に雲・海・空を入れる。本番の場面の `renderPlainImpl` と同じ並び */
+    const prepareFrame = () => {
+      cloudLayers.update(DEFAULT_COVERAGE, 0, cameraWorld, pixelAngle)
+      pipelineSky.update(renderer, camera, sunDirectionWorld, casterCenter)
+      ocean.update(renderer, cameraWorld, 0)
+    }
 
     // 露出とトーンマッピングは GLSL 経路と同じ値をレンダラへ置く。
     // `RenderPipeline._update` が `renderOutput` を足し、`ToneMappingNode` の
@@ -1854,46 +1062,37 @@ export async function runNodeProbe(
       aerial: pipelineSky.aerial,
       smaa: smaa as unknown as (node: import('three/webgpu').Node) => import('three/webgpu').Node,
       scenePass,
-      cloudNode: clouds.node,
+      cloudNode: cloudTexture,
       quality: options.quality,
     })
 
     // **順序を知っているのは `nodeBuild.ts` だけ。**`setMRT()` と
     // `getTextureNode()` を先に済ませること、`castShadow` を組み立ての
-    // あとで立てること、雲のクアッドを別に組むこと、LUT の中身を最後に
-    // 作ること。どれも破っても例外が出ない。**写しを 2 つ作ると片方だけ
+    // あとで立てること。どちらも破っても例外が出ない。**写しを 2 つ作ると片方だけ
     // 直したときに気づけない**ので、本番の場面と同じ関数へ通す（段 20a-2-3）
     const nodeBuild = await import('./nodeBuild')
+    prepareFrame()
     const built = await nodeBuild.buildNodePipeline({
       renderer,
       scene,
       camera,
       outputNode,
       shadowLight,
-      clouds,
     })
     const pipeline = built.pipeline
     const compileSceneMs = built.compileSceneMs
-    const compileCloudsMs = built.compileCloudsMs
     const pipelineLutMs = lutMs
     const pipelineBuildMs = built.totalMs
-
-    // LUT ができたので、ライティングの差をここで焼く
-    const lightBefore = await bakeLight()
-    const lightAfter = await bakeLight(atmosphereIlluminance)
 
     // **照度そのものを数で見る。**同じ点で法線だけを太陽へ向けたものと
     // 背けたものを焼く。直達には `max(N・L, 0)` が入っているので、
     // 背けた側はちょうど 0 になるはず
+    const illumQuad = volume.createBakeQuad()
     const illumSide = 8
-    const illumWorld = tsl.vec3(
-      lightRegion.origin.x + lightRegion.span * 0.5,
-      0,
-      lightRegion.origin.z + lightRegion.span * 0.5,
-    )
+    const illumWorld = tsl.vec3(0, 0, 0)
     const illumFragment = (indirectMode: boolean) =>
       tsl.Fn(() => {
-        const sun = surfaceState.inputs.sunDirectionWorld
+        const sun = surfaceSun as unknown as import('three/webgpu').Node<'vec3'>
         const facing = tsl.uv().x.lessThan(0.5)
         const normal = facing.select(sun, sun.negate())
         const light = atmosphereIlluminance(illumWorld, normal)
@@ -1903,7 +1102,7 @@ export async function runNodeProbe(
     const bakeIllum = async (indirectMode: boolean): Promise<number[]> => {
       const target = volume.bakePlane(
         renderer,
-        lightQuad,
+        illumQuad,
         illumSide,
         illumSide,
         illumFragment(indirectMode),
@@ -1922,7 +1121,7 @@ export async function runNodeProbe(
 
     const directBytes = await bakeIllum(false)
     const indirectBytes = await bakeIllum(true)
-    lightQuad.dispose()
+    illumQuad.dispose()
 
     /** 左半分（太陽へ向けた面）と右半分（背けた面）の平均を 3 成分で出す */
     const illumMean = (
@@ -1962,9 +1161,7 @@ export async function runNodeProbe(
       // 呼ばれず、`FRAME` 型の更新が重複と見なされて飛ぶ。絵は前の中身が
       // 残るので出続ける（段 20a-2-3 で実測。2 枚目以降が 2 呼び出し）
       nodeBuild.advanceNodeFrame(renderer)
-      clouds!.renderShadow(renderer)
-      // 本番の場面と同じく、描く直前に空と霞の LUT を焼き直す（`nodeScene.ts` の `updateSky`）
-      pipelineSky.update(renderer, camera, sunDirectionWorld, casterCenter)
+      prepareFrame()
       renderer.setRenderTarget(pipelineTarget)
       pipeline.render()
       const frameCalls = renderer.info.render.frameCalls
@@ -2010,8 +1207,8 @@ export async function runNodeProbe(
 
     // 絵は最後に 1 度だけ読み戻す
     const readPicture = async (): Promise<number[]> => {
-      clouds!.renderShadow(renderer)
-      pipelineSky.update(renderer, camera, sunDirectionWorld, casterCenter)
+      nodeBuild.advanceNodeFrame(renderer)
+      prepareFrame()
       renderer.setRenderTarget(pipelineTarget)
       renderer.info.reset()
       pipeline.render()
@@ -2031,15 +1228,6 @@ export async function runNodeProbe(
 
     const pipelineBytes = await readPicture()
     const smaaFrameCalls = lastPictureFrameCalls
-
-    // **ライティングの置き換えでどれだけ動くか。**段 20 の差分の台帳へ
-    // 入れる数。**この場面では 0 になる。**カメラに地表が写っておらず、
-    // 画面を覆うのは海面（地表を隠して 0 バイト、海面を隠して 1,254,372
-    // バイト）。地表への効きは下の矩形（`lightingProbeChanged`）で測る
-    const litMaterial = nodeTerrainMesh.mesh.material
-    nodeTerrainMesh.mesh.material = legacyTerrainMaterial.material
-    const legacyBytes = await readPicture()
-    nodeTerrainMesh.mesh.material = litMaterial
 
     // **影が絵に出ているかを数で見る。**投げ手を切って撮り直す。
     // 段 15 と同じ形で、区画平均では見えないのでバイトの違いを数える
@@ -2078,32 +1266,14 @@ export async function runNodeProbe(
     pipeline.outputNode = outputNode
     pipeline.needsUpdate = true
 
-    // **プリセットを当て直しても同じ材質が出ること。**`useDetail` は生成時に
-    // 畳まれるので、切り替えには材質の組み直しが要る。
-    //
-    // **1 枚の絵では確かめられない。**足し込みの状態を揃えても 328 バイト
-    // ずれる。ずらし（Halton）がフレームごとに動くので、同じ材質でも 2 枚は
-    // 一致しない。**組み直しが忠実かどうかは生成された本文で見る**
-    // **同じ本文が出るだけでは足りない。**組み直しが何もしていなくても
-    // 一致する。違うプリセットを当てて本文が変わることも見る
-    const marchSourceBefore = await clouds.marchShaderSource(renderer)
-    const { getQuality } = await import('../quality')
-    const other = getQuality(options.quality.cloudDetail ? 'low' : 'high')
-    clouds.setQuality(other)
-    const marchSourceOther = await clouds.marchShaderSource(renderer)
-    clouds.setQuality(options.quality)
-    const marchSourceAfter = await clouds.marchShaderSource(renderer)
-
     pipelineResult = {
       frameCalls: last.frameCalls,
       drawCalls: last.drawCalls,
       buildMs: pipelineBuildMs,
       compileSceneMs,
-      compileCloudsMs,
       warmupMs,
       // **起動の総和。**節ごとに測った値を足す。合格条件は 15 秒以内（計画の段 17）
-      startupMs:
-        initMs + volumeMs + pipelineBuildMs + compileCloudsMs + warmupMs,
+      startupMs: initMs + pipelineBuildMs + warmupMs,
       lutMs: pipelineLutMs,
       programsBeforeWarmup,
       programsAfterWarmup,
@@ -2112,9 +1282,7 @@ export async function runNodeProbe(
       firstFrameMs: firstPipelineMs,
       secondFrameMs,
       steadyMs,
-      cloudFrameCallsAtRun: clouds.frameCallsAtRun,
-      cloudDrawCallsAtRun: clouds.drawCallsAtRun,
-      cloudRenderCount: clouds.renderCount,
+      cloudDrawCallsAtRun,
       tiles: tileMeans(
         new Uint8Array(pipelineBytes),
         options.width,
@@ -2122,55 +1290,24 @@ export async function runNodeProbe(
       ),
       smaaFrameCalls,
       plainFrameCalls,
-      // SMAA を外すと辺の画素が変わる。0 なら鎖に入っていない
-      lightingChanged: byteDifference(pipelineBytes, legacyBytes, NOISE_FLOOR).differing,
-      lightingChangedMax: byteDifference(pipelineBytes, legacyBytes).max,
-      lightingTiles: tileMeans(
-        new Uint8Array(legacyBytes),
-        options.width,
-        options.height,
-      ),
       shadowChanged,
       shadowChangedMax,
       shadowFrameCalls,
       noShadowFrameCalls,
-      lightingProbeChanged: byteDifference(lightBefore, lightAfter, NOISE_FLOOR).differing,
-      lightingProbeMax: byteDifference(lightBefore, lightAfter).max,
-      lightingProbeTilesBefore: tileMeans(
-        new Uint8Array(lightBefore),
-        lightSide,
-        lightSide,
-      ),
-      lightingProbeTilesAfter: tileMeans(
-        new Uint8Array(lightAfter),
-        lightSide,
-        lightSide,
-      ),
       directFacingSun: illumMean(directBytes, true),
       directAwayFromSun: illumMean(directBytes, false),
       indirectFacingSun: illumMean(indirectBytes, true),
-      terrainPatches: nodeTerrainMesh.patchCount,
-      terrainTriangles: nodeTerrainMesh.triangleCount,
+      oceanPatches: ocean.patchCount,
+      oceanTriangles: ocean.triangleCount,
+      // SMAA を外すと辺の画素が変わる。0 なら鎖に入っていない
       smaaChanged: byteDifference(pipelineBytes, plainBytes, NOISE_FLOOR).differing,
       smaaChangedMax: byteDifference(pipelineBytes, plainBytes).max,
-      marchSourceLength: marchSourceBefore.length,
-      // **並び順は見ない。**three 0.186 で `// codes` の順が揺れる
-      // （`normalizeShaderSource` の注記）
-      requiltSameSource:
-        normalizeShaderSource(marchSourceBefore) ===
-        normalizeShaderSource(marchSourceAfter),
-      requiltOtherDiffers:
-        normalizeShaderSource(marchSourceBefore) !==
-        normalizeShaderSource(marchSourceOther),
-      requiltDiff: firstDifference(
-        normalizeShaderSource(marchSourceBefore),
-        normalizeShaderSource(marchSourceAfter),
-      ),
     }
 
     pipelineTarget.dispose()
     pipeline.dispose()
-    clouds.dispose()
+    scene.remove(ocean.mesh, ocean.plate)
+    ocean.dispose()
     // **この先の素の `render()` に露出を持ち越さない。**鎖の外の測りが
     // 変わると、同じ結果の中で条件の違うものが並ぶ
     renderer.toneMapping = THREE.NoToneMapping
@@ -2240,13 +1377,6 @@ export async function runNodeProbe(
 
   return {
     requested: options.gpu,
-    noiseSlice,
-    weatherSlice,
-    hashProbe,
-    shadowHistogram: shadowBins,
-    shadowTiles,
-    march,
-    heightProbe,
     sky,
     ocean,
     sprite,
@@ -2258,9 +1388,7 @@ export async function runNodeProbe(
     timestampSamples: gpuSamples.length,
     timestampDropped,
     gpuFrameMs: gpuSamples.length > 0 ? Math.min(...gpuSamples) : null,
-    surface,
     nodeShadow,
-    volumeMs,
     backend: isWebGPU ? 'node-webgpu' : 'node-webgl',
     fellBack: options.gpu === 2 && !isWebGPU,
     sharedCore,

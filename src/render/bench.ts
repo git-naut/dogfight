@@ -63,10 +63,9 @@ export interface BenchTarget {
    * 出てこない（段 18）
    */
   readonly backend: RenderBackend
-  readonly terrainTriangles: number
   /** 直前のフレームで実際に投入した三角形。切り替えが効いたかの確認に使う */
   readonly drawnTriangles: number
-  readonly quality: { lodDistanceScale: number; terrainPatchCells: number }
+  readonly quality: { lodDistanceScale: number }
   setMeasureConfig(config: MeasureConfig): void
   renderPlain(): void
 }
@@ -206,11 +205,9 @@ export async function runBenchSweep(
 
   // **型で埋め忘れを止める。**`MeasureToggles` はすべての切り替えを必須にする
   const base: MeasureToggles & MeasureConfig = {
-    terrain: true,
     water: true,
     clouds: true,
     sky: true,
-    detailNormals: true,
     aircraft: true,
     environment: true,
     aircraftShadow: true,
@@ -224,7 +221,6 @@ export async function runBenchSweep(
     smoke: true,
     explosions: true,
     lodDistanceScale: view.quality.lodDistanceScale,
-    terrainPatchCells: view.quality.terrainPatchCells,
   }
 
   /**
@@ -252,14 +248,12 @@ export async function runBenchSweep(
   const all: BenchCase[] = [
     { key: 'base', label: '基準', config: base },
     { key: 'sky', label: '空なし', config: { ...base, sky: false } },
-    { key: 'terrain', label: '地形なし', config: { ...base, terrain: false } },
     { key: 'water', label: '海面なし', config: { ...base, water: false } },
     { key: 'clouds', label: '雲なし', config: { ...base, clouds: false } },
     {
       key: 'post', label: '後処理だけ',
-      config: { ...base, sky: false, terrain: false, water: false, clouds: false },
+      config: { ...base, sky: false, water: false, clouds: false },
     },
-    { key: 'normals', label: '法線摂動なし', config: { ...base, detailNormals: false } },
     { key: 'aircraft', label: '機体なし', config: { ...base, aircraft: false } },
     { key: 'shadow', label: '影なし', config: { ...base, aircraftShadow: false } },
     { key: 'env', label: '環境反射なし', config: { ...base, environment: false } },
@@ -295,7 +289,6 @@ export async function runBenchSweep(
       },
     },
     { key: 'lod', label: 'lod 0.65', config: { ...base, lodDistanceScale: 0.65 } },
-    { key: 'cells', label: 'cells 24', config: { ...base, terrainPatchCells: 24 } },
   ]
 
   const cases = selectBenchCases(all, only)
@@ -339,9 +332,9 @@ export async function runBenchSweep(
       drain()
       cpuSamples[c]!.push(performance.now() - started)
 
-      // **地形だけでなく実際に描いた総数を記録する。**`terrainTriangles` は
-      // 地形の集計なので、機体や武装を切っても動かない。実機の計測で全条件が
-      // 438k のまま並び、「切れているのか」を確かめられなかった
+      // **実際に描いた総数を記録する。**地形の集計（段 S4b で地形ごと消した）は
+      // 機体や武装を切っても動かず、実機の計測で全条件が 438k のまま並び、
+      // 「切れているのか」を確かめられなかった
       triangles[c] = view.drawnTriangles
     }
   }

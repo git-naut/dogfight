@@ -33,7 +33,6 @@ import {
   vec3,
 } from 'three/tsl'
 import { Node, NodeMaterial, type NodeBuilder, type Renderer } from 'three/webgpu'
-import type { IlluminanceProvider } from '../terrain/surfaceNodes'
 import { AIRCRAFT_SHADOW_DISTANCE } from '../pipeline/nodeShadow'
 import { IRRADIANCE_TABLE } from './irradianceTable'
 import {
@@ -96,6 +95,12 @@ const SUN_LIGHT_DISTANCE = AIRCRAFT_SHADOW_DISTANCE
 interface SplitIlluminance {
   get(name: string): Node<'vec3'>
 }
+
+/** 位置と法線から、太陽の照度（余弦込み）と天空の照度。段 S4b で地表のモジュールから移した */
+export type IlluminanceProvider = (
+  world: Node<'vec3'>,
+  normal: Node<'vec3'>,
+) => { direct: Node<'vec3'>; indirect: Node<'vec3'> }
 
 /** 地形・海・雲が読む照度の口。`AtmosphereNodes` の照度の面と同じ形 */
 export interface SkyLighting {

@@ -52,7 +52,6 @@ import {
   type StorageArrayTexture,
   type StorageTexture,
 } from 'three/webgpu'
-import { createUnitGrid } from '../terrain/terrainMesh'
 import { createLayeredMips, createLayeredTexture } from './oceanMips'
 import { FOAM_LEVEL_SIZES, createFoamPattern, createOceanFoam } from './oceanFoam'
 import { createCalmNodes, type CalmNodes } from './oceanCalmNodes'
@@ -63,6 +62,7 @@ import {
   OCEAN_EDGE_FADE,
   OCEAN_LOD_BIAS,
   OCEAN_PATCH_CELLS,
+  createUnitGrid,
   oceanCoverage,
   oceanRootSize,
   oceanUvOffset,
@@ -73,7 +73,7 @@ import { OCEAN_LOOP_TICKS, oceanParamsFor, type OceanSpectrumParams } from './re
 import type { QualitySettings } from '../quality'
 
 /**
- * FFT の海面（段 S4a-1、`?ocean=1` の裏）。
+ * FFT の海面（段 S4a-1 で `?ocean=1` の裏に作り、段 S4b で既定にした）。
  *
  * 1. FFT の出力（32 ビットの記憶域）を、ミップ付きの配列テクスチャ 2 枚へ写す（`createOceanTextures`）。
  *    16 ビットと 32 ビットを `?oceantex=` で切り替え、絵と費用を比べる
@@ -103,7 +103,7 @@ const FOAM_WARMUP_JUMP = 30
 /** ライブで泡を一度に進める上限 s（web-ocean の 0.1） */
 const MAX_FOAM_DT = 0.1
 
-/** 板の一辺 m。今の板の海（`terrain/water.ts`）と同じ */
+/** 板の一辺 m。段 S4b で消した板の海（`terrain/water.ts`）と同じ */
 const PLATE_EXTENT = 300_000
 
 /**
@@ -676,7 +676,7 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
       const cam = lighting.camera
       const d = length(vec3(unmorphed.x.sub(cam.x), max(cam.y, 0), unmorphed.y.sub(cam.z)))
       const morph = clamp(d.sub(patchMorph.x).div(max(patchMorph.y.sub(patchMorph.x), 1e-4)), 0, 1).toVar()
-      // 親の格子は偶数番の頂点（地形の `terrainPatchWorldNode` と同じ）
+      // 親の格子は偶数番の頂点（段 S4b で消した地形の `terrainPatchWorldNode` と同じ形）
       const g = unitGrid.mul(patchInfo.z.div(patchInfo.w)).toVar()
       const parent = floor(g.mul(0.5)).mul(2)
       const xz = patchInfo.xy.add(mix(g, parent, morph).mul(patchInfo.w))
@@ -702,7 +702,8 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
 
     const material = new MeshBasicNodeMaterial()
     ;(material as unknown as { positionNode: unknown }).positionNode = position
-    // `outputNode` に差す理由は地形と同じ（`createTerrainNodeMaterial` の注記、MRT）
+    // `outputNode` に差す。`fragmentNode` の材質には three が MRT を当てず、場面のパスが法線も
+    // 書き出すと描画の準備に失敗して消える（`docs/lessons.md`、`tests/render/oceanMrt.test.ts`）
     ;(material as unknown as { outputNode: unknown }).outputNode = oceanShadeNode(
       sampler,
       textures,

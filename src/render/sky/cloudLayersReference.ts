@@ -168,3 +168,14 @@ export function layerSunTransmittance(
   }
   return Math.exp(-tau)
 }
+
+/**
+ * 雲の流れる時刻。
+ *
+ * 実時間ではなく sim のフレーム番号から導く。これで同じフレームからは
+ * 常に同じ雲が出る。キャプチャモードの決定論はここに依存している。
+ * 段 S4b で体積の雲（`clouds/geometry.ts`）から移した
+ */
+export function cloudTime(frame: number, fixedDt: number): number {
+  return frame * fixedDt
+}

@@ -3,7 +3,6 @@ import type * as THREE from 'three'
 import type { RenderBackend } from '../backend'
 import type { FramePassTimes } from './passTimes'
 import type { ChaseCamera } from '../camera'
-import type { CloudsUpdate } from '../clouds/cloudsUpdate'
 import type { AircraftView } from '../aircraftView'
 import type { TargetViews } from '../targetView'
 import type { EnemyViews } from '../enemyView'
@@ -16,10 +15,7 @@ import type { ExplosionTrails } from '../weapons/explosionTrails'
 import type { Flares } from '../weapons/flares'
 import type { MissileFlames } from '../weapons/missileFlames'
 import type { AircraftTrails } from '../aircraft/trails'
-import type { TerrainMesh } from '../terrain/terrainMesh'
-import type { Water } from '../terrain/water'
-import type { Terrain } from '../../sim/terrain'
-import type { PresetName, QualityOverride, QualitySettings } from '../quality'
+import type { PresetName, QualitySettings } from '../quality'
 
 /**
  * 描画パイプラインの継ぎ目。
@@ -112,8 +108,8 @@ export const MAX_TARGETS = 8
 /**
  * 計測用の描画の切り替え。
  *
- * 地形の費用は雲と違って実行量を数えられない。頂点とラスタライズが主なので、
- * 切って差分で測るしかない。省略した項目は現状のまま。
+ * 海面の描画の費用は実行量を数えられない。頂点とラスタライズが主なので、
+ * 切って差分で測るしかない（段 S4b までは地形で同じことをしていた）。省略した項目は現状のまま。
  */
 /**
  * 切り替えの項目をすべて必須にした型。
@@ -132,13 +128,10 @@ export type MeasureToggles = {
 }
 
 export interface MeasureConfig {
-  terrain?: boolean
   water?: boolean
   clouds?: boolean
   /** 空のフルスクリーンクアッド。遮蔽物を消すと逆に増える費用の切り分けに使う */
   sky?: boolean
-  /** 地表の法線摂動。1 画素あたり値ノイズ 10 回ぶん */
-  detailNormals?: boolean
   /** 機体 */
   aircraft?: boolean
   /** 環境反射。scene.environment を外す */
@@ -163,8 +156,8 @@ export interface MeasureConfig {
   smoke?: boolean
   /** 爆発 */
   explosions?: boolean
+  /** 海面の CDLOD の分割距離の倍率 */
   lodDistanceScale?: number
-  terrainPatchCells?: number
 }
 
 export interface SceneOptions {
@@ -188,25 +181,15 @@ export interface SceneOptions {
   carrierUrl?: string
   /** 空母を置く位置と艦首の向き。`carrierUrl` があるときだけ意味を持つ */
   carrier?: { x: number; z: number; heading: number }
-  /** プリセットの上書き。実機でつまみを振るときに使う */
-  qualityOverride?: QualityOverride
-  /** 時間方向の足し込みを使うか。比較用 */
-  cloudTemporal?: boolean
-  /** キャプチャモードか。雲の収束の重み付けが変わる */
-  cloudCaptureMode?: boolean
-  /** 地形と海面を描くか。GPU 時間の内訳を差分で測るための切り替え */
-  showTerrain?: boolean
+  /** 海面を描くか。GPU 時間の内訳を差分で測るための切り替え（`?water=0`） */
   showWater?: boolean
+  /** 層の雲を合成するか（`?clouds=0`、段 S4b）。画素の逆テストの切り替え */
+  showClouds?: boolean
   /** FFT の海を目で見る画面にするか（`?ocean=debug`、段 S3） */
   oceanDebug?: boolean
   /** 計測用: 海のカスケード数と格子の一辺。品質表に載せるのは CP2 のあと */
   oceanCascades?: number
   oceanFftSize?: number
-  /**
-   * FFT の海面を描くか（`?ocean=1`、段 S4a-1）。立てると今の板の海を隠し、CDLOD の海面と
-   * 外側の板（`ocean/oceanSurface.ts`）に替える。既定の絵は動かさない
-   */
-  ocean?: boolean
   /** 海面のテクスチャの精度（`?oceantex=16|32`）。既定は 16。段 S4a-1 で絵と費用を比べる */
   oceanTexturePrecision?: 16 | 32
   /** 計測用: 海面のテクスチャの異方性の上限（`?oceananiso=`、既定 16）と泡の段数（`?oceanfoam=`） */
@@ -218,11 +201,6 @@ export interface SceneOptions {
   oceanSkyLookups?: 2 | 3
   /** 水の濁り（`?oceanturbidity=`、既定は web-ocean の 1.6）。値は S4b の絵の承認で選ぶ */
   oceanTurbidity?: number
-  /**
-   * 雲を web-ocean の 2 層（`sky/cloudLayerNodes.ts`）にするか（`?clouds=layers`、段 S4c）。
-   * 立てると体積の雲のパスと雲影マップを使わない。既定の絵は動かさない
-   */
-  cloudLayers?: boolean
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean
   /**
@@ -272,13 +250,6 @@ export interface SceneOptions {
    * 動いたらどの段が動かしたのかを 1 つずつ切って見る
    */
   lensStage?: 'tone' | 'blur' | 'full'
-  /**
-   * 地表と海面のライティングを大気の LUT から引くか。既定は true。
-   *
-   * false にすると段 17b の形（`surfaceState` の放射輝度）へ戻る。
-   * **差分の帰属を測るための口（段 20a-4）**
-   */
-  illuminance?: boolean
   /** 機体の影を使うか。切り分けと計測に使う */
   showAircraftShadow?: boolean
   /** 標的機を描くか。差分で標的の画素だけを取り出すのに使う */
@@ -312,22 +283,22 @@ export interface SceneOptions {
  * 描画も計測も操作として渡す。**
  */
 /**
- * 地表と海面が読む毎フレームの値。
+ * 海面が読む毎フレームの値。
  *
- * **帳簿が uniform を直に触らない。**段 S1 で捨てた GLSL 経路は
- * `TerrainSharedUniforms` へ書いたが、**node 経路の材質はそこを読まない**
- * （`NodeSurfaceState` が別に値を持つ）。帳簿が書き先を知っていると、node 経路で黙って効かず、
- * 太陽の向きも雲影の追従もモーフの基準も初期値のまま固まる。絵は出るので
- * 気づけない（段 20a-2-3 で見つけた）。
+ * **帳簿が uniform を直に触らない。**書き先を知るのはパイプラインだけにする。帳簿が書き先を
+ * 知っていると、組み手を替えたときに黙って効かず、太陽の向きもモーフの基準も初期値のまま固まる。
+ * 絵は出るので気づけない（段 20a-2-3 で見つけた）。段 S4b で地形と雲影を消し、2 つになった
  */
 export interface SurfaceFrame {
-  cloudShadowCenter: THREE.Vector2
-  cloudShadowEnabled: boolean
   sunDirectionWorld: THREE.Vector3
-  sunRadiance: THREE.Vector3
-  skyRadiance: THREE.Vector3
-  /** 地形のモーフの基準。主カメラのワールド位置 */
+  /** 海面のモーフの基準。主カメラのワールド位置 */
   morphOrigin: THREE.Vector3
+}
+
+/** 雲の状態（段 S4b で層の雲だけになった）。時刻は sim のフレーム番号から導いた秒 */
+export interface CloudsUpdate {
+  cloudTime: number
+  coverage: number
 }
 
 export interface ScenePipeline {
@@ -336,10 +307,7 @@ export interface ScenePipeline {
   readonly camera: THREE.PerspectiveCamera
   readonly chase: ChaseCamera
 
-  readonly terrain: Terrain
-  readonly terrainMesh: TerrainMesh
-  readonly water: Water
-  /** FFT の海面（`?ocean=1` のときだけ）。パッチの数と三角形の数を計器が読む */
+  /** FFT の海面（`?ocean=debug` のときは null）。パッチの数と三角形の数を計器が読む */
   readonly ocean: { readonly patchCount: number; readonly triangleCount: number; readonly precision: number } | null
   readonly aircraft: AircraftView
   readonly targetViews: TargetViews
@@ -382,28 +350,6 @@ export interface ScenePipeline {
 
   /** 雲の状態を渡す。時刻はフレーム番号から導いた値を受ける */
   updateClouds(update: CloudsUpdate): void
-  /** 雲ノイズの生成にかかったミリ秒 */
-  readonly noiseMs: number
-  /** 雲ノイズが空でないことの確認用 */
-  readonly noiseStats: { min: number; max: number; mean: number }
-  /** 形状ノイズの中央スライスの左下 16x16。TSL 版との突き合わせに使う */
-  readonly noiseSlice: Uint8Array
-  /** 気象マップの左下 16x16。`?noiseprobe=1` のときだけ読む */
-  readonly weatherSlice: Uint8Array
-  /** 雲のバッファが 16bit 浮動小数か。8bit だと横線が出る */
-  readonly cloudHdrTarget: boolean
-  /**
-   * 雲を焼いた回数。
-   *
-   * **ライブで雲が毎フレーム焼かれているかを見る口がなかった。**node 経路の
-   * 雲は `CloudsRenderNode.updateBefore` から焼く。`NodeFrame` は `frameId`
-   * で重複を潰すので、番号が進まなければ**1 度しか焼かれない。**そうなると
-   * 雲は最初のフレームのまま画面に貼り付き、地形だけが正しく動く。
-   * 実機で報告された「傾けると雲も同じ動きをする」がその形。
-   *
-   * シムのフレーム数と並べて見る。増えていなければ焼けていない
-   */
-  readonly cloudRenderCount: number
   /** 影の箱を機体に合わせる。太陽の向きはパイプラインが持つ値を使う */
   updateAircraftShadow(position: THREE.Vector3): void
   readonly aircraftShadowReady: boolean
@@ -425,8 +371,6 @@ export interface ScenePipeline {
   readonly renderFrameId: number
   readonly drawCalls: number
   readonly drawnTriangles: number
-  /** 高さ場の生成にかかったミリ秒 */
-  readonly terrainMs: number
 
   /**
    * カメラのワールド位置。LOD の判定に使う。
@@ -511,76 +455,6 @@ export interface NodeProbeResult {
   drawCalls: number
   triangles: number
   programs: number
-  /**
-   * TSL で焼いた形状ノイズの中央スライスの左下 16x16。RGBA8 の 1,024 個。
-   *
-   * **GLSL の最後の出力の記録（`tests/e2e/node-reference.json`）とビット一致
-   * しなければ、以降の雲の絵はすべて別物になる。**
-   */
-  noiseSlice: number[]
-  /**
-   * TSL で焼いた気象マップの左下 16x16。RGBA8 の 1,024 個。
-   *
-   * **雲の配置を決めるのはこちら。**記録とずれると雲の湧く場所が
-   * 変わるが、雲影の分布では捕まらない
-   */
-  weatherSlice: number[]
-  /**
-   * ハッシュの上位 8 ビットを 16x16 の格子で焼いたもの。RGB の 768 個。
-   *
-   * CPU 参照（`hashReference.ts` の `hashProbeExpected`）と突き合わせる。
-   * **GLSL と WGSL と JS の 3 つが同じ整数を出すことの直接の証拠になる**
-   */
-  hashProbe: number[]
-  /**
-   * TSL で焼いた雲影マップ 256² の分布。16 ビンで合計 1。
-   *
-   * `?shadowinputs=` を渡したときだけ埋まる。**段 12 の合格条件**は、
-   * GLSL 版との L1 距離が 0.01 未満であること。段 S1 から相手は GLSL の
-   * 最後の出力の記録
-   */
-  shadowHistogram: number[] | null
-  /**
-   * TSL で焼いた雲影マップを 4x4 に区切った区画ごとの平均透過率。16 個。
-   *
-   * **分布だけでは配置を見張れない。**ノイズの体積を上下反転しても
-   * 16 ビンの分布は 0.01 の内側に収まることを実測した
-   */
-  shadowTiles: number[] | null
-  /**
-   * TSL で焼いたマーチの突き合わせ。`?marchprobe=1` のときだけ埋まる。
-   *
-   * **`samples` と `exhausted` は整数。**歩き方が同じなら GLSL の記録と完全に
-   * 一致するはずで、ここが移植で一番壊れやすいループと分岐を直に見張る。
-   * `tiles` は絵を 4x4 に区切った平均で、浮動小数の演算順序の差には鈍い
-   */
-  march: {
-    samples: { total: number; max: number; hit: number }
-    exhausted: number
-    tiles: number[]
-    /** 時間方向の足し込みの生バイト */
-    resolve: number[]
-    /**
-     * `prevUv` を色にしたもの（RG に uv、B に画面内か）。
-     *
-     * **両経路で座標を数値で突き合わせるため。**絵の印象では座標のずれが
-     * 読めず、上下反転の切り分けで何度も外した（2026-09-14）
-     */
-    resolveUv: number[]
-    /**
-     * 足し込みで現フレームから動いたバイトの数。
-     *
-     * **0 なら履歴を読む枝を通っていない。**段 S1 で捨てた GLSL 経路の
-     * `marchProbe` と同じ数え方で、この見張りを TSL 側で続ける
-     */
-    resolveChanged: number
-  } | null
-  /**
-   * TSL で引いた高さ場 64 点 m。`?heightprobe=1` のときだけ埋まる。
-   *
-   * `src/sim/terrain.ts` の `heightAt` と 1e-3 m 以内で一致するはず
-   */
-  heightProbe: number[] | null
   /**
    * 自前の空（Hillaire）の LUT と天空光。`?skyprobe=1` のときだけ埋まる（段 S2a）。
    *
@@ -696,27 +570,6 @@ export interface NodeProbeResult {
   /** 定常のフレームの GPU 時間 ms。最小値。測れていなければ null */
   gpuFrameMs: number | null
   /**
-   * 固定の矩形で焼いた地表と海面。`?surfaceprobe=1` のときだけ。
-   *
-   * `terrain` と `water` が色、`*Branches` が通った枝。**色だけでは枝を
-   * 数えられない**ので両方持つ
-   */
-  surface: {
-    /** 頂点変位。(x, z, morph, height) を 32bit 浮動小数で持つ */
-    patch: number[]
-    terrain: number[]
-    terrainBranches: number[]
-    /**
-     * 照度の口へ段 17b までと同じ値を流し込んだ絵。
-     *
-     * **`terrain` と一致するはず。**1/pi の掛け忘れや二重掛けがあれば
-     * 3.14 倍ずれて出る
-     */
-    terrainMatched: number[]
-    water: number[][]
-    waterBranches: number[][]
-  } | null
-  /**
    * `RenderPipeline` で組んだポストの鎖の測り。`?nodepipeline=1` のときだけ。
    *
    * **`cloudFrameCallsAtRun` が要。**雲は場面のパスより後に走らなければ
@@ -731,8 +584,6 @@ export interface NodeProbeResult {
     buildMs: number
     /** そのうち `compileAsync(scene, camera)` のぶん */
     compileSceneMs: number
-    /** そのうち雲の全画面クアッドを組むぶん */
-    compileCloudsMs: number
     /**
      * 暖機の 1 枚にかかったミリ秒。
      *
@@ -743,8 +594,8 @@ export interface NodeProbeResult {
     /**
      * 起動の総和 ms。
      *
-     * レンダラの生成、雲ノイズの焼き込み、事前コンパイル、LUT、暖機の
-     * 1 枚まで。**合格条件は 15 秒以内**（計画の段 17）
+     * レンダラの生成、事前コンパイル、LUT、暖機の 1 枚まで。**合格条件は
+     * 15 秒以内**（計画の段 17）。段 S4b で体積の雲のノイズの焼き込みが消えた
      */
     startupMs: number
     /** そのうち LUT の実行時計算のぶん */
@@ -769,35 +620,16 @@ export interface NodeProbeResult {
     secondFrameMs: number
     /** 定常のフレーム時間。最小値 */
     steadyMs: number
-    /** 雲を焼いた時点の `frameCalls`。場面のパスが先なら 1 以上 */
-    cloudFrameCallsAtRun: number
     /**
-     * 雲を焼いた時点の `drawCalls`。
+     * 層の雲を焼いた時点（`rtt` の `updateBefore`）の `drawCalls`。
      *
-     * **こちらが本命。**全画面クアッドのパスも `frameCalls` を 1 増やすので、
+     * **場面のパスより後に焼くこと。**先に焼くと 1 フレーム前の深度を読む。
+     * 全画面クアッドのパスも `frameCalls` を 1 増やすので、
      * 場面のパスが走ったかどうかは描画呼び出しの数で見る
      */
     cloudDrawCallsAtRun: number
-    cloudRenderCount: number
     /** 4x4 の区画平均。絵が真っ黒でないことを見る */
     tiles: number[]
-    /**
-     * ライティングを置き換えると動く画素の数。
-     *
-     * 段 17c の差分。**場面のカメラには地表が写らないので 0 になる。**地表を
-     * 隠しても 0 バイト、海面を隠すと 1,254,372 バイト動く（実測）。効いて
-     * いるかは `lightingProbeChanged`（矩形で測り直した数）で見る
-     */
-    lightingChanged: number
-    lightingChangedMax: number
-    /** 置き換える前の 4x4 区画平均。3.14 倍に飛んでいないかを見る */
-    lightingTiles: number[]
-    /**
-     * 地表の矩形で密に測った差。
-     *
-     * **場面のカメラでは地表がほとんど映らない。**段 17b の突き合わせに
-     * 使った 5 km 角で測り直す
-     */
     /**
      * 影の投げ手を切ると動く画素の数。
      *
@@ -809,10 +641,6 @@ export interface NodeProbeResult {
     /** 影あり／なしで投げるパスの数 */
     shadowFrameCalls: number
     noShadowFrameCalls: number
-    lightingProbeChanged: number
-    lightingProbeMax: number
-    lightingProbeTilesBefore: number[]
-    lightingProbeTilesAfter: number[]
     /**
      * 太陽へ向けた面の直達照度。
      *
@@ -822,9 +650,9 @@ export interface NodeProbeResult {
     directAwayFromSun: [number, number, number]
     /** 太陽へ向けた面の間接照度 */
     indirectFacingSun: [number, number, number]
-    /** 地形が選んだパッチ枚数。0 なら場面に入っていない */
-    terrainPatches: number
-    terrainTriangles: number
+    /** 海面が選んだパッチ枚数と三角形の数。0 なら場面に入っていない（段 S4b で地形から替えた） */
+    oceanPatches: number
+    oceanTriangles: number
     /** SMAA 入りで投げたパスの数 */
     smaaFrameCalls: number
     /** SMAA を外して投げたパスの数 */
@@ -836,36 +664,6 @@ export interface NodeProbeResult {
      */
     smaaChanged: number
     smaaChangedMax: number
-    /** マーチの断片シェーダの文字数。本文が取れていなければ 0 */
-    marchSourceLength: number
-    /**
-     * 同じプリセットを当て直したときに同じ本文が出るか。
-     *
-     * **1 枚の絵では確かめられない。**ずらしがフレームごとに動くので、
-     * 同じ材質でも 2 枚は一致しない（実測で 328 バイト）。`useDetail` が
-     * 生成時に畳まれる以上、組み直しの忠実さは本文で見るしかない
-     */
-    requiltSameSource: boolean
-    /**
-     * 違うプリセットを当てると本文が変わるか。
-     *
-     * **同じ本文が出るだけでは足りない。**組み直しが何もしていなくても
-     * 一致するので、変わる側も見る
-     */
-    requiltOtherDiffers: boolean
-    /**
-     * 当て直して本文が食い違ったときの、最初にずれた位置と前後。
-     *
-     * **真偽値だけでは何が変わったか読めない。**名前の連番がずれただけなのか、
-     * 式そのものが変わったのかで対処が正反対になる。一致していれば null
-     */
-    requiltDiff: {
-      index: number
-      beforeLength: number
-      afterLength: number
-      before: string
-      after: string
-    } | null
   } | null
   /**
    * node 経路の影の測り。`?nodeshadow=1` のときだけ埋まる。
@@ -905,12 +703,6 @@ export interface NodeProbeResult {
     changed: number
     changedMax: number
   } | null
-  /**
-   * 形状 64³・ディテール 32³・気象 512² を焼くのにかかったミリ秒。
-   *
-   * 本番の場面の `hook.noiseMs` と並べる。起動時の費用になる
-   */
-  volumeMs: number
   /** 空（`sky/hillaireSky.ts`）を組んだか */
   atmosphere: boolean
   /**

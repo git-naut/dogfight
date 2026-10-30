@@ -142,7 +142,7 @@ describe('ミッション 01 の下地', () => {
 
   it('**基準画像の台本にはミッションを付けない。**制限時間で絵が変わる', () => {
     // 台本が制限時間で打ち切られると、長いフレームを撮る基準画像が壊れる
-    for (const name of ['level', 'gun-pass', 'enemy-eight', 'island-run']) {
+    for (const name of ['level', 'gun-pass', 'enemy-eight', 'fast-pull']) {
       const { world } = createWorldFromScript(getScript(name))
       expect(world.mission, name).toBeNull()
     }

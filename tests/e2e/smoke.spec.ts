@@ -2804,12 +2804,12 @@ test.describe('長く飛ぶ', () => {
 })
 
 /**
- * キャプチャで雲を描き重ねる枚数の規則を確かめる。
+ * キャプチャで描き重ねる枚数の規則を確かめる。
  *
- * `main.ts` は「雲量 0 なら 2 枚、そうでなければ 8 枚」で描き重ねている。
- * **E2E 全体の待ち時間の 30/42 枚がここに乗っている**ので、外すと所要が
- * 倍に戻る。段 13 で足し込みを TSL へ移したので、規則がまだ成り立つことを
- * 画素で測り直す。
+ * 段 S4b まで `main.ts` は「雲量 0 なら 2 枚、そうでなければ 8 枚」で描き重ねていた
+ * （体積の雲の足し込みを収束させるため）。層の雲は足し込まないので、雲量によらず
+ * 2 枚にした（`CAPTURE_CONVERGE_FRAMES` の注記）。**雲があっても枚数で絵が動かない**
+ * ことを画素で見る。動くなら、何かが描くたびに状態を進めていて、決定論が崩れている
  */
 test.describe('キャプチャの収束枚数', () => {
   const shot = async (
@@ -2824,18 +2824,11 @@ test.describe('キャプチャの収束枚数', () => {
     return page.screenshot()
   }
 
-  test('雲量 0 なら 2 枚と 8 枚で絵が変わらない', async ({ page }) => {
-    // マーチが何も返さないので蓄積の中身が毎回同じになる
-    const two = await shot(page, 0, 2)
-    const eight = await shot(page, 0, 8)
-    expect(two.equals(eight), '雲量 0 で枚数を変えたら絵が動いた').toBe(true)
-  })
-
-  test('雲があれば枚数で絵が変わる', async ({ page }) => {
-    // **検査が働くことの確認。**雲量 0 で一致することは、雲があれば
-    // 一致しないことを見せて初めて意味を持つ
-    const two = await shot(page, DEFAULT_COVERAGE, 2)
-    const eight = await shot(page, DEFAULT_COVERAGE, 8)
-    expect(two.equals(eight), '雲があるのに枚数で絵が変わらない').toBe(false)
-  })
+  for (const coverage of [0, DEFAULT_COVERAGE]) {
+    test(`雲量 ${coverage} で 2 枚と 8 枚の絵が変わらない`, async ({ page }) => {
+      const two = await shot(page, coverage, 2)
+      const eight = await shot(page, coverage, 8)
+      expect(two.equals(eight), `雲量 ${coverage} で枚数を変えたら絵が動いた`).toBe(true)
+    })
+  }
 })

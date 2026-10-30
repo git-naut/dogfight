@@ -834,20 +834,9 @@ async function main(): Promise<void> {
     // 何度も回すが、HUD は別の canvas なので描き直す必要はない
     drawHud(world)
 
-    // 体積の雲は時間方向に足し込むので、1 枚だけ描いても収束しなかった。
-    // カメラを止めたまま必要な本数を描く。実時間は使わないので決定論は保たれる。
-    // 層の雲（段 S4b）で本数を減らせるかは `CAPTURE_CONVERGE_FRAMES` の注記。
-    //
-    // **雲量 0 なら 1 枚でよい。**マーチが何も返さないので蓄積の中身が毎回
-    // 同じになり、8 枚描いても絵は変わらない。基準画像 36 枚のうち 30 枚が
-    // `coverage=0` なので、ここが E2E の待ち時間に効く。
-    // 等価であることは `exact.mjs` の画素単位の比較で確かめる
-    const converge =
-      capture.converge > 0
-        ? capture.converge
-        : capture.coverage === 0
-          ? 2
-          : CAPTURE_CONVERGE_FRAMES
+    // カメラを止めたまま決まった本数を描く。実時間は使わないので決定論は保たれる。
+    // 本数の決め方と、段 S4b で 8 枚から減らした経緯は `CAPTURE_CONVERGE_FRAMES` の注記
+    const converge = capture.converge > 0 ? capture.converge : CAPTURE_CONVERGE_FRAMES
     for (let i = 0; i < converge; i++) view.render()
 
     if (capture.sweep) {

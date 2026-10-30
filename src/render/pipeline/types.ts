@@ -199,7 +199,7 @@ export interface SceneOptions {
   oceanFoamResolution?: number
   oceanSkipFar?: boolean
   oceanSkyLookups?: 2 | 3
-  /** 水の濁り（`?oceanturbidity=`、既定は web-ocean の 1.6）。値は S4b の絵の承認で選ぶ */
+  /** 水の濁り（`?oceanturbidity=`、既定は `OCEAN_TURBIDITY` の 0.6。段 S4b でユーザーが選んだ） */
   oceanTurbidity?: number
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean

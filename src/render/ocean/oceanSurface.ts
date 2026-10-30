@@ -116,8 +116,12 @@ const PLATE_OVERLAP = 2
 // ---- web-ocean の水の値（`ocean.html` の `f[76..83]`）----
 /** 水中から戻る散乱の色の元（web-ocean の `waterCol.rgb` は (0.016, 0.080, 0.096) × 濁り） */
 const WATER_BODY_BASE: readonly [number, number, number] = [0.016, 0.08, 0.096]
-/** 濁りの既定（web-ocean の `P.turbidity`、沿岸の値）。外洋の値は S4b の絵の承認で選ぶ（S4a-3 の合意） */
-export const OCEAN_TURBIDITY = 1.6
+/**
+ * 濁りの既定。web-ocean の `P.turbidity` は 1.6（沿岸の明るい青緑）。段 S4b で島を消し、見える海は
+ * 外洋だけになったので、空母・低空・夕景で 1.6・1.0・0.6 を実機で撮り比べ、ユーザーが 0.6（深い青）を
+ * 選んだ（2026-10-30）
+ */
+export const OCEAN_TURBIDITY = 0.6
 /** 解けない細かい傾きの分散（web-ocean の `waterCol.w`） */
 const UNRESOLVED_SLOPE_VARIANCE = 0.0024
 /** 波頭の透過光の色と強さ（web-ocean の `sssCol`） */

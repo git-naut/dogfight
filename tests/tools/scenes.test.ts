@@ -75,10 +75,13 @@ describe('基準画像の構図', () => {
     // 続けてフレアを霞の後ろのパスへ移すと、`enemy-flare-flash` の `bloom` が発火しなくなり、外して 63 件。
     // 陽炎（ADR 0041）の `heatHaze` を `aircraft-close` に足して 64 件。`MUTATE=1` で発火した
     // Phase 11 の段 S4b で島を消し、`terrain` の見張り 9 件を外した。島の 3 枚を海と雲の 3 枚に
-    // 置き換え、`water` と `clouds` を仮に載せて 61 件。**撮り直し #2 のあとに `MUTATE=1` で
-    // 測って確定する**（まだ実測ではない）
+    // 置き換え、`water` と `clouds` を載せ、雲を主題にした 2 枚に `clouds` を足した。撮り直し #2 の
+    // あとの `MUTATE=1` で全部発火した。一方、前からの 4 件が発火しなくなった。影
+    // （`aircraft-shadow`、島の斜面に落ちていた。`catapult` の甲板へ移した）と、背景が替わって
+    // 許容に埋もれた 3 件（`aircraft-vortex-turn` の軌跡は最大 12 階調、`aircraft-vortex-fade` の
+    // 風圧は最大 3 階調、`missile-smoke-near` の煙は最大 7 階調）。3 件は exact に任せて 60 件
     const total = SCENES.reduce((sum, s) => sum + (s.watches?.length ?? 0), 0)
-    expect(total).toBe(61)
+    expect(total).toBe(60)
     const empty = SCENES.filter((s) => (s.watches ?? []).length === 0).map((s) => s.name)
     // **段 23 で 3 枚に減った。**`aircraft-vortex-fade` は 1.9 G で風圧が
     // 効くので `lens` が載った（渦そのものは薄すぎて載せられていない）
@@ -87,6 +90,8 @@ describe('基準画像の構図', () => {
     // Phase 10 の段 B7 の `hud-approach` も空。計器は画素の見張りを持たず、絵の一致と E2E の値で見る
     // 宿題 2 の `hud-lock-warning` も空。WARNING は絵の一致と E2E の値で見る
     expect(empty).toEqual([
+      'aircraft-vortex-fade',
+      'missile-smoke-near',
       'hud-dlz',
       'hud-mission-failed',
       'hud-mission-kill',

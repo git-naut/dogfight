@@ -274,6 +274,14 @@ export async function createNodePipeline(
     sunDirectionWorld: solar.sunDirectionWorld,
   })
   const aircraftShade = shadowInfo.shade
+  // `?shadow=0`（画素の逆テストと切り分け）。段 S1b で GLSL の組み手と一緒に読み手が消え、
+  // 段 S4b まで何もしていなかった。計測の切り替え（`setMeasureConfig` の `aircraftShadow`）と
+  // 同じく投げ手の側で切る。光の `castShadow` は触らない（その注記）
+  if (options.showAircraftShadow === false) {
+    views.aircraft.object.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.castShadow = false
+    })
+  }
 
   // ---- FFT の海（段 S3〜S4a で作り、段 S4b で既定にした。ADR 0046〜0049）----
   //

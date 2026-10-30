@@ -104,8 +104,8 @@ export const SCENES = [
   { name: 'bank-left-dusk', script: 'bank-left', frame: 420, hour: 18.3, coverage: 0.29, watches: ['aircraft', 'lens'] },
   { name: 'low-pass-afternoon', script: 'low-pass', frame: 240, hour: 16, coverage: 0.29, watches: ['water', 'aircraft', 'bloom'] },
   // 雲を主題にした構図
-  { name: 'clouds-climb', script: 'pull-up', frame: 200, hour: 16, coverage: 0.29, watches: ['aircraft', 'lens'] },
-  { name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.8, watches: ['aircraft'] },
+  { name: 'clouds-climb', script: 'pull-up', frame: 200, hour: 16, coverage: 0.29, watches: ['aircraft', 'lens', 'clouds'] },
+  { name: 'clouds-dense', script: 'level', frame: 480, hour: 16, coverage: 0.8, watches: ['aircraft', 'clouds'] },
   { name: 'clouds-clear', script: 'level', frame: 240, hour: 16, coverage: 0, watches: ['water', 'aircraft'] },
   // 海と雲を主題にした構図（段 S4b で島の 3 枚から置き換えた。ユーザーの決定）。
   // 朝の海を高速の引き起こしで見下ろす、朝の低空の海、夕方に積雲の層の高さを抜ける。
@@ -116,18 +116,21 @@ export const SCENES = [
   // 機体を主題にした構図。斜め後方からの接写、自分の影が地面を走るカット、
   // 高 G で翼端渦が出るカット、その渦が画面の縁で切れているカット
   // 陽炎（ADR 0041）の見張りもここ。排気口の後ろの範囲が画面に大きく写る
+  // **aircraft-shadow はもう影を写さない**（段 S4b）。島の斜面に落ちていた影は、海の上では
+  // 高度 220 m の先の画面の外に落ちる。影の見張りは甲板の `catapult` へ移した。名前は基準画像と
+  // 対なので据え置く
   { name: 'aircraft-close', script: 'bank-left', frame: 30, hour: 12, coverage: 0.29, watches: ['aircraft', 'heatHaze'] },
-  { name: 'aircraft-shadow', script: 'low-pass', frame: 2500, hour: 16, coverage: 0.29, watches: ['aircraftShadow', 'aircraft', 'water'] },
+  { name: 'aircraft-shadow', script: 'low-pass', frame: 2500, hour: 16, coverage: 0.29, watches: ['aircraft', 'water'] },
   { name: 'aircraft-vortex', script: 'pull-up', frame: 430, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
   // 引き起こしを続けて 7.5 秒。左右の渦が画面の下隅を突き抜ける。
   // 軌跡が空中で尻すぼみに消えていないことを、この 1 枚で見張る
   { name: 'aircraft-vortex-long', script: 'pull-up', frame: 900, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
   // 定常旋回。荷重倍数は 3.08 しかないが揚力係数 0.569 で渦が出る。
   // 荷重倍数で判定していたころは、この構図でまったく渦が出なかった
-  { name: 'aircraft-vortex-turn', script: 'bank-left', frame: 1800, hour: 12, coverage: 0.29, watches: ['trails', 'lens'] },
+  { name: 'aircraft-vortex-turn', script: 'bank-left', frame: 1800, hour: 12, coverage: 0.29, watches: ['lens'] },
   // 急上昇して舵を戻した 1.3 秒後。翼端の水蒸気に減衰の時定数がないと、
   // ここで渦が 1 階調しか残らず消える。**この 1 枚が遅れの見張り。**
-  { name: 'aircraft-vortex-fade', script: 'zoom-climb', frame: 400, hour: 12, coverage: 0.29, watches: ['lens'] },
+  { name: 'aircraft-vortex-fade', script: 'zoom-climb', frame: 400, hour: 12, coverage: 0.29, watches: [] },
   // 水平から 5.4 G の旋回へ入って 9 秒。引き始めた位置に水蒸気の段差が
   // あり、その先細りが視界に入る。**この 1 枚が末端の見張り。**
   // 先細りがないと、いちばん太いところで直角に切り落とされて見える
@@ -160,7 +163,7 @@ export const SCENES = [
   // このフレームの煙の中ほどがカメラの 0.1 m を通る（濃さ 1）。
   // **段 B3b で自機のミサイルを速くしたので f841 から f721 へ移した。**煙の中心線と追従カメラの
   // 最短距離を sim で測ると、元の速さの f841 が 1.06 m、新しい速さの f841 が 2.89 m、f721 が 0.99 m
-  { name: 'missile-smoke-near', script: 'missile-near', frame: 721, hour: 16, coverage: 0, watches: ['smoke'] },
+  { name: 'missile-smoke-near', script: 'missile-near', frame: 721, hour: 16, coverage: 0, watches: [] },
   // 爆発。機銃で落とした 0.13 秒後。火球が膨らみ切る手前。
   // **耐久を 60 へ上げて撃墜が 0.95 秒になったので f90 から f130 へ移した**
   { name: 'explosion-gun', script: 'gun-pass', frame: 130, hour: 16, coverage: 0, watches: ['explosions', 'bloom'] },
@@ -280,7 +283,8 @@ export const SCENES = [
     hour: 16,
     coverage: 0,
     hud: true,
-    watches: ['aircraft'],
+    // 甲板に落ちる機体の影（段 S4b で aircraft-shadow から移した。実測 1.28%・最大 88 階調）
+    watches: ['aircraft', 'aircraftShadow'],
   },
   // 空母。**自機を消す。**追従カメラは自機の後方にあるので、出したまま
   // だと船体の前半が機体で隠れて甲板の標識が読めない。差分が読めない

@@ -338,8 +338,8 @@ test.describe('node 経路', () => {
     // **泡（段 S4a-2）。**前から 16 回回した泡を 2 回作り、ビット単位で一致すること（キャプチャの
     // 決定論）。穏やかな海でも泡が出ていること（2026-10-29 の実測で 3.2%、J の最小 0.33）
     const foam = ocean!.surfaceCost.foam
-    // high の泡（2 段 × 512²、品質表の `oceanFoamLevels`・`oceanFoamResolution`）
-    expect(foam.texels, '泡のクリップマップの大きさ').toBe(2 * 512 * 512)
+    // high の泡（1 段 × 512²、品質表の `oceanFoamLevels`・`oceanFoamResolution`。段 S4b で 2 段から減らした）
+    expect(foam.texels, '泡のクリップマップの大きさ').toBe(1 * 512 * 512)
     expect(foam.differing, '同じ手順で作った泡が食い違う').toBe(0)
     expect(foam.covered, '泡が出ていない').toBeGreaterThan(0.005)
     expect(foam.covered, '泡が出すぎている').toBeLessThan(0.2)

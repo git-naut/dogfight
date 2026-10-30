@@ -116,8 +116,9 @@ export const PASS_GROUPS: readonly PassGroupRule[] = [
   { group: '空', test: (s) => s.scene === 'Sky [ View ]' },
   // 自前の霞の LUT（入る光と透過率の 2 枚）を毎フレーム焼くパス（段 S2b-1）
   { group: '霞', test: (s) => s.scene === 'Sky [ Aerial ]' || s.scene === 'Sky [ Aerial T ]' },
-  // FFT の海のコンピュート（段 S3、`ocean/oceanNodes.ts`）
-  { group: '海', test: (s) => s.scene.startsWith('Ocean [') },
+  // FFT の海のコンピュート（段 S3、`ocean/oceanNodes.ts`）と泡の写しとミップ（段 S4a-2、
+  // `Ocean Foam [ … ]`）。泡の 2 つは段 S4b まで漏れて「不明」に入っていた（実機で 0.23〜0.26 ms）
+  { group: '海', test: (s) => s.scene.startsWith('Ocean [') || s.scene.startsWith('Ocean Foam [') },
   { group: '場面', test: (s) => s.scene === 'Scene' },
   { group: '爆発', test: (s) => s.scene === 'Overlay' },
   // 霞・雲・重ね描き・ブルームを合わせて焼くパス（`nodeOutput.ts` の `compositeRtt`）

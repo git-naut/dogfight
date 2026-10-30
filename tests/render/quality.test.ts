@@ -60,11 +60,14 @@ describe('品質プリセットの表', () => {
     }
   })
 
-  it('LOD の切り替え距離の倍率が段ごとに上がる', () => {
+  it('LOD の切り替え距離の倍率が段ごとに下がらない', () => {
+    // 段 S4b まで「段ごとに上がる」だった。high を予算のために medium と同じ 0.75 へ下げた
+    // （ユーザーの決定、2026-10-30）ので、等しいことを許す
     const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].lodDistanceScale)
     for (let i = 1; i < values.length; i++) {
-      expect(values[i]!).toBeGreaterThan(values[i - 1]!)
+      expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!)
     }
+    expect(values).toEqual([0.5, 0.75, 0.75, 1.15])
   })
 
   it('low だけ SMAA を切っている', () => {
@@ -108,7 +111,7 @@ describe('品質プリセットの表', () => {
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanCascades)).toEqual([3, 4, 4, 6])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFftSize)).toEqual([128, 128, 256, 256])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanLodLevels)).toEqual([8, 10, 12, 13])
-    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFoamLevels)).toEqual([0, 1, 2, 2])
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFoamLevels)).toEqual([0, 1, 1, 2])
     // 段 S4a-2: 予算（海 5.5 ms）に合わせた泡の解像度と異方性（ultra は推測、S5 で測る）
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFoamResolution)).toEqual([512, 512, 512, 1024])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanAnisotropy)).toEqual([1, 1, 1, 4])

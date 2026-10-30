@@ -150,6 +150,9 @@ describe('名札と群', () => {
     // FFT の海のコンピュート（段 S3）。描き先は無い
     expect(passGroup({ scene: 'Ocean [ Evolve ]', target: '' })).toBe('海')
     expect(passGroup({ scene: 'Ocean [ FFT Cols ]', target: '' })).toBe('海')
+    // 泡の写しとミップ（段 S4a-2）。段 S4b まで「不明」に漏れていた
+    expect(passGroup({ scene: 'Ocean Foam [ Copy ]', target: '' })).toBe('海')
+    expect(passGroup({ scene: 'Ocean Foam [ Mip ]', target: '' })).toBe('海')
     // 名前の無い焼き直しは、どちらにも入れない
     expect(passGroup({ scene: 'RTT', target: '' })).toBe(UNGROUPED)
   })

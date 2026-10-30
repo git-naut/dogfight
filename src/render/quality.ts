@@ -358,14 +358,17 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     materialDetail: 'procedural',
     canopyClearcoat: true,
     vaporCone: true,
-    lodDistanceScale: 1,
+    // 段 S4b で 1 → 0.75（ユーザーの決定、2026-10-30）。低空の構図で全体が予算 13.0 ms を越えた。
+    // 実機 low-pass で場面のパスが約 0.4 ms 軽くなり、絵の差は目では分からなかった
+    lodDistanceScale: 0.75,
     aircraftShadowMapSize: 1024,
     shadowFilter: 'pcf',
     skyEnvironment: true,
     oceanCascades: 4,
     oceanFftSize: 256,
     oceanLodLevels: 12,
-    oceanFoamLevels: 2,
+    // 段 S4b で 2 → 1（同じ決定）。実機 low-pass で約 0.8 ms 減。近くの泡と喫水線の泡は残る
+    oceanFoamLevels: 1,
     oceanFoamResolution: 512,
     oceanAnisotropy: 1,
     cloudLayerOctaves: 7,

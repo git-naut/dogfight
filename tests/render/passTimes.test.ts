@@ -135,6 +135,10 @@ describe('名札と群', () => {
     expect(passGroup({ scene: 'Clouds [ March ]', target: '' })).toBe('雲')
   })
 
+  it('層の雲の焼き込みは雲（段 S4c）', () => {
+    expect(passGroup({ scene: 'cloudLayers [ RTT ]', target: '' })).toBe('雲')
+  })
+
   it('合成と風圧の焼き直しを見分ける', () => {
     expect(passGroup({ scene: 'compositeRtt [ RTT ]', target: '' })).toBe('合成')
     expect(passGroup({ scene: 'lensRtt [ RTT ]', target: '' })).toBe('風圧')

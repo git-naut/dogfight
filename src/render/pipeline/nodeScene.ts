@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { vec3, Fn, vec4, uniform } from 'three/tsl'
+import { vec3, Fn, vec4, uniform, screenUV, rtt } from 'three/tsl'
 import * as webgpu from 'three/webgpu'
 import { createChaseCamera } from '../camera'
 import { createNodeBackend } from './nodeBackend'
@@ -47,6 +47,8 @@ import {
 import { WebGPUUnavailable } from './webgpuRequired'
 import { FIXED_DT } from '../../sim/loop'
 import { createHillaireSky, type SkyLighting } from '../sky/hillaireSky'
+import { CLOUD_SHADOW_OCTAVE_DROP, createCloudLayers } from '../sky/cloudLayerNodes'
+import { layerSunTransmittance } from '../sky/cloudLayersReference'
 
 /**
  * 場面を node 経路（`WebGPURenderer`）で組む。
@@ -196,6 +198,34 @@ export async function createNodePipeline(
     .indirect.mul(1 / Math.PI)
 
   let coverage = options.coverage ?? DEFAULT_COVERAGE
+
+  // ---- 層の雲（段 S4c、`?clouds=layers`）----
+  //
+  // 立てると合成へ体積の雲の代わりにこれを渡す（体積の雲のパスは参照されず走らない）。雲影マップも
+  // 焼かず、海と機体の光は層を横切る太陽の線の透過率で遮る
+  const cloudLayers =
+    options.cloudLayers === true
+      ? createCloudLayers({
+          view: sky.view,
+          skyRadiance: (dir, spread) => sky.radiance(dir, spread),
+          sunIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('direct'),
+          octaves: quality.cloudLayerOctaves,
+        })
+      : null
+  let cloudTimeSeconds = 0
+  const layerCamera = new THREE.Vector3()
+  const drawingSize = new THREE.Vector2()
+  /** 層の雲の uniform と、機体の光の雲の透過率を入れる。空を焼く前に呼ぶ */
+  const updateCloudLayers = () => {
+    if (cloudLayers === null) return
+    camera.getWorldPosition(layerCamera)
+    renderer.getDrawingBufferSize(drawingSize)
+    const pixelAngle = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(drawingSize.y, 1)
+    cloudLayers.update(coverage, cloudTimeSeconds, layerCamera, pixelAngle)
+    const octaves = Math.max(quality.cloudLayerOctaves - CLOUD_SHADOW_OCTAVE_DROP, 1)
+    const sun = solar.sunDirectionWorld
+    sky.setSunCloudTransmittance(layerSunTransmittance(anchor.x, anchor.y, anchor.z, sun, coverage, cloudTimeSeconds, octaves))
+  }
   const clouds: CloudsNodePass = createCloudsNodePass({
     camera,
     noise: { shape: noise.shape, detail: noise.detail, weather: noise.weather },
@@ -378,7 +408,11 @@ export async function createNodePipeline(
         sunIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('direct'),
         skyIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('indirect'),
         sunDirection: surfaceState.inputs.sunDirectionWorld,
-        sunShade: (world) => terrainCloudShadeNode(surfaceState.inputs, world).mul(aircraftShade) as unknown as webgpu.Node<'float'>,
+        // 層の雲のときは層を横切る太陽の線の透過率で遮る（段 S4c）
+        sunShade: (world) =>
+          (cloudLayers !== null
+            ? cloudLayers.sunTransmittance(world).mul(aircraftShade)
+            : terrainCloudShadeNode(surfaceState.inputs, world).mul(aircraftShade)) as unknown as webgpu.Node<'float'>,
         camera: surfaceState.morphOrigin,
       },
     })
@@ -440,6 +474,25 @@ export async function createNodePipeline(
    * `needsUpdate` を立てると `_updateContext` が組み直す（`RenderPipeline.js`）。
    * 同じ形の前例が環境反射（`applyPreset` の中）と `?env=0` の切り替えにある。
    */
+  /**
+   * 層の雲を品質表の倍率（`cloudLayerResolutionScale`）の解像度で焼く（web-ocean と同じく半分）。
+   * 合成は全解像度で引いて拡大する。名前は計時の群「雲」の目印（`passTimes.ts`）
+   */
+  function cloudLayerTexture(q: QualitySettings): webgpu.Node<'vec4'> {
+    const node = cloudLayers!.node(
+      (scenePass.getTextureNode('depth') as unknown as { x: webgpu.Node<'float'> }).x,
+      screenUV as never,
+    )
+    const texture = (rtt as unknown as (n: unknown, w: null, h: null, o: { resolutionScale: number }) => webgpu.Node<'vec4'>)(
+      node,
+      null,
+      null,
+      { resolutionScale: q.cloudLayerResolutionScale },
+    )
+    ;(texture as unknown as { name: string }).name = 'cloudLayers'
+    return texture
+  }
+
   function buildOutput(q: QualitySettings): webgpu.Node {
     if (oceanDebug !== null) {
       // 色をそのまま出す（トーンマッピングを通さない）
@@ -455,7 +508,9 @@ export async function createNodePipeline(
       aerial: sky.aerial,
       smaa: smaa as unknown as (node: webgpu.Node) => webgpu.Node,
       scenePass,
-      cloudNode: clouds.node.mul(cloudVisibility) as unknown as webgpu.Node<'vec4'>,
+      cloudNode: (cloudLayers !== null
+        ? cloudLayerTexture(q).mul(cloudVisibility)
+        : clouds.node.mul(cloudVisibility)) as unknown as webgpu.Node<'vec4'>,
       overlay,
       quality: q,
       bloom: bloom as unknown as BloomFactory,
@@ -585,7 +640,8 @@ export async function createNodePipeline(
     // `nodeBuild.ts` の `advanceNodeFrame` の注記
     advanceNodeFrame(renderer)
     // 雲影は地面を描く前に焼く。**鎖の中では手遅れになる**
-    if (cloudsEnabled) clouds.renderShadow(renderer)
+    if (cloudsEnabled && cloudLayers === null) clouds.renderShadow(renderer)
+    updateCloudLayers()
     updateSky()
     oceanDebug?.sim.update(renderer, oceanTicks, 0)
     updateOcean()
@@ -597,6 +653,7 @@ export async function createNodePipeline(
 
   function applyPreset(preset: PresetName): void {
     quality = applyQualityOverride(getQuality(preset), qualityOverride)
+    cloudLayers?.setOctaves(quality.cloudLayerOctaves)
     clouds.setQuality(quality)
     terrainMesh.setQuality(quality)
     water.setQuality(quality)
@@ -707,7 +764,8 @@ export async function createNodePipeline(
 
     setSurfaceFrame(frame) {
       surfaceState.setCloudShadowCenter(frame.cloudShadowCenter.x, frame.cloudShadowCenter.y)
-      surfaceState.setCloudShadowEnabled(frame.cloudShadowEnabled)
+      // 層の雲のときは雲影マップを焼かないので切る（段 S4c）
+      surfaceState.setCloudShadowEnabled(frame.cloudShadowEnabled && cloudLayers === null)
       surfaceState.setSunDirection(
         frame.sunDirectionWorld.x,
         frame.sunDirectionWorld.y,
@@ -721,6 +779,7 @@ export async function createNodePipeline(
     updateClouds(update) {
       oceanTicks = Math.round(update.cloudTime / FIXED_DT)
       coverage = update.coverage
+      cloudTimeSeconds = update.cloudTime
       clouds.update(update)
       surfaceState.setWaveTime(update.cloudTime)
     },
@@ -803,7 +862,8 @@ export async function createNodePipeline(
       // GPU の timestamp の鍵に入る番号。CPU の内訳を同じ番号で残すために控える（段 S0e）
       renderFrameId = renderer.info.frame
       gpuTimer.begin()
-      if (cloudsEnabled) clouds.renderShadow(renderer)
+      if (cloudsEnabled && cloudLayers === null) clouds.renderShadow(renderer)
+      updateCloudLayers()
       updateSky()
       oceanDebug?.sim.update(renderer, oceanTicks, 0)
       updateOcean()

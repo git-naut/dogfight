@@ -230,6 +230,16 @@ export interface QualitySettings {
    */
   oceanAnisotropy: number
   /**
+   * 層の雲（段 S4c、web-ocean の 2 層）の積雲の縁のノイズの段の数。自己影の 3 点と高層雲と
+   * 雲の影はここから 1〜4 段減らす（web-ocean は 7）。low と medium は推測、S5 で測る
+   */
+  cloudLayerOctaves: number
+  /**
+   * 層の雲を描く解像度の倍率（段 S4c）。web-ocean と同じく半分で描き、合成で拡大する。全解像度
+   * では積雲を上から見る構図で 1.7〜2.2 ms だった（2026-10-30 実測）。値は推測、S5 で測る
+   */
+  cloudLayerResolutionScale: number
+  /**
    * 軌跡のリボンの分割数。0 で軌跡なし。
    *
    * コントレイルと翼端渦が使う。sim が持つ履歴（768 本 = 25.6 秒）のうち、
@@ -352,6 +362,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     oceanFoamLevels: 0,
     oceanFoamResolution: 512,
     oceanAnisotropy: 1,
+    cloudLayerOctaves: 5,
+    cloudLayerResolutionScale: 0.5,
     trailSegments: 0,
     missileTrailSegments: 0,
     explosionSprites: 0,
@@ -394,6 +406,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     oceanFoamLevels: 1,
     oceanFoamResolution: 512,
     oceanAnisotropy: 1,
+    cloudLayerOctaves: 6,
+    cloudLayerResolutionScale: 0.5,
     trailSegments: 192,
     missileTrailSegments: 192,
     explosionSprites: 6,
@@ -444,6 +458,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     oceanFoamLevels: 2,
     oceanFoamResolution: 512,
     oceanAnisotropy: 1,
+    cloudLayerOctaves: 7,
+    cloudLayerResolutionScale: 0.5,
     trailSegments: 384,
     missileTrailSegments: 384,
     explosionSprites: 12,
@@ -494,6 +510,8 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     oceanFoamLevels: 2,
     oceanFoamResolution: 1024,
     oceanAnisotropy: 4,
+    cloudLayerOctaves: 7,
+    cloudLayerResolutionScale: 0.5,
     trailSegments: 768,
     missileTrailSegments: 512,
     explosionSprites: 12,

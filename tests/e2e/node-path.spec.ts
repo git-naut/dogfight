@@ -601,6 +601,15 @@ test.describe('node 経路', () => {
     expect(ocean!.calm.calmZero, '船体の中の点が無い').toBeGreaterThan(20)
     expect(ocean!.calm.waterlineOn, '喫水線の帯の点が無い').toBeGreaterThan(5)
 
+    // **層の雲（段 S4c）。**WGSL のまま写したノイズと縁が CPU 参照と合うこと。WGSL の cos・sin は
+    // 絶対誤差 2^-11 まで許されるので、そのぶんの差は残る（許容は実測を見て決めた）
+    // eslint-disable-next-line no-console
+    console.log(`[層の雲] ${JSON.stringify(ocean!.cloudLayers)}`)
+    // 2026-10-30 の実測はノイズ 7.0e-5・積雲の縁 2.9e-4・高層雲の縁 6.4e-5。許容は約 3 倍
+    for (const key of ['gnoise', 'lowEdge', 'highEdge'] as const) {
+      expect(ocean!.cloudLayers[key], `層の雲の ${key} の差`).toBeLessThan(1e-3)
+    }
+
     // **泡（段 S4a-2）。**前から 16 回回した泡を 2 回作り、ビット単位で一致すること（キャプチャの
     // 決定論）。穏やかな海でも泡が出ていること（2026-10-29 の実測で 3.2%、J の最小 0.33）
     const foam = ocean!.surfaceCost.foam

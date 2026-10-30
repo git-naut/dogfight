@@ -1039,6 +1039,60 @@ export async function runNodeProbe(
     }
     const calm = { points: calmPoints.length / 2, calmError, waterlineError, calmZero, waterlineOn }
 
+    // 層の雲（段 S4c）。ノイズ・積雲の縁・高層雲の縁を、GPU（WGSL のまま写した関数）と CPU 参照で
+    // 同じ点・同じ条件で求めて比べる。点は数十 km に散らし、画素の大きさ（細かい段を消す量）も振る
+    const layerRef = await import('../sky/cloudLayersReference')
+    const layerNodes = await import('../sky/cloudLayerNodes')
+    const layerPoints: number[] = []
+    for (let i = 0; i < 256; i++) {
+      const a = (i * 0.7548776662466927) % 1
+      const b = (i * 0.5698402909980532) % 1
+      layerPoints.push(-30 + a * 60, -30 + b * 60, [0, 0.05, 0.3, 1.5][i % 4]!, 0)
+    }
+    const LAYER_OCTAVES = 7
+    const LAYER_COVERAGE = 0.4
+    const LAYER_TIME = 1234.5
+    const layerInput = tsl.instancedArray(new Float32Array(layerPoints), 'vec4')
+    const layerOutput = tsl.instancedArray(256, 'vec4')
+    const layerCompute = tsl
+      .Fn(() => {
+        const k = tsl.uint(tsl.instanceIndex).toVar()
+        const p = (layerInput as unknown as { element(i: unknown): { toVar(): unknown } }).element(k).toVar() as {
+          xy: unknown
+          z: unknown
+        }
+        const f = layerNodes.cloudLayerProbeFunctions
+        ;(layerOutput as unknown as { element(i: unknown): { assign(v: unknown): void } })
+          .element(k)
+          .assign(
+            tsl.vec4(
+              f.gnoise(p.xy as never),
+              f.lowEdge(p.xy as never, p.z as never, LAYER_OCTAVES, tsl.float(LAYER_COVERAGE) as never, tsl.float(LAYER_TIME) as never),
+              f.highEdge(p.xy as never, p.z as never, LAYER_OCTAVES - 1, tsl.float(layerRef.veilFor(LAYER_COVERAGE)) as never, tsl.float(LAYER_TIME) as never),
+              0,
+            ),
+          )
+      })()
+      .compute(256, [64])
+    renderer.compute(layerCompute as never)
+    const layerValues = await read(layerOutput as unknown as { value: unknown })
+    const layerError = { gnoise: 0, lowEdge: 0, highEdge: 0 }
+    for (let k = 0; k < 256; k++) {
+      const [x, y, fp] = [layerPoints[k * 4]!, layerPoints[k * 4 + 1]!, layerPoints[k * 4 + 2]!]
+      layerError.gnoise = Math.max(layerError.gnoise, Math.abs(layerValues[k * 4]! - layerRef.gnoise(x, y)))
+      layerError.lowEdge = Math.max(
+        layerError.lowEdge,
+        Math.abs(layerValues[k * 4 + 1]! - layerRef.lowEdge(x, y, fp, LAYER_OCTAVES, LAYER_COVERAGE, LAYER_TIME)),
+      )
+      layerError.highEdge = Math.max(
+        layerError.highEdge,
+        Math.abs(
+          layerValues[k * 4 + 2]! -
+            layerRef.highEdge(x, y, fp, LAYER_OCTAVES - 1, layerRef.veilFor(LAYER_COVERAGE), LAYER_TIME),
+        ),
+      )
+    }
+
     // 1 回の所要（段 S4a-2）。海と写しとミップ、泡の更新とそのミップを分けて測る。泡はキャプチャで
     // 前から 16 回回すので、ここが撮る時間に効く。GPU の仕事を待った壁時計（3 回の中央値）
     const foamModule = await import('../ocean/oceanFoam')
@@ -1115,6 +1169,7 @@ export async function runNodeProbe(
       surface,
       surfaceCost,
       calm,
+      cloudLayers: layerError,
       float32Filterable: renderer.hasFeature('float32-filterable'),
     }
   }

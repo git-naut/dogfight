@@ -122,6 +122,13 @@ export interface HillaireSky {
   readonly sunLight: SkySunLight
   /** 天空光（地面の側は 0）。場面へ足すのは呼ぶ側 */
   readonly skyLight: HemisphereLight
+  /** 霞と同じカメラの値（層の雲が視線を作るのに使う、段 S4c） */
+  readonly view: AerialInputs
+  /**
+   * 機体の光（直達）に掛ける雲の透過率 0..1（段 S4c、層の雲）。次の `update` から効く。
+   * 体積の雲のときは 1 のまま
+   */
+  setSunCloudTransmittance(t: number): void
   /** 場面の色に霞を掛ける（`nodeOutput.ts` の合成の中から呼ぶ） */
   aerial(color: Node<'vec4'>, depth: Node<'float'>, screen: Node<'vec2'>): Node<'vec4'>
   /**
@@ -357,12 +364,14 @@ export function createHillaireSky(renderer: Renderer): HillaireSky {
   skyLight.name = 'SkyAmbient'
 
   /** 機体の高さで光の色を入れ直す。GPU と同じ式を CPU 参照で解く */
+  let sunCloudTransmittance = 1
   function updateLights(sunDirectionWorld: Vector3, anchor: Vector3): void {
     const h = Math.max(anchor.y, 0) / 1000
     const r = GROUND_RADIUS + h
     const mu = sunDirectionWorld.y
     const t = sunBelowHorizon(r, mu) ? [0, 0, 0] : transmittanceToTop(r, mu)
-    sunLight.color.setRGB(SUN_ILLUMINANCE[0] * t[0]!, SUN_ILLUMINANCE[1] * t[1]!, SUN_ILLUMINANCE[2] * t[2]!)
+    const k = sunCloudTransmittance
+    sunLight.color.setRGB(SUN_ILLUMINANCE[0] * t[0]! * k, SUN_ILLUMINANCE[1] * t[1]! * k, SUN_ILLUMINANCE[2] * t[2]! * k)
     const e = sampleIrradiance(IRRADIANCE_CPU, mu, h)
     skyLight.color.setRGB(
       SKY_ILLUMINANCE[0] * e[0] * Math.PI,
@@ -389,6 +398,10 @@ export function createHillaireSky(renderer: Renderer): HillaireSky {
     lighting,
     sunLight,
     skyLight,
+    view: aerialInputs,
+    setSunCloudTransmittance(t) {
+      sunCloudTransmittance = t
+    },
     aerial(color, depth, screen) {
       return applyAerialNode(
         color,

@@ -2417,4 +2417,22 @@ export const BITE_MARKS = [
     expect: 'tests/render/oceanCalm.test.ts',
     why: '船の座標への回転の向きを誤ると、艦首を振った空母で凪の範囲が鏡に映した向きに回り、船腹に波が刺さる',
   },
+  {
+    id: 'cloud-veil-ratio',
+    kind: '定数の摂動',
+    file: 'src/render/sky/cloudLayersReference.ts',
+    find: '  return Math.min(Math.max(coverage, 0), 1) * (WEB_OCEAN_VEIL / WEB_OCEAN_COVERAGE)\n',
+    replace: '  return Math.min(Math.max(coverage, 0), 1) * WEB_OCEAN_VEIL\n',
+    expect: 'tests/render/cloudLayersReference.test.ts',
+    why: '高層雲の量の比を誤ると、web-ocean の既定の雲量で高層雲が 4 割に痩せ、空が素通しになる',
+  },
+  {
+    id: 'cloud-coverage-sign',
+    kind: '符号の反転',
+    file: 'src/render/sky/cloudLayersReference.ts',
+    find: '  return base + large - (1 - coverage)\n',
+    replace: '  return base + large - (1 + coverage)\n',
+    expect: 'tests/render/cloudLayersReference.test.ts',
+    why: '雲量の向きを誤ると、?coverage= を上げるほど積雲が減る。CPU 参照が誤ると GPU との突き合わせが別の量を比べる',
+  },
 ]

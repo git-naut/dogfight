@@ -109,7 +109,8 @@ export interface PassGroupRule {
 export const PASS_GROUPS: readonly PassGroupRule[] = [
   { group: '機体の影', test: (s) => s.target === 'ShadowMap' },
   { group: '雲影', test: (s) => s.scene === 'Clouds [ Shadow ]' },
-  { group: '雲', test: (s) => s.scene.startsWith('Clouds [') },
+  // 体積の雲と、層の雲を半分の解像度で焼くパス（段 S4c、`nodeScene.ts` の `cloudLayerTexture`）
+  { group: '雲', test: (s) => s.scene.startsWith('Clouds [') || s.scene === 'cloudLayers [ RTT ]' },
   // takram の環境反射（キューブ 6 面と PMREM）と星の行は段 S2b-2 で消した（ADR 0045）
   // 空の見え方の LUT を毎フレーム焼くパス（段 S2a）
   { group: '空', test: (s) => s.scene === 'Sky [ View ]' },

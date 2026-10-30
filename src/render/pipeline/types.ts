@@ -218,6 +218,11 @@ export interface SceneOptions {
   oceanSkyLookups?: 2 | 3
   /** 水の濁り（`?oceanturbidity=`、既定は web-ocean の 1.6）。値は S4b の絵の承認で選ぶ */
   oceanTurbidity?: number
+  /**
+   * 雲を web-ocean の 2 層（`sky/cloudLayerNodes.ts`）にするか（`?clouds=layers`、段 S4c）。
+   * 立てると体積の雲のパスと雲影マップを使わない。既定の絵は動かさない
+   */
+  cloudLayers?: boolean
   /** 環境反射を使うか。質感の比較に使う */
   showEnvironment?: boolean
   /**
@@ -623,6 +628,11 @@ export interface NodeProbeResult {
      * 凪の係数が 0（船体の中と水線）の点の数、`waterlineOn` は泡を注ぐ点の数（検査が空回りしない目安）
      */
     calm: { points: number; calmError: number; waterlineError: number; calmZero: number; waterlineOn: number }
+    /**
+     * 層の雲（段 S4c）。ノイズ・積雲の縁・高層雲の縁の、GPU と CPU 参照の差の最大（256 点、
+     * 縁はおおよそ −1〜1 の値）
+     */
+    cloudLayers: { gnoise: number; lowEdge: number; highEdge: number }
     /** 32 ビットのテクスチャを線形に補間できるか（`float32-filterable`） */
     float32Filterable: boolean
   }) | null

@@ -466,6 +466,7 @@ async function main(): Promise<void> {
     ...(capture.oceanSkipFar !== null ? { oceanSkipFar: capture.oceanSkipFar } : {}),
     ...(capture.oceanSkyLookups !== null ? { oceanSkyLookups: capture.oceanSkyLookups } : {}),
     ...(capture.oceanTurbidity !== null ? { oceanTurbidity: capture.oceanTurbidity } : {}),
+    cloudLayers: capture.cloudLayers,
     showEnvironment: capture.showEnvironment,
     smaa: capture.smaa,
     bloom: capture.bloom,

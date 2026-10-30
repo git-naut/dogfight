@@ -212,6 +212,9 @@ describe('品質プリセットの表', () => {
     // 段 S4a-2: 予算（海 5.5 ms）に合わせた泡の解像度と異方性（ultra は推測、S5 で測る）
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFoamResolution)).toEqual([512, 512, 512, 1024])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanAnisotropy)).toEqual([1, 1, 1, 4])
+    // 段 S4c: 層の雲のノイズの段（web-ocean は 7。low と medium は推測）
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudLayerOctaves)).toEqual([5, 6, 7, 7])
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].cloudLayerResolutionScale)).toEqual([0.5, 0.5, 0.5, 0.5])
     for (const name of PRESET_ORDER) {
       const q = QUALITY_PRESETS[name]
       // カスケードは web-ocean の 6 つの先頭から取る。格子は 2 のべき

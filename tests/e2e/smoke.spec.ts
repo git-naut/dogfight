@@ -239,7 +239,9 @@ test.describe('飛行モデルがブラウザでも成立する', () => {
  */
 test.describe('海と地面', () => {
   test('海面のパッチの枚数と三角形が予算内', async ({ page }) => {
-    const hook = await capture(page, { script: 'level', frame: 120, preset: 'high' })
+    // **低空で見る。**海面の四分木は高さ込みの距離で割るので、level（高度 2,000 m）では根の
+    // 9 枚しか選ばれない。low-pass（220 m）の実測は high で 102 枚・52,224 三角形
+    const hook = await capture(page, { script: 'low-pass', frame: 120, preset: 'high' })
     expect(hook.oceanPatches).toBeGreaterThan(50)
     // `oceanSurface.ts` の MAX_PATCHES は 1024
     expect(hook.oceanPatches).toBeLessThanOrEqual(1024)
@@ -319,7 +321,8 @@ test.describe('機体', () => {
   })
 
   test('海面と機体の合計がシーン予算 1.5M の内側', async ({ page }) => {
-    const hook = await capture(page, { script: 'level', frame: 120, preset: 'ultra' })
+    // 海面の三角形がいちばん多い低空の ultra で見る（実測 129,024）
+    const hook = await capture(page, { script: 'low-pass', frame: 120, preset: 'ultra' })
     expect(hook.oceanTriangles + hook.aircraftTriangles).toBeLessThan(1_500_000)
   })
 })
@@ -1295,8 +1298,9 @@ test.describe('デバッグ表示', () => {
  * 両端を見る。timestamp は SwiftShader でも取れる
  */
 test.describe('GPU のパス', () => {
-  const always = ['雲', '場面', '爆発', '合成', 'SMAA', '出力']
-  const highOnly = ['機体の影', '雲影', 'ブルーム', '風圧']
+  // 段 S4b で体積の雲の「雲影」を外し、既定になった海・空・霞を必須に足した
+  const always = ['雲', '海', '空', '霞', '場面', '爆発', '合成', 'SMAA', '出力']
+  const highOnly = ['機体の影', 'ブルーム', '風圧']
 
   for (const preset of ['low', 'high'] as const) {
     test(`${preset} の 1 フレームのパスがどれも群の表に載る`, async ({ page }) => {
@@ -2616,7 +2620,10 @@ test.describe('ポーズ', () => {
  */
 test.describe('通しの流れ', () => {
   test('タイトルから甲板を経て射出される', async ({ page }) => {
-    await page.goto('/dogfight/?script=mission-01&precompile=0')
+    // **品質は low に固める。**見たいのは流れで、絵ではない。段 S4b で海の計算と泡が既定に入り、
+    // CI の SwiftShader でライブの 1 フレームが重くなって、180 秒で 13 m/s までしか出なかった
+    // （run 41142072669 の分割 17）。シムは描画が遅いと進みが落ちる
+    await page.goto('/dogfight/?script=mission-01&precompile=0&preset=low')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,
@@ -2715,7 +2722,10 @@ test.describe('通しの流れ', () => {
    * あいだは脚が上がらない
    */
   test('甲板の上では G で脚が上がらない', async ({ page }) => {
-    await page.goto('/dogfight/?script=mission-01&precompile=0')
+    // **品質は low に固める。**見たいのは流れで、絵ではない。段 S4b で海の計算と泡が既定に入り、
+    // CI の SwiftShader でライブの 1 フレームが重くなって、180 秒で 13 m/s までしか出なかった
+    // （run 41142072669 の分割 17）。シムは描画が遅いと進みが落ちる
+    await page.goto('/dogfight/?script=mission-01&precompile=0&preset=low')
     await page.waitForFunction(
       () => ((window as unknown as { __dogfight?: TestHook }).__dogfight?.frame ?? 0) > 0,
       undefined,

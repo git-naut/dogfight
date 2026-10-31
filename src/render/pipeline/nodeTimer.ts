@@ -41,8 +41,8 @@ interface TimestampRenderer {
   info: { render: { timestamp: number } }
   backend?: {
     timestampQueryPool?: {
-      render?: { timestamps?: ReadonlyMap<string, number> } | null
-      compute?: { timestamps?: ReadonlyMap<string, number> } | null
+      render?: { timestamps?: ReadonlyMap<string, number>; frames?: readonly number[] } | null
+      compute?: { timestamps?: ReadonlyMap<string, number>; frames?: readonly number[] } | null
     }
   }
 }
@@ -100,6 +100,21 @@ export function createNodeTimer(renderer: Renderer, sourceOf?: PassSourceLookup)
       waiting++
       void Promise.all([target.resolveTimestampsAsync('render'), target.resolveTimestampsAsync('compute')])
         .then(([renderMs, computeMs]) => {
+          // **2 つの「最後のフレーム」が違えば測らない。**three は記録ごとに、その記録へ最後に
+          // 入ったフレームの合計を返す。起動直後はコンピュートの記録に海の初期化のフレームしか
+          // 無く、足した値はどのフレームの値でもない（段 S4b で実機の記録から確かめた）
+          const pools = target.backend?.timestampQueryPool
+          const renderLast = pools?.render?.frames?.at(-1)
+          const computeLast = pools?.compute?.frames?.at(-1)
+          if (
+            typeof computeMs === 'number' &&
+            renderLast !== undefined &&
+            computeLast !== undefined &&
+            renderLast !== computeLast
+          ) {
+            dropped++
+            return
+          }
           // コンピュートの無い場面では `undefined`（足さない）
           const ms =
             typeof renderMs === 'number' && typeof computeMs === 'number' && Number.isFinite(computeMs)
@@ -110,7 +125,13 @@ export function createNodeTimer(renderer: Renderer, sourceOf?: PassSourceLookup)
           // いれば初期値の 0 が返る。0 を数に混ぜると最小値が 0 になる
           if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
             const frames = sourceOf === undefined ? [] : readFrames(target, sourceOf)
-            const passes = lastFrameOf(frames)
+            // **内訳は three の合計と同じフレームから取る。**描画とコンピュートの記録を合わせた
+            // 並びでは、コンピュートの古いフレーム（海の初期化）が後ろに来る。並びの最後を
+            // 選ぶと別のフレームを比べる（段 S4b まで起動から 1 回の食い違いを数えていた）
+            const passes =
+              renderLast !== undefined
+                ? (frames.find((f) => f.frame === renderLast) ?? lastFrameOf(frames))
+                : lastFrameOf(frames)
             resolved.push(passes === null ? { id, ms } : { id, ms, passes, frames })
           } else {
             dropped++

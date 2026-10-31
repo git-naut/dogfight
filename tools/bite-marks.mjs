@@ -2374,4 +2374,22 @@ export const BITE_MARKS = [
     expect: 'tests/render/pixelCompare.test.ts',
     why: '読み戻せていない絵の区画平均を 0 や NaN で返すと、真っ黒の絵と取り違える',
   },
+  {
+    id: 'node-timer-mixed-frames',
+    kind: '条件の固定',
+    file: 'src/render/pipeline/nodeTimer.ts',
+    find: '            renderLast !== computeLast\n',
+    replace: '            false\n',
+    expect: 'tests/render/nodeTimer.test.ts',
+    why: '描画とコンピュートの最後のフレームが違う回を測ると、どのフレームでもない合計を拾い、パスの和との食い違いを数える',
+  },
+  {
+    id: 'node-timer-passes-insertion-order',
+    kind: '条件の固定',
+    file: 'src/render/pipeline/nodeTimer.ts',
+    find: '                ? (frames.find((f) => f.frame === renderLast) ?? lastFrameOf(frames))\n',
+    replace: '                ? lastFrameOf(frames)\n',
+    expect: 'tests/render/nodeTimer.test.ts',
+    why: '合わせた並びの最後を選ぶと、後ろに並ぶコンピュートの古いフレーム（海の初期化）の内訳を合計と比べる',
+  },
 ]

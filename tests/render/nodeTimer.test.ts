@@ -188,6 +188,50 @@ describe('node 経路の GPU タイマー', () => {
     expect(sample!.passes!.passes.map((p) => p.group).sort()).toEqual(['場面', '海'])
   })
 
+  it('描画とコンピュートの最後のフレームが違う回は測らない（段 S4b）', async () => {
+    // 起動直後、コンピュートの記録には海の初期化のフレームしか無い。three はそれぞれの最後の
+    // フレームの合計を返すので、足した値はどのフレームの値でもない
+    const d = deferred()
+    const fake = scripted([d], () => Promise.resolve(6))
+    ;(fake.renderer as unknown as { backend: unknown }).backend = {
+      timestampQueryPool: {
+        render: { timestamps: new Map([['r:1:3:f142', 2]]), frames: [3, 142] },
+        compute: { timestamps: new Map([['c:1:5:f64', 6]]), frames: [64] },
+      },
+    }
+    const timer = createNodeTimer(fake.renderer, () => ({ scene: 'Scene', target: 'output' }))
+    timer.begin(1)
+    timer.end()
+    d.settle(2)
+    await flush()
+    expect(timer.collect()).toEqual([])
+    expect(timer.dropped).toBe(1)
+  })
+
+  it('コンピュートの古いフレームが後ろに並んでも、内訳は最新のフレーム（段 S4b の実測の形）', async () => {
+    // 実機（SwiftShader）の記録: 描画 [3, 142, 189, 191]、コンピュート [64, 191]。
+    // 内訳を並び順で選ぶと初期化のフレーム 64 になり、合計（フレーム 191）と食い違った
+    const d = deferred()
+    const fake = scripted([d], () => Promise.resolve(1))
+    const render = new Map([['r:1:3:f142', 4], ['r:2:3:f191', 3]])
+    const compute = new Map([['c:1:5:f64', 9], ['c:2:5:f191', 1]])
+    ;(fake.renderer as unknown as { backend: unknown }).backend = {
+      timestampQueryPool: {
+        render: { timestamps: render, frames: [142, 191] },
+        compute: { timestamps: compute, frames: [64, 191] },
+      },
+    }
+    const timer = createNodeTimer(fake.renderer, () => ({ scene: 'Scene', target: 'output' }))
+    timer.begin(1)
+    timer.end()
+    d.settle(3)
+    await flush()
+    const [sample] = timer.collect()
+    expect(sample!.ms).toBe(4)
+    expect(sample!.passes!.frame).toBe(191)
+    expect(sample!.passes!.totalMs).toBe(4)
+  })
+
   it('内訳を同じ解決の Map から読み、名札を付ける（段 S0a）', async () => {
     // **次の解決で Map は消される。**決着したその場で読まないと、別の回の
     // 内訳が合計に付く

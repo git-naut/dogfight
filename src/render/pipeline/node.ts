@@ -1031,8 +1031,8 @@ export async function runNodeProbe(
         sunIlluminance: (world) => scalarIlluminance(world).get('direct'),
         skyIlluminance: (world) => scalarIlluminance(world).get('indirect'),
         sunDirection: surfaceSun as unknown as import('three/webgpu').Node<'vec3'>,
-        sunShade: (world) =>
-          cloudLayers.sunTransmittance(world).mul(aircraftShade) as unknown as import('three/webgpu').Node<'float'>,
+        sunShade: (world, footprint) =>
+          cloudLayers.sunTransmittance(world, footprint).mul(aircraftShade) as unknown as import('three/webgpu').Node<'float'>,
         camera: surfaceCamera as unknown as import('three/webgpu').Node<'vec3'>,
       },
     })

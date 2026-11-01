@@ -62,6 +62,7 @@ import {
   OCEAN_EDGE_FADE,
   OCEAN_LOD_BIAS,
   OCEAN_PATCH_CELLS,
+  OCEAN_TILE_FADE_PX,
   createUnitGrid,
   oceanCoverage,
   oceanRootSize,
@@ -102,6 +103,9 @@ export const FOAM_WARMUP_STRIDE = 4
 const FOAM_WARMUP_JUMP = 30
 /** ライブで泡を一度に進める上限 s（web-ocean の 0.1） */
 const MAX_FOAM_DT = 0.1
+
+/** 風の斑（web-ocean の cat's paws）の模様を引く倍率 1/m。模様は 1 / 0.011 ≒ 91 m ごとにくり返す */
+const GUST_SCALE = 0.011
 
 /** 板の一辺 m。段 S4b で消した板の海（`terrain/water.ts`）と同じ */
 const PLATE_EXTENT = 300_000
@@ -278,8 +282,11 @@ export interface OceanLighting {
   /** 上向きの面の天空の照度（`scalarIlluminance(world).get('indirect')`） */
   skyIlluminance(world: N<'vec3'>): N<'vec3'>
   sunDirection: N<'vec3'>
-  /** 太陽の光の遮り 0..1（雲影 × 機体の影）。今の板の海と同じもの */
-  sunShade(world: N<'vec3'>): N<'float'>
+  /**
+   * 太陽の光の遮り 0..1（雲影 × 機体の影）。`footprint` は画素が海面で覆う幅 m。雲の影が
+   * 細かい段を消すのに使う（段 S4d。渡さないと遠くで網目のエイリアスになった）
+   */
+  sunShade(world: N<'vec3'>, footprint: N<'float'>): N<'float'>
   /** 主カメラのワールド位置（`morphOrigin`）。組み込みの `cameraPosition` は読まない */
   camera: N<'vec3'>
 }
@@ -368,7 +375,7 @@ export function oceanShadeNode(
   return Fn(() => {
     const [wx, wz] = foam.wind
     // 風の斑（短い波が強い所と凪いだ所、web-ocean の cat's paws）
-    const gustN = texture(foam.pattern, xz.mul(0.011).add(vec2(wx, wz).mul(foam.time.mul(0.0004)))).b
+    const gustN = texture(foam.pattern, xz.mul(GUST_SCALE).add(vec2(wx, wz).mul(foam.time.mul(0.0004)))).b
     const gust = mix(0.35, 1.2, smoothstep(0.3, 0.72, gustN)).toVar()
 
     // 傾き・ヤコビアン・LEAN の共分散。画素の微分でミップを選ぶ
@@ -384,6 +391,12 @@ export function oceanShadeNode(
     const gy = dFdy(xz).toVar() as unknown as N<'vec2'>
     const footMajor = max(length(gx), length(gy)).toVar()
     const footMinor = min(length(gx), length(gy)).toVar()
+    // 斑のくり返し（1 / GUST_SCALE m）が画面で小さい遠い所では、斑を効かない側（1）へ寄せる
+    // （段 S4d、`oceanTileFade` と同じ式）。実機で、遠くの斑が約 15 画素の遠近の網目に見えていた。
+    // 模様のテクスチャはコンピュートで書くので、ミップが効いているかに頼らない
+    gust.assign(
+      mix(float(1), gust, smoothstep(OCEAN_TILE_FADE_PX[0], OCEAN_TILE_FADE_PX[1], float(1 / GUST_SCALE).div(max(footMajor, 1e-6)))),
+    )
     // 空母のまわりの凪。変位と傾きに s、モーメントに s²（gk に掛けておけば両方に効く）
     const calm = shade.calm.calm(xz).toVar()
     for (let c = 0; c < sampler.params.cascades.length; c++) {
@@ -445,7 +458,7 @@ export function oceanShadeNode(
     cov.addAssign(aa.mul(min(1, float(0.03).div(max(max(aa.x, aa.y), 1e-8)))))
     const J = jxx.add(1).mul(jzz.add(1)).sub(jxz.mul(jxz)).toVar()
 
-    const sunE = lighting.sunIlluminance(world).mul(lighting.sunShade(world)).toVar()
+    const sunE = lighting.sunIlluminance(world).mul(lighting.sunShade(world, footMajor)).toVar()
     // 上半球の平均の放射輝度。web-ocean は環境キューブの 5 点、ここは天空の照度を π で割る
     const skyHemi = lighting.skyIlluminance(world).mul(1 / Math.PI).toVar()
     // 天頂と法線の向きの空（web-ocean はキューブの最も粗い段とその 1 つ上）

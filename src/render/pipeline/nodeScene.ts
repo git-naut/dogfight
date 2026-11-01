@@ -318,7 +318,8 @@ export async function createNodePipeline(
         skyIlluminance: (world) => atmosphereNodes.scalarIlluminance(world).get('indirect'),
         sunDirection: surfaceSun as unknown as webgpu.Node<'vec3'>,
         // 太陽の遮りは層の雲 × 機体の影
-        sunShade: (world) => cloudLayers.sunTransmittance(world).mul(aircraftShade) as unknown as webgpu.Node<'float'>,
+        sunShade: (world, footprint) =>
+          cloudLayers.sunTransmittance(world, footprint).mul(aircraftShade) as unknown as webgpu.Node<'float'>,
         camera: surfaceCamera as unknown as webgpu.Node<'vec3'>,
       },
     })

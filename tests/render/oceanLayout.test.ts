@@ -12,6 +12,8 @@ import {
   oceanUvOffset,
   createUnitGrid,
   morphFactor,
+  OCEAN_TILE_FADE_PX,
+  oceanTileFade,
   oceanCoverage,
   oceanEdgeFade,
   oceanMorph,
@@ -454,5 +456,43 @@ describe('寄せの基準位置', () => {
   it('コメントを外す処理が本文を消していない', () => {
     // 全部消してしまえば上の検査は「無いこと」を空振りで通す
     expect(body).toContain('export function createOceanSurface(')
+  })
+})
+
+/**
+ * くり返す模様を遠くで薄める重み（段 S4d）。実機の朝の海で、風の斑（約 91 m ごとにくり返す）が
+ * 約 15 画素の網目になった。1 周期が画面で 16 画素以下なら 0、48 画素以上なら 1
+ */
+describe('くり返す模様を薄める重み', () => {
+  it('1 周期が 16 画素以下なら 0、48 画素以上なら 1', () => {
+    expect(oceanTileFade(91, 91 / 15)).toBe(0)
+    expect(oceanTileFade(91, 91 / 16)).toBe(0)
+    expect(oceanTileFade(91, 91 / 48)).toBe(1)
+    expect(oceanTileFade(91, 0.5)).toBe(1)
+  })
+
+  it('間は単調に増え、中央で 0.5', () => {
+    let last = -1
+    for (let px = 16; px <= 48; px += 1) {
+      const w = oceanTileFade(10, 10 / px)
+      expect(w).toBeGreaterThanOrEqual(last)
+      last = w
+    }
+    expect(oceanTileFade(10, 10 / 32)).toBeCloseTo(0.5, 12)
+  })
+
+  it('画素の幅が 0 でも NaN を出さない', () => {
+    expect(oceanTileFade(91, 0)).toBe(1)
+  })
+
+  it('海面の陰影が同じ定数で風の斑を寄せる', () => {
+    const source = readFileSync(
+      fileURLToPath(new URL('../../src/render/ocean/oceanSurface.ts', import.meta.url)),
+      'utf8',
+    )
+    expect(OCEAN_TILE_FADE_PX).toEqual([16, 48])
+    expect(source).toContain(
+      'mix(float(1), gust, smoothstep(OCEAN_TILE_FADE_PX[0], OCEAN_TILE_FADE_PX[1], float(1 / GUST_SCALE).div(max(footMajor, 1e-6)))),',
+    )
   })
 })

@@ -172,8 +172,11 @@ export interface CloudLayerInputs {
 export interface CloudLayers {
   /** 前乗算の色（rgb, 隠す割合）。`depth` は場面の深度バッファの値、`screen` は画面の uv */
   node(depth: N<'float'>, screen: N<'vec2'>): N<'vec4'>
-  /** ワールドの点から太陽へ向かう線が層を横切るときの透過率（海と機体の雲の影） */
-  sunTransmittance(world: N<'vec3'>): N<'float'>
+  /**
+   * ワールドの点から太陽へ向かう線が層を横切るときの透過率（海と機体の雲の影）。`footprint` は
+   * 画素がその点で覆う幅 m（省略すると 0）。空の雲と同じく、画素より細かい段を消す（段 S4d）
+   */
+  sunTransmittance(world: N<'vec3'>, footprint?: N<'float'>): N<'float'>
   /** 毎フレーム。雲量・風の時刻 s・カメラの位置 m・1 画素の角度 rad */
   update(coverage: number, time: number, camera: Vector3, pixelAngle: number): void
   /** 品質表の `cloudLayerOctaves` が変わった */
@@ -337,9 +340,11 @@ export function createCloudLayers(inputs: CloudLayerInputs): CloudLayers {
         return vec4(front.rgb.add(back.rgb.mul(float(1).sub(front.a))), front.a.add(back.a.mul(float(1).sub(front.a))))
       })() as unknown as N<'vec4'>
     },
-    sunTransmittance(world) {
+    sunTransmittance(world, footprint) {
       return Fn(() => {
         const tau = float(0).toVar()
+        // 画素の幅 km（ノイズの単位）。影は太陽の向きに沿って層へ写すので、地上の幅をそのまま使う
+        const fp = (footprint === undefined ? float(0) : footprint.div(1000)).toVar()
         const h = max(world.y, 0).div(1000).toVar()
         If(sunDir.y.greaterThan(0.01), () => {
           for (const [hc, sigma, high] of [
@@ -349,7 +354,7 @@ export function createCloudLayers(inputs: CloudLayerInputs): CloudLayers {
             If(h.lessThan(hc), () => {
               const s = float(hc).sub(h).div(sunDir.y)
               const q = world.xz.div(1000).add(sunDir.xz.mul(s)) as unknown as N<'vec2'>
-              const d = call(high ? highDensity : lowDensity)(q, float(0), O(CLOUD_SHADOW_OCTAVE_DROP), high ? veil : coverage, time)
+              const d = call(high ? highDensity : lowDensity)(q, fp, O(CLOUD_SHADOW_OCTAVE_DROP), high ? veil : coverage, time)
               tau.addAssign(d.mul(sigma).div(sunDir.y))
             })
           }

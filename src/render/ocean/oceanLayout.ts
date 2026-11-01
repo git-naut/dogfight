@@ -216,3 +216,24 @@ export function oceanUvOffset(origin: number, L: number): number {
 export function oceanTriangleCount(patches: readonly OceanPatch[]): number {
   return patches.length * OCEAN_PATCH_CELLS * OCEAN_PATCH_CELLS * 2
 }
+
+/**
+ * くり返す模様を薄め始める・薄め終える画面の大きさ（1 周期が覆う画素の数）。段 S4d で足した。
+ *
+ * 海面の風の斑（web-ocean の cat's paws）は模様のテクスチャを約 91 m ごとにくり返して引く。遠くで
+ * 1 周期が画面で十数画素まで縮むと、遠近の網目に見えた（実機の朝の海で約 15 画素）。値は推測で、
+ * 実機の絵で網目が消えることを確かめた
+ */
+export const OCEAN_TILE_FADE_PX: readonly [number, number] = [16, 48]
+
+/**
+ * くり返す模様を効かせる重み 0..1（0 なら模様を使わない）。1 周期 L m が、画素が海面で覆う幅
+ * footprint m の何画素ぶんかで決める（16 画素以下で 0、48 画素以上で 1、間は smoothstep）。
+ * 海面の陰影（`oceanSurface.ts` の風の斑）が同じ式を TSL で持つ
+ */
+export function oceanTileFade(L: number, footprint: number): number {
+  const px = L / Math.max(footprint, 1e-6)
+  const [a, b] = OCEAN_TILE_FADE_PX
+  const t = Math.min(Math.max((px - a) / (b - a), 0), 1)
+  return t * t * (3 - 2 * t)
+}

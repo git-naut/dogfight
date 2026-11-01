@@ -2393,6 +2393,15 @@ export const BITE_MARKS = [
     why: '頂点シェーダの辺の頂点が粗い隣の寄せの範囲を使わないと、純関数 `oceanVertex` と食い違い、実機で割れ目が残る',
   },
   {
+    id: 'carrier-casts-shadow',
+    kind: '条件の固定',
+    file: 'src/render/carrier.ts',
+    find: '    node.castShadow = false\n',
+    replace: '    node.castShadow = true\n',
+    expect: 'tests/render/carrierShadow.test.ts',
+    why: '空母を影の投げ手にすると、偏り 0 の影の地図で甲板が自分を影にし、機体のまわりに同心円の縞が出る',
+  },
+  {
     id: 'ocean-morph-builtin-camera',
     kind: '条件の固定',
     file: 'src/render/ocean/oceanSurface.ts',

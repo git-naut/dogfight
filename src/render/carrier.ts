@@ -45,7 +45,10 @@ export async function loadCarrier(url: string): Promise<Carrier> {
     // **視錐台の判定は残す。**機体と違って動かないので、画面の外に出たら
     // 描かないほうがよい。追従カメラの至近で境界球が外れる問題（`enemyView`
     // の注記）は、337 m の船体では起きない
-    node.castShadow = true
+    // **影は受けるだけで、投げない。**投げ手にすると、偏り 0 の影の地図で甲板が
+    // 自分を影にし、機体のまわりに同心円の縞（影のにきび）が出た（段 S4d、実機で確認）。
+    // 影の箱は機体のまわり 28 m 角しかないので、失うのはその中で艦橋などが落とす影だけ
+    node.castShadow = false
     node.receiveShadow = true
   })
 

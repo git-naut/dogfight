@@ -442,8 +442,12 @@ test.describe('node 経路', () => {
 
     // **絵が変わっていること。**係数が常に 1 なら影は出ていない。
     // 区画平均では鈍すぎる（1280x720 を 4x4 に均すと 0.0003 しか動かない）
+    //
+    // **閾値は機体の影だけの実測（666）の半分。**段 S4d まで 1,000 で、空母も投げ手に
+    // なっていて甲板の自己影（にきび）の分に支えられて通っていた。空母を投げ手から
+    // 外すと gpu=1・gpu=2 とも 666 で毎回同じ
     expect(shadow!.changed, `影で動いたバイトが ${shadow!.changed} 個`)
-      .toBeGreaterThan(1000)
+      .toBeGreaterThan(333)
     expect(shadow!.changedMax, `最大の差が ${shadow!.changedMax}`)
       .toBeGreaterThan(20)
   })
@@ -475,7 +479,7 @@ test.describe('node 経路', () => {
     expect(
       result.nodeShadow!.changed,
       `ultra で動いたバイトが ${result.nodeShadow!.changed} 個`,
-    ).toBeGreaterThan(1000)
+    ).toBeGreaterThan(333)
   })
 
   test('TSL の円形スプライトが CPU 参照とバイト一致する', async ({ page }) => {

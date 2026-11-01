@@ -29,8 +29,17 @@ export const OCEAN_ROOT_SPAN = 1
 /** 縁へ向けて変位を絞る幅。根の一辺に対する比 */
 export const OCEAN_EDGE_FADE = 0.25
 
-/** 寄せ始める位置。分割距離に対する比（地形と同じ） */
-const MORPH_START_RATIO = 0.62
+/**
+ * 寄せ始める位置。寄せ終わる距離（親の分割距離）に対する比。web-ocean の `0.8 * R` と同じ。
+ * 段 S4b まで、地形から引き継いだ 0.62 を自分の分割距離に掛けていた（下の `selectOceanPatches`）
+ */
+export const OCEAN_MORPH_START_RATIO = 0.8
+
+/** 辺の印。その辺の向こうが 1 段粗いパッチ（`OceanPatch.edges` のビット） */
+export const OCEAN_EDGE_MINUS_X = 1
+export const OCEAN_EDGE_PLUS_X = 2
+export const OCEAN_EDGE_MINUS_Z = 4
+export const OCEAN_EDGE_PLUS_Z = 8
 
 /**
  * 分割距離はノードの一辺のこの倍数。地形の四分木で決めた値（1.8 で、32 セルのパッチの
@@ -89,6 +98,11 @@ export interface OceanPatch {
   depth: number
   morphStart: number
   morphEnd: number
+  /**
+   * 1 段粗い隣と接する辺の印（`OCEAN_EDGE_*` の和）。その辺の頂点は粗い側の頂点と同じ式で
+   * 置く（`oceanVertex`）。段 S4d で足した
+   */
+  edges: number
 }
 
 export interface OceanCamera {
@@ -143,7 +157,34 @@ export function selectOceanPatches(
       visit(cover.x0 + i * root, cover.z0 + j * root, root, 0, camera, levels - 1, distanceScale, out)
     }
   }
+  markCoarserEdges(out, cover)
   return out
+}
+
+/**
+ * 1 段粗い隣と接する辺に印を付ける。パッチは四分木の節なので、深さと格子の番号で引ける。
+ * 辺のすぐ外の点を、1 段粗い節が覆っていれば、その辺の向こうは粗い
+ */
+function markCoarserEdges(patches: OceanPatch[], cover: { x0: number; z0: number }): void {
+  const key = (depth: number, ix: number, iz: number) => `${depth}:${ix}:${iz}`
+  const nodes = new Set<string>()
+  for (const p of patches) {
+    nodes.add(key(p.depth, Math.round((p.x - cover.x0) / p.size), Math.round((p.z - cover.z0) / p.size)))
+  }
+  for (const p of patches) {
+    p.edges = 0
+    if (p.depth === 0) continue
+    const cs = p.size * 2
+    const coarser = (px: number, pz: number) =>
+      nodes.has(key(p.depth - 1, Math.floor((px - cover.x0) / cs), Math.floor((pz - cover.z0) / cs)))
+    const e = p.size * 0.25
+    const mx = p.x + p.size / 2
+    const mz = p.z + p.size / 2
+    if (coarser(p.x - e, mz)) p.edges |= OCEAN_EDGE_MINUS_X
+    if (coarser(p.x + p.size + e, mz)) p.edges |= OCEAN_EDGE_PLUS_X
+    if (coarser(mx, p.z - e)) p.edges |= OCEAN_EDGE_MINUS_Z
+    if (coarser(mx, p.z + p.size + e)) p.edges |= OCEAN_EDGE_PLUS_Z
+  }
 }
 
 function visit(
@@ -158,7 +199,11 @@ function visit(
 ): void {
   const range = lodRange(size, distanceScale)
   if (depth >= maxDepth || distanceToPatch(camera, x, z, size) > range) {
-    out.push({ x, z, size, depth, morphStart: range * MORPH_START_RATIO, morphEnd: range })
+    // **寄せは親の分割距離へ向けて。**この節は親が割れた所（親の分割距離の内側）でだけ選ばれる。
+    // 段 S4b まで自分の分割距離で寄せ終えていて、選ばれた節は常に寄せ切り（半分の細かさ）、
+    // 細かさの違う境目で頂点が食い違って海面が割れた（段 S4d で実機の黒い線から見つけた）
+    const end = 2 * range
+    out.push({ x, z, size, depth, morphStart: end * OCEAN_MORPH_START_RATIO, morphEnd: end, edges: 0 })
     return
   }
   const child = size / 2
@@ -168,11 +213,58 @@ function visit(
   visit(x + child, z + child, child, depth + 1, camera, maxDepth, distanceScale, out)
 }
 
-/** 頂点のモーフの量（頂点シェーダと同じ式）。点 (px, pz) とカメラの 3 次元の距離から */
-export function oceanMorph(camera: OceanCamera, px: number, pz: number, patch: OceanPatch): number {
+/**
+ * 頂点のモーフの量（頂点シェーダと同じ式）。点 (px, pz) とカメラの 3 次元の距離から。
+ * `scale` は寄せの範囲の倍率で、1 段粗い隣の寄せを引くときは 2
+ */
+export function oceanMorph(camera: OceanCamera, px: number, pz: number, patch: OceanPatch, scale = 1): number {
   const dy = Math.max(camera.y, 0)
   const d = Math.hypot(px - camera.x, pz - camera.z, dy)
-  return morphFactor(d, patch.morphStart, patch.morphEnd)
+  return morphFactor(d, patch.morphStart * scale, patch.morphEnd * scale)
+}
+
+/**
+ * 格子 (i, j)（0..OCEAN_PATCH_CELLS）の頂点の、寄せたあとの xz と、変位の段を決める頂点の間隔 m
+ * （頂点シェーダと同じ式）。
+ *
+ * **粗い隣と接する辺の頂点は、粗い側の頂点として置く**（段 S4d）。辺に沿う番号を偶数（粗い側の
+ * 頂点）へ寄せ、粗い側の寄せの量（範囲は 2 倍）で、粗い側の親の格子（4 の倍数）へ寄せる。
+ * 間隔も粗い側のもの。これで細かさの違う境目で頂点がそろい、海面が割れない
+ */
+export function oceanVertex(
+  patch: OceanPatch,
+  i: number,
+  j: number,
+  camera: OceanCamera,
+): { x: number; z: number; cell: number } {
+  const n = OCEAN_PATCH_CELLS
+  const w = patch.size / n
+  const morphAt = (gi: number, gj: number, scale: number) =>
+    oceanMorph(camera, patch.x + gi * w, patch.z + gj * w, patch, scale)
+  const m = morphAt(i, j, 1)
+  let gi = i + (Math.floor(i * 0.5) * 2 - i) * m
+  let gj = j + (Math.floor(j * 0.5) * 2 - j) * m
+  let cell = w * (1 + m)
+  const coarse = (along: number, at: (a: number) => [number, number]) => {
+    const a = Math.floor(along * 0.5) * 2
+    const mc = morphAt(...at(a), 2)
+    return { along: a + (Math.floor(a * 0.25) * 4 - a) * mc, cell: 2 * w * (1 + mc) }
+  }
+  const onX = (i === 0 && (patch.edges & OCEAN_EDGE_MINUS_X) !== 0) || (i === n && (patch.edges & OCEAN_EDGE_PLUS_X) !== 0)
+  const onZ = (j === 0 && (patch.edges & OCEAN_EDGE_MINUS_Z) !== 0) || (j === n && (patch.edges & OCEAN_EDGE_PLUS_Z) !== 0)
+  if (onX) {
+    const c = coarse(j, (a) => [i, a])
+    gi = i
+    gj = c.along
+    cell = c.cell
+  }
+  if (onZ) {
+    const c = coarse(i, (a) => [a, j])
+    gj = j
+    gi = onX ? i : c.along
+    cell = onX ? cell : c.cell
+  }
+  return { x: patch.x + gi * w, z: patch.z + gj * w, cell }
 }
 
 /**

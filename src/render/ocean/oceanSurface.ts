@@ -60,6 +60,10 @@ import { FIXED_DT } from '../../sim/loop'
 import { createOceanSimulation, type OceanSimulation } from './oceanNodes'
 import {
   OCEAN_EDGE_FADE,
+  OCEAN_EDGE_MINUS_X,
+  OCEAN_EDGE_MINUS_Z,
+  OCEAN_EDGE_PLUS_X,
+  OCEAN_EDGE_PLUS_Z,
   OCEAN_LOD_BIAS,
   OCEAN_PATCH_CELLS,
   OCEAN_TILE_FADE_PX,
@@ -617,9 +621,10 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
   geometry.setAttribute('position', new BufferAttribute(grid.position, 3))
   geometry.setIndex(new BufferAttribute(grid.index, 1))
   const origins = new Float32Array(MAX_PATCHES * 4)
-  const morphs = new Float32Array(MAX_PATCHES * 2)
+  // 寄せの始まり・終わりと、1 段粗い隣と接する辺の印（`OCEAN_EDGE_*` の和）
+  const morphs = new Float32Array(MAX_PATCHES * 3)
   const originAttribute = new InstancedBufferAttribute(origins, 4)
-  const morphAttribute = new InstancedBufferAttribute(morphs, 2)
+  const morphAttribute = new InstancedBufferAttribute(morphs, 3)
   originAttribute.setUsage(DynamicDrawUsage)
   morphAttribute.setUsage(DynamicDrawUsage)
   geometry.setAttribute('oceanPatch', originAttribute)
@@ -685,24 +690,51 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
 
     // ---- CDLOD の頂点 ----
     const patchInfo = attribute('oceanPatch', 'vec4') as unknown as N<'vec4'>
-    const patchMorph = attribute('oceanMorph', 'vec2') as unknown as N<'vec2'>
+    const patchMorph = attribute('oceanMorph', 'vec3') as unknown as N<'vec3'>
     const unitGrid = positionGeometry.xy as unknown as N<'vec2'>
-    // 寄せた xz と寄せる量。寄せる量は寄せる前の位置とカメラの 3 次元の距離から（`oceanMorph`）
+    // 寄せた xz と頂点の間隔。純関数 `oceanVertex` と同じ式（`tests/render/oceanLayout.test.ts` の継ぎ目の検査）
     const patch = Fn(() => {
-      const unmorphed = patchInfo.xy.add(unitGrid.mul(patchInfo.z)).toVar()
+      const w = patchInfo.w
       const cam = lighting.camera
-      const d = length(vec3(unmorphed.x.sub(cam.x), max(cam.y, 0), unmorphed.y.sub(cam.z)))
-      const morph = clamp(d.sub(patchMorph.x).div(max(patchMorph.y.sub(patchMorph.x), 1e-4)), 0, 1).toVar()
-      // 親の格子は偶数番の頂点（段 S4b で消した地形の `terrainPatchWorldNode` と同じ形）
-      const g = unitGrid.mul(patchInfo.z.div(patchInfo.w)).toVar()
-      const parent = floor(g.mul(0.5)).mul(2)
-      const xz = patchInfo.xy.add(mix(g, parent, morph).mul(patchInfo.w))
-      return vec3(xz.x, xz.y, morph)
+      const dy = max(cam.y, 0)
+      const ij = floor(unitGrid.mul(OCEAN_PATCH_CELLS).add(0.5)).toVar()
+      // 格子番号 (gi, gj) の点の寄せる量。距離は寄せる前の位置とカメラの 3 次元の距離
+      const morphAt = (gi: N<'float'>, gj: N<'float'>, scale: number) => {
+        const d = length(vec3(patchInfo.x.add(gi.mul(w)).sub(cam.x), dy, patchInfo.y.add(gj.mul(w)).sub(cam.z)))
+        const start = patchMorph.x.mul(scale)
+        const end = patchMorph.y.mul(scale)
+        return clamp(d.sub(start).div(max(end.sub(start), 1e-4)), 0, 1)
+      }
+      // 自分の寄せ: 偶数番の頂点へ（段 S4b で消した地形の `terrainPatchWorldNode` と同じ形）
+      const m = morphAt(ij.x as N<'float'>, ij.y as N<'float'>, 1).toVar()
+      const fine = ij.add(floor(ij.mul(0.5)).mul(2).sub(ij).mul(m))
+      const fineCell = w.mul(m.add(1))
+      // 1 段粗い隣と接する辺の頂点は、隣の頂点として置く（偶数番へ寄せてから、隣の寄せで 4 の倍数へ）
+      const coarse = (along: N<'float'>, at: (a: N<'float'>) => [N<'float'>, N<'float'>]) => {
+        const a = floor(along.mul(0.5)).mul(2).toVar() as unknown as N<'float'>
+        const mc = morphAt(...at(a), 2)
+        return { along: a.add(floor(a.mul(0.25)).mul(4).sub(a).mul(mc)), cell: w.mul(2).mul(mc.add(1)) }
+      }
+      const i = ij.x as unknown as N<'float'>
+      const j = ij.y as unknown as N<'float'>
+      // 辺の印のビット b（1・2・4・8）を 0 か 1 で
+      const bit = (b: number) => floor(patchMorph.z.div(b)).sub(floor(patchMorph.z.div(b * 2)).mul(2))
+      // 格子番号が 0 か端か（番号は整数。この関数の中の `step` は海を解く手続きを指すので使わない）
+      const lo = (k: N<'float'>) => clamp(float(1).sub(k), 0, 1)
+      const hi = (k: N<'float'>) => clamp(k.sub(OCEAN_PATCH_CELLS - 1), 0, 1)
+      const onX = clamp(lo(i).mul(bit(OCEAN_EDGE_MINUS_X)).add(hi(i).mul(bit(OCEAN_EDGE_PLUS_X))), 0, 1).toVar()
+      const onZ = clamp(lo(j).mul(bit(OCEAN_EDGE_MINUS_Z)).add(hi(j).mul(bit(OCEAN_EDGE_PLUS_Z))), 0, 1).toVar()
+      const cx = coarse(j, (a) => [i, a])
+      const cz = coarse(i, (a) => [a, j])
+      const gi = mix(mix(fine.x, cz.along, onZ), i, onX)
+      const gj = mix(mix(fine.y, j, onZ), cx.along, onX)
+      const cell = mix(mix(fineCell, cz.cell, onZ), cx.cell, onX)
+      return vec3(patchInfo.x.add(gi.mul(w)), patchInfo.y.add(gj.mul(w)), cell)
     })() as unknown as N<'vec3'>
     const xz = patch.xy as unknown as N<'vec2'>
     const displacement = Fn(() => {
-      // 寄せている間は頂点の間隔が倍へ近づく（web-ocean の `eff`）
-      const cell = patchInfo.w.mul(patch.z.add(1))
+      // 寄せている間は頂点の間隔が倍へ近づく（web-ocean の `eff`）。粗い隣の辺は隣の間隔
+      const cell = patch.z
       // 縁で変位を 0 へ（`oceanEdgeFade`）
       const inset = min(
         min(xz.x.sub(coverNode.x), coverNode.x.add(coverNode.z).sub(xz.x)),
@@ -786,8 +818,9 @@ export function createOceanSurface(renderer: Renderer, options: OceanSurfaceOpti
       origins[i * 4 + 1] = patch.z
       origins[i * 4 + 2] = patch.size
       origins[i * 4 + 3] = patch.size / OCEAN_PATCH_CELLS
-      morphs[i * 2] = patch.morphStart
-      morphs[i * 2 + 1] = patch.morphEnd
+      morphs[i * 3] = patch.morphStart
+      morphs[i * 3 + 1] = patch.morphEnd
+      morphs[i * 3 + 2] = patch.edges
     }
     originAttribute.needsUpdate = true
     morphAttribute.needsUpdate = true

@@ -19,6 +19,12 @@ import {
   oceanMorph,
   oceanRootSize,
   oceanTriangleCount,
+  oceanVertex,
+  OCEAN_EDGE_MINUS_X,
+  OCEAN_EDGE_PLUS_X,
+  OCEAN_EDGE_MINUS_Z,
+  OCEAN_EDGE_PLUS_Z,
+  OCEAN_MORPH_START_RATIO,
   selectOceanPatches,
   type OceanCamera,
   type OceanPatch,
@@ -188,52 +194,71 @@ describe('パッチの選択', () => {
 })
 
 describe('寄せ（モーフ）', () => {
-  it('分割距離の内側で寄せ終わる', () => {
+  it('親の分割距離で寄せ終わり、その 0.8 倍で寄せ始める', () => {
+    // 段 S4b まで自分の分割距離で寄せ終えていて、選ばれた節は常に寄せ切りだった（段 S4d）
     for (const p of selectOceanPatches(CAMERAS[1]!, LEVELS, SCALE)) {
-      expect(p.morphEnd).toBeLessThanOrEqual(lodRange(p.size, SCALE) + 1e-9)
-      expect(p.morphStart).toBeLessThan(p.morphEnd)
+      expect(p.morphEnd).toBeCloseTo(2 * lodRange(p.size, SCALE), 9)
+      expect(p.morphStart).toBeCloseTo(OCEAN_MORPH_START_RATIO * p.morphEnd, 9)
     }
   })
 
-  it('粗い隣と接する辺では細かい側が寄せ終わっている', () => {
-    // CDLOD で隙間が出ない条件。細かい側の辺の頂点が親の格子へ寄り切っていれば、
-    // 粗い側の頂点と同じ位置に乗る。3 次元の距離でも、点までの距離 ≥ 箱までの距離なので成り立つ
-    for (const camera of CAMERAS) {
+  it('寄せ切っていないパッチがある（常に半分の細かさで描かない）', () => {
+    // 段 S4b までは、選ばれたパッチがどのカメラでも 100% 寄せ切りだった（中心で測って）
+    for (const camera of [...CAMERAS, ...STITCH_CAMERAS]) {
       const patches = selectOceanPatches(camera, LEVELS, SCALE)
-      let checked = 0
-      for (const fine of patches) {
-        for (const coarse of patches) {
-          if (coarse.depth !== fine.depth - 1 || !touches(fine, coarse)) continue
-          for (const [px, pz] of sharedEdgePoints(fine, coarse)) {
-            checked++
-            expect(oceanMorph(camera, px, pz, fine)).toBe(1)
-          }
+      if (patches.length === 9) continue
+      const partial = patches.filter((p) => oceanMorph(camera, p.x + p.size / 2, p.z + p.size / 2, p) < 1)
+      expect(partial.length, `${JSON.stringify(camera)}`).toBeGreaterThan(0)
+    }
+  })
+
+  it('辺の印は、1 段粗い隣と接する辺にだけ付く', () => {
+    for (const camera of [...CAMERAS, ...STITCH_CAMERAS]) {
+      const patches = selectOceanPatches(camera, LEVELS, SCALE)
+      for (const p of patches) {
+        for (const [bit, side] of SIDES) {
+          const coarse = patches.some((c) => c.depth === p.depth - 1 && sharesSide(p, c, side))
+          expect((p.edges & bit) !== 0, `${JSON.stringify(camera)} ${p.size} m の ${side}`).toBe(coarse)
         }
       }
-      expect(checked).toBeGreaterThan(0)
     }
   })
 
-  it('カメラの高さが分割距離の 1.73〜2 倍でも、粗い隣と接する辺は寄せ終わっている', () => {
-    // 水平の距離だけで寄せを測ると、ここで寄り切らない。細かい側の分割距離を R として、
-    // 親が割れる（3 次元で 2R 未満）のに粗い隣は割れない（2R 超）辺が、水平に R 未満の所に
-    // 来うるのは、高さが √3 R〜2R の帯にあるときだけ。帯の中に高さを置く
+  it('細かさの違う辺で、細かい側の頂点はすべて粗い側の頂点に位置と間隔まで乗る（割れない）', () => {
+    // 段 S4d の実機の黒い線。細かい側の辺の頂点が粗い側の頂点と食い違うと、変位の曲がりの分
+    // だけ隙間が開き、水平線の下の空が黒い線に見える。位置だけでなく変位の段（間隔）もそろえる
     let checked = 0
-    for (const s of [1, 2, 4, 8, 16, 32, 64]) {
-      const R = lodRange(s, SCALE)
-      const camera = { x: 100.3, y: 1.85 * R, z: -50.7 }
+    for (const camera of [...CAMERAS, ...STITCH_CAMERAS]) {
       const patches = selectOceanPatches(camera, LEVELS, SCALE)
       for (const fine of patches) {
         for (const coarse of patches) {
-          if (coarse.depth !== fine.depth - 1 || !touches(fine, coarse)) continue
-          for (const [px, pz] of sharedEdgePoints(fine, coarse)) {
-            checked++
-            expect(oceanMorph(camera, px, pz, fine), `高さ ${camera.y} m、${fine.size} m の辺 (${px}, ${pz})`).toBe(1)
+          if (coarse.depth !== fine.depth - 1) continue
+          for (const [, side] of SIDES) {
+            if (!sharesSide(fine, coarse, side)) continue
+            const n = OCEAN_PATCH_CELLS
+            const xEdge = side === '-x' || side === '+x'
+            const wc = coarse.size / n
+            for (const [i, j] of edgeVertices(side)) {
+              // 細かい側の頂点が受け持つ粗い側の頂点: 辺に沿う番号を偶数へ寄せた、寄せる前の位置
+              const k = xEdge ? j : i
+              const snapped = (xEdge ? fine.z : fine.x) + Math.floor(k * 0.5) * 2 * (fine.size / n)
+              const lo = xEdge ? coarse.z : coarse.x
+              const ci = Math.round((snapped - lo) / wc)
+              if (ci < 0 || ci > n) continue
+              const perp = side === '-x' || side === '-z' ? n : 0
+              const c = xEdge ? oceanVertex(coarse, perp, ci, camera) : oceanVertex(coarse, ci, perp, camera)
+              const v = oceanVertex(fine, i, j, camera)
+              checked++
+              const where = `${JSON.stringify(camera)} ${fine.size} m の ${side} (${i}, ${j})`
+              expect(v.x, where).toBeCloseTo(c.x, 9)
+              expect(v.z, where).toBeCloseTo(c.z, 9)
+              expect(v.cell, where).toBeCloseTo(c.cell, 9)
+            }
           }
         }
       }
     }
-    expect(checked).toBeGreaterThan(0)
+    expect(checked).toBeGreaterThan(1000)
   })
 
   it('同じ深さの隣どうしは辺の上で同じ寄せ量', () => {
@@ -449,8 +474,11 @@ describe('寄せの基準位置', () => {
 
   it('明示したカメラの uniform からの距離で寄せ量を決めている', () => {
     expect(body).toContain('const cam = lighting.camera')
-    // 親の格子へ寄せる本体。消すと T 字の裂け目が出る
-    expect(body).toContain('mix(g, parent, morph)')
+    // 親の格子（偶数番）へ寄せる本体。消すと T 字の裂け目が出る
+    expect(body).toContain('floor(ij.mul(0.5)).mul(2).sub(ij).mul(m)')
+    // 1 段粗い隣と接する辺は隣の頂点として置く（段 S4d、`oceanVertex` と同じ式）。消すと割れ目から空が見える
+    expect(body).toContain('floor(a.mul(0.25)).mul(4).sub(a).mul(mc)')
+    expect(body).toContain('morphAt(...at(a), 2)')
   })
 
   it('コメントを外す処理が本文を消していない', () => {
@@ -496,3 +524,44 @@ describe('くり返す模様を薄める重み', () => {
     )
   })
 })
+
+/** 継ぎ目の検査に足すカメラ。低空から高空まで、根の格子の上も含めて散らす */
+const STITCH_CAMERAS: OceanCamera[] = Array.from({ length: 40 }, (_, k) => ({
+  x: ((k * 37.3) % 900) - 450,
+  y: [2.5, 20, 109, 300, 800][k % 5]!,
+  z: ((k * 91.7) % 700) - 350,
+}))
+
+type Side = '-x' | '+x' | '-z' | '+z'
+const SIDES: readonly [number, Side][] = [
+  [OCEAN_EDGE_MINUS_X, '-x'],
+  [OCEAN_EDGE_PLUS_X, '+x'],
+  [OCEAN_EDGE_MINUS_Z, '-z'],
+  [OCEAN_EDGE_PLUS_Z, '+z'],
+]
+
+/** p の side の辺に、q が向こう側から（長さ 0 でなく）接しているか */
+function sharesSide(p: OceanPatch, q: OceanPatch, side: Side): boolean {
+  const e = 1e-9
+  if (side === '-x' || side === '+x') {
+    const edge = side === '-x' ? p.x : p.x + p.size
+    const qEdge = side === '-x' ? q.x + q.size : q.x
+    return Math.abs(edge - qEdge) < e && Math.min(p.z + p.size, q.z + q.size) - Math.max(p.z, q.z) > e
+  }
+  const edge = side === '-z' ? p.z : p.z + p.size
+  const qEdge = side === '-z' ? q.z + q.size : q.z
+  return Math.abs(edge - qEdge) < e && Math.min(p.x + p.size, q.x + q.size) - Math.max(p.x, q.x) > e
+}
+
+/** side の辺の上の格子の番号 (i, j) */
+function edgeVertices(side: Side): [number, number][] {
+  const n = OCEAN_PATCH_CELLS
+  const out: [number, number][] = []
+  for (let k = 0; k <= n; k++) {
+    if (side === '-x') out.push([0, k])
+    else if (side === '+x') out.push([n, k])
+    else if (side === '-z') out.push([k, 0])
+    else out.push([k, n])
+  }
+  return out
+}

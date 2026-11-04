@@ -322,11 +322,12 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     materialDetail: 'none',
     canopyClearcoat: true,
     vaporCone: true,
-    lodDistanceScale: 0.75,
+    // 段 S5 で 0.75 → 0.5、カスケード 4 → 3（high に合わせる。ユーザーの決定、2026-11-04）
+    lodDistanceScale: 0.5,
     aircraftShadowMapSize: 512,
     shadowFilter: 'basic',
     skyEnvironment: true,
-    oceanCascades: 4,
+    oceanCascades: 3,
     oceanFftSize: 128,
     oceanLodLevels: 10,
     oceanFoamLevels: 1,
@@ -359,12 +360,15 @@ export const QUALITY_PRESETS: Readonly<Record<PresetName, QualitySettings>> = {
     canopyClearcoat: true,
     vaporCone: true,
     // 段 S4b で 1 → 0.75（ユーザーの決定、2026-10-30）。低空の構図で全体が予算 13.0 ms を越えた。
-    // 実機 low-pass で場面のパスが約 0.4 ms 軽くなり、絵の差は目では分からなかった
-    lodDistanceScale: 0.75,
+    // 実機 low-pass で場面のパスが約 0.4 ms 軽くなり、絵の差は目では分からなかった。
+    // 段 S5 で 0.75 → 0.5、カスケード 4 → 3（ユーザーの決定、2026-11-04）。段 S4d の割れ目の直しで
+    // 近くのパッチが本来の細かさになり、GPU が 1 コマ約 13 ms を越えて low-pass でコマが落ちた。
+    // 実機で level・low-pass が 0.4〜0.8 ms 軽くなり、朝の海の遠くの波が 6.8% の画素で変わる
+    lodDistanceScale: 0.5,
     aircraftShadowMapSize: 1024,
     shadowFilter: 'pcf',
     skyEnvironment: true,
-    oceanCascades: 4,
+    oceanCascades: 3,
     oceanFftSize: 256,
     oceanLodLevels: 12,
     // 段 S4b で 2 → 1（同じ決定）。実機 low-pass で約 0.8 ms 減。近くの泡と喫水線の泡は残る

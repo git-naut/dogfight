@@ -62,12 +62,13 @@ describe('品質プリセットの表', () => {
 
   it('LOD の切り替え距離の倍率が段ごとに下がらない', () => {
     // 段 S4b まで「段ごとに上がる」だった。high を予算のために medium と同じ 0.75 へ下げた
-    // （ユーザーの決定、2026-10-30）ので、等しいことを許す
+    // （ユーザーの決定、2026-10-30）ので、等しいことを許す。段 S5 で medium と high を 0.5 へ
+    // （ユーザーの決定、2026-11-04）
     const values = PRESET_ORDER.map((n) => QUALITY_PRESETS[n].lodDistanceScale)
     for (let i = 1; i < values.length; i++) {
       expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!)
     }
-    expect(values).toEqual([0.5, 0.75, 0.75, 1.15])
+    expect(values).toEqual([0.5, 0.5, 0.5, 1.15])
   })
 
   it('low だけ SMAA を切っている', () => {
@@ -108,7 +109,8 @@ describe('品質プリセットの表', () => {
   })
 
   it('海の 4 列は段ごとに減らない（段 S4a、CP2 の決定の値）', () => {
-    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanCascades)).toEqual([3, 4, 4, 6])
+    // カスケードは段 S5 で medium と high を 4 → 3（ユーザーの決定、2026-11-04）
+    expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanCascades)).toEqual([3, 3, 3, 6])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFftSize)).toEqual([128, 128, 256, 256])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanLodLevels)).toEqual([8, 10, 12, 13])
     expect(PRESET_ORDER.map((n) => QUALITY_PRESETS[n].oceanFoamLevels)).toEqual([0, 1, 1, 2])

@@ -34,6 +34,43 @@ export interface PassStats {
   readonly groups: readonly GroupStats[]
 }
 
+/** フックの `cpuFrameHistory` の 1 要素（`src/render/cpuFrames.ts` の `CpuFrame` と同じ形） */
+export interface CpuFrame {
+  readonly frame: number
+  readonly at: number
+  readonly simMs: number
+  readonly syncMs: number
+  readonly renderMs: number
+  readonly hudMs: number
+}
+
+export interface FrameOutliers {
+  readonly gpu: {
+    /** 合計が 1 フレームの長さを越えたコマの数 */
+    readonly over: number
+    readonly worst: readonly { readonly frame: number; readonly totalMs: number; readonly groups: readonly { readonly group: string; readonly ms: number }[] }[]
+  }
+  /** CPU の記録が無い版では null */
+  readonly cpu: {
+    readonly intervals: number
+    /** rAF の間隔が 1.5 フレームを越えた数 */
+    readonly dropped: number
+    readonly worst: readonly {
+      readonly frame: number
+      readonly intervalMs: number
+      readonly simMs: number
+      readonly syncMs: number
+      readonly renderMs: number
+      readonly hudMs: number
+      readonly gpuMs: number | null
+    }[]
+  } | null
+}
+
+export const FRAME_BUDGET_MS: number
+export const DROPPED_INTERVAL_MS: number
+export const READ_GAP_MS: number
+export function frameOutliers(frames: readonly PassFrame[], cpuFrames: readonly CpuFrame[], limit?: number): FrameOutliers
 export function quantile(values: readonly number[], q: number): number | null
 export function collectFrames(seen: Map<number, PassFrame>, history: readonly PassFrame[]): number
 export function groupSums(frame: PassFrame): Map<string, number>

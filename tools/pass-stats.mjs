@@ -91,3 +91,66 @@ export function passStats(frames) {
     groups,
   }
 }
+
+/** 60 fps の 1 フレームの長さ ms */
+export const FRAME_BUDGET_MS = 1000 / 60
+/** rAF の間隔がこれを越えたら 1 フレーム落ちたとみなす（60 fps の 1.5 倍） */
+export const DROPPED_INTERVAL_MS = FRAME_BUDGET_MS * 1.5
+/** rAF の間隔がこれを越えたら、間の記録が読み出しで抜けたとみなす ms */
+export const READ_GAP_MS = 1000
+
+/**
+ * 跳ねたコマ（段 S5）。中央値と 95% だけでは、最大のコマと fps の落ちの正体が見えない。
+ *
+ * - GPU: 合計が 1 フレームの長さを越えたコマの数と、重い順に `limit` 個の群の内訳
+ * - CPU: rAF の間隔（`cpuFrameHistory` の隣どうしの差）が 1.5 倍を越えたコマの数と、
+ *   長い順に `limit` 個。そのコマの CPU の内訳と、同じ番号の GPU の合計を添える
+ *
+ * CPU の記録が無い版（段 S0e より前）では `cpu` を null にする
+ * @param {readonly import('./pass-stats.d.mts').PassFrame[]} frames
+ * @param {readonly import('./pass-stats.d.mts').CpuFrame[]} cpuFrames
+ * @param {number} [limit]
+ * @returns {import('./pass-stats.d.mts').FrameOutliers}
+ */
+export function frameOutliers(frames, cpuFrames, limit = 8) {
+  const top = (sums) =>
+    [...sums]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([group, ms]) => ({ group, ms }))
+  const worst = [...frames]
+    .sort((a, b) => b.totalMs - a.totalMs)
+    .slice(0, limit)
+    .map((f) => ({ frame: f.frame, totalMs: f.totalMs, groups: top(groupSums(f)) }))
+  const gpu = { over: frames.filter((f) => f.totalMs > FRAME_BUDGET_MS).length, worst }
+  if (cpuFrames.length < 2) return { gpu, cpu: null }
+
+  const byFrame = new Map(frames.map((f) => [f.frame, f.totalMs]))
+  const sorted = [...cpuFrames].sort((a, b) => a.frame - b.frame)
+  const intervals = []
+  for (let i = 1; i < sorted.length; i++) {
+    const c = sorted[i]
+    const intervalMs = c.at - sorted[i - 1].at
+    // **番号は 1 ずつ進むとは限らない。**段 S5 の実機で、番号の連続を条件にしたら間隔が
+    // 1 つも取れなかった（three の `info.frame` が 1 回の rAF で複数進むと見ている。推測）。
+    // 1 秒を越える間隔は読み出しの抜けとみなし、作らない
+    if (intervalMs > READ_GAP_MS) continue
+    intervals.push({
+      frame: c.frame,
+      intervalMs,
+      simMs: c.simMs,
+      syncMs: c.syncMs,
+      renderMs: c.renderMs,
+      hudMs: c.hudMs,
+      gpuMs: byFrame.get(c.frame) ?? null,
+    })
+  }
+  return {
+    gpu,
+    cpu: {
+      intervals: intervals.length,
+      dropped: intervals.filter((x) => x.intervalMs > DROPPED_INTERVAL_MS).length,
+      worst: intervals.sort((a, b) => b.intervalMs - a.intervalMs).slice(0, limit),
+    },
+  }
+}

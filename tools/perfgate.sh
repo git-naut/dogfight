@@ -30,6 +30,11 @@ fi
 
 ROUNDS=${ROUNDS:-4}
 TRIES=${TRIES:-12}
+# 採る回の門（段 S5 で厳しくした）。終わりの 1 分平均と、計測の最中に 2 秒おきに採った
+# 1 分平均の最大。2026-11-04 に別の作業が計測の途中から負荷を 9.88 まで上げ、終わりの
+# 1 分平均 < 2 の門では、全体が膨らんだ回（fps 32、95% 23.6 ms）を採っていた
+AFTER_MAX=${AFTER_MAX:-1}
+PEAK_MAX=${PEAK_MAX:-1.5}
 WIN=/mnt/c/Windows/Temp/dg-pw
 DEST=${DEST:-$HOME/.claude/plans/dogfight-ocean-ref/measure}
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -71,20 +76,35 @@ while :; do
     progressed=1
     printf '%s\n' "${urls[i]}" > "$WIN/cases.txt"
     before=$(cut -d' ' -f1-3 /proc/loadavg)
+    peakfile=$(mktemp)
+    echo 0 > "$peakfile"
+    (
+      m=0
+      while :; do
+        read -r l _ < /proc/loadavg
+        if awk "BEGIN{exit !($l > $m)}"; then m=$l; echo "$m" > "$peakfile"; fi
+        sleep 2
+      done
+    ) &
+    sampler=$!
     # **値は `set K=V&&` の形で渡す（`&&` の前に空白を置かない）。**WSL から渡すと
     # `set "K=V"` は引用符ごと崩れ、`WSLENV` も届かず、node には何も渡らなかった
     # （2026-10-25 に node で 3 通りを試して確かめた）。空白を置くと値の末尾に入る
     timeout 300 cmd.exe /c "cd /d C:\\Windows\\Temp\\dg-pw && set LABEL=${labels[i]}&& set OUT=$OUT_NAME&& set SECONDS=${MEASURE_SECONDS:-20}&& set VIEW_W=${VIEW_W:-1600}&& set VIEW_H=${VIEW_H:-789}&& set DPR=${DPR:-1.5}&& set WARMUP=${WARMUP:-3}&& node $TOOL" 2>&1 | grep -v '^\s*$' | tee -a "$LOG"
     after=$(cut -d' ' -f1-3 /proc/loadavg)
+    kill "$sampler" 2>/dev/null
+    wait "$sampler" 2>/dev/null
+    peak=$(cat "$peakfile")
+    rm -f "$peakfile"
     a1=${after%% *}
     accepted=false
-    if awk "BEGIN{exit !($a1 < 2)}"; then
+    if awk "BEGIN{exit !($a1 < $AFTER_MAX && $peak < $PEAK_MAX)}"; then
       accepted=true
       ok[i]=$((ok[i] + 1))
     fi
-    printf '{"gate":{"label":"%s","try":%d,"before":"%s","after":"%s","accepted":%s}}\n' \
-      "${labels[i]}" "${tries[i]}" "$before" "$after" "$accepted" >> "$WIN/$OUT_NAME"
-    echo "--- ${labels[i]} 試行 ${tries[i]} $(date +%T) 前 $before 後 $after 採用 $accepted" | tee -a "$LOG"
+    printf '{"gate":{"label":"%s","try":%d,"before":"%s","after":"%s","peak":%s,"accepted":%s}}\n' \
+      "${labels[i]}" "${tries[i]}" "$before" "$after" "$peak" "$accepted" >> "$WIN/$OUT_NAME"
+    echo "--- ${labels[i]} 試行 ${tries[i]} $(date +%T) 前 $before 後 $after 最中の最大 $peak 採用 $accepted" | tee -a "$LOG"
   done
   [ "$progressed" -eq 0 ] && break
 done

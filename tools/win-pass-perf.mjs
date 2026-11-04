@@ -16,7 +16,7 @@
 // 既定 pass-perf.jsonl）、LABEL（記録に付ける名前）。
 import { chromium } from 'playwright-core'
 import { appendFileSync, readFileSync } from 'node:fs'
-import { collectFrames, passStats } from './pass-stats.mjs'
+import { collectFrames, frameOutliers, passStats } from './pass-stats.mjs'
 
 const urls = readFileSync('cases.txt', 'utf8')
   .split('\n')
@@ -93,6 +93,8 @@ try {
           supported: h.gpuTimerSupported === true,
           mismatches: h.gpuPassMismatches,
           history: h.gpuPassHistory.filter((f) => f.frame > since),
+          // 段 S0e より前の版には無い
+          cpu: (h.cpuFrameHistory ?? []).filter((f) => f.frame > since),
           fps: document.querySelector('.debug-panel')
             ? ([...document.querySelectorAll('.debug-panel .debug-row')]
                 .find((r) => r.querySelector('.debug-label')?.textContent?.trim() === 'FPS')
@@ -107,6 +109,7 @@ try {
     console.log(`  窓 ${VIEW_W}x${VIEW_H} DPR ${DPR}  ${SECONDS} 秒（始めの ${WARMUP} 秒は捨てる）`)
 
     const seen = new Map()
+    const cpuSeen = new Map()
     const presets = [first.preset]
     let last = first
     const end = Date.now() + SECONDS * 1000
@@ -115,6 +118,7 @@ try {
       await page.waitForTimeout(500)
       last = await read()
       for (const f of last.history) newest = Math.max(newest, f.frame)
+      // CPU の記録は描いた時点で入り、GPU の時刻は数フレーム遅れて解ける。番号は GPU の側に合わせる
       if (last.preset !== presets[presets.length - 1]) presets.push(last.preset)
       if (Date.now() < warmEnd) {
         // 捨てる区間のフレームも番号だけ控え、あとで重ねて数えないようにする
@@ -122,9 +126,18 @@ try {
         continue
       }
       collectFrames(seen, last.history)
+      for (const c of last.cpu) if (!cpuSeen.has(c.frame)) cpuSeen.set(c.frame, c)
     }
     const frames = [...seen.values()].filter((f) => f !== null)
     const stats = passStats(frames)
+    // 捨てる区間の CPU の記録は落とす（GPU の側で残したフレームの範囲に限る）
+    const kept = new Set(frames.map((f) => f.frame))
+    const lo = Math.min(...kept)
+    const hi = Math.max(...kept)
+    const outliers = frameOutliers(
+      frames,
+      [...cpuSeen.values()].filter((c) => c.frame >= lo && c.frame <= hi),
+    )
 
     console.log(
       `  フレーム ${stats.frames}  控えなし ${stats.unlabeled}  食い違い ${last.mismatches}` +
@@ -140,6 +153,20 @@ try {
         `  ${g.group.padEnd(10)}  ${(g.share * 100).toFixed(0).padStart(5)}%` +
           `  ${fmt(g.median).padStart(7)}  ${fmt(g.p95).padStart(7)}  ${fmt(g.max).padStart(7)}` +
           `  ${fmt(g.meanPerFrame).padStart(7)}`,
+      )
+    }
+    const w = outliers.gpu.worst[0]
+    console.log(
+      `  GPU が ${fmt(16.67)} ms を越えたコマ ${outliers.gpu.over}` +
+        (w ? `（最も重い ${fmt(w.totalMs)}: ${w.groups.map((g) => `${g.group} ${fmt(g.ms)}`).join('・')}）` : ''),
+    )
+    if (outliers.cpu !== null) {
+      const c = outliers.cpu.worst[0]
+      console.log(
+        `  落ちたコマ（間隔 > 25 ms）${outliers.cpu.dropped} / ${outliers.cpu.intervals}` +
+          (c
+            ? `（最長 ${fmt(c.intervalMs)} ms: sim ${fmt(c.simMs)}・sync ${fmt(c.syncMs)}・投入 ${fmt(c.renderMs)}・HUD ${fmt(c.hudMs)}・GPU ${c.gpuMs === null ? '?' : fmt(c.gpuMs)}）`
+            : ''),
       )
     }
     if (errors.length > 0) console.log(`  例外 ${errors.length} 件: ${errors[0]}`)
@@ -160,6 +187,7 @@ try {
         mismatches: last.mismatches,
         errors,
         stats,
+        outliers,
       }) + '\n',
     )
     await page.close()

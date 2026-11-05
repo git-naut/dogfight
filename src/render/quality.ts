@@ -155,7 +155,10 @@ export interface QualitySettings {
    * 波）、細かい波の作りが粗くなる。実機の計算の所要は `docs/measuring.md` の「段 S3」
    */
   oceanCascades: number
-  /** FFT の海の 1 カスケードの格子の一辺（2 のべき）。128 で最も細かい波は 12 cm まで */
+  /**
+   * FFT の海の 1 カスケードの格子の一辺（2 のべき）。最も細かい波の長さはカスケードの帯と格子で決まる
+   * （`docs/ocean.md` の「品質ごとのカスケードと格子」）
+   */
   oceanFftSize: number
   /**
    * 海面の CDLOD の段数。最も細かい段の一辺が 0.5 m で、段ごとに 2 倍。カメラを中心に敷く

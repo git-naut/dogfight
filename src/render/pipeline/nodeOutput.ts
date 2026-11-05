@@ -190,7 +190,7 @@ export interface NodeOutputInput {
   /** `three/examples/jsm/tsl/display/SMAANode.js` の `smaa` */
   smaa: (node: Node) => Node
   scenePass: ScenePassLike
-  /** 雲の色。`CloudsNodePass.node` */
+  /** 層の雲の色（`sky/cloudLayerNodes.ts` の `cloudLayerTexture`、前乗算） */
   cloudNode: Node<'vec4'>
   /**
    * 霞と雲の後ろに重ねる物（`createOverlayPass` の出力）。rgb は前乗算、a は覆う割合。

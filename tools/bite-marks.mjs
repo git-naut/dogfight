@@ -2464,4 +2464,15 @@ export const BITE_MARKS = [
     expect: 'tests/render/cloudShadowFootprint.test.ts',
     why: '影を画素の幅 0 で引くと、遠くで細かい段のノイズが規則正しい模様になり、海の網目を強める',
   },
+  {
+    // 段 S7 の点検で足した。照度の表は書き出した生成物で、行が欠けても型は通る
+    id: 'sky-irradiance-table-row',
+    kind: '表の行の削除',
+    file: 'src/render/sky/irradianceTable.ts',
+    // 最上段（高さ 60 km）の行。64 画素 × RGB の 192 個がすべて 0
+    find: '  ' + '0, '.repeat(191) + '0,\n',
+    replace: '',
+    expect: 'tests/render/skyIrradiance.test.ts',
+    why: '照度の表の行が欠けると、高さで引く行がずれて機体と海の天空光が別の高さの値になる',
+  },
 ]

@@ -66,7 +66,7 @@ import {
 } from './skyNodes'
 
 /**
- * 自前の空（段 S2a〜S2b、`?sky=hillaire` の隠しの口）。
+ * 自前の空（段 S2a〜S2b。段 S2b-2 で takram を外して既定にした）。
  *
  * 透過率と多重散乱の LUT は太陽の向きにもカメラにも依らないので、起動時に 1 回だけ
  * 焼く。天空の照度の表も同じ理由で数表を同梱する（`irradianceTable.ts`）。空の見え方と

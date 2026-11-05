@@ -99,7 +99,7 @@ describe('自前の空の光の強さ', () => {
     const elevationDeg = (Math.asin(truth.sunMu) * 180) / Math.PI
     const tolerance = elevationDeg >= SKY_BAND_DEG ? SKY_TOLERANCE_HIGH : SKY_TOLERANCE_LOW
     it(`${truth.hour} 時の天空光を同梱の表（段 S2b）から引いても正解と ${tolerance * 100}% 以内`, () => {
-      // 場面が実際に使うのは表の値。表の刻み（16 × 32）と補間の誤差を足しても帯の内に入るか
+      // 場面が実際に使うのは表の値。表の刻み（64 × 16 画素、1 画素の積分は 32 × 64）と補間の誤差を足しても帯の内に入るか
       const got = sampleIrradiance(irradianceTable, truth.sunMu, 0)
       for (let c = 0; c < 3; c++) {
         const ratio = got[c]! / truth.value[c]!
